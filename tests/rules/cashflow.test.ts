@@ -144,7 +144,8 @@ describe('סגירת יום ועוגן — SPEC §3.6', () => {
   })
 
   it('מקדמה צפויה = ממוצע 3 חודשים אחרונים', () => {
-    expect(averageRecentAdvances(advances, '2026-10')).toBe(19_000)
+    // (25,100 + 41,550 + 19,900) / 3 — מהקובץ האמיתי
+    expect(averageRecentAdvances(advances, '2026-10')).toBe(28_850)
   })
 
   it('אין היסטוריית מקדמות → 0, לא חלוקה באפס', () => {

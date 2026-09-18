@@ -51,9 +51,10 @@ out.push(`insert into entities (id, name, type) values
 out.push(`insert into accounts (id, entity_id, type, name, default_division) values
   ('${hashToUuid('acc-bank')}', '${hashToUuid('ent-harel')}', 'bank', 'עו״ש', 'finance');`)
 
-const categories = new Set(['cat-general', 'cat-fixed'])
+// הקטגוריות נגזרות מהפיקסצ'ר עצמו (מזהים בצורת "cat:<שם>")
+const categories = new Set([...transactions.map((t) => t.categoryId), ...fixedExpenses.map((f) => f.categoryId)].filter(Boolean))
 for (const c of categories) {
-  out.push(`insert into categories (id, name, kind) values (${uuid('', c)}, ${q(c)}, 'fixed');`)
+  out.push(`insert into categories (id, name, kind) values (${uuid('', c)}, ${q(String(c).replace(/^cat:/, ''))}, 'fixed');`)
 }
 
 for (const f of fixedExpenses) {
@@ -75,12 +76,6 @@ for (const d of deals) {
       ${q(d.stage)}, ${q(d.collectionStatus)}, ${num(d.feeAgreedNet)}, ${q(d.feeMode)},
       ${q(d.monthAttributed)}, ${q(d.status)}, ${q(d.signedAt)});`)
 }
-// תיק הנדל"ן שמופיע בתנועות אבל לא ברשימת התיקים של המימון
-out.push(`insert into deals (id, client_name, division, product, stage, collection_status,
-    fee_agreed_net, fee_mode, month_attributed, status)
-  values (${uuid('', 'deal-re-1')}, 'יזם נדל״ן', 'realestate', 'presale', 're_closed',
-    'fully_paid', 40000, 'fixed', '2026-07', 'won');`)
-
 // שותף לתנועות draw
 out.push(`insert into partners (id, name, division, share_pct, pay_method)
   values ('${hashToUuid('partner-dan')}', 'דן', 'finance', 0.5, 'invoice');`)

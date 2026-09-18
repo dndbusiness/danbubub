@@ -7,7 +7,7 @@
 #   ./scripts/dev-db.sh reset    # מוחק ומתחיל מחדש
 #   ./scripts/dev-db.sh psql     # מעטפת psql
 #
-# ה-seed הוא הפיקסצ'ר המשוחזר (tests/fixtures) — לא נתונים אמיתיים (SPEC §11.11).
+# מטעין קונפיגורציה בלבד (db/seed). נתונים — דרך import-workbook.mjs.
 # מדפיס את DATABASE_URL לשימוש ב-.env.local.
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -53,11 +53,9 @@ apply() {
 echo "→ סכימה ו-views"
 for f in "$ROOT"/db/schema/*.sql "$ROOT"/db/views/*.sql "$ROOT"/db/seed/*.sql; do apply "$f"; done
 
-if [[ -z "$(psqlc -d harel -tAc 'select 1 from deals limit 1')" ]]; then
-  echo "→ seed (פיקסצ'ר משוחזר)"
-  node --experimental-strip-types "$ROOT/scripts/fixture-to-sql.mjs" > "$DIR/seed.sql"
-  psqlc -d harel -v ON_ERROR_STOP=1 -q -f "$DIR/seed.sql" >/dev/null
-fi
+# נתונים אמיתיים נכנסים רק דרך הייבוא (SPEC §11.11):
+#   node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx>
+# הפיקסצ'ר המשוחזר נשאר לבדיקות בלבד (verify-db.sh).
 
 echo
 echo "DATABASE_URL=$URL"

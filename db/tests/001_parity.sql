@@ -16,25 +16,37 @@ declare
   r record;
   expected numeric;
 begin
-  -- SPEC §8: יולי −28,262 · אוגוסט 105,882 · ספטמבר 22,447
+  -- SPEC §8 על הקובץ האמיתי: יולי −28,262 · אוגוסט 105,882 (זהים לקובץ).
+  -- ספטמבר: הקובץ מציג 22,447 אבל השמיט 17,460 תקבולים ללא חודש (ליקוי #2)
+  -- ו-1,585 הוצאות ישירות שלהם; המערכת סופרת אותם → 38,322. ההפרש 15,875
+  -- הוא הכרעה עסקית של דן וניסים, לא באג.
   for r in select month, line4_distributable_profit as profit, line7_closing_balance as balance
            from v_nissim_card order by month
   loop
     expected := case r.month
       when '2026-07' then -28262
       when '2026-08' then 105882
-      when '2026-09' then 22447
+      when '2026-09' then 22447 + 17460 - 1585
     end;
     assert r.profit = expected,
       format('%s: רווח לחלוקה %s ≠ יעד %s', r.month, r.profit, expected);
     raise notice '✓ % רווח לחלוקה = %', r.month, r.profit;
   end loop;
 
-  -- SPEC §8: יתרת ניסים 36,517
+  -- יתרת ניסים: 36,516.5 בקובץ − מחצית ההפרש = 28,579
   select line7_closing_balance into expected
   from v_nissim_card where month = '2026-09';
-  assert expected = 36517, format('יתרת ספטמבר %s ≠ 36,517', expected);
-  raise notice '✓ יתרת ניסים סוף ספטמבר = %', expected;
+  assert expected = 36516.5 - (17460 - 1585) / 2.0, format('יתרת ספטמבר %s ≠ 28,579', expected);
+  raise notice '✓ יתרת ניסים סוף ספטמבר = % (קובץ: 36,516.5 לפני התקבולים שהושמטו)', expected;
+
+  -- 3 התקבולים שהקובץ השמיט מסומנים לשאלה
+  declare flagged numeric; n int;
+  begin
+    select count(*), coalesce(sum(amount_net), 0) into n, flagged
+    from transactions where nature = 'income' and review_status = 'ask_nissim' and deleted_at is null;
+    assert n = 3 and flagged = 17460, format('תקבולים ללא חודש: %s שורות, %s ₪', n, flagged);
+    raise notice '✓ ליקוי #2: 3 תקבולים (17,460) שהקובץ השמיט — מסומנים "לשאול את ניסים"';
+  end;
 
   -- v_pnl distributable חייב להתלכד עם שורה 4 בכרטיס
   for r in
@@ -50,10 +62,10 @@ begin
   -- SPEC §1.2 — חלוקת shared לא מאבדת ולא מכפילה
   declare shared_total numeric; allocated_total numeric;
   begin
-    select abs(sum(t.amount_net)) into shared_total
+    select coalesce(abs(sum(t.amount_net)), 0) into shared_total
     from transactions t where t.division = 'shared' and t.deleted_at is null;
 
-    select abs(sum(a.amount_net)) into allocated_total
+    select coalesce(abs(sum(a.amount_net)), 0) into allocated_total
     from v_tx_allocated a
     join transactions t on t.id = a.tx_id
     where t.division = 'shared';
@@ -74,17 +86,14 @@ begin
     raise notice '✓ §2.1 private לא דולף לדוחות עסקיים';
   end;
 
-  -- SPEC §3.4 — התקבול השני נספר בספטמבר ולא ביולי
-  declare sep_from_july numeric;
+  -- ליקוי #1: הוצאות ישירות יולי 4,862 הוקלדו ידנית — מיובאות כשורה מסומנת, הרווח תואם לקובץ
+  declare gap numeric;
   begin
-    select sum(c.amount_net) into sep_from_july
-    from v_tx_classified c
-    join deals d on d.id = c.deal_id
-    where c.month_cash = '2026-09' and c.nature = 'income'
-      and d.month_attributed = '2026-07';
-    assert sep_from_july = 38000,
-      format('§3.4 תקבול שני: % ≠ 38,000', sep_from_july);
-    raise notice '✓ §3.4 תקבול שני נספר בחודש שנכנס (ליקוי #3)';
+    -- בייבוא האמיתי source_ref='…:direct-gap'; בפיקסצ'ר מזהים לפי התיאור
+    select coalesce(abs(sum(amount_net)), 0) into gap from transactions
+    where (source_ref like '%direct-gap' or description like '%הוקלד ידנית%') and deleted_at is null;
+    assert gap = 4862, format('פער ידני יולי %s ≠ 4,862', gap);
+    raise notice '✓ ליקוי #1: 4,862 שהוקלדו ידנית בקובץ — שורה מסומנת, לא מספר נעלם';
   end;
 
   raise notice '';

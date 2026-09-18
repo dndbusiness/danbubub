@@ -1,239 +1,168 @@
 /**
- * פיקסצ'ר כרטיס ניסים — יולי/אוגוסט/ספטמבר 2026.
+ * פיקסצ'ר כרטיס ניסים — יולי/אוגוסט/ספטמבר 2026 — **מהקובץ האמיתי**.
  *
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │ מקור המספרים והמגבלה שלו — לקרוא לפני שמסתמכים על הקובץ הזה             │
- * ├─────────────────────────────────────────────────────────────────────────┤
- * │ *יעדי* החישוב לקוחים מ-SPEC §8:                                          │
- * │   יולי −28,262 · אוגוסט 105,882 · ספטמבר 22,447 (רווח לחלוקה)           │
- * │   יתרת ניסים בסוף ספטמבר: 36,517                                         │
- * │                                                                          │
- * │ *הפירוט* שמוביל אליהם (שורות ההכנסה וההוצאה, גובה המקדמות, יתרת          │
- * │ הפתיחה) הוא **שחזור** — הקובץ "הר-אל פתרונות מימון 2026" לא היה זמין     │
- * │ בעת כתיבת הבדיקה. הפירוט נבנה כך שיפיק בדיוק את ארבעת היעדים, וכך        │
- * │ שיעבור דרך כל הענפים של §3.3 (shared×split, לא-מוכרת, קבועה לא           │
- * │ מאושרת, advance/draw, תקבול שני בחודש אחר).                              │
- * │                                                                          │
- * │ מה זה מוכיח: שהנוסחאות של §3.3 + §3.4 מחזירות את המספרים הנכונים         │
- * │ בהינתן שורות נכונות, ושרעש (משיכות, פרטי, נדל"ן) לא דולף פנימה.          │
- * │ מה זה **לא** מוכיח: שהשורות עצמן תואמות לקובץ האמיתי.                    │
- * │                                                                          │
- * │ TODO(שלב 0/2): להחליף את הגוף הזה בייצוא אמיתי מהקובץ הקיים.             │
- * │ עד אז קריטריון הסיום של שלב 1 נחשב "עובר על שחזור", לא "עובר על          │
- * │ הנתונים האמיתיים". ראו docs/OPEN_QUESTIONS.md.                           │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * נוצר אוטומטית ע"י scripts/fixture-from-workbook.mjs מתוך
+ * tests/fixtures/workbook/harel-finance-2026.masked.xlsx (הקובץ
+ * "הר-אל-פתרונות-מימון-עסקי-דשבורד-ניסים-2026" כפי שיוצא מ-Google Sheets
+ * ב-2026-09-18, עם שמות מוסווים; סכומים וחודשים כפי שהם).
+ * אין לערוך ידנית — להריץ מחדש את הסקריפט.
+ *
+ * SPEC §8: "3 חודשי כרטיס ניסים מהקובץ הקיים — התוצאות חייבות להשתוות לשקל".
+ * מה שהקובץ עצמו מציג: יולי −28,262 · אוגוסט 105,882 · ספטמבר 22,447 · יתרה 36,516.5.
+ *
+ * שני דברים שהקובץ עושה ואנחנו מציפים:
+ *   • שלושה תקבולים (17,460 ₪) ללא חודש — הקובץ לא סופר אותם (ליקוי #2).
+ *     כאן הם מתוארכים ליום הייבוא ומסומנים ask_nissim.
+ *   • הוצאות ישירות יולי 4,862 — מספר שהוקלד ידנית, בלי שורות (ליקוי #1).
+ *     כאן הוא הוצאה בלי תיק, מסומנת ask_nissim; נכנס לשורה 2 ולא 3.
  */
 
-import type {
-  Advance,
-  Deal,
-  DivisionSplit,
-  FixedExpense,
-  Transaction,
-} from '@/lib/rules/types.js'
+import type { Advance, Deal, DivisionSplit, FixedExpense, Transaction } from '@/lib/rules/types.js'
 
-/** SPEC §8 — התוצאות חייבות להשתוות לשקל. */
-export const TARGETS = {
-  '2026-07': -28_262,
-  '2026-08': 105_882,
-  '2026-09': 22_447,
-} as const
-
-export const TARGET_CLOSING_BALANCE = 36_517
-
-/** יתרת הפתיחה שגוזרת את היעד: 29,550.50 + 57,000 מקדמות − 50,033.50 חלק ניסים. */
-export const OPENING_BALANCE = 29_550.5
-
-/** SPEC §1.2 — הדס = 80% מימון / 20% נדל"ן. */
+/** מה הקובץ מציג (כרטיס ניסים, עמודה F). */
+export const TARGETS = { '2026-07': -28_262, '2026-08': 105_882, '2026-09': 22_447 } as const
+/** יתרת ניסים בסוף ספטמבר לפי הקובץ. */
+export const TARGET_CLOSING_BALANCE = 36_516.5
+/** הקובץ מתחיל מאפס (J4 = I4 − G4). */
+export const OPENING_BALANCE = 0
+/** תקבולים שהקובץ לא ספר כי אין להם חודש — מתוארכים ליום הייבוא. */
+export const IMPORT_DATE = '2026-09-18'
+export const UNATTRIBUTED_INCOME = 17460
 export const DEFAULT_SPLIT: DivisionSplit = { finance: 0.8, realestate: 0.2 }
+export const MONTHS = ['2026-07', '2026-08', '2026-09'] as const
 
 const VAT = 0.18
-
-let seq = 0
-const nextId = (prefix: string) => `${prefix}-${String(++seq).padStart(3, '0')}`
-
-interface TxSeed {
-  date: string
-  amount: number
-  nature: Transaction['nature']
-  division?: Transaction['division']
-  split?: DivisionSplit
-  dealId?: string
-  fixedExpenseId?: string
-  deductible?: boolean
-  description: string
-  categoryId?: string
-  parentId?: string
-  reviewStatus?: Transaction['reviewStatus']
-}
-
-function tx(seed: TxSeed): Transaction {
-  const net = seed.amount
-  const vatAmount = Math.round(net * VAT * 100) / 100
-  return {
-    id: nextId('tx'),
-    dateCash: seed.date,
-    accountId: 'acc-bank',
-    amountNet: net,
-    vatMode: 'excl',
-    vatRate: VAT,
-    vatAmount,
-    amountGross: Math.round((net + vatAmount) * 100) / 100,
-    nature: seed.nature,
-    division: seed.division ?? 'finance',
-    divisionSplit: seed.split,
-    categoryId: seed.categoryId ?? 'cat-general',
-    txClass: 'business',
-    deductible: seed.deductible ?? (seed.nature === 'expense' ? true : undefined),
-    fixedExpenseId: seed.fixedExpenseId,
-    dealId: seed.dealId,
-    description: seed.description,
-    certainty: 'actual',
-    parentId: seed.parentId ?? null,
-    invoiceStatus: 'has_invoice',
-    reviewStatus: seed.reviewStatus ?? 'ok',
-  }
-}
-
-// ── הוצאות קבועות ──────────────────────────────────────────────────────────
-
-export const fixedExpenses: FixedExpense[] = [
-  fixed('fx-rent', 'שכירות משרד', 'finance', 8_000, 1, true),
-  fixed('fx-salaries', 'שכר', 'finance', 30_000, 9, true),
-  fixed('fx-software', 'תוכנה ומערכות', 'shared', 5_000, 5, true),
-  fixed('fx-accountant', 'רו"ח', 'finance', 3_000, 15, true),
-  fixed('fx-hadas', 'הדס — בק אופיס', 'shared', 20_327.5, 9, true),
-  fixed('fx-misc', 'שונות מוכרות', 'finance', 1_118, 20, true),
-  // SPEC §3.2 / שאלה פתוחה #3 — לא מאושרת: נכנסת לרווח התפעולי, לא לחלוקה.
-  fixed('fx-unapproved', 'מנוי לא מאושר', 'finance', 2_500, 12, false),
-]
-
-function fixed(
-  id: string,
-  name: string,
-  division: FixedExpense['division'],
-  amountNet: number,
-  dayOfMonth: number,
-  approvedByNissim: boolean,
-): FixedExpense {
-  return {
-    id,
-    name,
-    categoryId: 'cat-fixed',
-    division,
-    divisionSplit: division === 'shared' ? DEFAULT_SPLIT : undefined,
-    amountNet,
-    vatMode: 'excl',
-    frequency: 'monthly',
-    dayOfMonth,
-    accountId: 'acc-bank',
-    variable: false,
-    approvedByNissim,
-    startDate: '2026-01-01',
-    active: true,
-  }
-}
-
-// ── תיקים ──────────────────────────────────────────────────────────────────
+const tx = (t: Omit<Transaction, 'accountId' | 'vatMode' | 'vatRate' | 'vatAmount' | 'amountGross' | 'txClass' | 'certainty' | 'invoiceStatus' | 'division'> & { division?: Transaction['division'] }): Transaction => ({
+  accountId: 'acc-bank', vatMode: 'excl', vatRate: VAT,
+  vatAmount: Math.round(t.amountNet * VAT * 100) / 100,
+  amountGross: Math.round(t.amountNet * (1 + VAT) * 100) / 100,
+  txClass: 'business', certainty: 'actual', invoiceStatus: 'unknown', division: 'finance', parentId: null,
+  ...t,
+})
 
 export const deals: Deal[] = [
-  deal('deal-jul-1', 'לקוח יולי א׳', '2026-07', 68_000, '2026-07-02'),
-  deal('deal-jul-2', 'לקוח יולי ב׳', '2026-07', 15_000, '2026-07-10'),
-  deal('deal-aug-1', 'לקוח אוגוסט א׳', '2026-08', 100_000, '2026-08-03'),
-  deal('deal-aug-2', 'לקוח אוגוסט ב׳', '2026-08', 50_000, '2026-08-11'),
-  deal('deal-aug-3', 'לקוח אוגוסט ג׳', '2026-08', 30_000, '2026-08-20'),
-  deal('deal-sep-1', 'לקוח ספטמבר א׳', '2026-09', 60_000, '2026-09-05'),
+  { id: "deal:4", clientName: "לקוח 01", division: 'finance', product: "mortgage_declined", stage: "execution" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 28342, feeMode: 'fixed', status: "open", monthAttributed: "2026-09" },
+  { id: "deal:5", clientName: "לקוח 02", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 145000, feeMode: 'fixed', status: "open" },
+  { id: "deal:6", clientName: "לקוח 03", division: 'finance', product: "mortgage_declined", stage: "prospect" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 20000, feeMode: 'fixed', status: "open" },
+  { id: "deal:7", clientName: "לקוח 04", division: 'finance', product: "mortgage_declined", stage: "appraisal" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 10000, feeMode: 'fixed', status: "open", monthAttributed: "2026-09" },
+  { id: "deal:8", clientName: "לקוח 05", division: 'finance', product: "mortgage_declined", stage: "execution" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 30000, feeMode: 'fixed', status: "open", monthAttributed: "2026-09" },
+  { id: "deal:9", clientName: "לקוח 06", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "cancelled" as Deal['collectionStatus'], feeAgreedNet: 0, feeMode: 'fixed', status: "cancelled" },
+  { id: "deal:10", clientName: "לקוח 07", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 0, feeMode: 'fixed', status: "cancelled" },
+  { id: "deal:11", clientName: "לקוח 08", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 0, feeMode: 'fixed', status: "open" },
+  { id: "deal:12", clientName: "לקוח 09", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 0, feeMode: 'fixed', status: "open" },
+  { id: "deal:13", clientName: "לקוח 10", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 0, feeMode: 'fixed', status: "cancelled" },
+  { id: "deal:14", clientName: "לקוח 11", division: 'finance', product: "mortgage_declined", stage: "execution" as Deal['stage'], collectionStatus: "partially_paid" as Deal['collectionStatus'], feeAgreedNet: 77000, feeMode: 'fixed', status: "open", monthAttributed: "2026-09" },
+  { id: "deal:15", clientName: "לקוח 12", division: 'finance', product: "mortgage_declined", stage: "completed" as Deal['stage'], collectionStatus: "fully_paid" as Deal['collectionStatus'], feeAgreedNet: 96100, feeMode: 'fixed', status: "won", monthAttributed: "2026-08" },
+  { id: "deal:16", clientName: "לקוח 13", division: 'finance', product: "mortgage_declined", stage: "completed" as Deal['stage'], collectionStatus: "fully_paid" as Deal['collectionStatus'], feeAgreedNet: 25000, feeMode: 'fixed', status: "won", monthAttributed: "2026-08" },
+  { id: "deal:17", clientName: "לקוח 14", division: 'finance', product: "business_credit", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "partially_paid" as Deal['collectionStatus'], feeAgreedNet: 24750, feeMode: 'fixed', status: "open" },
+  { id: "deal:18", clientName: "לקוח 15", division: 'finance', product: "mortgage_declined", stage: "completed" as Deal['stage'], collectionStatus: "fully_paid" as Deal['collectionStatus'], feeAgreedNet: 34700, feeMode: 'fixed', status: "won", monthAttributed: "2026-09" },
+  { id: "deal:19", clientName: "לקוח 16", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 64000, feeMode: 'fixed', status: "open" },
+  { id: "deal:20", clientName: "לקוח 17", division: 'finance', product: "mortgage_declined", stage: "approved_in_principle" as Deal['stage'], collectionStatus: "partially_paid" as Deal['collectionStatus'], feeAgreedNet: 4800, feeMode: 'fixed', status: "open", monthAttributed: "2026-08" },
+  { id: "deal:21", clientName: "לקוח 18", division: 'finance', product: "business_credit", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 32500, feeMode: 'fixed', status: "open" },
+  { id: "deal:22", clientName: "לקוח 19", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 58000, feeMode: 'fixed', status: "open" },
+  { id: "deal:23", clientName: "לקוח 20", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 77500, feeMode: 'fixed', status: "open" },
+  { id: "deal:24", clientName: "לקוח 21", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 60000, feeMode: 'fixed', status: "open" },
+  { id: "deal:25", clientName: "לקוח 22", division: 'finance', product: "business_credit", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "partially_paid" as Deal['collectionStatus'], feeAgreedNet: 10000, feeMode: 'fixed', status: "open", monthAttributed: "2026-09" },
+  { id: "deal:26", clientName: "לקוח 23", division: 'finance', product: "vehicle_lien", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "fully_paid" as Deal['collectionStatus'], feeAgreedNet: 5000, feeMode: 'fixed', status: "open" },
+  { id: "deal:27", clientName: "לקוח 24", division: 'finance', product: "mortgage_declined", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 20000, feeMode: 'fixed', status: "open" },
+  { id: "deal:28", clientName: "לקוח 25", division: 'finance', product: "business_credit", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 12000, feeMode: 'fixed', status: "open" },
+  { id: "deal:29", clientName: "לקוח 26", division: 'finance', product: "vehicle_lien", stage: "completed" as Deal['stage'], collectionStatus: "fully_paid" as Deal['collectionStatus'], feeAgreedNet: 8000, feeMode: 'fixed', status: "won" },
+  { id: "deal:30", clientName: "לקוח 27", division: 'finance', product: "other", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 50000, feeMode: 'fixed', status: "open" },
+  { id: "deal:31", clientName: "לקוח 28", division: 'finance', product: "other", stage: "signed_collecting_docs" as Deal['stage'], collectionStatus: "not_collected" as Deal['collectionStatus'], feeAgreedNet: 17000, feeMode: 'fixed', status: "open" },
 ]
 
-function deal(
-  id: string,
-  clientName: string,
-  monthAttributed: string,
-  feeAgreedNet: number,
-  signedAt: string,
-): Deal {
-  return {
-    id,
-    clientName,
-    division: 'finance',
-    product: 'business_credit',
-    stage: 'completed',
-    collectionStatus: 'fully_paid',
-    feeAgreedNet,
-    feeMode: 'fixed',
-    monthAttributed,
-    status: 'won',
-    signedAt,
-    lastActivityAt: signedAt,
-  }
-}
-
-// ── תנועות ─────────────────────────────────────────────────────────────────
+/** הוצאות מהגיליון "הוצאות" — כל קטגוריה היא "הוצאה קבועה" מאושרת, כי בקובץ אין הבחנה. */
+export const fixedExpenses: FixedExpense[] = [
+  { id: "fx-1", name: "שיווק", categoryId: "cat:שיווק", division: 'finance', amountNet: 0, vatMode: 'excl', frequency: 'monthly', dayOfMonth: 1, accountId: 'acc-bank', variable: true, approvedByNissim: true, startDate: '2026-01-01', active: true },
+  { id: "fx-2", name: "משרד", categoryId: "cat:משרד", division: 'finance', amountNet: 0, vatMode: 'excl', frequency: 'monthly', dayOfMonth: 1, accountId: 'acc-bank', variable: true, approvedByNissim: true, startDate: '2026-01-01', active: true },
+  { id: "fx-3", name: "תוכנה ומערכות", categoryId: "cat:תוכנה ומערכות", division: 'finance', amountNet: 0, vatMode: 'excl', frequency: 'monthly', dayOfMonth: 1, accountId: 'acc-bank', variable: true, approvedByNissim: true, startDate: '2026-01-01', active: true },
+  { id: "fx-4", name: "שכר", categoryId: "cat:שכר", division: 'finance', amountNet: 0, vatMode: 'excl', frequency: 'monthly', dayOfMonth: 1, accountId: 'acc-bank', variable: true, approvedByNissim: true, startDate: '2026-01-01', active: true },
+  { id: "fx-5", name: "שונות", categoryId: "cat:שונות", division: 'finance', amountNet: 0, vatMode: 'excl', frequency: 'monthly', dayOfMonth: 1, accountId: 'acc-bank', variable: true, approvedByNissim: true, startDate: '2026-01-01', active: true },
+]
 
 export const transactions: Transaction[] = [
-  // ══ יולי: 45,000 הכנסות − 61,262 קבועות − 12,000 ישירות = −28,262 ═══════
-  tx({ date: '2026-07-08', amount: 30_000, nature: 'income', dealId: 'deal-jul-1', description: 'מקדמה בחתימה' }),
-  tx({ date: '2026-07-21', amount: 15_000, nature: 'income', dealId: 'deal-jul-2', description: 'שכ"ט' }),
-
-  tx({ date: '2026-07-01', amount: -8_000, nature: 'expense', fixedExpenseId: 'fx-rent', description: 'שכירות' }),
-  tx({ date: '2026-07-09', amount: -30_000, nature: 'expense', fixedExpenseId: 'fx-salaries', description: 'שכר' }),
-  tx({ date: '2026-07-05', amount: -5_000, nature: 'expense', fixedExpenseId: 'fx-software', division: 'shared', split: DEFAULT_SPLIT, description: 'תוכנה' }),
-  tx({ date: '2026-07-15', amount: -3_000, nature: 'expense', fixedExpenseId: 'fx-accountant', description: 'רו"ח' }),
-  tx({ date: '2026-07-09', amount: -20_327.5, nature: 'expense', fixedExpenseId: 'fx-hadas', division: 'shared', split: DEFAULT_SPLIT, description: 'הדס' }),
-
-  tx({ date: '2026-07-14', amount: -7_000, nature: 'expense', dealId: 'deal-jul-1', description: 'שמאות' }),
-  tx({ date: '2026-07-18', amount: -5_000, nature: 'expense', dealId: 'deal-jul-2', description: 'עו"ד' }),
-
-  // רעש שאסור שייכנס לשורות 1–3:
-  tx({ date: '2026-07-12', amount: -2_500, nature: 'expense', fixedExpenseId: 'fx-unapproved', description: 'מנוי לא מאושר' }),
-  tx({ date: '2026-07-22', amount: -1_500, nature: 'expense', deductible: false, description: 'קנס חניה — לא מוכרת' }),
-  tx({ date: '2026-07-19', amount: -19_000, nature: 'advance', description: 'מקדמה לניסים' }),
-  tx({ date: '2026-07-25', amount: -12_000, nature: 'draw', description: 'משיכת שותף' }),
-  tx({ date: '2026-07-03', amount: -900, nature: 'expense', division: 'private', description: 'הוצאה פרטית בכרטיס' }),
-  tx({ date: '2026-07-06', amount: 40_000, nature: 'income', division: 'realestate', dealId: 'deal-re-1', description: 'עמלת יזם — נדל"ן' }),
-  tx({ date: '2026-07-28', amount: -50_000, nature: 'transfer', description: 'העברה בין חשבונות' }),
-
-  // ══ אוגוסט: 180,000 − 62,118 − 12,000 = 105,882 ═════════════════════════
-  tx({ date: '2026-08-06', amount: 100_000, nature: 'income', dealId: 'deal-aug-1', description: 'שכ"ט' }),
-  tx({ date: '2026-08-14', amount: 50_000, nature: 'income', dealId: 'deal-aug-2', description: 'שכ"ט' }),
-  tx({ date: '2026-08-24', amount: 30_000, nature: 'income', dealId: 'deal-aug-3', description: 'שכ"ט' }),
-
-  tx({ date: '2026-08-01', amount: -8_000, nature: 'expense', fixedExpenseId: 'fx-rent', description: 'שכירות' }),
-  tx({ date: '2026-08-09', amount: -30_000, nature: 'expense', fixedExpenseId: 'fx-salaries', description: 'שכר' }),
-  tx({ date: '2026-08-05', amount: -5_000, nature: 'expense', fixedExpenseId: 'fx-software', division: 'shared', split: DEFAULT_SPLIT, description: 'תוכנה' }),
-  tx({ date: '2026-08-15', amount: -3_000, nature: 'expense', fixedExpenseId: 'fx-accountant', description: 'רו"ח' }),
-  tx({ date: '2026-08-09', amount: -20_000, nature: 'expense', fixedExpenseId: 'fx-hadas', division: 'shared', split: DEFAULT_SPLIT, description: 'הדס' }),
-  tx({ date: '2026-08-20', amount: -1_118, nature: 'expense', fixedExpenseId: 'fx-misc', description: 'שונות' }),
-
-  tx({ date: '2026-08-12', amount: -6_000, nature: 'expense', dealId: 'deal-aug-1', description: 'דוח BDI' }),
-  tx({ date: '2026-08-19', amount: -4_000, nature: 'expense', dealId: 'deal-aug-2', description: 'שמאות' }),
-  tx({ date: '2026-08-26', amount: -2_000, nature: 'expense', dealId: 'deal-aug-3', description: 'נסח טאבו' }),
-
-  tx({ date: '2026-08-19', amount: -19_000, nature: 'advance', description: 'מקדמה לניסים' }),
-
-  // ══ ספטמבר: 98,000 − 61,553 − 14,000 = 22,447 ═══════════════════════════
-  tx({ date: '2026-09-09', amount: 60_000, nature: 'income', dealId: 'deal-sep-1', description: 'שכ"ט' }),
-  // SPEC §3.4 — תקבול שני של תיק יולי, נספר בספטמבר ולא ביולי (ליקוי #3).
-  tx({ date: '2026-09-22', amount: 38_000, nature: 'income', dealId: 'deal-jul-1', description: 'יתרת שכ"ט — success fee' }),
-
-  tx({ date: '2026-09-01', amount: -8_000, nature: 'expense', fixedExpenseId: 'fx-rent', description: 'שכירות' }),
-  tx({ date: '2026-09-09', amount: -30_000, nature: 'expense', fixedExpenseId: 'fx-salaries', description: 'שכר' }),
-  tx({ date: '2026-09-05', amount: -5_000, nature: 'expense', fixedExpenseId: 'fx-software', division: 'shared', split: DEFAULT_SPLIT, description: 'תוכנה' }),
-  tx({ date: '2026-09-15', amount: -3_000, nature: 'expense', fixedExpenseId: 'fx-accountant', description: 'רו"ח' }),
-  tx({ date: '2026-09-09', amount: -20_000, nature: 'expense', fixedExpenseId: 'fx-hadas', division: 'shared', split: DEFAULT_SPLIT, description: 'הדס' }),
-  tx({ date: '2026-09-20', amount: -553, nature: 'expense', fixedExpenseId: 'fx-misc', description: 'שונות' }),
-
-  tx({ date: '2026-09-11', amount: -14_000, nature: 'expense', dealId: 'deal-sep-1', description: 'הוצאות ישירות' }),
-
-  tx({ date: '2026-09-18', amount: -19_000, nature: 'advance', description: 'מקדמה לניסים' }),
+  tx({ id: "tx-001", dateCash: "2026-09-30", amountNet: -1618, nature: "expense", dealId: "deal:4", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 01", description: "הוצאה ישירה — יובא מהקובץ" }), // wb:עסקאות:4:direct
+  tx({ id: "tx-002", dateCash: "2026-09-18", amountNet: -1618, nature: "expense", dealId: "deal:5", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 02", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:5:direct
+  tx({ id: "tx-003", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:6", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 03", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:6:direct
+  tx({ id: "tx-004", dateCash: "2026-09-30", amountNet: -18, nature: "expense", dealId: "deal:7", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 04", description: "הוצאה ישירה — יובא מהקובץ" }), // wb:עסקאות:7:direct
+  tx({ id: "tx-005", dateCash: "2026-09-30", amountNet: -18, nature: "expense", dealId: "deal:8", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 05", description: "הוצאה ישירה — יובא מהקובץ" }), // wb:עסקאות:8:direct
+  tx({ id: "tx-006", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:9", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 06", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:9:direct
+  tx({ id: "tx-007", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:11", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 08", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:11:direct
+  tx({ id: "tx-008", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:12", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 09", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:12:direct
+  tx({ id: "tx-009", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:13", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 10", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:13:direct
+  tx({ id: "tx-010", dateCash: "2026-09-30", amountNet: 6779, nature: "income", dealId: "deal:14", counterparty: "לקוח 11", description: "שכ\"ט — יובא מהקובץ" }), // wb:עסקאות:14:income
+  tx({ id: "tx-011", dateCash: "2026-08-31", amountNet: 96100, nature: "income", dealId: "deal:15", counterparty: "לקוח 12", description: "שכ\"ט — יובא מהקובץ" }), // wb:עסקאות:15:income
+  tx({ id: "tx-012", dateCash: "2026-08-31", amountNet: 25000, nature: "income", dealId: "deal:16", counterparty: "לקוח 13", description: "שכ\"ט — יובא מהקובץ" }), // wb:עסקאות:16:income
+  tx({ id: "tx-013", dateCash: "2026-08-31", amountNet: -18, nature: "expense", dealId: "deal:16", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 13", description: "הוצאה ישירה — יובא מהקובץ" }), // wb:עסקאות:16:direct
+  tx({ id: "tx-014", dateCash: "2026-09-18", amountNet: 2300, nature: "income", dealId: "deal:17", counterparty: "לקוח 14", description: "שכ\"ט — יובא מהקובץ; חודש לא צוין בקובץ — לאמת תאריך", reviewStatus: "ask_nissim" }), // wb:עסקאות:17:income
+  tx({ id: "tx-015", dateCash: "2026-09-18", amountNet: -18, nature: "expense", dealId: "deal:17", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 14", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:17:direct
+  tx({ id: "tx-016", dateCash: "2026-09-30", amountNet: 34700, nature: "income", dealId: "deal:18", counterparty: "לקוח 15", description: "שכ\"ט — יובא מהקובץ" }), // wb:עסקאות:18:income
+  tx({ id: "tx-017", dateCash: "2026-09-30", amountNet: -18, nature: "expense", dealId: "deal:18", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 15", description: "הוצאה ישירה — יובא מהקובץ" }), // wb:עסקאות:18:direct
+  tx({ id: "tx-018", dateCash: "2026-08-31", amountNet: 2400, nature: "income", dealId: "deal:20", counterparty: "לקוח 17", description: "שכ\"ט — יובא מהקובץ" }), // wb:עסקאות:20:income
+  tx({ id: "tx-019", dateCash: "2026-09-18", amountNet: -36, nature: "expense", dealId: "deal:22", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 19", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:22:direct
+  tx({ id: "tx-020", dateCash: "2026-09-18", amountNet: 10160, nature: "income", dealId: "deal:23", counterparty: "לקוח 20", description: "שכ\"ט — יובא מהקובץ; חודש לא צוין בקובץ — לאמת תאריך", reviewStatus: "ask_nissim" }), // wb:עסקאות:23:income
+  tx({ id: "tx-021", dateCash: "2026-09-18", amountNet: -67, nature: "expense", dealId: "deal:23", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 20", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:23:direct
+  tx({ id: "tx-022", dateCash: "2026-09-18", amountNet: 5000, nature: "income", dealId: "deal:26", counterparty: "לקוח 23", description: "שכ\"ט — יובא מהקובץ; חודש לא צוין בקובץ — לאמת תאריך", reviewStatus: "ask_nissim" }), // wb:עסקאות:26:income
+  tx({ id: "tx-023", dateCash: "2026-09-18", amountNet: -1500, nature: "expense", dealId: "deal:26", categoryId: "cat:נסח טאבו", deductible: true, counterparty: "לקוח 23", description: "הוצאה ישירה — יובא מהקובץ; לתיק אין חודש", reviewStatus: "ask_nissim" }), // wb:עסקאות:26:direct
+  tx({ id: "tx-024", dateCash: "2026-07-12", amountNet: -11700, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 01" }), // wb:הוצאות:4
+  tx({ id: "tx-025", dateCash: "2026-07-20", amountNet: -11700, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 01" }), // wb:הוצאות:5
+  tx({ id: "tx-026", dateCash: "2026-07-31", amountNet: -9450, nature: "expense", categoryId: "cat:משרד", deductible: false, fixedExpenseId: "fx-2", counterparty: "ספק 02" }), // wb:הוצאות:6
+  tx({ id: "tx-027", dateCash: "2026-08-31", amountNet: -11700, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 01" }), // wb:הוצאות:7
+  tx({ id: "tx-028", dateCash: "2026-08-31", amountNet: -7000, nature: "expense", categoryId: "cat:שיווק", deductible: false, fixedExpenseId: "fx-1", counterparty: "ספק 03" }), // wb:הוצאות:8
+  tx({ id: "tx-029", dateCash: "2026-08-31", amountNet: -1000, nature: "expense", categoryId: "cat:תוכנה ומערכות", deductible: false, fixedExpenseId: "fx-3", counterparty: "ספק 04" }), // wb:הוצאות:9
+  tx({ id: "tx-030", dateCash: "2026-08-31", amountNet: -5900, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 05" }), // wb:הוצאות:10
+  tx({ id: "tx-031", dateCash: "2026-08-31", amountNet: -13500, nature: "expense", categoryId: "cat:שכר", deductible: false, fixedExpenseId: "fx-4", counterparty: "ספק 02" }), // wb:הוצאות:12
+  tx({ id: "tx-032", dateCash: "2026-09-30", amountNet: -2750, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 06" }), // wb:הוצאות:13
+  tx({ id: "tx-033", dateCash: "2026-08-31", amountNet: -2000, nature: "expense", categoryId: "cat:שיווק", deductible: false, fixedExpenseId: "fx-1", counterparty: "ספק 07" }), // wb:הוצאות:14
+  tx({ id: "tx-034", dateCash: "2026-09-30", amountNet: -1350, nature: "expense", categoryId: "cat:שונות", deductible: true, fixedExpenseId: "fx-5", counterparty: "ספק 08" }), // wb:הוצאות:15
+  tx({ id: "tx-035", dateCash: "2026-09-30", amountNet: -5310, nature: "expense", categoryId: "cat:שונות", deductible: true, fixedExpenseId: "fx-5", counterparty: "ספק 09" }), // wb:הוצאות:16
+  tx({ id: "tx-036", dateCash: "2026-09-30", amountNet: -800, nature: "expense", categoryId: "cat:תוכנה ומערכות", deductible: false, fixedExpenseId: "fx-3", counterparty: "ספק 10" }), // wb:הוצאות:17
+  tx({ id: "tx-037", dateCash: "2026-09-30", amountNet: -7950, nature: "expense", categoryId: "cat:שיווק", deductible: true, fixedExpenseId: "fx-1", counterparty: "ספק 11" }), // wb:הוצאות:18
+  tx({ id: "tx-038", dateCash: "2026-07-31", amountNet: -4862, nature: "expense", categoryId: "cat:שונות", deductible: true, description: "הוצאות ישירות 2026-07 — מספר שהוקלד ידנית בקובץ, ללא פירוט", reviewStatus: "ask_nissim" }), // wb:כרטיס ניסים:2026-07:direct-gap
+  tx({ id: "tx-039", dateCash: "2026-07-10", amountNet: -13700, nature: 'advance', counterparty: 'ניסים', description: "אשראי" }), // wb:מקדמות:4
+  tx({ id: "tx-040", dateCash: "2026-07-10", amountNet: -11400, nature: 'advance', counterparty: 'ניסים', description: "מזומן" }), // wb:מקדמות:5
+  tx({ id: "tx-041", dateCash: "2026-08-10", amountNet: -19550, nature: 'advance', counterparty: 'ניסים', description: "אשראי" }), // wb:מקדמות:6
+  tx({ id: "tx-042", dateCash: "2026-08-01", amountNet: -10000, nature: 'advance', counterparty: 'ניסים', description: "הערה" }), // wb:מקדמות:7
+  tx({ id: "tx-043", dateCash: "2026-09-10", amountNet: -19900, nature: 'advance', counterparty: 'ניסים', description: "הערה" }), // wb:מקדמות:8
+  tx({ id: "tx-044", dateCash: "2026-08-28", amountNet: -12000, nature: 'advance', counterparty: 'ניסים', description: "הערה" }), // wb:מקדמות:9
 ]
-
-// ── מקדמות ─────────────────────────────────────────────────────────────────
 
 export const advances: Advance[] = [
-  { id: 'adv-07', date: '2026-07-19', amountGross: 19_000, method: 'credit_card', period: '2026-07' },
-  { id: 'adv-08', date: '2026-08-19', amountGross: 19_000, method: 'credit_card', period: '2026-08' },
-  { id: 'adv-09', date: '2026-09-18', amountGross: 19_000, method: 'cash', period: '2026-09' },
+  { id: "wb:מקדמות:4", date: "2026-07-10", amountGross: 13700, method: "credit_card", period: "2026-07", note: "אשראי" },
+  { id: "wb:מקדמות:5", date: "2026-07-10", amountGross: 11400, method: "cash", period: "2026-07", note: "מזומן" },
+  { id: "wb:מקדמות:6", date: "2026-08-10", amountGross: 19550, method: "credit_card", period: "2026-08", note: "אשראי" },
+  { id: "wb:מקדמות:7", date: "2026-08-01", amountGross: 10000, method: "transfer", period: "2026-08", note: "הערה" },
+  { id: "wb:מקדמות:8", date: "2026-09-10", amountGross: 19900, method: "transfer", period: "2026-09", note: "הערה" },
+  { id: "wb:מקדמות:9", date: "2026-08-28", amountGross: 12000, method: "transfer", period: "2026-08", note: "הערה" },
 ]
 
-export const MONTHS = ['2026-07', '2026-08', '2026-09'] as const
+/** מה הקובץ חישב, לפי חודש — לאימות מול המערכת. */
+export const FILE_CARD = {
+  "2026-07": {
+    "month": "2026-07",
+    "income": 0,
+    "deductible": 23400,
+    "direct": 4862,
+    "profit": -28262,
+    "advances": 25100,
+    "balance": 39231
+  },
+  "2026-08": {
+    "month": "2026-08",
+    "income": 123500,
+    "deductible": 17600,
+    "direct": 18,
+    "profit": 105882,
+    "advances": 41550,
+    "balance": 27840
+  },
+  "2026-09": {
+    "month": "2026-09",
+    "income": 41479,
+    "deductible": 17360,
+    "direct": 1672,
+    "profit": 22447,
+    "advances": 19900,
+    "balance": 36516.5
+  }
+} as const

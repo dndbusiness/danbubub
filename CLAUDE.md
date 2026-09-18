@@ -91,7 +91,8 @@ npm run typecheck
 ## הרצת ה-UI
 
 ```bash
-./scripts/dev-db.sh start        # Postgres מקומי + סכימה + views + קטגוריות + seed משוחזר
+./scripts/dev-db.sh start        # Postgres מקומי + סכימה + views + קטגוריות (בלי נתונים)
+node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx> --as-of YYYY-MM-DD   # הנתונים האמיתיים
 cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24

@@ -27,13 +27,12 @@ describe('שתי הגדרות רווח — SPEC §3.2', () => {
     expect(distributable.profit).toBe(-28_262)
   })
 
-  it('רווח תפעולי כולל גם הוצאות לא מוכרות ולא מאושרות', () => {
-    // תפעולי נושא בנוסף: 2,500 לא מאושרת + 1,500 לא מוכרת
-    expect(operational.totalExpenses).toBe(distributable.totalExpenses + 2_500 + 1_500)
+  it('רווח תפעולי כולל גם הוצאות לא מוכרות — ביולי: הדס 9,450 (מסומנת "לא" בקובץ)', () => {
+    expect(operational.totalExpenses).toBe(distributable.totalExpenses + 9_450)
   })
 
-  it('רווח תפעולי נמוך מרווח לחלוקה באותן 4,000 ₪', () => {
-    expect(distributable.profit - operational.profit).toBe(4_000)
+  it('רווח תפעולי נמוך מרווח לחלוקה באותם 9,450 ₪', () => {
+    expect(distributable.profit - operational.profit).toBe(9_450)
   })
 
   it('שתי ההגדרות מחריגות advance/draw/transfer (SPEC §1.3)', () => {
@@ -47,9 +46,10 @@ describe('שתי הגדרות רווח — SPEC §3.2', () => {
   })
 
   it('הכנסה ללא deal_id נכנסת לתפעולי ולא לחלוקה', () => {
+    const anyIncome = transactions.find((t) => t.nature === 'income' && t.dateCash.startsWith('2026-07')) ?? { ...transactions.find((t) => t.nature === 'income')!, dateCash: '2026-07-15' }
     const withOrphan = [
       ...transactions,
-      { ...transactions[0]!, id: 'tx-orphan', dealId: undefined, amountNet: 9_000 },
+      { ...anyIncome, id: 'tx-orphan', dealId: undefined, amountNet: 9_000, dateCash: '2026-07-15' },
     ]
     const op = computePnl(withOrphan, { ...base, mode: 'operational', division: 'finance', month: '2026-07' })
     const di = computePnl(withOrphan, { ...base, mode: 'distributable', division: 'finance', month: '2026-07' })
