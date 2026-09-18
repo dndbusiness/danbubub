@@ -1,16 +1,65 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/jobs/day_close", "schedule": "30 3 * * *" },
-    { "path": "/api/jobs/alerts_eval", "schedule": "45 3 * * *" },
-    { "path": "/api/jobs/calendar_sync", "schedule": "0 4 * * *" },
-    { "path": "/api/jobs/daily_summary", "schedule": "30 4 * * 0-5" },
-    { "path": "/api/jobs/anchor_reminder", "schedule": "30 5 * * *" },
-    { "path": "/api/jobs/gmail_scan", "schedule": "*/15 * * * *" },
-    { "path": "/api/jobs/drive_intake_scan", "schedule": "*/15 * * * *" }
+    {
+      "path": "/api/jobs/day_close",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/jobs/alerts_eval",
+      "schedule": "45 3 * * *"
+    },
+    {
+      "path": "/api/jobs/calendar_sync",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/jobs/daily_summary",
+      "schedule": "30 4 * * 0-5"
+    },
+    {
+      "path": "/api/jobs/anchor_reminder",
+      "schedule": "30 5 * * *"
+    },
+    {
+      "path": "/api/jobs/gmail_scan",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/drive_intake_scan",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/weekly_report",
+      "schedule": "0 5 * * 5"
+    },
+    {
+      "path": "/api/jobs/pnl_draft",
+      "schedule": "0 5 1 * *"
+    },
+    {
+      "path": "/api/jobs/pnl_final",
+      "schedule": "0 5 12 * *"
+    },
+    {
+      "path": "/api/jobs/accountant_pack",
+      "schedule": "30 5 12 * *"
+    },
+    {
+      "path": "/api/jobs/deal_decay",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/jobs/db_backup",
+      "schedule": "0 0 * * *"
+    }
   ],
   "functions": {
-    "app/api/jobs/[name]/route.ts": { "maxDuration": 300 },
-    "app/api/reports/**/route.ts": { "maxDuration": 120 }
+    "app/api/jobs/[name]/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/reports/**/route.ts": {
+      "maxDuration": 120
+    }
   }
 }

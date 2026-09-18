@@ -23,7 +23,7 @@ export async function runDailySummaryNow(date?: string): Promise<Result<{ pdf: s
 
 /** מפתחות הגדרה שניתן לערוך מהמסך (ב.2 יומן, ב.3 חשבונית ירוקה, אנשים). ערכים אחרים — scripts/set-setting.mjs. */
 const EDITABLE: Record<string, 'text' | 'email' | 'int' | 'bool' | 'list'> = {
-  notify_email_nissim: 'email', notify_email_hadas: 'email', calendar_ids: 'list',
+  notify_email_nissim: 'email', notify_email_hadas: 'email', notify_email_aviv: 'email', accountant_email: 'email', calendar_ids: 'list',
   payroll_pay_day: 'int', payroll_approval_day: 'int', accountant_close_day: 'int', vat_day: 'int', vat_bimonthly: 'bool',
   greeninvoice_intake_email: 'email',
 }

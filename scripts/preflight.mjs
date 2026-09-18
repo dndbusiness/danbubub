@@ -37,6 +37,11 @@ else ok('חילוץ LLM לחשבוניות זמין')
 if (!process.env.APP_BASE_URL) limit('APP_BASE_URL לא מוגדר', 'הקישורים במיילים, בוואטסאפ וביומן יצאו יחסיים')
 else ok(`APP_BASE_URL = ${process.env.APP_BASE_URL}`)
 
+if (!process.env.APP_PASSWORD) limit('אין שער גישה (APP_PASSWORD)', 'בלעדיו כל מי שיש לו את הכתובת רואה את כל הכספים. זמני עד שלב 10')
+else ok('שער גישה מוגדר')
+
+if (process.env.VERCEL && !process.env.CHROMIUM_PACK_URL && !process.env.CHROMIUM_PATH) limit('הפקת PDF לא תעבוד ב-Vercel', 'CHROMIUM_PACK_URL — ראו docs/DEPLOY.md §3')
+
 // ── DB ─────────────────────────────────────────────────────────────────────
 if (process.env.DATABASE_URL) {
   const sql = postgres(process.env.DATABASE_URL, { max: 1, idle_timeout: 5 })
@@ -78,6 +83,10 @@ if (process.env.DATABASE_URL) {
     const [{ n: google }] = await sql`select count(*)::int as n from integrations where provider='google' and status='connected' and deleted_at is null`
     if (google === 0) limit('גוגל לא מחובר', '/settings → "חבר את גוגל"')
     else ok('גוגל מחובר')
+
+    const [{ n: accountant }] = await sql`select count(*)::int as n from settings where key = 'accountant_email'`
+    if (accountant === 0) limit('אין מייל לרו"ח', 'מסך /settings — נדרש ל-pnl_final ול-accountant_pack (ב.7)')
+    else ok('מייל לרו"ח מוגדר')
 
     const [{ n: openPeriods }] = await sql`select count(*)::int as n from periods where status='closed' and deleted_at is null`
     ok(`${openPeriods} תקופות סגורות`)

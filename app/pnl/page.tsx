@@ -7,6 +7,7 @@ import { activeAlertCount, isPeriodLocked } from '@/lib/queries/common'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { formatMonth } from '@/lib/ui/format'
 import { PnlTables, PnlView } from './client'
+import { MonthCloseChecklist } from './month-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,6 +63,7 @@ export default async function PnlPage({ searchParams }: { searchParams: Promise<
         </div>
 
         <PnlTables income={income} expenses={expenses} byMonth={byMonth} currentMonth={period} />
+        <MonthCloseChecklist month={period} />
       </main>
     </>
   )

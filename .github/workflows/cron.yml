@@ -12,6 +12,12 @@ on:
     - cron: '30 4 * * 0-5'    # 07:30 א'–ו' — daily_summary
     - cron: '30 5 * * *'      # 08:30 — anchor_reminder
     - cron: '*/15 * * * *'    # כל 15 דק' — gmail_scan + drive_intake_scan
+    - cron: '0 5 * * 5'       # ו' 08:00 — weekly_report
+    - cron: '0 5 1 * *'       # 1 לחודש 08:00 — pnl_draft
+    - cron: '0 5 12 * *'      # 12 לחודש 08:00 — pnl_final
+    - cron: '30 5 12 * *'     # 12 לחודש 08:30 — accountant_pack
+    - cron: '0 23 * * *'      # 02:00 — deal_decay
+    - cron: '0 0 * * *'       # 03:00 — db_backup
   workflow_dispatch:
     inputs:
       job:
@@ -46,5 +52,11 @@ jobs:
             '30 4 * * 0-5') run_job daily_summary ;;
             '30 5 * * *')   run_job anchor_reminder ;;
             '*/15 * * * *') run_job gmail_scan; run_job drive_intake_scan ;;
+            '0 5 * * 5')    run_job weekly_report ;;
+            '0 5 1 * *')    run_job pnl_draft ;;
+            '0 5 12 * *')   run_job pnl_final ;;
+            '30 5 12 * *')  run_job accountant_pack ;;
+            '0 23 * * *')   run_job deal_decay ;;
+            '0 0 * * *')    run_job db_backup ;;
             *) echo "אין ג׳וב לתזמון $CRON" ;;
           esac

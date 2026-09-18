@@ -21,11 +21,29 @@ export function chromiumPath(): string | undefined {
   } catch { return undefined }
 }
 
-export async function renderPdf(url: string, fileName: string): Promise<string> {
+/** האם אנחנו ב-serverless (Vercel / Lambda) — שם אין דפדפן מותקן. */
+export function isServerless(env: Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.VERCEL || env.AWS_LAMBDA_FUNCTION_NAME || env.AWS_EXECUTION_ENV)
+}
+
+/**
+ * הפעלת דפדפן. מקומית — ה-Chromium של Playwright. ב-serverless — @sparticuz/chromium-min,
+ * שמוריד בינארי תואם Lambda מ-`CHROMIUM_PACK_URL` (ראו docs/DEPLOY.md §3).
+ */
+async function launch() {
   const { chromium } = await import('playwright')
+  const local = chromiumPath()
+  if (local || !isServerless()) return chromium.launch({ executablePath: local })
+  const pack = process.env.CHROMIUM_PACK_URL
+  if (!pack) throw new Error('הפקת PDF ב-serverless דורשת CHROMIUM_PACK_URL (ראו docs/DEPLOY.md §3) או CHROMIUM_PATH')
+  const mod = (await import('@sparticuz/chromium-min')).default
+  return chromium.launch({ executablePath: await mod.executablePath(pack), args: mod.args, headless: true })
+}
+
+export async function renderPdf(url: string, fileName: string): Promise<string> {
   mkdirSync(REPORTS_DIR, { recursive: true })
   const out = path.join(REPORTS_DIR, fileName)
-  const browser = await chromium.launch({ executablePath: chromiumPath() })
+  const browser = await launch()
   try {
     const page = await browser.newPage({ locale: 'he-IL' })
     await page.goto(url, { waitUntil: 'load', timeout: 30_000 })

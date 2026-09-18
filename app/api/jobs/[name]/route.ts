@@ -7,6 +7,8 @@ import { dailySummaryJob } from '@/lib/jobs/daily-summary'
 import { gmailScanJob } from '@/lib/jobs/gmail-scan'
 import { driveIntakeScanJob } from '@/lib/jobs/drive-intake-scan'
 import { calendarSyncJob } from '@/lib/jobs/calendar-sync'
+import { accountantPackJob, pnlReportJob, weeklyReportJob } from '@/lib/jobs/reports'
+import { dbBackupJob, dealDecayJob } from '@/lib/jobs/maintenance'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +25,12 @@ const JOBS = {
   gmail_scan: (d: string) => gmailScanJob(d),
   drive_intake_scan: (d: string) => driveIntakeScanJob(d),
   calendar_sync: (d: string) => calendarSyncJob(d),
+  weekly_report: (d: string) => weeklyReportJob(d),
+  pnl_draft: (d: string) => pnlReportJob(d, 'draft'),
+  pnl_final: (d: string) => pnlReportJob(d, 'final'),
+  accountant_pack: (d: string) => accountantPackJob(d),
+  deal_decay: (d: string) => dealDecayJob(d),
+  db_backup: (d: string) => dbBackupJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

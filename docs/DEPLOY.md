@@ -41,6 +41,8 @@ psql "$PGURL" -f db/tests/000_guarantees.sql   # 26 ההבטחות המבניו�
 | `GREEN_API_ID_INSTANCE` / `GREEN_API_TOKEN` | — | התראות ותזכורות וואטסאפ ממתינות ב-`outbox` |
 | `ANTHROPIC_API_KEY` | — | חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים (ב.3) |
 | `CRON_SECRET` | — | רק אם משתמשים ב-Vercel Cron (Vercel מגדיר אותו לבד) |
+| `CHROMIUM_PACK_URL` | — | הפקת PDF ב-Vercel נכשלת (ראו §3) |
+| `APP_PASSWORD` | — | **האתר פתוח לכל מי שיש לו הכתובת** (ראו §7) |
 
 > `SECRETS_KEY` מצפין את ה-refresh token של גוגל. **אם הוא מתחלף — החיבור לגוגל
 > נשבר וצריך לחבר מחדש.** לשמור אותו במקום שלא הולך לאיבוד.
@@ -56,9 +58,15 @@ npx vercel --prod
 **Vercel Hobby מאפשר cron יומי בלבד** — לסריקה כל 15 דקות צריך Pro, או להשתמש
 ב-GitHub Actions (סעיף 5).
 
-**Playwright ל-PDF לא רץ ב-Vercel Serverless.** שתי אפשרויות: `@sparticuz/chromium`,
-או להריץ את ההפקה מ-GitHub Actions ולהעלות לדרייב. עד אז: PDF עובד מקומית, והמסכים
-`/…/print` עובדים תמיד (הדפסה מהדפדפן).
+**PDF ב-Vercel:** אין שם דפדפן מותקן, ולכן `lib/pdf.ts` נופל אוטומטית ל-`@sparticuz/chromium-min`
+(כבר מותקן) — צריך רק להצביע על חבילת הבינארי:
+
+```
+CHROMIUM_PACK_URL=https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar
+```
+
+בלי המשתנה הזה הפקת PDF תחזיר שגיאה מפורשת (המסכים `/…/print` עובדים תמיד — הדפסה
+מהדפדפן). חלופה: להריץ את הג'ובים שמפיקים PDF מ-GitHub Actions, שם Playwright עובד כרגיל.
 
 ## 4. נתונים ראשונים
 
@@ -115,8 +123,11 @@ node scripts/set-pin.mjs nissim <קוד>     # וגם partners / private
 
 ## 7. אבטחה — מה עוד לא נעשה
 
-- **אין התחברות.** כל מי שמגיע לכתובת רואה הכול (חוץ מאזורי ה-PIN). עד שלב 10:
-  Vercel Password Protection, או Cloudflare Access, או לא לפרסם את הכתובת.
+- **שער גישה זמני:** הגדרת `APP_PASSWORD` מפעילה שער סיסמה אחד לכל האתר (`middleware.ts`).
+  זה **לא** מנגנון ההרשאות של §6 — אין משתמשים, אין תפקידים, אין audit של מי נכנס.
+  זו מנעולת דלת עד שלב 10. אזורי ה-PIN (ניסים, שותפים, פרייבט) ממשיכים לעבוד מעליו.
+- **בלי `APP_PASSWORD` האתר פתוח לחלוטין** לכל מי שיש לו את הכתובת. חלופות ברמת
+  הפלטפורמה: Vercel Password Protection (בתשלום) או Cloudflare Access.
 - **RLS לא מופעל** (שלב 10). ה-`DATABASE_URL` הוא מפתח לכל הנתונים.
 - `/api/jobs/*` מוגן בסוד; `/api/health` פתוח ולא חושף נתונים עסקיים.
 

@@ -22,6 +22,8 @@ export function CalendarCard({ values, calendarConnected }: { values: Record<str
         <Field label="יומנים (מזהים, מופרדים בפסיק)" hint='ברירת מחדל: primary. יומן הר-אל: כתובת היומן מהגדרות Google'><Input name="calendar_ids" defaultValue={v('calendar_ids')} dir="ltr" placeholder="primary, harel@group.calendar.google.com" /></Field>
         <Field label="מייל ניסים"><Input name="notify_email_nissim" type="email" defaultValue={v('notify_email_nissim')} dir="ltr" /></Field>
         <Field label="מייל הדס"><Input name="notify_email_hadas" type="email" defaultValue={v('notify_email_hadas')} dir="ltr" /></Field>
+        <Field label="מייל אביב" hint="דוח שבועי — נדל״ן בלבד"><Input name="notify_email_aviv" type="email" defaultValue={v('notify_email_aviv')} dir="ltr" /></Field>
+        <Field label='מייל רו"ח' hint="P&L סופי וחומר הסגירה ב-12 לחודש"><Input name="accountant_email" type="email" defaultValue={v('accountant_email')} dir="ltr" /></Field>
         <Field label="יום תשלום שכר" hint="ברירת מחדל 9"><Input name="payroll_pay_day" type="number" min={1} max={31} defaultValue={v('payroll_pay_day')} /></Field>
         <Field label="יום אישור שכר" hint="ברירת מחדל 27"><Input name="payroll_approval_day" type="number" min={1} max={31} defaultValue={v('payroll_approval_day')} /></Field>
         <Field label="סגירה לרו״ח — יום" hint="ברירת מחדל 12"><Input name="accountant_close_day" type="number" min={1} max={31} defaultValue={v('accountant_close_day')} /></Field>

@@ -20,7 +20,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams
   const { period, division } = readGlobalParams(sp, new Date().toISOString())
   const [alerts, integ, jobs, s, reports] = await Promise.all([
-    activeAlertCount(), googleIntegration(), lastJobRuns(), settingValues(['notify_whatsapp_dan', 'notify_email_dan', 'notify_email_nissim', 'notify_email_hadas', 'calendar_ids', 'payroll_pay_day', 'payroll_approval_day', 'accountant_close_day', 'vat_day', 'vat_bimonthly', 'greeninvoice_intake_email']),
+    activeAlertCount(), googleIntegration(), lastJobRuns(), settingValues(['notify_whatsapp_dan', 'notify_email_dan', 'notify_email_nissim', 'notify_email_hadas', 'notify_email_aviv', 'accountant_email', 'calendar_ids', 'payroll_pay_day', 'payroll_approval_day', 'accountant_close_day', 'vat_day', 'vat_bimonthly', 'greeninvoice_intake_email']),
     sql<{ id: string; report_type: string; period: string | null; file_url: string | null; recipients: string[]; sent_at: string | null; created_at: string }[]>`
       select id, report_type, period, file_url, recipients, sent_at::text, created_at::text from report_runs where deleted_at is null order by created_at desc limit 15`,
   ])
@@ -29,7 +29,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     greenApi: Boolean(process.env.GREEN_API_ID_INSTANCE && process.env.GREEN_API_TOKEN), jobsSecret: Boolean(process.env.JOBS_SECRET),
   }
   const notice = sp.google === 'connected' ? { kind: 'ok', text: `גוגל חובר: ${sp.email ?? ''}` } : sp.google === 'error' ? { kind: 'error', text: `החיבור נכשל: ${sp.reason ?? ''}` } : null
-  const REPORT: Record<string, string> = { daily_summary: 'סיכום יומי', nissim_settlement: 'התחשבנות ניסים', pnl: 'רווח והפסד', weekly: 'דוח שבועי' }
+  const REPORT: Record<string, string> = { daily_summary: 'סיכום יומי', nissim_settlement: 'התחשבנות ניסים', pnl: 'רווח והפסד', pnl_draft: 'רווח והפסד (טיוטה)', pnl_final: 'רווח והפסד סופי', weekly: 'דוח שבועי', accountant_pack: 'חומר סגירה לרו״ח', db_backup: 'גיבוי' }
 
   return (
     <>
