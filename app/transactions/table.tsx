@@ -35,6 +35,11 @@ export function TransactionsTable({ rows, categories }: { rows: TxRow[]; categor
     { key: 'counterparty', header: 'ספק / לקוח', cell: (r) => r.counterparty ?? r.deal_client ?? <span className="text-text-3">—</span> },
     { key: 'description', header: 'תיאור', cell: (r) => <span className="truncate max-w-[220px] inline-block align-bottom">{r.description ?? ''}</span> },
     {
+      key: 'amount_net', header: 'סכום', align: 'end',
+      cell: (r) => <Money value={r.amount_net} certainty="actual" nature={r.locked ? 'locked' : undefined} vat={{ net: r.amount_net, vat: r.vat_amount, gross: r.amount_gross }} />,
+      footer: <Money value={filtered.reduce((a, r) => a + r.amount_net, 0)} />,
+    },
+    {
       key: 'category_name', header: 'קטגוריה',
       // UIUX §4.5 — ✎ עריכה בשורה. שינוי נשמר מיד.
       cell: (r) => r.locked ? (r.category_name ?? '—') : (
@@ -67,11 +72,6 @@ export function TransactionsTable({ rows, categories }: { rows: TxRow[]; categor
           <option value="ok">תקין</option><option value="ask_nissim">לשאול את ניסים</option><option value="ask_aviv">לשאול את אביב</option><option value="ask_yoni">לשאול את יוני</option><option value="unknown_expense">לא מזוהה</option>
         </select>
       ),
-    },
-    {
-      key: 'amount_net', header: 'סכום', align: 'end',
-      cell: (r) => <Money value={r.amount_net} certainty="actual" nature={r.locked ? 'locked' : undefined} vat={{ net: r.amount_net, vat: r.vat_amount, gross: r.amount_gross }} />,
-      footer: <Money value={filtered.reduce((a, r) => a + r.amount_net, 0)} />,
     },
   ]
 
