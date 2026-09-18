@@ -80,7 +80,7 @@ export function UiKitClient() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-text-2 font-mono" dir="ltr">{'<PinGate> — SPEC §6'}</h2>
-        <PinGate areaLabel="כרטיס ניסים" verify={async (pin) => pin === '1234'}>
+        <PinGate area="demo" areaLabel="כרטיס ניסים" verify={async (pin) => pin === "1234"}>
           <Card>
             <CardTitle>תוכן מוגן (דוגמה: הקוד 1234)</CardTitle>
             <Money value={36_517} size="kpi" nature="open" />

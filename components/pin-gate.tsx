@@ -5,13 +5,14 @@ import { Lock, LockOpen } from 'lucide-react'
 import * as React from 'react'
 import { cn } from '@/lib/ui/cn'
 
-const STORAGE_KEY = 'harel.pin.unlockedUntil'
+/** §6 — לכל אזור קוד משלו, ולכן גם פתיחה משלו: פתיחת כרטיס ניסים לא פותחת פרייבט. */
+const storageKey = (area: string) => `harel.pin.unlockedUntil.${area}`
 /** SPEC §6 — "פג תוקף אחרי 10 דקות". */
 export const PIN_TTL_MS = 10 * 60 * 1000
 
-function readUnlockedUntil(): number {
+function readUnlockedUntil(area: string): number {
   try {
-    return Number(sessionStorage.getItem(STORAGE_KEY) ?? 0)
+    return Number(sessionStorage.getItem(storageKey(area)) ?? 0)
   } catch {
     return 0
   }
@@ -26,10 +27,13 @@ function readUnlockedUntil(): number {
  * UIUX §9: מודל מותר רק ל-PIN ולאישורים הרסניים — זה המקרה.
  */
 export function PinGate({
+  area,
   verify,
   areaLabel,
   children,
 }: {
+  /** שם האזור (nissim / partners / private / bank) — קובע גם את מפתח הפתיחה. */
+  area: string
   verify: (pin: string) => Promise<boolean>
   areaLabel: string
   children: React.ReactNode
@@ -42,10 +46,10 @@ export function PinGate({
   const [now, setNow] = React.useState(() => Date.now())
 
   React.useEffect(() => {
-    setUnlockedUntil(readUnlockedUntil())
+    setUnlockedUntil(readUnlockedUntil(area))
     const t = setInterval(() => setNow(Date.now()), 5_000)
     return () => clearInterval(t)
-  }, [])
+  }, [area])
 
   const unlocked = unlockedUntil > now
 
@@ -61,7 +65,7 @@ export function PinGate({
       return
     }
     const until = Date.now() + PIN_TTL_MS
-    try { sessionStorage.setItem(STORAGE_KEY, String(until)) } catch { /* private mode */ }
+    try { sessionStorage.setItem(storageKey(area), String(until)) } catch { /* private mode */ }
     setUnlockedUntil(until)
     setOpen(false)
     setPin('')

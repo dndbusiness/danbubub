@@ -68,6 +68,9 @@ run "$ROOT/db/tests/000_guarantees.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 echo "→ הבטחות מבניות (ADDENDUM)"
 run "$ROOT/db/tests/002_addendum.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 
+echo "→ הבטחות מבניות (שלב 7 — נדל״ן ופרייבט)"
+run "$ROOT/db/tests/003_realestate.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+
 echo "→ זהות views ↔ lib/rules (SPEC §8)"
 run "$ROOT/db/tests/001_parity.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 

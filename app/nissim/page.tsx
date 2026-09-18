@@ -41,7 +41,7 @@ export default async function NissimPage({ searchParams }: { searchParams: Promi
             לא הוגדר קוד גישה לאזור זה. להגדרה: <code dir="ltr" className="font-mono">node scripts/set-pin.mjs nissim ****</code>
           </div>
         ) : (
-          <PinGate areaLabel="כרטיס ניסים" verify={verify}>
+          <PinGate area="nissim" areaLabel="כרטיס ניסים" verify={verify}>
             <NissimCardView
               month={period} card={card} history={history} period={period_} drill={drill} blockers={blockers}
               askNissim={ask} candidates={candidates} canClose
