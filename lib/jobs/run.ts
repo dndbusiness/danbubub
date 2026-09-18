@@ -25,4 +25,3 @@ export async function lastJobRuns(days = 7) {
   return sql<{ job_name: string; runs_7d: number; succeeded: number; failed: number; last_run_at: string | null; last_success_at: string | null; last_error: string | null }[]>`
     select job_name, runs_7d::int, succeeded::int, failed::int, last_run_at::text, last_success_at::text, last_error from v_system_health order by job_name`
 }
-export const _days = (d: number) => d

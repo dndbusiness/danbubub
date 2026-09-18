@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { dayCloseJob } from '@/lib/jobs/day-close'
 import { alertsEvalJob } from '@/lib/jobs/alerts-eval'
 import { anchorReminderJob } from '@/lib/jobs/anchor-reminder'
+import { dailySummaryJob } from '@/lib/jobs/daily-summary'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,7 @@ const JOBS = {
   day_close: (d: string) => dayCloseJob(d),
   alerts_eval: (d: string) => alertsEvalJob(d),
   anchor_reminder: (d: string) => anchorReminderJob(d),
+  daily_summary: (d: string) => dailySummaryJob(d),
 } as const
 
 function authorized(req: Request): boolean {

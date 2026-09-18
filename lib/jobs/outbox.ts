@@ -1,6 +1,9 @@
 import { sql } from '@/lib/db'
 import { nextAttemptDelayMinutes, type OutboxRow } from '@/lib/rules/notifications'
 import { greenApiConfig, sendWhatsApp, type GreenApiConfig } from '@/lib/outbox/green-api'
+import { sendMail } from '@/lib/google/gmail'
+import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
+import { readFile } from 'node:fs/promises'
 
 /**
  * ADDENDUM הנחיה 16 — "כל יציאה החוצה עוברת דרך outbox עם retry ולוג".
@@ -23,17 +26,26 @@ export interface FlushResult { sent: number; failed: number; waiting: number; no
 
 export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch } = {}): Promise<FlushResult> {
   const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp
-  const pending = await sql<{ id: string; channel: string; target: string; body: string; attempts: number; max_attempts: number }[]>`
-    select id, channel, target, body, attempts, max_attempts from outbox
+  const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: { pdfPath?: string; fileName?: string } | null; attempts: number; max_attempts: number }[]>`
+    select id, channel, target, subject, body, payload, attempts, max_attempts from outbox
     where status = 'pending' and deleted_at is null and next_attempt_at <= now()
     order by created_at limit 50`
   const out: FlushResult = { sent: 0, failed: 0, waiting: 0, noTransport: [] }
+  // מייל דרך Gmail של דן (ב.1) — רק אם מחובר עם gmail.send.
+  const google = pending.some((r) => r.channel === 'email') ? await googleIntegration() : null
+  const canMail = hasScope(google, 'https://www.googleapis.com/auth/gmail.send')
   for (const row of pending) {
     if (row.channel === 'whatsapp' && !wa) { out.waiting++; if (!out.noTransport.includes('whatsapp')) out.noTransport.push('whatsapp'); continue }
-    if (row.channel !== 'whatsapp') { out.waiting++; if (!out.noTransport.includes(row.channel)) out.noTransport.push(row.channel); continue }
+    if (row.channel === 'email' && !canMail) { out.waiting++; if (!out.noTransport.includes('email')) out.noTransport.push('email'); continue }
+    if (row.channel !== 'whatsapp' && row.channel !== 'email') { out.waiting++; if (!out.noTransport.includes(row.channel)) out.noTransport.push(row.channel); continue }
     try {
-      const id = await sendWhatsApp(wa!, row.target, row.body, opts.fetchImpl)
-      await sql`update outbox set status = 'sent', sent_at = now(), attempts = attempts + 1, payload = ${sql.json({ idMessage: id })} where id = ${row.id}`
+      let id: string
+      if (row.channel === 'whatsapp') id = await sendWhatsApp(wa!, row.target, row.body, opts.fetchImpl)
+      else {
+        const attachments = row.payload?.pdfPath ? [{ fileName: row.payload.fileName ?? 'report.pdf', mimeType: 'application/pdf', content: await readFile(row.payload.pdfPath) }] : []
+        id = await sendMail(await googleAccessToken(), { to: row.target.split(',').map((t) => t.trim()), subject: row.subject ?? 'הר-אל', html: row.body, attachments }, opts.fetchImpl)
+      }
+      await sql`update outbox set status = 'sent', sent_at = now(), attempts = attempts + 1, payload = ${sql.json({ ...(row.payload ?? {}), messageId: id })} where id = ${row.id}`
       out.sent++
     } catch (e) {
       const attempts = row.attempts + 1

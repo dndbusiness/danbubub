@@ -239,14 +239,21 @@
 
 **⚠ הנחות שדורשות אישור:** #27 מע"מ לתשלום ב-15 לחודש על חבות החודש הקודם; מקדמה צפויה = ממוצע 3 חודשים ביום 19 (§3.6 "18–20").
 
+## הנספח (אחרי שלב 5, הנחיה 19) — ב.1 ו-ב.4
+
+| סעיף | מה נבנה | מצב |
+|---|---|---|
+| **ב.1 Google** | OAuth של המשתמש (`/api/google/connect` → Google → `/api/google/callback`), scopes מינימליים לפי שירות (Gmail readonly/send/modify, calendar.events, drive.file, spreadsheets) עם בחירה במסך, refresh token **מוצפן** (AES-256-GCM, `SECRETS_KEY` מחוץ ל-DB) ב-`integration_secrets` (010) — `integrations` מחזיקה מצב בלבד. חידוש אוטומטי; `invalid_grant` → `expired` → התראה "גוגל מנותק" + משימה דחופה "לחבר מחדש" (rule_key). לקוחות Gmail (שליחה, סריקה, תיוג) ו-Drive (עץ התיקיות של ב.1, העלאה ללא כפילות). מסך 18 `/settings`: כרטיס חיבור, ערוצים ומפתחות, בריאות המערכת 7 ימים, דוחות שהופקו | **◐ הקוד בנוי ונבדק עם fetch מדומה (14 בדיקות) + מסלול הכשל נבדק על ה-DB; החיבור האמיתי דורש OAuth client מ-Google Cloud של דן** |
+| **ב.4 סיכום יום** | `lib/reports/daily-summary.ts`: 7 הסעיפים בסדר הקבוע, כל שורה עם קישור, "N פריטים · X דקות", מייל 3 שורות כשאין כלום, לא בשבת. **פונקציה אחת** למסך (`/reports/daily/[date]`), ל-PDF (Playwright על אותו HTML) ולמייל (הנחיה 20). ג'וב `daily_summary` (07:30): PDF → דרייב `סיכום-יומי/` (אם מחובר) → `report_runs` → מייל לדן דרך `outbox` עם ה-PDF מצורף (dedup ליום). "הפק סיכום יומי עכשיו" מהמסך | **✔ רץ על ה-DB המקומי: PDF הופק, `report_runs` נרשם, המייל ממתין ב-outbox עד שיש Gmail מחובר** |
+
+**outbox — מייל:** `flushOutbox` שולח `email` דרך Gmail של דן כשיש `gmail.send`; אחרת ממתין ומדווח `noTransport: email`. תיקון בדרך: ה-outbox נכתב אחרי ה-commit של ההתראה (FK).
+
+**⚠ סטייה לאישור (#28):** ADDENDUM ב.1 אומר "Supabase Vault". בשלב הנוכחי (Postgres רגיל) המקבילה היא הצפנה עם מפתח שיושב רק בשרת. המעבר ל-Vault = החלפת `seal/open` ב-`lib/secrets.ts`.
+
 ## מה **לא** נבנה ולמה
 
-- **אינטגרציות Google (ADDENDUM ב.1–ב.4).** הטבלאות (`integrations`,
-  `inbox_candidates`, `outbox`, `report_runs`, `scheduled_jobs_log`) קיימות
-  ונבדקות, אבל אין OAuth, אין סריקת Gmail ואין ג'ובים. ADDENDUM הנחיה 19
-  קובעת שהנספח משתלב **אחרי שלב 5** — ולכן זה לא הצעד הבא.
-- **17 הג'ובים המתוזמנים (ADDENDUM חלק ג').** אף אחד לא רץ. `scheduled_jobs_log`
-  מוכן לקלוט אותם.
+- **ב.3 (סריקת Gmail/Drive לחשבוניות) ו-ב.2 (יומן).** הבאים בתור לפי הנחיה 19. לקוחות ה-API כבר קיימים (`listMessages`, `getAttachment`, `ensureLabel`); חסרים החילוץ (pdfplumber/LLM כהצעה בלבד), השידוך ומסך האישור.
+- **13 ג'ובים מחלק ג'** עדיין לא רצים (gmail_scan, drive_intake_scan, calendar_sync, weekly_report, pnl_*, accountant_*, payroll_*, deal_decay, db_backup, reports_to_drive, cold_backup). 4 רצים: day_close, alerts_eval, daily_summary, anchor_reminder.
 - **ה-parsers של בנק, חשבונית ירוקה ו-WISE (§4.2, §4.3, §4.5).** שלבים 6 ו-8. parser האשראי (§4.1) קיים
   אבל מיפויי העמודות מחכים לקובץ אמיתי (שאלה #1).
 - **מנוע ההתאמה (§4.2).** `lib/match/` ריק. הטבלאות (`import_batches`, `source_ref`) מוכנות.
@@ -260,6 +267,7 @@
 2. **קובץ אשראי אמיתי אחד** מכל חברה שבשימוש (שאלה #1) — לאמת את מיפויי העמודות ולהתחיל את חודש המדידה של שלב 4.
 3. לסגור את ספטמבר: חודש ל-7 התיקים החוסמים + הכרעה #23 (שלב 3).
 4. הכרעות #25–#27.
-5. לפי ADDENDUM הנחיה 19 — **הנספח נכנס עכשיו, אחרי שלב 5**: ב.1 (OAuth גוגל) → ב.4 (סיכום יום) → ב.3 (Gmail) → ב.2 (יומן) → … ואז שלב 6.
+5. **לחבר את גוגל:** OAuth client ב-Google Cloud Console (redirect `<APP_BASE_URL>/api/google/callback`), `GOOGLE_CLIENT_ID/SECRET` + `SECRETS_KEY` בשרת, ואז "חבר את גוגל" ב-`/settings`. עד אז המיילים ממתינים ב-outbox.
+6. הנספח ממשיך: ב.3 (Gmail → חשבוניות) → ב.2 (יומן) → ב.5+ב.6 (מסך 20) → ב.7 → ב.11 מלא, ואז שלב 6.
 
 הנספח (ב.1–ב.11) נכנס אחרי שלב 5, לפי ADDENDUM הנחיה 19.

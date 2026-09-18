@@ -50,7 +50,7 @@ export const NAV: (NavItem | 'divider')[] = [
   { href: '/forecast', label: 'תחזית', icon: TrendingUp, screen: 13, built: false },
   { href: '/tasks', label: 'משימות', icon: CheckSquare, screen: 15, built: false },
   { href: '/links', label: 'קישורים', icon: Link2, screen: 17, built: false },
-  { href: '/settings', label: 'הגדרות', icon: Settings, screen: 18, built: false },
+  { href: '/settings', label: 'הגדרות', icon: Settings, screen: 18, built: true },
 ]
 
 /** UIUX §3.2 — ניווט תחתון בנייד: מצב · תיקים · ➕ · משימות · עוד. */

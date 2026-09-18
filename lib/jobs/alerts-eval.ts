@@ -29,7 +29,7 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
     const committedOutflow30d = -in30.filter((i) => i.amount < 0).reduce((a, i) => a + i.amount, 0)
     const committedInflow30d = in30.filter((i) => i.amount > 0).reduce((a, i) => a + i.amount, 0)
 
-    const [closes, fixed, vatRows, incomeNoInv, unpaid, nissim, advMonth, decayed, failed, budgets, settings, existing] = await Promise.all([
+    const [closes, fixed, vatRows, incomeNoInv, unpaid, nissim, advMonth, decayed, failed, budgets, settings, disconnected, existing] = await Promise.all([
       dailyCloses(1),
       listFixedExpenses(),
       sql<{ missing: number; n: number }[]>`
@@ -58,6 +58,8 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
                          where t.category_id = b.category_id and t.nature = 'expense' and to_char(t.date_cash, 'YYYY-MM') = b.period), 0) as spent
         from budgets b join categories c on c.id = b.category_id where b.period = ${month} and b.deleted_at is null`,
       settingValues(['notify_whatsapp_dan', 'notify_email_dan']),
+      sql<{ provider: string; account_label: string; status: string }[]>`
+        select provider, account_label, status from integrations where deleted_at is null and status <> 'connected'`,
       sql<{ id: string; rule_key: string; snoozed_until: string | null }[]>`
         select id, rule_key, to_char(snoozed_until, 'YYYY-MM-DD') as snoozed_until from alerts where resolved_at is null and deleted_at is null`,
     ])
@@ -90,11 +92,13 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
       decayedDeals: decayed.map((d) => ({ dealId: d.id, clientName: d.client_name, daysStale: d.days, ownerUserId: d.owner_user_id ?? undefined })),
       failedJobs: failed.map((j) => ({ jobName: j.job_name, failedAt: j.started_at, error: j.error ?? undefined })),
       budgetOverruns: budgets.map((b) => ({ categoryId: b.category_id, categoryName: b.category_name, spent: b.spent, budget: b.budget })),
+      disconnectedIntegrations: disconnected.map((i) => (i.provider === 'google' ? `Google (${i.account_label})` : i.provider)),
     })
 
     const rec = reconcileAlerts(current, existing.map((e) => ({ ruleKey: e.rule_key, snoozedUntil: e.snoozed_until ?? undefined })))
     const targets = { whatsapp: typeof settings.notify_whatsapp_dan === 'string' ? settings.notify_whatsapp_dan : null, email: typeof settings.notify_email_dan === 'string' ? settings.notify_email_dan : null }
     let queued = 0
+    const toNotify: { alert: Alert; id: string }[] = []
     await withActor(async (tx) => {
       for (const a of rec.toCreate) {
         const [row] = await tx<{ id: string }[]>`
@@ -102,12 +106,21 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
           values (${a.kind}, ${a.ruleKey}, ${a.severity}, ${a.channels}, ${a.title}, ${a.detail ?? null}, ${a.amount ?? null}, ${a.refIds ?? null})
           on conflict (rule_key) where resolved_at is null and deleted_at is null do nothing
           returning id`
-        if (row) queued += await enqueueOutbox(outboxRowsForAlert(a, targets, process.env.APP_BASE_URL ?? ''), { alertId: row.id })
+        if (row) toNotify.push({ alert: a, id: row.id })
+      }
+      // ב.1: "אם ההרשאה נופלת — התראה + משימה 'לחבר מחדש את גוגל'" (rule_key ייחודי, הנחיה 18).
+      for (const i of disconnected) {
+        await tx`
+          insert into tasks (title, due_date, priority, auto_generated, auto_key, notes)
+          values (${`לחבר מחדש את ${i.provider === 'google' ? 'גוגל' : i.provider} (${i.account_label})`}, ${asOf}, 'urgent', true, ${`integration_disconnected:${i.provider}:${i.account_label}`}, 'ADDENDUM ב.1 — ההרשאה נפלה; /settings')
+          on conflict do nothing`
       }
       if (rec.toResolve.length) {
         await tx`update alerts set resolved_at = now(), resolved_note = 'התנאי חדל להתקיים' where rule_key = any(${rec.toResolve}) and resolved_at is null and deleted_at is null`
       }
     })
+    // ה-outbox נכתב אחרי ה-commit של ההתראות (FK alert_id).
+    for (const n of toNotify) queued += await enqueueOutbox(outboxRowsForAlert(n.alert, targets, process.env.APP_BASE_URL ?? ''), { alertId: n.id })
     const flush = queued ? await flushOutbox() : null
     return {
       rowsTouched: rec.toCreate.length + rec.toResolve.length,

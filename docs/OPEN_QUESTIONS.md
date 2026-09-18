@@ -114,6 +114,19 @@ SPEC §4.1: "תנועת-אב אחת (החיוב בבנק, `date_cash`=יום ה�
 
 בקוד: `lib/queries/cashflow.ts`, `loadCashflow` (`vatDue`, `advanceDayOfMonth` ברירת מחדל 19 ב-`lib/rules/cashflow.ts`).
 
+**28. Vault מול הצפנה בשרת — סטייה מ-ב.1 שדורשת אישור**
+
+ב.1: "Refresh token נשמר מוצפן ב-Supabase Vault". המערכת רצה כרגע על Postgres רגיל (Supabase — שלב 10), ואין Vault.
+ההנחה בקוד: הסוד מוצפן AES-256-GCM עם `SECRETS_KEY` שנמצא **רק בסביבת השרת**, ונשמר ב-`integration_secrets`;
+`integrations.vault_secret_id` מצביע עליו, כמו שהיה מצביע על Vault. בלי המפתח ה-DB (וגם הגיבוי שלו) לא חושף כלום.
+המעבר ל-Vault הוא החלפת שתי פונקציות ב-`lib/secrets.ts`. הסכמה = להשאיר כך עד שלב 10.
+
+**29. OAuth client של גוגל — צריך ממך**
+
+ב.1 דורש OAuth של *המשתמש של דן*. כדי שזה יעבוד: פרויקט ב-Google Cloud Console → OAuth consent screen (Internal, אם
+Workspace) → OAuth client (Web) עם redirect `<APP_BASE_URL>/api/google/callback` → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+בלי זה `/settings` מציג "חסר בסביבת השרת" והכפתור מושבת. גם: איזו תיבה לסרוק (#18) ומייל הרו"ח (#19).
+
 ---
 
 ## ~~המגבלה הגדולה: הפיקסצ'ר אינו הקובץ האמיתי~~ — נסגר 18/09/2026
