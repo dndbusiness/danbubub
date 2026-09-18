@@ -43,7 +43,7 @@ export const NAV: (NavItem | 'divider')[] = [
   { href: '/private', label: 'פרייבט', icon: Lock, locked: true, screen: 9, built: false },
   'divider',
   { href: '/fixed-expenses', label: 'הוצאות קבועות', icon: CalendarClock, screen: 6, built: true },
-  { href: '/import', label: 'ייבוא', icon: FileUp, screen: 11, built: false },
+  { href: '/import', label: 'ייבוא', icon: FileUp, screen: 11, built: true },
   { href: '/vat', label: 'מע"מ', icon: Percent, screen: 10, built: false },
   { href: '/payroll', label: 'שכר', icon: Users, screen: 19, built: false },
   { href: '/leads', label: 'לידים', icon: BarChart3, screen: 14, built: false },

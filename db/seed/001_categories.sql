@@ -42,3 +42,9 @@ insert into categories (name, kind, gi_account_key, sort_order) values
   -- כללי
   ('שונות',                'variable', '1390', 90)
 on conflict do nothing;
+
+-- SPEC §4.1 — שורת אשראי שלא זוהתה נכנסת עם review_status=unknown_expense; הוצאה חייבת
+-- קטגוריה (נספח ב #7), אז היא נכנסת לכאן עד שניסים/אביב עונים. לא מופיעה בבחירה הידנית.
+insert into categories (name, kind, gi_account_key, sort_order, active) values
+  ('לא מסווג — ממתין לתשובה', 'variable', '1390', 99, true)
+on conflict do nothing;

@@ -194,6 +194,29 @@ begin
   assert ok, '007 — settings עם מחרוזת JSON לא נחסם';
   raise notice '✓ 007 jsonb מחזיק אובייקט, לא מחרוזת JSON (מפתח חלוקה לא נופל בשקט)';
 
+  -- ── 008: ייבוא אשראי — אותה שורה לא נכנסת פעמיים לאותה אצווה; הוצאה מאושרת חייבת קטגוריה ──
+  declare batch uuid;
+  begin
+    insert into import_batches (source, file_name, file_hash, account_id)
+    values ('card_import', 'test.csv', 'hash-test', acc) returning id into batch;
+    insert into import_rows (batch_id, row_index, source_ref, date, merchant, amount)
+    values (batch, 1, 'card:x:1', '2026-11-01', 'TEST', -10);
+    ok := true;
+    begin
+      insert into import_rows (batch_id, row_index, source_ref, date, merchant, amount)
+      values (batch, 2, 'card:x:1', '2026-11-01', 'TEST', -10);
+      ok := false;
+    exception when unique_violation then null; end;
+    assert ok, '008 — שורת ייבוא כפולה באותה אצווה לא נחסמה';
+    ok := true;
+    begin
+      update import_rows set decision = 'approved' where batch_id = batch;
+      ok := false;
+    exception when check_violation then null; end;
+    assert ok, '008 — הוצאה מאושרת בלי קטגוריה לא נחסמה';
+    raise notice '✓ 008 ייבוא אשראי: dedup בתוך אצווה, הוצאה מאושרת חייבת קטגוריה';
+  end;
+
   raise notice '';
   raise notice 'כל ההבטחות המבניות נאכפות.';
 end;

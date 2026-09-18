@@ -3,6 +3,9 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { classifyTransaction } from '@/app/actions/transactions'
+import { createRuleFrom } from '@/app/actions/imports'
+import { Sparkles } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/data-table'
 import { Money } from '@/components/money'
 import { DivisionPill, InvoicePill, ReviewPill } from '@/components/status-pill'
@@ -18,9 +21,25 @@ export function TransactionsTable({ rows, categories }: { rows: TxRow[]; categor
   const [pending, start] = React.useTransition()
   const [natureFilter, setNature] = React.useState('all')
   const [onlyIssues, setOnlyIssues] = React.useState(false)
+  // SPEC §4.4 — "כל סיווג ידני מציע 'להפוך לכלל?'": אחרי בחירת קטגוריה מוצג הכפתור בשורה.
+  const [rulePrompt, setRulePrompt] = React.useState<string | null>(null)
+  const [toast, setToast] = React.useState<string | null>(null)
 
   function patch(id: string, p: Parameters<typeof classifyTransaction>[1]) {
-    start(async () => { await classifyTransaction(id, p); router.refresh() })
+    start(async () => {
+      await classifyTransaction(id, p)
+      if ('category_id' in p && p.category_id) setRulePrompt(id)
+      router.refresh()
+    })
+  }
+  function makeRule(id: string) {
+    start(async () => {
+      const r = await createRuleFrom({ txId: id })
+      setRulePrompt(null)
+      setToast(r.ok ? `נוצר כלל: ${r.pattern}` : r.error)
+      setTimeout(() => setToast(null), 8_000)
+      router.refresh()
+    })
   }
 
   const filtered = rows.filter((r) =>
@@ -43,15 +62,22 @@ export function TransactionsTable({ rows, categories }: { rows: TxRow[]; categor
       key: 'category_name', header: 'קטגוריה',
       // UIUX §4.5 — ✎ עריכה בשורה. שינוי נשמר מיד.
       cell: (r) => r.locked ? (r.category_name ?? '—') : (
-        <select
-          value={r.category_id ?? ''}
-          onChange={(e) => patch(r.id, { category_id: e.target.value || null })}
-          onClick={(e) => e.stopPropagation()}
-          className={cn('h-8 max-w-[160px] rounded-[var(--radius-btn)] border border-border bg-surface px-2 text-xs', !r.category_id && r.nature === 'expense' && 'border-open')}
-        >
-          <option value="">— ללא —</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <span className="inline-flex items-center gap-1">
+          <select
+            value={r.category_id ?? ''}
+            onChange={(e) => patch(r.id, { category_id: e.target.value || null })}
+            onClick={(e) => e.stopPropagation()}
+            className={cn('h-8 max-w-[160px] rounded-[var(--radius-btn)] border border-border bg-surface px-2 text-xs', !r.category_id && r.nature === 'expense' && 'border-open')}
+          >
+            <option value="">— ללא —</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {rulePrompt === r.id && (
+            <Button size="sm" variant="ghost" title="להפוך לכלל? (SPEC §4.4)" onClick={(e) => { e.stopPropagation(); makeRule(r.id) }}>
+              <Sparkles size={14} /> להפוך לכלל?
+            </Button>
+          )}
+        </span>
       ),
     },
     {
@@ -77,6 +103,7 @@ export function TransactionsTable({ rows, categories }: { rows: TxRow[]; categor
 
   return (
     <div className={cn(pending && 'opacity-70')}>
+      {toast && <div role="status" className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-text text-surface text-sm px-4 py-2 rounded-[var(--radius-btn)] shadow-lg">{toast}</div>}
       <DataTable
         rows={filtered}
         columns={columns}

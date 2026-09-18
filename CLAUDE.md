@@ -96,6 +96,7 @@ node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx> --
 cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
+node scripts/e2e-import.mjs      # מסך 11 מקצה לקצה על הקבצים הסינתטיים ב-tests/fixtures/cards
 ```
 
 ## jsonb: אובייקט, לא מחרוזת
