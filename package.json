@@ -1,0 +1,18 @@
+{
+  "name": "harel-finance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "מערכת הכספים הפנימית של הר-אל — לפי HAREL_FINANCE_SPEC.md",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:build": "node scripts/build-sql.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
