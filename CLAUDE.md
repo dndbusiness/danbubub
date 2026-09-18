@@ -101,8 +101,9 @@ node scripts/e2e-anchor.mjs      # שלב 5: עוגן מהנייד → סגיר�
 node scripts/e2e-intake.mjs      # ב.3: PDF → הצעה → אישור אנושי → חשבונית + שידוך + תבנית ספק
 node scripts/e2e-gaps.mjs        # שלב 6: דף בנק → אימות יתרה → שידוך → חשבונית ירוקה → מע"מ → פערים → שליחה לרו"ח
 node scripts/e2e-partners.mjs    # שלב 7: PIN → 33/33/33 → משיכה → סטייה → "החלק שלי" → פרייבט
-node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 14 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
-#                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import
+node scripts/e2e-wise.mjs        # שלב 8: ייבוא WISE → ערוץ אוטומטי → הגשות → משפך ב-₪ → תחזית
+node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 15 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
+#                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import
 # גוגל (ב.1): GOOGLE_CLIENT_ID/SECRET + SECRETS_KEY ב-.env.local → /settings → "חבר את גוגל"
 ```
 

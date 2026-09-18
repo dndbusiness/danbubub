@@ -15,9 +15,15 @@
  * מקור החוב וקצב ההחזר). המערכת לא כותבת לעצמה מספר שלא אושר.
  */
 alter table partners
-  add column investor_loan_opening numeric(14,2) not null default 0
-    check (investor_loan_opening >= 0),
-  add column investor_loan_note    text;
+  add column if not exists investor_loan_opening numeric(14,2) not null default 0,
+  add column if not exists investor_loan_note    text;
+
+do $$
+begin
+  alter table partners add constraint partners_investor_loan_nonneg
+    check (investor_loan_opening >= 0);
+exception when duplicate_object then null; end;
+$$;
 
 comment on column partners.investor_loan_opening is
   'SPEC §3.5 — יתרת פתיחה של הלוואת משקיע (יוני: 200,000 לפי האפיון). 0 = טרם הוזנה.';

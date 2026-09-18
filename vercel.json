@@ -56,6 +56,10 @@
     {
       "path": "/api/jobs/greeninvoice_import",
       "schedule": "0 6 * * 0"
+    },
+    {
+      "path": "/api/jobs/wise_import",
+      "schedule": "30 6 * * 0"
     }
   ],
   "functions": {

@@ -76,7 +76,7 @@ export async function listBatches(): Promise<BatchRow[]> {
            b.status, b.account_id, a.name as account_name, b.meta, b.applied_at::text, b.created_at::text
     from import_batches b
     left join accounts a on a.id = b.account_id
-    where b.deleted_at is null and b.source in ('card_import', 'bank_import')
+    where b.deleted_at is null and b.source in ('card_import', 'bank_import', 'greeninvoice_import', 'wise_import')
     order by b.created_at desc
     limit 50`
 }

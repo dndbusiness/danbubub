@@ -11,7 +11,7 @@ import { intakeCounts } from '@/lib/queries/intake'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { formatPct } from '@/lib/ui/format'
 import { UploadCard } from './upload'
-import { BankUploadCard, GreenInvoiceUploadCard } from './upload-bank'
+import { BankUploadCard, GreenInvoiceUploadCard, WiseUploadCard } from './upload-bank'
 import { BatchesTable } from './batches'
 import { RulesTable } from './rules'
 
@@ -37,7 +37,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
         <div className="flex items-center gap-3">
           <FileUp size={20} className="text-text-2" />
           <h1 className="text-xl font-semibold">ייבוא</h1>
-          <span className="text-xs text-text-3">כרטיסי אשראי · דף בנק · חשבונית ירוקה · WISE בשלב 8</span>
+          <span className="text-xs text-text-3">כרטיסי אשראי · דף בנק · חשבונית ירוקה · WISE</span>
           <Link href="/import/inbox" className={`ms-auto text-sm underline ${intake.pending ? 'text-open font-medium' : 'text-text-2'}`}>קליטת חשבוניות ממייל / דרייב ({intake.pending})</Link>
         </div>
 
@@ -60,6 +60,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <BankUploadCard accounts={bankAccounts} formats={DEFAULT_BANK_MAPS.map((m) => ({ id: m.id, label: m.label }))} />
           <GreenInvoiceUploadCard />
+          <WiseUploadCard />
         </div>
 
         <section className="flex flex-col gap-3">

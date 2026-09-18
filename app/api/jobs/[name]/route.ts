@@ -10,6 +10,7 @@ import { calendarSyncJob } from '@/lib/jobs/calendar-sync'
 import { accountantPackJob, pnlReportJob, weeklyReportJob } from '@/lib/jobs/reports'
 import { dbBackupJob, dealDecayJob } from '@/lib/jobs/maintenance'
 import { greenInvoiceImportJob } from '@/lib/jobs/greeninvoice'
+import { wiseImportJob } from '@/lib/jobs/wise'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +34,7 @@ const JOBS = {
   deal_decay: (d: string) => dealDecayJob(d),
   db_backup: (d: string) => dbBackupJob(d),
   greeninvoice_import: (d: string) => greenInvoiceImportJob(d),
+  wise_import: (d: string) => wiseImportJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

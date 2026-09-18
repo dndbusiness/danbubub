@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Landmark, Receipt } from 'lucide-react'
-import { uploadBankStatement, uploadGreenInvoice } from '@/app/actions/imports'
+import { Landmark, Receipt, Users } from 'lucide-react'
+import { uploadBankStatement, uploadGreenInvoice, uploadWiseExport } from '@/app/actions/imports'
 import { Button } from '@/components/ui/button'
 import { Field, Select } from '@/components/ui/field'
 import { Card } from '@/components/ui/card'
@@ -117,6 +117,54 @@ export function GreenInvoiceUploadCard() {
         {error && <p className="text-sm text-open" role="alert">{error}</p>}
         {done && <p className="text-sm text-actual" role="status">{done}</p>}
         <Button type="submit" variant="primary" disabled={pending}>{pending ? 'קולט…' : 'קלוט מסמכים'}</Button>
+      </form>
+    </Card>
+  )
+}
+
+const WISE_KIND: Record<string, string> = { leads: 'מתעניינים', customers: 'לקוחות', submissions: 'הגשות לבנקים' }
+
+/** מסך 11 — ייצוא מ-WISE (§4.5). WISE נשארת מקור האמת התפעולי; אנחנו מייבאים ומחברים. */
+export function WiseUploadCard() {
+  const router = useRouter()
+  const [pending, start] = React.useTransition()
+  const [error, setError] = React.useState<string | null>(null)
+  const [done, setDone] = React.useState<string | null>(null)
+  const [warnings, setWarnings] = React.useState<string[]>([])
+
+  function submit(fd: FormData) {
+    setError(null); setDone(null); setWarnings([])
+    start(async () => {
+      const r = await uploadWiseExport(fd)
+      if (!r.ok) { setError(r.error); return }
+      setWarnings(r.warnings)
+      setDone(r.existing
+        ? 'הקובץ הזה כבר יובא — לא נוצרו שורות חדשות.'
+        : `זוהה ייצוא ${WISE_KIND[r.kind] ?? r.kind}: ${r.leadsCreated} לידים חדשים · ${r.leadsUpdated} עודכנו · ${r.dealsCreated} תיקים נוצרו · ${r.dealsLinked} חוברו · ${r.submissionsCreated} הגשות${r.skipped ? ` · ${r.skipped} שורות דולגו` : ''}`)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Users size={18} className="text-text-2" />
+        <h2 className="font-semibold">WISE</h2>
+        <span className="text-xs text-text-3">מתעניינים · לקוחות · הגשות לבנקים — זיהוי אוטומטי לפי הכותרות</span>
+      </div>
+      <form action={submit} className="flex flex-col gap-3">
+        <DropZone hint="ריצה חוזרת מעדכנת סטטוסים ולא מכפילה. שכ״ט, חודש ולוח תשלומים שנערכו אצלנו לא נדרסים (§4.5)." />
+        <Field label="מוצר ברירת מחדל" required hint="ללידים שהגיעו מטופס האתר. ליד מלנדינג הרכב מזוהה לבד לפי האימייל.">
+          <Select name="form_product" defaultValue="mortgage">
+            <option value="mortgage">משכנתא</option>
+            <option value="business_loan">הלוואה עסקית</option>
+            <option value="vehicle_lien">שעבוד רכב</option>
+          </Select>
+        </Field>
+        {error && <p className="text-sm text-open" role="alert">{error}</p>}
+        {done && <p className="text-sm text-actual" role="status">{done}</p>}
+        {warnings.map((w) => <p key={w} className="text-xs text-expected">{w}</p>)}
+        <Button type="submit" variant="primary" disabled={pending}>{pending ? 'קולט…' : 'קלוט ייצוא'}</Button>
       </form>
     </Card>
   )

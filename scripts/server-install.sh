@@ -120,14 +120,36 @@ fi
 chmod 600 "$ENV_FILE"; chown "$APP_USER:$APP_USER" "$ENV_FILE"
 set -a; . "$ENV_FILE"; set +a
 
-# ── 5. סכימה, views, seed — לפי סדר מספרי, בלי לדלג ──────────────────────────
+# ── 5. סכימה, views, seed ────────────────────────────────────────────────────
+# קובצי הסכימה נכתבו ל-DB טרי (alter table add column בלי if not exists), ולכן
+# הם רצים **פעם אחת** ונרשמים ב-schema_migrations. views ו-seed נכתבו כ-
+# create or replace / on conflict ולכן רצים בכל התקנה ומתעדכנים.
 say "סכימה ו-views"
-for f in "$APP_DIR"/db/schema/*.sql "$APP_DIR"/db/views/*.sql "$APP_DIR"/db/seed/*.sql; do
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "נכשל: $f"
+psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -c "
+  create table if not exists schema_migrations (
+    filename   text primary key,
+    hash       text not null,
+    applied_at timestamptz not null default now())" >/dev/null
+
+for f in "$APP_DIR"/db/schema/*.sql; do
+  base="$(basename "$f")"
+  hash="$(sha256sum "$f" | cut -d' ' -f1)"
+  applied="$(psql "$DATABASE_URL" -tAc "select hash from schema_migrations where filename = '$base'")"
+  if [[ -n "$applied" ]]; then
+    [[ "$applied" != "$hash" ]] && warn "$base שונה אחרי שכבר הוחל — לא מורץ מחדש. שינוי סכימה = קובץ חדש עם מספר הבא."
+    continue
+  fi
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "נכשל: $base"
+  psql "$DATABASE_URL" -q -c "insert into schema_migrations (filename, hash) values ('$base', '$hash')" >/dev/null
+  ok "$base"
+done
+
+for f in "$APP_DIR"/db/views/*.sql "$APP_DIR"/db/seed/*.sql; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "נכשל: $(basename "$f")"
 done
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$APP_DIR/db/tests/000_guarantees.sql" >/dev/null \
   || die "ההבטחות המבניות של §11 לא עוברות — לא ממשיכים"
-ok "הסכימה במקום וההבטחות המבניות עוברות"
+ok "views ו-seed עודכנו וההבטחות המבניות עוברות"
 
 # ── 6. בנייה ─────────────────────────────────────────────────────────────────
 say "התקנה ובנייה"

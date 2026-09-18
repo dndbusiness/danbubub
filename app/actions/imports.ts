@@ -8,6 +8,7 @@ import { DEFAULT_COLUMN_MAPS, parseCardStatement, type ColumnMap } from '@/lib/i
 import { DEFAULT_BANK_MAPS, parseBankStatement, type BankColumnMap } from '@/lib/import/bank'
 import { BANK_MATCH, matchTarget } from '@/lib/match/invoices'
 import { loadGreenInvoiceExport } from '@/lib/import/greeninvoice-load'
+import { loadWiseExport } from '@/lib/import/wise-load'
 import { classifyBatch, normalizeDescription, proposeRule } from '@/lib/rules/classify'
 import { isPeriodLocked, vatRateOn } from '@/lib/queries/common'
 import { bankAccountId, existingSourceRefs, getBatch, listRules, unclassifiedCategoryId } from '@/lib/queries/imports'
@@ -521,5 +522,30 @@ export async function uploadGreenInvoice(fd: FormData): Promise<Result<{ created
     if ('error' in r) return { ok: false, error: r.error }
     revalidatePath('/import'); revalidatePath('/gaps'); revalidatePath('/vat'); revalidatePath('/transactions')
     return { ok: true, created: r.created, matched: r.matched, duplicates: r.duplicatesInFile, already: r.alreadyInSystem, partnerReview: r.partnerReview, existing: r.existing }
+  } catch (e) { return { ok: false, error: (e as Error).message } }
+}
+
+/**
+ * מסך 11 — ייצוא מ-WISE (SPEC §4.5). WISE נשארת מקור האמת התפעולי;
+ * אנחנו מייבאים ומחברים, ולא בונים מסכי הזנה מקבילים (הנחיה 13).
+ */
+export async function uploadWiseExport(fd: FormData): Promise<Result<{
+  kind: string; leadsCreated: number; leadsUpdated: number; dealsCreated: number; dealsLinked: number
+  submissionsCreated: number; submissionsUpdated: number; skipped: number; warnings: string[]; existing: boolean
+}>> {
+  const file = fd.get('file')
+  if (!(file instanceof File) || !file.size) return { ok: false, error: 'לא נבחר קובץ' }
+  if (file.size > 20 * 1024 * 1024) return { ok: false, error: 'הקובץ גדול מ-20MB' }
+  const formProduct = str(fd, 'form_product') ?? undefined
+  try {
+    const r = await loadWiseExport(Buffer.from(await file.arrayBuffer()), file.name, { formProduct })
+    if ('error' in r) return { ok: false, error: r.error }
+    revalidatePath('/import'); revalidatePath('/leads'); revalidatePath('/deals'); revalidatePath('/forecast')
+    return {
+      ok: true, kind: r.kind, leadsCreated: r.leadsCreated, leadsUpdated: r.leadsUpdated,
+      dealsCreated: r.dealsCreated, dealsLinked: r.dealsLinked,
+      submissionsCreated: r.submissionsCreated, submissionsUpdated: r.submissionsUpdated,
+      skipped: r.skipped, warnings: r.warnings, existing: r.existing,
+    }
   } catch (e) { return { ok: false, error: (e as Error).message } }
 }
