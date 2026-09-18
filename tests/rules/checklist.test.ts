@@ -34,6 +34,19 @@ describe('תבניות צ\'קליסט — ADDENDUM ב.5', () => {
     expect(t.items.at(-1)!.label).toBe('אישור ניכוי במקור התקבל')
   })
 
+  it('פריסייל — "לא בשלב זה" (ADDENDUM v2, החלטה 3): התבנית קיימת אך כבויה', () => {
+    expect(templateFor('presale')!.enabled).toBe(false)
+    expect(instantiateChecklist('d1', 'presale')).toEqual([])
+    // לעתיד: אפשר לבקש אותה במפורש
+    expect(instantiateChecklist('d1', 'presale', undefined, { includeDisabled: true })).toHaveLength(8)
+  })
+
+  it('תבניות המימון פעילות', () => {
+    for (const product of ['business_credit', 'mortgage_declined', 'vehicle_lien']) {
+      expect(templateFor(product)!.enabled, product).toBe(true)
+    }
+  })
+
   it('מוצר לא מוכר מחזיר רשימה ריקה ולא נופל', () => {
     expect(templateFor('unknown')).toBeUndefined()
     expect(instantiateChecklist('d1', 'unknown')).toEqual([])

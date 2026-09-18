@@ -35,12 +35,18 @@ export interface ChecklistItem {
 export interface ChecklistTemplate {
   product: string
   items: Array<{ label: string; sortOrder: number }>
+  /**
+   * ADDENDUM v2 ב.5, החלטה 3 — תבנית שקיימת "לעתיד" אך אינה בשימוש עכשיו.
+   * תיק במוצר כזה לא מקבל צ'קליסט אוטומטית.
+   */
+  enabled: boolean
 }
 
 /** ADDENDUM ב.5 — תבניות ברירת מחדל, ניתנות לעריכה בהגדרות. */
 export const DEFAULT_CHECKLIST_TEMPLATES: readonly ChecklistTemplate[] = [
   {
     product: 'business_credit',
+    enabled: true,
     items: [
       'הסכם חתום',
       'מקדמה התקבלה',
@@ -57,6 +63,7 @@ export const DEFAULT_CHECKLIST_TEMPLATES: readonly ChecklistTemplate[] = [
   },
   {
     product: 'mortgage_declined',
+    enabled: true,
     items: [
       'הסכם חתום',
       'מקדמה התקבלה',
@@ -73,6 +80,7 @@ export const DEFAULT_CHECKLIST_TEMPLATES: readonly ChecklistTemplate[] = [
   },
   {
     product: 'vehicle_lien',
+    enabled: true,
     items: [
       'הסכם חתום',
       'מסמכי רכב + רישיון',
@@ -85,7 +93,9 @@ export const DEFAULT_CHECKLIST_TEMPLATES: readonly ChecklistTemplate[] = [
     ].map((label, i) => ({ label, sortOrder: i + 1 })),
   },
   {
+    // ADDENDUM v2 ב.5 — "לא בשלב זה (החלטה 3); תבנית לעתיד".
     product: 'presale',
+    enabled: false,
     items: [
       'הסכם תיווך חתום',
       'חוזה דירה נחתם',
@@ -106,14 +116,19 @@ export function templateFor(
   return templates.find((t) => t.product === product)
 }
 
-/** יוצר את פריטי הצ'קליסט לתיק חדש מתוך התבנית. */
+/**
+ * יוצר את פריטי הצ'קליסט לתיק חדש מתוך התבנית.
+ * תבנית לא פעילה (החלטה 3) מחזירה רשימה ריקה, אלא אם `includeDisabled`.
+ */
 export function instantiateChecklist(
   dealId: string,
   product: string,
   templates: readonly ChecklistTemplate[] = DEFAULT_CHECKLIST_TEMPLATES,
+  opts: { includeDisabled?: boolean } = {},
 ): ChecklistItem[] {
   const template = templateFor(product, templates)
   if (!template) return []
+  if (!template.enabled && !opts.includeDisabled) return []
   return template.items.map((item) => ({
     id: `${dealId}:${item.sortOrder}`,
     dealId,
