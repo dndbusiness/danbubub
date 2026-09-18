@@ -65,6 +65,9 @@ run "$WORK/seed.sql" >/dev/null
 echo "→ הבטחות מבניות (SPEC §11)"
 run "$ROOT/db/tests/000_guarantees.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 
+echo "→ הבטחות מבניות (ADDENDUM)"
+run "$ROOT/db/tests/002_addendum.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+
 echo "→ זהות views ↔ lib/rules (SPEC §8)"
 run "$ROOT/db/tests/001_parity.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 

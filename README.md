@@ -3,7 +3,10 @@
 מערכת ווב פנימית שמחליפה את הקובץ הרב-גיליוני של הר-אל פתרונות מימון ואת הגיליון
 הפיננסי של הר-אל השקעות. חשבון בנק אחד, שתי פעילויות, שני מודלי שותפות.
 
-**האפיון המחייב:** [`HAREL_FINANCE_SPEC.md`](./HAREL_FINANCE_SPEC.md)
+**המסמכים המחייבים:**
+[`HAREL_FINANCE_SPEC.md`](./HAREL_FINANCE_SPEC.md) ·
+[`HAREL_FINANCE_SPEC_ADDENDUM.md`](./HAREL_FINANCE_SPEC_ADDENDUM.md) ·
+[`HAREL_FINANCE_UIUX.md`](./HAREL_FINANCE_UIUX.md)
 **מצב הביצוע:** [`docs/STATUS.md`](./docs/STATUS.md)
 **שאלות פתוחות:** [`docs/OPEN_QUESTIONS.md`](./docs/OPEN_QUESTIONS.md)
 
@@ -14,9 +17,9 @@
 
 ```bash
 npm install
-npm test                # 162 בדיקות יחידה — כל נוסחה מ-§3 באפיון
+npm test                # 245 בדיקות יחידה — כל נוסחה מה-SPEC ומה-ADDENDUM
 npm run typecheck
-./scripts/verify-db.sh  # סכימה + views + הבטחות מבניות + זהות מול lib/rules
+./scripts/verify-db.sh  # סכימה + views + 24 הבטחות מבניות + זהות מול lib/rules
 ```
 
 `verify-db.sh` מרים Postgres זמני בעצמו. מול DB קיים:
@@ -29,8 +32,8 @@ PGURL=postgres://user@host/db ./scripts/verify-db.sh
 
 | תיקייה | תוכן |
 |---|---|
-| `lib/rules/` | כל נוסחה מ-§3 כפונקציה טהורה. אין I/O, אין `new Date()` בלי ארגומנט. |
-| `db/schema/` | 28 טבלאות, אילוצים וטריגרים. סדר ההרצה לפי המספר. |
+| `lib/rules/` | כל נוסחה מה-SPEC ומה-ADDENDUM כפונקציה טהורה. אין I/O. |
+| `db/schema/` | 38 טבלאות, אילוצים וטריגרים. סדר ההרצה לפי המספר. |
 | `db/views/` | כל דוח הוא view. אין נוסחה ב-UI. |
 | `db/tests/` | בדיקות שההבטחות המבניות נאכפות, וזהות views ↔ `lib/rules`. |
 | `tests/` | vitest. |
@@ -42,4 +45,8 @@ PGURL=postgres://user@host/db ./scripts/verify-db.sh
 קריטריון הסיום — שלושת חודשי כרטיס ניסים לשקל — עובר, אך על **שחזור** של
 הנתונים ולא על הקובץ המקורי. ההסבר המלא בסוף `docs/OPEN_QUESTIONS.md`.
 
-המסכים, ה-parsers ומנוע ההתאמה טרם נבנו (שלבים 2–10 ב-§9).
+שכבת הליבה מכסה גם את ה-ADDENDUM: צ'קליסט ביצוע (ב.5), גביה וגיול (ב.6),
+מנוע ההתראות (ב.11) והסכימה לאינטגרציות ולאוטומציות.
+
+המסכים, ה-parsers, מנוע ההתאמה ואינטגרציות Google טרם נבנו (שלבים 2–10 ב-§9;
+הנספח משתלב אחרי שלב 5).
