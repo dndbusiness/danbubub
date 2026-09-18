@@ -108,7 +108,7 @@ GOOGLE_CLIENT_SECRET=
 # ב.3 — חילוץ שדות כהצעה בלבד (הנחיה 17)
 ANTHROPIC_API_KEY=
 # ב.8 — וואטסאפ
-GREEN_API_INSTANCE=
+GREEN_API_ID_INSTANCE=
 GREEN_API_TOKEN=
 EOF
   [[ -z "$DOMAIN" ]] && sed -i "s|^APP_BASE_URL=.*|APP_BASE_URL=http://$(hostname -I | awk '{print $1}')|" "$ENV_FILE"
