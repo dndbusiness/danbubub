@@ -30,6 +30,8 @@ const JOBS = [
   ['db_backup', 'גיבוי DB (§6)'],
   ['greeninvoice_import', 'תזכורת ייצוא חשבונית ירוקה (§4.3)'],
   ['wise_import', 'תזכורת ייצוא WISE (§4.5)'],
+  ['payroll_reminder', 'תזכורת אישור שכר (§3.9)'],
+  ['accountant_payroll_send', 'דוח שכר לרו"ח (§3.9)'],
 ]
 
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - [...s].length))

@@ -5,7 +5,7 @@ import { sql } from '@/lib/db'
 export type JobName =
   | 'gmail_scan' | 'drive_intake_scan' | 'day_close' | 'alerts_eval' | 'daily_summary' | 'anchor_reminder'
   | 'calendar_sync' | 'weekly_report' | 'pnl_draft' | 'pnl_final' | 'accountant_pack' | 'deal_decay' | 'db_backup'
-  | 'greeninvoice_import' | 'wise_import'
+  | 'greeninvoice_import' | 'wise_import' | 'payroll_reminder' | 'accountant_payroll_send'
 
 export interface JobOutcome { rowsTouched: number; detail?: Record<string, unknown>; skipped?: string }
 

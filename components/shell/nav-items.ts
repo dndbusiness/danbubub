@@ -47,7 +47,7 @@ export const NAV: (NavItem | 'divider')[] = [
   { href: '/import', label: 'ייבוא', icon: FileUp, screen: 11, built: true },
   { href: '/vat', label: 'מע"מ', icon: Percent, screen: 10, built: true },
   { href: '/gaps', label: 'פערי חשבוניות', icon: FileWarning, screen: 12, built: true },
-  { href: '/payroll', label: 'שכר', icon: Users, screen: 19, built: false },
+  { href: '/payroll', label: 'שכר', icon: Users, screen: 19, built: true },
   { href: '/leads', label: 'לידים', icon: BarChart3, screen: 14, built: true },
   { href: '/forecast', label: 'תחזית', icon: TrendingUp, screen: 13, built: true },
   { href: '/tasks', label: 'משימות', icon: CheckSquare, screen: 15, built: false },

@@ -11,6 +11,7 @@ import { accountantPackJob, pnlReportJob, weeklyReportJob } from '@/lib/jobs/rep
 import { dbBackupJob, dealDecayJob } from '@/lib/jobs/maintenance'
 import { greenInvoiceImportJob } from '@/lib/jobs/greeninvoice'
 import { wiseImportJob } from '@/lib/jobs/wise'
+import { accountantPayrollSendJob, payrollReminderJob } from '@/lib/jobs/payroll'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,8 @@ const JOBS = {
   db_backup: (d: string) => dbBackupJob(d),
   greeninvoice_import: (d: string) => greenInvoiceImportJob(d),
   wise_import: (d: string) => wiseImportJob(d),
+  payroll_reminder: (d: string) => payrollReminderJob(d),
+  accountant_payroll_send: (d: string) => accountantPayrollSendJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

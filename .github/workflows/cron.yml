@@ -20,6 +20,8 @@ on:
     - cron: '0 0 * * *'       # 03:00 — db_backup
     - cron: '0 6 * * 0'       # א' 09:00 — greeninvoice_import (ידני שבועי)
     - cron: '30 6 * * 0'      # א' 09:30 — wise_import (ידני שבועי)
+    - cron: '0 6 27 * *'      # 27 לחודש 09:00 — payroll_reminder
+    - cron: '0 7 30,1,2,3 * *' # 30 ועד ה-3, 10:00 — accountant_payroll_send
   workflow_dispatch:
     inputs:
       job:
@@ -62,5 +64,7 @@ jobs:
             '0 0 * * *')    run_job db_backup ;;
             '0 6 * * 0')    run_job greeninvoice_import ;;
             '30 6 * * 0')   run_job wise_import ;;
+            '0 6 27 * *')   run_job payroll_reminder ;;
+            '0 7 30,1,2,3 * *') run_job accountant_payroll_send ;;
             *) echo "אין ג׳וב לתזמון $CRON" ;;
           esac
