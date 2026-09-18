@@ -49,7 +49,8 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
           <h1 className="text-xl font-semibold">תנועות — {formatMonth(period)}</h1>
           <span className="text-xs text-text-3">{rows.length} שורות</span>
           <div className="ms-auto">
-            <NewTransactionForm categories={categories} accounts={accounts} vatRate={vatRate} trigger={<Button variant="primary"><Plus size={16} /> תנועה חדשה</Button>} />
+            <NewTransactionForm categories={categories} accounts={accounts} vatRate={vatRate} trigger={<Button variant="primary"><Plus size={16} /> תנועה חדשה</Button>}
+              defaults={sp.quick === 'new' ? { open: true, amount: Number(sp.amount) || undefined, date: typeof sp.date === 'string' ? sp.date : undefined, dailyCloseId: typeof sp.close === 'string' ? sp.close : undefined } : undefined} />
           </div>
         </div>
 

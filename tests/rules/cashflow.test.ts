@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   averageRecentAdvances,
   computeCashflow13w,
+  closeDay,
   computeDailyClose,
   isAnchorStale,
 } from '@/lib/rules/cashflow.js'
@@ -150,5 +151,37 @@ describe('סגירת יום ועוגן — SPEC §3.6', () => {
 
   it('אין היסטוריית מקדמות → 0, לא חלוקה באפס', () => {
     expect(averageRecentAdvances([], '2026-10')).toBe(0)
+  })
+})
+
+describe('סגירת יום מלאה — closeDay (SPEC §3.6)', () => {
+  it('העוגן הראשון: אין מה לסגור', () => {
+    const r = closeDay({ date: '2026-09-14', previousAnchor: null, actual: 100_000, committedBetween: 0, recordedBetween: 0, threshold: 1_500 })
+    expect(r.status).toBe('ok')
+    expect(r.variance).toBe(0)
+  })
+
+  it('צפי = עוגן קודם + ודאי; סטייה = בפועל − צפי', () => {
+    const r = closeDay({ date: '2026-09-15', previousAnchor: 100_000, actual: 90_000, committedBetween: -8_000, recordedBetween: -8_000, threshold: 1_500 })
+    expect(r.predicted).toBe(92_000)
+    expect(r.variance).toBe(-2_000)
+    expect(r.exceedsThreshold).toBe(true)
+    // אבל כל התנועה מוסברת פרט ל-2,000 שאף אחד לא רשם
+    expect(r.unexplained).toBe(-2_000)
+    expect(r.status).toBe('open')
+  })
+
+  it('סטייה קטנה מהסף ותנועות רשומות → ok, לא נכנס לתור', () => {
+    const r = closeDay({ date: '2026-09-15', previousAnchor: 100_000, actual: 91_500, committedBetween: -8_000, recordedBetween: -8_500, threshold: 1_500 })
+    expect(r.variance).toBe(-500)
+    expect(r.unexplained).toBe(0)
+    expect(r.status).toBe('ok')
+  })
+
+  it('התזרים צדק אבל התנועה לא נרשמה → variance 0, unexplained מלא → תור', () => {
+    const r = closeDay({ date: '2026-09-15', previousAnchor: 100_000, actual: 92_000, committedBetween: -8_000, recordedBetween: 0, threshold: 1_500 })
+    expect(r.variance).toBe(0)
+    expect(r.unexplained).toBe(-8_000)
+    expect(r.status).toBe('open')
   })
 })

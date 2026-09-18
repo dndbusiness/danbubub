@@ -311,6 +311,48 @@ export function computeDailyClose(
   }
 }
 
+export interface DayCloseInput {
+  date: IsoDate
+  /** העוגן הקודם; null = העוגן הראשון במערכת (אין מה לסגור). */
+  previousAnchor: Shekels | null
+  previousAnchorDate?: IsoDate | null
+  /** העוגן שהוזן היום. */
+  actual: Shekels
+  /** Σ פריטים ודאיים מהלוח (§3.6) שהיו אמורים להתממש בין העוגנים. */
+  committedBetween: Shekels
+  /** Σ תנועות בפועל שנרשמו במערכת בין העוגנים (v_tx_cash). */
+  recordedBetween: Shekels
+  threshold: Shekels
+}
+
+export interface DayCloseResult extends DailyCloseResult {
+  previousAnchor: Shekels | null
+  recorded: Shekels
+  /** actual − (previousAnchor + recorded): כסף שזז ואף אחד לא רשם — זה מה שנכנס לתור "מה קרה?". */
+  unexplained: Shekels
+  /** ok = אין מה לברר; open = נכנס לתור. */
+  status: 'ok' | 'open'
+}
+
+/**
+ * סגירת יום מלאה: הסטייה מול הצפי (ההתראה של §3.6) ובנפרד מה שלא מוסבר
+ * ע"י תנועות שנרשמו (התור). שני המספרים נשמרים כי הם עונים על שאלות שונות:
+ * "התזרים טעה?" מול "מישהו שכח לרשום?".
+ */
+export function closeDay(input: DayCloseInput): DayCloseResult {
+  const prev = input.previousAnchor
+  if (prev === null) {
+    return {
+      date: input.date, predicted: round2(input.actual), actual: round2(input.actual), variance: 0,
+      exceedsThreshold: false, previousAnchor: null, recorded: round2(input.recordedBetween), unexplained: 0, status: 'ok',
+    }
+  }
+  const base = computeDailyClose(addMoney(prev, input.committedBetween), input.actual, input.date, input.threshold)
+  const unexplained = subMoney(input.actual, addMoney(prev, input.recordedBetween))
+  const open = base.exceedsThreshold || Math.abs(unexplained) > Math.abs(input.threshold)
+  return { ...base, previousAnchor: round2(prev), recorded: round2(input.recordedBetween), unexplained, status: open ? 'open' : 'ok' }
+}
+
 /**
  * SPEC §3.6 — "עוגן לא עודכן 48 שעות".
  */

@@ -2,22 +2,26 @@
 
 import * as React from 'react'
 import { createTransaction } from '@/app/actions/transactions'
+import { resolveDailyClose } from '@/app/actions/cashflow'
 import { ActionDrawerForm, AmountField } from '@/components/forms/action-form'
 import { Field, Input, Select } from '@/components/ui/field'
 import { NATURE_LABELS } from '@/lib/ui/format'
 import type { AccountRow, CategoryRow } from '@/lib/queries/common'
 
-export function NewTransactionForm({ trigger, categories, accounts, vatRate }: {
+export function NewTransactionForm({ trigger, categories, accounts, vatRate, defaults }: {
   trigger: React.ReactNode; categories: CategoryRow[]; accounts: AccountRow[]; vatRate: number
+  /** קישור עמוק (למשל "סווג" מסגירת יום): נפתח מיד עם סכום/תאריך, ובשמירה סוגר את הסטייה. */
+  defaults?: { amount?: number; date?: string; dailyCloseId?: string; open?: boolean }
 }) {
   const [nature, setNature] = React.useState('expense')
   const [division, setDivision] = React.useState('finance')
   const [split, setSplit] = React.useState(80)
 
   return (
-    <ActionDrawerForm trigger={trigger} title="תנועה חדשה" action={createTransaction}>
+    <ActionDrawerForm trigger={trigger} title="תנועה חדשה" action={createTransaction} openOnMount={defaults?.open}
+      onSaved={(id) => { if (defaults?.dailyCloseId && id) void resolveDailyClose(defaults.dailyCloseId, { status: 'classified', txId: id, note: 'סווג מסגירת יום' }) }}>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="תאריך" required><Input name="date_cash" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></Field>
+        <Field label="תאריך" required><Input name="date_cash" type="date" required defaultValue={defaults?.date ?? new Date().toISOString().slice(0, 10)} /></Field>
         <Field label="חשבון" required><Select name="account_id" required>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
       </div>
       <Field label="סוג" required>
@@ -25,7 +29,7 @@ export function NewTransactionForm({ trigger, categories, accounts, vatRate }: {
           {Object.entries(NATURE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select>
       </Field>
-      <AmountField vatRate={vatRate} />
+      <AmountField vatRate={vatRate} defaultValue={defaults?.amount} />
       {/* UIUX §4.6 בורר division: שלושה רדיו צבעוניים; "משותף" פותח slider */}
       <fieldset className="flex flex-col gap-2">
         <legend className="text-sm text-text-2">פעילות</legend>

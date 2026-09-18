@@ -63,7 +63,7 @@ docs/             OPEN_QUESTIONS.md, STATUS.md
 npm install
 npm test               # בדיקות היחידה של כל נוסחה ב-§3
 npm run typecheck
-./scripts/verify-db.sh # סכימה + views + 25 הבטחות מבניות + זהות מול lib/rules
+./scripts/verify-db.sh # סכימה + views + 26 הבטחות מבניות + זהות מול lib/rules
 ```
 
 `verify-db.sh` מרים Postgres זמני. מול DB קיים: `PGURL=postgres://… ./scripts/verify-db.sh`.
@@ -97,6 +97,8 @@ cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
 node scripts/e2e-import.mjs      # מסך 11 מקצה לקצה על הקבצים הסינתטיים ב-tests/fixtures/cards
+node scripts/e2e-anchor.mjs      # שלב 5: עוגן מהנייד → סגירת יום → התראות → תזרים → דף הבית
+node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local)
 ```
 
 ## jsonb: אובייקט, לא מחרוזת

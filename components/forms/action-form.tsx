@@ -19,6 +19,7 @@ export function ActionDrawerForm({
   children,
   submitLabel = 'שמור',
   onSaved,
+  openOnMount = false,
 }: {
   trigger: React.ReactNode
   title: string
@@ -26,9 +27,11 @@ export function ActionDrawerForm({
   children: React.ReactNode
   submitLabel?: string
   onSaved?: (id?: string) => void
+  /** נפתח מיד — לקישורים עמוקים כמו "סווג" מסגירת יום (?quick=new). */
+  openOnMount?: boolean
 }) {
   const router = useRouter()
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpen] = React.useState(openOnMount)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, start] = React.useTransition()
   const [toast, setToast] = React.useState<string | null>(null)
@@ -69,8 +72,8 @@ export function ActionDrawerForm({
 }
 
 /** UIUX §4.6 שדה סכום: "ללא מע"מ · מע"מ 2,160 · כולל 14,160" מתעדכנת חי + מתג "כולל מע"מ". */
-export function AmountField({ vatRate, name = 'amount', required = true }: { vatRate: number; name?: string; required?: boolean }) {
-  const [raw, setRaw] = React.useState('')
+export function AmountField({ vatRate, name = 'amount', required = true, defaultValue }: { vatRate: number; name?: string; required?: boolean; defaultValue?: number }) {
+  const [raw, setRaw] = React.useState(defaultValue ? String(defaultValue) : '')
   const [incl, setIncl] = React.useState(false)
   const n = Number(raw.replace(/[,\s]/g, '')) || 0
   const net = incl ? n / (1 + vatRate) : n

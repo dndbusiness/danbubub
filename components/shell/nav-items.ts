@@ -31,11 +31,11 @@ export interface NavItem {
 
 /** UIUX §3.1 — סדר התפריט הימני. */
 export const NAV: (NavItem | 'divider')[] = [
-  { href: '/', label: 'מצב החברה', icon: Building2, screen: 21, built: false },
+  { href: '/', label: 'מצב החברה', icon: Building2, screen: 21, built: true },
   { href: '/deals', label: 'תיקים', icon: Briefcase, screen: 4, built: true },
   { href: '/transactions', label: 'תנועות', icon: Receipt, screen: 5, built: true },
   { href: '/pnl', label: 'רווח והפסד', icon: BarChart3, screen: 2, built: true },
-  { href: '/cashflow', label: 'תזרים', icon: TrendingUp, screen: 3, built: false },
+  { href: '/cashflow', label: 'תזרים', icon: TrendingUp, screen: 3, built: true },
   { href: '/collections', label: 'גביה', icon: Coins, screen: 20, built: false },
   'divider',
   { href: '/nissim', label: 'ניסים', icon: Lock, locked: true, screen: 7, built: true },
