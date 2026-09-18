@@ -4,6 +4,8 @@ import { dayCloseJob } from '@/lib/jobs/day-close'
 import { alertsEvalJob } from '@/lib/jobs/alerts-eval'
 import { anchorReminderJob } from '@/lib/jobs/anchor-reminder'
 import { dailySummaryJob } from '@/lib/jobs/daily-summary'
+import { gmailScanJob } from '@/lib/jobs/gmail-scan'
+import { driveIntakeScanJob } from '@/lib/jobs/drive-intake-scan'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +19,8 @@ const JOBS = {
   alerts_eval: (d: string) => alertsEvalJob(d),
   anchor_reminder: (d: string) => anchorReminderJob(d),
   daily_summary: (d: string) => dailySummaryJob(d),
+  gmail_scan: (d: string) => gmailScanJob(d),
+  drive_intake_scan: (d: string) => driveIntakeScanJob(d),
 } as const
 
 function authorized(req: Request): boolean {

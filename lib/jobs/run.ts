@@ -1,7 +1,7 @@
 import { sql } from '@/lib/db'
 
 /** חלק ג' — "כל ריצה נרשמת ב-scheduled_jobs_log (התחלה, סיום, סטטוס, שורות שנגעו, שגיאה)". */
-export type JobName = 'day_close' | 'alerts_eval' | 'anchor_reminder' | 'daily_summary' | 'weekly_report' | 'deal_decay'
+export type JobName = 'day_close' | 'alerts_eval' | 'anchor_reminder' | 'daily_summary' | 'gmail_scan' | 'drive_intake_scan' | 'calendar_sync' | 'weekly_report' | 'deal_decay'
 
 export interface JobOutcome { rowsTouched: number; detail?: Record<string, unknown>; skipped?: string }
 

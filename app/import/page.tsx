@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { DEFAULT_COLUMN_MAPS } from '@/lib/import/credit-card'
 import { activeAlertCount } from '@/lib/queries/common'
 import { automationRate, listBatches, listCardAccounts, listEntities, listRuleRows } from '@/lib/queries/imports'
+import { intakeCounts } from '@/lib/queries/intake'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { formatPct } from '@/lib/ui/format'
 import { UploadCard } from './upload'
@@ -22,8 +23,8 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams
   const now = new Date().toISOString()
   const { period, division } = readGlobalParams(sp, now)
-  const [batches, accounts, entities, rules, auto, alerts] = await Promise.all([
-    listBatches(), listCardAccounts(), listEntities(), listRuleRows(), automationRate(), activeAlertCount(),
+  const [batches, accounts, entities, rules, auto, alerts, intake] = await Promise.all([
+    listBatches(), listCardAccounts(), listEntities(), listRuleRows(), automationRate(), activeAlertCount(), intakeCounts(),
   ])
   const pendingBatches = batches.filter((b) => b.status === 'review')
 
@@ -35,6 +36,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
           <FileUp size={20} className="text-text-2" />
           <h1 className="text-xl font-semibold">ייבוא</h1>
           <span className="text-xs text-text-3">כרטיסי אשראי · בנק וחשבונית ירוקה בשלב 6 · WISE בשלב 8</span>
+          <Link href="/import/inbox" className={`ms-auto text-sm underline ${intake.pending ? 'text-open font-medium' : 'text-text-2'}`}>קליטת חשבוניות ממייל / דרייב ({intake.pending})</Link>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

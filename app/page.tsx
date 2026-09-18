@@ -98,7 +98,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               <Line href="/cashflow" label="סגירות יום פתוחות" n={counts.open_closes} />
               <Line href="/tasks" label="משימות באיחור" n={counts.overdue_tasks} />
               <Line href="/questions" label="שאלות לשותפים" n={counts.open_questions} />
-              <Line href="/import" label="במייל לאישור" n={counts.inbox_pending} />
+              <Line href="/import/inbox" label="במייל לאישור" n={counts.inbox_pending} />
             </ul>}
             drillTitle="התראות פעילות" drill={<ul className="divide-y divide-border text-sm">{alerts.map((a) => <li key={a.id} className="py-1 flex justify-between gap-2"><span>{a.title}</span><span className="text-xs text-text-3">{a.severity === 'critical' ? 'קריטי' : a.severity === 'high' ? 'גבוה' : 'מידע'}</span></li>)}{!alerts.length && <li className="text-text-3 py-1">אין התראות פעילות</li>}<li className="pt-2"><Link href="/alerts" className="underline">לכל ההתראות</Link></li></ul>} />
         </div>

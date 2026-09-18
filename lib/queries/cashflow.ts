@@ -93,13 +93,22 @@ export async function loadCashflow(asOf: string, anchorOverride?: AnchorRow): Pr
 
   const expectedAdvance = averageRecentAdvances(advances.map((a) => ({ id: a.id, date: a.date, amountGross: a.amount_gross, method: a.method, period: a.period })), monthOf(asOf))
 
+  // ב.3 שלב 5 — חשבונית שהתקבלה ולא שודכה = הוצאה ודאית בתאריך היעד (או +30 יום).
+  const unpaid = await sql<{ id: string; date: string; label: string; amount: number }[]>`
+    select i.id, to_char(coalesce(i.due_date, i.date + 30), 'YYYY-MM-DD') as date, coalesce(s.name, i.counterparty, 'חשבונית') || ' — חשבונית ' || coalesce(i.doc_number, '') as label, i.amount_gross as amount
+    from invoices i left join suppliers s on s.id = i.supplier_id
+    where i.direction = 'received' and i.matched_tx_id is null and i.deleted_at is null and coalesce(i.due_date, i.date + 30) >= ${anchor.date}`
+
   const result = computeCashflow13w({
     anchor: { date: anchor.date, accountId: anchor.account_id, balance: anchor.balance, availableCredit: anchor.available_credit ?? undefined, source: anchor.source as Balance['source'] },
     plans: plans.map((p): DealPaymentPlan => ({ id: p.id, dealId: p.deal_id, label: p.label, amountNet: p.amount_net, expectedDate: p.expected_date, certainty: p.certainty, probability: p.probability, matchedTxId: p.matched_tx_id })),
     deals: deals.map((d): Deal => ({ id: d.id, clientName: d.client_name, division: d.division, product: d.product, stage: d.stage as Deal['stage'], collectionStatus: d.collection_status as Deal['collectionStatus'], feeAgreedNet: d.fee_agreed_net, feeMode: 'fixed', status: d.status as Deal['status'], probabilityOverride: d.probability_override ?? undefined, lastActivityAt: d.last_activity_at ?? undefined })),
     fixedExpenses: fixed.map((f): FixedExpense => ({ id: f.id, name: f.name, categoryId: f.category_id, division: f.division as FixedExpense['division'], divisionSplit: f.division_split ?? undefined, amountNet: f.amount_net, vatMode: f.vat_mode as FixedExpense['vatMode'], frequency: f.frequency as FixedExpense['frequency'], dayOfMonth: f.day_of_month, accountId: f.account_id, variable: f.variable, approvedByNissim: f.approved_by_nissim, startDate: f.start_date, endDate: f.end_date ?? undefined, active: f.active })),
     expectedAdvance,
-    taxItems: vatDue ? [{ date: vatDue.date, label: 'מע"מ לתשלום', amount: -vatDue.amount }] : [],
+    taxItems: [
+      ...(vatDue ? [{ date: vatDue.date, label: 'מע"מ לתשלום', amount: -vatDue.amount }] : []),
+      ...unpaid.map((u) => ({ date: u.date, label: u.label, amount: -Math.abs(u.amount) })),
+    ],
     stageProbabilities: probSetting[0]?.value && typeof probSetting[0].value === 'object' ? (probSetting[0].value as Record<Deal['stage'], number>) : {},
   })
   const items = result.weeks.flatMap((w) => w.items).sort((a, b) => a.date.localeCompare(b.date))
