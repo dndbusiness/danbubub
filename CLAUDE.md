@@ -63,7 +63,7 @@ docs/             OPEN_QUESTIONS.md, STATUS.md
 npm install
 npm test               # בדיקות היחידה של כל נוסחה ב-§3
 npm run typecheck
-./scripts/verify-db.sh # סכימה + views + 12 הבטחות מבניות + זהות מול lib/rules
+./scripts/verify-db.sh # סכימה + views + 24 הבטחות מבניות + זהות מול lib/rules
 ```
 
 `verify-db.sh` מרים Postgres זמני. מול DB קיים: `PGURL=postgres://… ./scripts/verify-db.sh`.
@@ -81,6 +81,21 @@ npm run typecheck
 
 ירוק = בפועל · כחול = ודאי צפוי · כתום = פוטנציאל · אדום = פתוח/חסר/באיחור · אפור = נעול.
 **קבועים בכל המערכת ולעולם לא משמשים למשהו אחר.**
+
+## נדל"ן = כסף, לא תפעול (החלטה 3, הובהרה ע"י דן)
+
+עסקת נדל"ן במערכת: לקוח, סכום עסקה, 2%+מע"מ שכ"ט, ~1% כולל מע"מ עמלת יזם ב-שוטף+30,
+הוצאות ישירות, פוטנציאל/סגור. **אין** שלבים, צ'קליסט או הגשות לנדל"ן. ההתחשבנות
+33/33/33, המשיכות וההוצאות הקבועות של נדל"ן — כן.
+
+## הרצת ה-UI
+
+```bash
+./scripts/dev-db.sh start        # Postgres מקומי + סכימה + views + קטגוריות + seed משוחזר
+cp .env.example .env.local        # DATABASE_URL
+npm run dev                       # http://localhost:3000/ui-kit
+npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
+```
 
 ## שתי הגדרות רווח — לא לאחד ביניהן
 
