@@ -16,7 +16,7 @@ export interface DeliveryTargets {
 }
 
 export interface OutboxRow {
-  channel: 'whatsapp' | 'email'
+  channel: 'whatsapp' | 'email' | 'calendar'
   target: string
   subject: string | null
   body: string

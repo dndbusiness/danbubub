@@ -252,14 +252,15 @@
 |---|---|---|
 | **ב.3 קליטת חשבוניות** | **צינור אחד** לשלושה מקורות (`lib/intake/pipeline.ts`): Gmail (`gmail_scan`, שאילתת ב.3 + תווית "כספים/לקליטה", תיוג "נקלט"/"נכשל"), תיקיית Drive "00_להזנה" (`drive_intake_scan`), והעלאה ידנית מהנייד (`/import/inbox`, מצלמה). שלבים: שמירת הקובץ → סינון (חשבונית / דף פירוט → תור הייבוא / לא ידוע) → PDF→טקסט (pdf-parse) → חילוץ: **תבנית ספק** (נלמדת מהמסמך הראשון שאושר) → **כללים** (עברית/אנגלית, כולל RTL הפוך של pdf-parse) → **LLM** (Claude, structured output, רק לספק לא מוכר/ביטחון נמוך, `ANTHROPIC_API_KEY`) → `inbox_candidates` pending עם `verified=false` → משימה "חשבונית לאישור" (rule_key `inbox:<id>`). **"נכון ✓" = האישור האנושי** (הנחיה 17, נאכף ב-DB): `invoices(received)` → **שידוך** (`lib/match/invoices.ts`, §4.2: ±1 ₪, ±30 יום, ספק מנורמל; מלאה/מועמדים/ללא) → `transactions.invoice_status=has_invoice` → תבנית לספק → **העברה לחשבונית ירוקה** דרך outbox (אם `settings.greeninvoice_intake_email`; לא אם המסמך כבר בייצוא שלה) → המשימה נסגרת. חשבונית ללא תנועה → **תזרים** כ-committed בתאריך היעד. דרייב `חשבוניות/received/YYYY/MM/{תאריך}_{ספק}_{סכום}.pdf` כשמחובר | **✔ נבדק מקצה לקצה** (`scripts/e2e-intake.mjs`, 390px): PDF סינתטי → 100% חילוץ → אישור → חשבונית + שידוך + תבנית + משימה נסגרה → כפילות נחסמת. סריקת Gmail/Drive רצה רק אחרי חיבור גוגל |
 
+| **ב.2 יומן** | `lib/rules/calendar-events.ts` (טהור, 10 בדיקות): כל 12 סוגי האירועים מהטבלה של ב.2 ל-60 יום — סגירת חודש (30, דן+ניסים, עם החריגים החיים), העברה (10, הסכום מהסגירה), מקדמה (18), אישור שכר (27, מי בטיוטה), תשלום שכר, סגירה לרו"ח (12, דן+הדס, צ'קליסט ✓/✗), מע"מ (15 / דו-חודשי), חיוב כרטיס לפי `billing_day`, דוח שבועי (ו'), תקבול committed (דן+הדס, "מה חסר"), תיק נרקב (לאחראי), עוגן. כל אירוע `[כספים]` + `rule_key` ב-`extendedProperties.private` → upsert ולא כפילות; fingerprint מונע עדכון סתם. **דרך outbox** (ערוץ `calendar`, הנחיה 16) → `lib/google/calendar.ts`. ג'וב `calendar_sync` (07:00). הגדרות במסך 18: יומנים (ראשי של הר-אל + אישי של דן), מיילים של ניסים/הדס, ימי מפתח. קריאת פגישות לשכר: `isEmployeeMeeting` + `listEvents` — החיבור למסך 19 בשלב 8b | **◐ רץ מקומית: 25 אירועים תוכננו ונכנסו ל-outbox, ריצה שנייה = 0 חדשים; הכתיבה ליומן מחכה לחיבור גוגל** |
+
 **מה חסר ב-ב.3:** OCR עברי לסרוקים (#31 — עד אז: LLM על ה-PDF עצמו אם יש מפתח, אחרת "נדרש OCR" והזנה ידנית) · תיקיית "להזנה" דורשת `drive.readonly` (#30) · ייצוא חשבונית ירוקה לזיהוי כפילויות (שלב 6).
 
 **⚠ סטייה לאישור (#28):** ADDENDUM ב.1 אומר "Supabase Vault". בשלב הנוכחי (Postgres רגיל) המקבילה היא הצפנה עם מפתח שיושב רק בשרת. המעבר ל-Vault = החלפת `seal/open` ב-`lib/secrets.ts`.
 
 ## מה **לא** נבנה ולמה
 
-- **ב.2 (יומן).** הבא בתור לפי הנחיה 19.
-- **11 ג'ובים מחלק ג'** עדיין לא רצים (calendar_sync, weekly_report, pnl_*, accountant_*, payroll_*, deal_decay, db_backup, reports_to_drive, cold_backup). 6 רצים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan.
+- **10 ג'ובים מחלק ג'** עדיין לא רצים (weekly_report, pnl_*, accountant_*, payroll_*, deal_decay, db_backup, reports_to_drive, cold_backup). 7 רצים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan, calendar_sync.
 - **ה-parsers של בנק, חשבונית ירוקה ו-WISE (§4.2, §4.3, §4.5).** שלבים 6 ו-8. parser האשראי (§4.1) קיים
   אבל מיפויי העמודות מחכים לקובץ אמיתי (שאלה #1).
 - **מנוע ההתאמה (§4.2).** `lib/match/` ריק. הטבלאות (`import_batches`, `source_ref`) מוכנות.
@@ -274,6 +275,6 @@
 3. לסגור את ספטמבר: חודש ל-7 התיקים החוסמים + הכרעה #23 (שלב 3).
 4. הכרעות #25–#27.
 5. **לחבר את גוגל:** OAuth client ב-Google Cloud Console (redirect `<APP_BASE_URL>/api/google/callback`), `GOOGLE_CLIENT_ID/SECRET` + `SECRETS_KEY` בשרת, ואז "חבר את גוגל" ב-`/settings`. עד אז המיילים ממתינים ב-outbox.
-6. הנספח ממשיך: ב.2 (יומן) → ב.5+ב.6 (מסך 20) → ב.7 → ב.11 מלא, ואז שלב 6. ל-ב.3 מול מיילים אמיתיים: ANTHROPIC_API_KEY בשרת (LLM כהצעה) ו-`greeninvoice_intake_email` בהגדרות.
+6. הנספח ממשיך: ב.5+ב.6 (מסך 20 גביה) → ב.7 (דוח שבועי, P&L אוטומטי, צ'קליסט לרו"ח) → ב.11 מלא, ואז שלב 6. ל-ב.3 מול מיילים אמיתיים: ANTHROPIC_API_KEY בשרת (LLM כהצעה) ו-`greeninvoice_intake_email` בהגדרות.
 
 הנספח (ב.1–ב.11) נכנס אחרי שלב 5, לפי ADDENDUM הנחיה 19.

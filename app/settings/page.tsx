@@ -10,6 +10,8 @@ import { settingValues } from '@/lib/queries/cashflow'
 import { sql } from '@/lib/db'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { GoogleCard } from './google-card'
+import { CalendarCard } from './calendar-card'
+import { hasScope } from '@/lib/google/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +20,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams
   const { period, division } = readGlobalParams(sp, new Date().toISOString())
   const [alerts, integ, jobs, s, reports] = await Promise.all([
-    activeAlertCount(), googleIntegration(), lastJobRuns(), settingValues(['notify_whatsapp_dan', 'notify_email_dan']),
+    activeAlertCount(), googleIntegration(), lastJobRuns(), settingValues(['notify_whatsapp_dan', 'notify_email_dan', 'notify_email_nissim', 'notify_email_hadas', 'calendar_ids', 'payroll_pay_day', 'payroll_approval_day', 'accountant_close_day', 'vat_day', 'vat_bimonthly', 'greeninvoice_intake_email']),
     sql<{ id: string; report_type: string; period: string | null; file_url: string | null; recipients: string[]; sent_at: string | null; created_at: string }[]>`
       select id, report_type, period, file_url, recipients, sent_at::text, created_at::text from report_runs where deleted_at is null order by created_at desc limit 15`,
   ])
@@ -36,6 +38,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div className="flex items-center gap-3"><Settings size={20} className="text-text-2" /><h1 className="text-xl font-semibold">הגדרות</h1></div>
 
         <GoogleCard integ={integ} env={env} notice={notice} />
+        <CalendarCard values={s} calendarConnected={hasScope(integ, 'https://www.googleapis.com/auth/calendar.events')} />
 
         <Card className="flex flex-col gap-2">
           <h2 className="font-semibold">ערוצים ומפתחות</h2>
@@ -50,8 +53,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <Card className="flex flex-col gap-2">
           <div className="flex items-center gap-2"><Activity size={16} className="text-text-2" /><h2 className="font-semibold">בריאות המערכת — 7 ימים</h2><span className="text-xs text-text-3">ADDENDUM חלק ג׳ · scheduled_jobs_log</span></div>
           {jobs.length ? (
-            <table className="text-sm w-full"><thead className="text-xs text-text-2"><tr><th className="text-start p-1">ג׳וב</th><th className="text-end p-1">ריצות</th><th className="text-end p-1">הצליחו</th><th className="text-end p-1">נכשלו</th><th className="text-start p-1">אחרונה</th><th className="text-start p-1">שגיאה אחרונה</th></tr></thead>
-              <tbody>{jobs.map((j) => <tr key={j.job_name} className="border-t border-border"><td className="p-1 font-mono text-xs" dir="ltr">{j.job_name}</td><td className="p-1 text-end tnum">{j.runs_7d}</td><td className="p-1 text-end tnum text-actual">{j.succeeded}</td><td className={`p-1 text-end tnum ${j.failed ? 'text-open' : ''}`}>{j.failed}</td><td className="p-1 text-xs">{j.last_run_at?.slice(0, 16).replace('T', ' ')}</td><td className="p-1 text-xs text-open truncate max-w-[220px]">{j.last_error ?? ''}</td></tr>)}</tbody></table>
+            <div className="overflow-x-auto"><table className="text-sm w-full min-w-[560px]"><thead className="text-xs text-text-2"><tr><th className="text-start p-1">ג׳וב</th><th className="text-end p-1">ריצות</th><th className="text-end p-1">הצליחו</th><th className="text-end p-1">נכשלו</th><th className="text-start p-1">אחרונה</th><th className="text-start p-1">שגיאה אחרונה</th></tr></thead>
+              <tbody>{jobs.map((j) => <tr key={j.job_name} className="border-t border-border"><td className="p-1 font-mono text-xs" dir="ltr">{j.job_name}</td><td className="p-1 text-end tnum">{j.runs_7d}</td><td className="p-1 text-end tnum text-actual">{j.succeeded}</td><td className={`p-1 text-end tnum ${j.failed ? 'text-open' : ''}`}>{j.failed}</td><td className="p-1 text-xs">{j.last_run_at?.slice(0, 16).replace('T', ' ')}</td><td className="p-1 text-xs text-open truncate max-w-[220px]">{j.last_error ?? ''}</td></tr>)}</tbody></table></div>
           ) : <p className="text-sm text-text-3">עדיין לא רץ ג׳וב. cron: 06:30 day_close · 06:45 alerts_eval · 07:30 daily_summary · 08:30 anchor_reminder.</p>}
         </Card>
 
