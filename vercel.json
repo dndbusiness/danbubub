@@ -52,6 +52,10 @@
     {
       "path": "/api/jobs/db_backup",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/jobs/greeninvoice_import",
+      "schedule": "0 6 * * 0"
     }
   ],
   "functions": {

@@ -201,22 +201,24 @@ create or replace view v_vat as
 select
   to_char(coalesce(c.date_doc, c.date_cash), 'YYYY-MM') as vat_month,
   c.division,
-  abs(sum(c.vat_amount) filter (where c.nature = 'income'))
+  -- coalesce ולא NULL: חודש בלי תשומות מוכרות הוא חבות מלאה, לא "אין נתון".
+  -- בלי זה sum(...) filter (...) מחזיר NULL והחבות נעלמת (וזה בדיוק ההפך מ-lib/rules/vat.ts).
+  coalesce(abs(sum(c.vat_amount) filter (where c.nature = 'income')), 0)
     as output_vat,
-  abs(sum(c.vat_amount) filter (
+  coalesce(abs(sum(c.vat_amount) filter (
     where c.nature = 'expense' and c.invoice_status = 'has_invoice'
-  )) as input_vat_claimable,
+  )), 0) as input_vat_claimable,
   -- "כמה כסף אתה מפסיד אם לא תשיג אותן"
-  abs(sum(c.vat_amount) filter (
+  coalesce(abs(sum(c.vat_amount) filter (
     where c.nature = 'expense' and c.invoice_status in ('missing', 'unknown')
-  )) as input_vat_missing_invoice,
+  )), 0) as input_vat_missing_invoice,
   count(*) filter (
     where c.nature = 'expense' and c.invoice_status in ('missing', 'unknown')
   ) as missing_invoice_count,
-  abs(sum(c.vat_amount) filter (where c.nature = 'income'))
-    - abs(sum(c.vat_amount) filter (
+  coalesce(abs(sum(c.vat_amount) filter (where c.nature = 'income')), 0)
+    - coalesce(abs(sum(c.vat_amount) filter (
         where c.nature = 'expense' and c.invoice_status = 'has_invoice'
-      )) as liability
+      )), 0) as liability
 from v_tx_classified c
 where c.certainty = 'actual' and c.nature in ('income', 'expense')
 group by 1, 2;

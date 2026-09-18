@@ -18,6 +18,7 @@ on:
     - cron: '30 5 12 * *'     # 12 לחודש 08:30 — accountant_pack
     - cron: '0 23 * * *'      # 02:00 — deal_decay
     - cron: '0 0 * * *'       # 03:00 — db_backup
+    - cron: '0 6 * * 0'       # א' 09:00 — greeninvoice_import (ידני שבועי)
   workflow_dispatch:
     inputs:
       job:
@@ -58,5 +59,6 @@ jobs:
             '30 5 12 * *')  run_job accountant_pack ;;
             '0 23 * * *')   run_job deal_decay ;;
             '0 0 * * *')    run_job db_backup ;;
+            '0 6 * * 0')    run_job greeninvoice_import ;;
             *) echo "אין ג׳וב לתזמון $CRON" ;;
           esac

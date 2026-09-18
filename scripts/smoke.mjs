@@ -28,6 +28,7 @@ const JOBS = [
   ['accountant_pack', 'חומר סגירה לרו"ח (ב.7)'],
   ['deal_decay', 'רקב תיקים (§2.3)'],
   ['db_backup', 'גיבוי DB (§6)'],
+  ['greeninvoice_import', 'תזכורת ייצוא חשבונית ירוקה (§4.3)'],
 ]
 
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - [...s].length))

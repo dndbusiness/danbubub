@@ -15,13 +15,24 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
 const step = (s) => console.log(`→ ${s}`)
+/** במסך יש שלושה טפסי העלאה (אשראי / בנק / חשבונית ירוקה) — זה של האשראי. */
+const cardForm = () => page.locator('form').filter({ has: page.locator('input[name=billing_date]') })
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); process.exit(1) } console.log(`✓ ${m}`) }
 
 step('העלאת ישראכרט')
 await page.goto(`${BASE}/import`, { waitUntil: 'load' })
-await page.setInputFiles('input[name=file]', ISRACARD)
-await page.fill('input[name=billing_date]', '2026-09-10')
-await page.getByRole('button', { name: 'פענח והצג לאישור' }).click()
+// DB טרי: אין עדיין כרטיס אשראי — יוצרים אחד דרך אותו מסך (SPEC §4.1).
+if (!(await cardForm().locator('select[name=account_id] option').count())) {
+  await page.getByRole('button', { name: /כרטיס חדש/ }).click()
+  await page.locator('input[name=name]').fill('ישראכרט 1234')
+  await page.getByRole('button', { name: 'הוסף כרטיס' }).click()
+  await page.waitForTimeout(2000)
+  await page.goto(`${BASE}/import`, { waitUntil: 'load' })
+  console.log('… נוצר כרטיס "ישראכרט 1234"')
+}
+await cardForm().locator('input[name=file]').setInputFiles(ISRACARD)
+await cardForm().locator('input[name=billing_date]').fill('2026-09-10')
+await cardForm().getByRole('button', { name: 'פענח והצג לאישור' }).click()
 await page.waitForURL(/\/import\/[0-9a-f-]{36}/, { timeout: 20_000 })
 const batchUrl = page.url()
 assert(/זוהה: ישראכרט/.test(await page.textContent('h1')), 'זיהוי פורמט ישראכרט בכותרת')
@@ -48,15 +59,15 @@ assert(await page.getByText(/2 לבדיקה → משימות/).count() > 0, "WOL
 
 step('אותו קובץ שוב = האצווה הקיימת')
 await page.goto(`${BASE}/import`, { waitUntil: 'load' })
-await page.setInputFiles('input[name=file]', ISRACARD)
-await page.getByRole('button', { name: 'פענח והצג לאישור' }).click()
+await cardForm().locator('input[name=file]').setInputFiles(ISRACARD)
+await cardForm().getByRole('button', { name: 'פענח והצג לאישור' }).click()
 await page.waitForURL(/existing=1/, { timeout: 20_000 })
 assert(page.url().startsWith(batchUrl), 'הופנה לאצווה הקיימת, 0 שורות חדשות')
 
 step('קובץ מקס — הכלל שנלמד לא תופס (בתי עסק אחרים), הזיהוי: מקס')
 await page.goto(`${BASE}/import`, { waitUntil: 'load' })
-await page.setInputFiles('input[name=file]', MAX)
-await page.getByRole('button', { name: 'פענח והצג לאישור' }).click()
+await cardForm().locator('input[name=file]').setInputFiles(MAX)
+await cardForm().getByRole('button', { name: 'פענח והצג לאישור' }).click()
 await page.waitForURL(/\/import\/[0-9a-f-]{36}$/, { timeout: 20_000 })
 assert(/זוהה: מקס/.test(await page.textContent('h1')), 'זיהוי פורמט מקס')
 console.log('   אצוות:', batchUrl, page.url())

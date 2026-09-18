@@ -5,8 +5,8 @@
 
 | # | שאלה | ההנחה בקוד | איפה לשנות | חוסם? |
 |---|---|---|---|---|
-| 1 | באיזה בנק החשבון? אילו חברות אשראי? | טרם נבחר | `lib/import/` — ה-parsers טרם נכתבו | חוסם שלב 4 ו-6 |
-| 2 | איזה ייצוא זמין מחשבונית ירוקה? כמה ישויות מוציאות חשבוניות? | 3 ישויות (`entities`), ייצוא CSV 14 עמודות כמתועד ב-§4.3 | `db/schema/002_core.sql` `entities` | חוסם שלב 6 |
+| 1 | באיזה בנק החשבון? אילו חברות אשראי? | ה-parsers נכתבו עם מיפויי עמודות להפועלים / לאומי / דיסקונט / מזרחי ולישראכרט / מקס / כאל — **על סמך התיעוד ב-§4.1–4.2, לא על קובץ אמיתי** | `lib/import/credit-card.ts`, `lib/import/bank.ts` (`DEFAULT_*_MAPS`), או `settings.bank_column_maps` בלי קוד | מגביל שלבים 4 ו-6 — קובץ אמיתי אחד מכל מקור סוגר |
+| 2 | איזה ייצוא זמין מחשבונית ירוקה? כמה ישויות מוציאות חשבוניות? | 3 ישויות (`entities`), ייצוא CSV 14 עמודות כמתועד ב-§4.3 — ה-parser נכתב מולו | `lib/import/greeninvoice.ts`, `db/schema/002_core.sql` `entities` | מגביל — ייצוא אמיתי אחד מאשר את הפורמט |
 | 3 | הוצאה קבועה לא מאושרת — מי סופג? | הר-אל סופגת 100%: נכנסת לרווח התפעולי, לא לחלוקה | `lib/rules/pnl.ts` `selectDistributableExpenses`; `db/views/002_reports.sql` `v_pnl_distributable` | לא |
 | 4 | מקדמה באשראי — ברוטו? ומע"מ תשומות? | ברוטו. אין קיזוז מע"מ (זה שימוש פרטי) | `advances.amount_gross`; `lib/rules/nissim-card.ts` שורה 6 | לא |
 | 5 | חודש הפסד — ניסים נושא ב-50%? | **כן** (`lossSharing: 'shared'`), כמו בקובץ הקיים | `lib/rules/nissim-card.ts` `LossSharing` — יש כבר חלופה `harel_absorbs` | **דורש הסכמה מפורשת** |
@@ -19,7 +19,7 @@
 | 12 | גיליון הלידים — להשאיר ולייבא או להעביר למערכת? | ייבוא (WISE נשארת מקור האמת התפעולי, §4.5) | `lib/import/wise.ts` — טרם נכתב | חוסם שלב 8 |
 | 13 | Firebase או Supabase? | **Postgres** — הסכימה כתובה ל-Postgres 16 | כל `db/` | הוכרע בקוד; שינוי = כתיבה מחדש |
 | 14 | ל-WISE יש API או רק ייצוא ידני? | ייצוא ידני; `wise_ref` מוכן לשידוך idempotent | `leads.wise_ref`, `deals.wise_ref`, `deal_submissions.wise_ref` | חוסם שלב 8 |
-| 15 | "דמי ניהול הר-אל כולל ניסים" — מה זה מכסה? | ספק שהוא ישות של שותף → `nature=draw`, דורש אישור ידני | `suppliers.is_partner_entity` | **חוסם** — משפיע ישירות על כרטיס ניסים |
+| 15 | "דמי ניהול הר-אל כולל ניסים" — מה זה מכסה? | ספק שהוא ישות של שותף → החשבונית נקלטת עם `needs_partner_review` ומשימה; ההכרעה משיכה/הוצאה נעשית ידנית במסך 12 (`/gaps`) ומעדכנת את התנועה | `lib/import/greeninvoice.ts` `DEFAULT_PARTNER_SUPPLIERS`, `app/actions/gaps.ts` `resolvePartnerInvoice` | **חוסם** — משפיע ישירות על כרטיס ניסים |
 
 ## שאלות 17–22 מה-ADDENDUM
 
@@ -138,6 +138,12 @@ Workspace) → OAuth client (Web) עם redirect `<APP_BASE_URL>/api/google/callb
 
 ב.3 מזכיר "OCR עברי אם סרוק". לא מחובר. עד הכרעה: אם יש `ANTHROPIC_API_KEY` ה-PDF הסרוק נשלח ל-Claude כמסמך
 (הצעה בלבד, הנחיה 17); אחרת המועמד מסומן "נדרש OCR" ומוזן ידנית. חלופות: Google Vision / Tesseract (heb).
+
+**33. מייל הרו"ח — צריך ממך**
+
+מסך 12 מפיק את דוח הפערים ושולח אותו לרו"ח, וכך גם `accountant_pack` ו-`pnl_final`. עד שתוגדר הכתובת
+(`/settings` ← "מייל רו"ח", או `node scripts/set-setting.mjs accountant_email '"..."'`) הדוח מופק ונרשם ב-`report_runs`
+אבל לא יוצא לאף אחד. **אין כתובת ברירת מחדל בקוד** — לא ממציאים נמען.
 
 **32. כתובת קליטת ההוצאות של חשבונית ירוקה (שאלה #17)**
 

@@ -9,6 +9,7 @@ import { driveIntakeScanJob } from '@/lib/jobs/drive-intake-scan'
 import { calendarSyncJob } from '@/lib/jobs/calendar-sync'
 import { accountantPackJob, pnlReportJob, weeklyReportJob } from '@/lib/jobs/reports'
 import { dbBackupJob, dealDecayJob } from '@/lib/jobs/maintenance'
+import { greenInvoiceImportJob } from '@/lib/jobs/greeninvoice'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,6 +32,7 @@ const JOBS = {
   accountant_pack: (d: string) => accountantPackJob(d),
   deal_decay: (d: string) => dealDecayJob(d),
   db_backup: (d: string) => dbBackupJob(d),
+  greeninvoice_import: (d: string) => greenInvoiceImportJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

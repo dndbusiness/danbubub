@@ -5,6 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { sql, withActor } from '@/lib/db'
 import { rowsFromBuffer } from '@/lib/import/rows'
 import { DEFAULT_COLUMN_MAPS, parseCardStatement, type ColumnMap } from '@/lib/import/credit-card'
+import { DEFAULT_BANK_MAPS, parseBankStatement, type BankColumnMap } from '@/lib/import/bank'
+import { BANK_MATCH, matchTarget } from '@/lib/match/invoices'
+import { loadGreenInvoiceExport } from '@/lib/import/greeninvoice-load'
 import { classifyBatch, normalizeDescription, proposeRule } from '@/lib/rules/classify'
 import { isPeriodLocked, vatRateOn } from '@/lib/queries/common'
 import { bankAccountId, existingSourceRefs, getBatch, listRules, unclassifiedCategoryId } from '@/lib/queries/imports'
@@ -330,4 +333,193 @@ export async function deactivateRule(id: string): Promise<Result> {
   } catch (e) {
     return { ok: false, error: (e as Error).message }
   }
+}
+
+
+/** מיפויי עמודות לבנקים: המובנים + settings.bank_column_maps. */
+async function bankMaps(): Promise<BankColumnMap[]> {
+  const rows = await sql<{ value: unknown }[]>`select value from settings where key = 'bank_column_maps'`
+  const custom = Array.isArray(rows[0]?.value) ? (rows[0]!.value as BankColumnMap[]) : []
+  const ids = new Set(custom.map((m) => m.id))
+  return [...custom, ...DEFAULT_BANK_MAPS.filter((m) => !ids.has(m.id))]
+}
+
+/**
+ * ייבוא דף בנק — SPEC §4.2.
+ * מפענח, משדך כל שורה לתנועה קיימת (±1 ₪, ±3 ימים, אותו חשבון), ושומר לאישור.
+ * יתרת הסגירה נבדקת מול המחושבת; פער מוצג ולא נבלע.
+ */
+export async function uploadBankStatement(fd: FormData): Promise<Result<{ id: string; existing?: boolean }>> {
+  const file = fd.get('file')
+  const accountId = str(fd, 'account_id')
+  const formatId = str(fd, 'format_id') ?? undefined
+  if (!(file instanceof File) || !file.size) return { ok: false, error: 'לא נבחר קובץ' }
+  if (!accountId) return { ok: false, error: 'יש לבחור את חשבון הבנק' }
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'הקובץ גדול מ-10MB' }
+
+  const [account] = await sql<{ id: string; name: string; type: string; default_division: string }[]>`
+    select id, name, type, default_division from accounts where id = ${accountId} and deleted_at is null`
+  if (!account || account.type !== 'bank') return { ok: false, error: 'החשבון שנבחר אינו חשבון בנק' }
+
+  const buf = Buffer.from(await file.arrayBuffer())
+  const hash = createHash('sha256').update(buf).digest('hex')
+  const [dup] = await sql<{ id: string }[]>`select id from import_batches where source = 'bank_import' and file_hash = ${hash} and deleted_at is null`
+  if (dup) return { ok: true, id: dup.id, existing: true }
+
+  let rows
+  try { rows = rowsFromBuffer(buf).rows } catch (e) { return { ok: false, error: `לא ניתן לקרוא את הקובץ: ${(e as Error).message}` } }
+  const parsed = parseBankStatement(rows, { formatId, maps: await bankMaps(), defaultYear: new Date().getUTCFullYear() })
+  if ('error' in parsed) return { ok: false, error: parsed.error }
+
+  // §4.2 — שידוך לתנועות קיימות באותו חשבון בטווח התאריכים.
+  const existingTx = await sql<{ id: string; date_cash: string; amount_gross: number; counterparty: string | null; description: string | null }[]>`
+    select id, to_char(date_cash, 'YYYY-MM-DD') as date_cash, amount_gross, counterparty, description
+    from transactions where account_id = ${accountId} and deleted_at is null and parent_id is null
+      and date_cash between ${parsed.dateFrom}::date - 5 and ${parsed.dateTo}::date + 5`
+  const alreadyImported = await existingSourceRefs(accountId, parsed.rows.map((r) => r.sourceRef))
+  const candidatesPool = existingTx.map((t) => ({ id: t.id, dateCash: t.date_cash, amountGross: t.amount_gross, counterparty: t.counterparty, description: t.description, accountId }))
+  const usedTx = new Set<string>()
+
+  const meta = {
+    formatId: parsed.formatId, formatLabel: parsed.formatLabel, billingDate: parsed.dateTo,
+    parentAmount: Math.round(parsed.rows.reduce((a, r) => a + r.amount, 0) * 100) / 100,
+    warnings: parsed.warnings, skipped: parsed.skipped, dateFrom: parsed.dateFrom, dateTo: parsed.dateTo,
+    openingBalance: parsed.openingBalance, closingBalance: parsed.closingBalance,
+    computedClosing: parsed.computedClosing, balanceMatches: parsed.balanceMatches, balanceGap: parsed.balanceGap,
+    firstBalanceBreak: parsed.firstBalanceBreak,
+  }
+
+  try {
+    const id = await withActor(async (tx) => {
+      const [batch] = await tx<{ id: string }[]>`
+        insert into import_batches (source, file_name, file_hash, rows_total, rows_skipped, status, account_id, meta, imported_by)
+        values ('bank_import', ${file.name}, ${hash}, ${parsed.rows.length}, ${parsed.skipped + alreadyImported.size}, 'review', ${accountId},
+                ${tx.json(meta as never)}, current_setting('app.current_user_id', true)::uuid)
+        returning id`
+      for (const row of parsed.rows) {
+        const isDup = alreadyImported.has(row.sourceRef)
+        const m = matchTarget({ amountGross: row.amount, date: row.date, accountId }, candidatesPool.filter((c) => !usedTx.has(c.id)), BANK_MATCH)
+        if (m.status === 'matched' && m.best) usedTx.add(m.best.tx.id)
+        await tx`
+          insert into import_rows
+            (batch_id, row_index, source_ref, date, merchant, amount, reference, notes, balance,
+             nature, division, tx_class, invoice_status, review_status, decision, match_status, matched_tx_id, match_candidates)
+          values
+            (${batch!.id}, ${row.rowIndex}, ${row.sourceRef}, ${row.date}, ${row.description}, ${row.amount}, ${row.reference ?? null},
+             ${row.bookedDate !== row.date ? `תאריך פעולה ${row.bookedDate}` : null}, ${row.balance ?? null},
+             ${row.amount >= 0 ? 'income' : 'expense'}, ${account.default_division}, 'business', 'unknown',
+             ${m.status === 'matched' ? 'ok' : 'unknown_expense'},
+             ${isDup ? 'duplicate' : m.status === 'matched' ? 'approved' : 'pending'},
+             ${m.status}, ${m.status === 'matched' ? m.best!.tx.id : null},
+             ${tx.json(m.candidates.slice(0, 5).map((c) => ({ txId: c.tx.id, date: c.tx.dateCash, amount: c.tx.amountGross, label: c.tx.counterparty ?? c.tx.description, score: c.score, reasons: c.reasons })) as never)})`
+      }
+      return batch!.id
+    })
+    revalidatePath('/import')
+    return { ok: true, id }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+/**
+ * החלת דף בנק — SPEC §4.2: שורה ששודכה מסמנת את התנועה כמאומתת מול הבנק;
+ * שורה ללא התאמה יוצרת תנועה חדשה עם review_status=unknown_expense.
+ * אין כאן תנועת-אב: דף הבנק **הוא** החשבון, לא חיוב מרוכז.
+ */
+export async function applyBankBatch(batchId: string): Promise<Result<{ matched: number; created: number; skipped: number }>> {
+  const data = await getBatch(batchId)
+  if (!data) return { ok: false, error: 'אצווה לא נמצאה' }
+  const { batch, rows } = data
+  if (batch.source !== 'bank_import') return { ok: false, error: 'האצווה אינה דף בנק' }
+  if (batch.status !== 'review') return { ok: false, error: 'האצווה כבר הוחלה או בוטלה' }
+  if (!batch.account_id) return { ok: false, error: 'אצווה ללא חשבון' }
+  const unclassified = await unclassifiedCategoryId()
+  if (!unclassified) return { ok: false, error: 'חסרה קטגוריית "לא מסווג"' }
+
+  const toWrite = rows.filter((r) => r.decision === 'pending' || r.decision === 'approved')
+  if (!toWrite.length) return { ok: false, error: 'אין שורות לייבוא' }
+
+  // §11.8 — תקופה נעולה נדחית לפני שמנסים לכתוב.
+  const months = new Set(toWrite.map((r) => r.date.slice(0, 7)))
+  for (const m of months) {
+    if (await isPeriodLocked(m, 'finance')) return { ok: false, error: `התקופה ${m.slice(5)}/${m.slice(0, 4)} נעולה — לא ניתן לייבא אליה (SPEC §1.6)` }
+  }
+  const vatRate = await vatRateOn(batch.meta?.dateTo ?? new Date().toISOString().slice(0, 10))
+
+  try {
+    const out = await withActor(async (tx) => {
+      let matched = 0, created = 0
+      for (const r of rows.filter((x) => toWrite.includes(x))) {
+        if (r.matched_tx_id) {
+          // התנועה כבר קיימת במערכת — מסמנים שהיא אומתה מול הבנק ושומרים את האסמכתא.
+          await tx`
+            update transactions set source_ref = coalesce(source_ref, ${r.source_ref}), review_note = coalesce(review_note, 'אומת מול דף הבנק')
+            where id = ${r.matched_tx_id} and deleted_at is null`
+          await tx`update import_rows set applied_tx_id = ${r.matched_tx_id}, decision = 'approved' where id = ${r.id}`
+          matched++
+          continue
+        }
+        const isExpense = r.amount < 0
+        const [createdTx] = await tx<{ id: string }[]>`
+          insert into transactions
+            (date_cash, account_id, amount_net, vat_mode, vat_rate, nature, division, category_id, tx_class, deductible,
+             counterparty, description, invoice_status, review_status, source, source_ref)
+          values
+            (${r.date}, ${batch.account_id}, ${r.amount}, 'exempt', ${vatRate}, ${isExpense ? 'expense' : 'income'}, ${r.division},
+             ${isExpense ? (r.category_id ?? unclassified) : r.category_id}, ${r.tx_class}, ${isExpense ? Boolean(r.deductible) : null},
+             ${r.merchant}, ${r.merchant}, 'unknown', 'unknown_expense', 'bank_import', ${r.source_ref})
+          returning id`
+        // הקטגוריה נשמרת גם בשורת הייבוא — אחרת האילוץ "הוצאה מאושרת חייבת קטגוריה" נופל.
+        await tx`
+          update import_rows
+          set applied_tx_id = ${createdTx!.id}, decision = 'approved', review_status = 'unknown_expense',
+              category_id = ${isExpense ? (r.category_id ?? unclassified) : r.category_id}
+          where id = ${r.id}`
+        await tx`
+          insert into tasks (title, due_date, priority, auto_generated, auto_key, tx_id, notes)
+          values (${`לסווג תנועת בנק: ${r.merchant} ${r.amount} ₪ (${r.date})`}, current_date + 7, 'normal', true,
+                  ${`unknown_expense:${createdTx!.id}`}, ${createdTx!.id}, ${`דף בנק · ${batch.file_name}`})
+          on conflict do nothing`
+        created++
+      }
+      const skipped = rows.length - toWrite.length
+      await tx`
+        update import_batches set status = 'applied', applied_at = now(), rows_created = ${created}, rows_skipped = ${skipped}, rows_flagged = ${created}
+        where id = ${batchId}`
+      return { matched, created, skipped }
+    })
+    revalidatePath('/import'); revalidatePath('/transactions'); revalidatePath('/cashflow')
+    return { ok: true, ...out }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+/** שידוך ידני במסך האישור של דף בנק. */
+export async function setBankMatch(rowId: string, txId: string | null): Promise<Result> {
+  try {
+    await withActor(async (tx) => {
+      await tx`update import_rows set matched_tx_id = ${txId}, match_status = ${txId ? 'matched' : 'none'},
+               review_status = ${txId ? 'ok' : 'unknown_expense'}, decision = ${txId ? 'approved' : 'pending'}, edited = true
+               where id = ${rowId} and deleted_at is null`
+    })
+    revalidatePath('/import')
+    return { ok: true }
+  } catch (e) { return { ok: false, error: (e as Error).message } }
+}
+
+
+/** ייבוא ייצוא חשבונית ירוקה — SPEC §4.3. הוצאות או מסמכים שהוצאנו. */
+export async function uploadGreenInvoice(fd: FormData): Promise<Result<{ created: number; matched: number; duplicates: number; already: number; partnerReview: number; existing?: boolean }>> {
+  const file = fd.get('file')
+  const direction = str(fd, 'direction') === 'issued' ? 'issued' : 'received'
+  if (!(file instanceof File) || !file.size) return { ok: false, error: 'לא נבחר קובץ' }
+  if (file.size > 20 * 1024 * 1024) return { ok: false, error: 'הקובץ גדול מ-20MB' }
+  try {
+    const r = await loadGreenInvoiceExport(Buffer.from(await file.arrayBuffer()), file.name, direction)
+    if ('error' in r) return { ok: false, error: r.error }
+    revalidatePath('/import'); revalidatePath('/gaps'); revalidatePath('/vat'); revalidatePath('/transactions')
+    return { ok: true, created: r.created, matched: r.matched, duplicates: r.duplicatesInFile, already: r.alreadyInSystem, partnerReview: r.partnerReview, existing: r.existing }
+  } catch (e) { return { ok: false, error: (e as Error).message } }
 }

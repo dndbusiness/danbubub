@@ -99,8 +99,9 @@ npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחי�
 node scripts/e2e-import.mjs      # מסך 11 מקצה לקצה על הקבצים הסינתטיים ב-tests/fixtures/cards
 node scripts/e2e-anchor.mjs      # שלב 5: עוגן מהנייד → סגירת יום → התראות → תזרים → דף הבית
 node scripts/e2e-intake.mjs      # ב.3: PDF → הצעה → אישור אנושי → חשבונית + שידוך + תבנית ספק
-node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 13 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
-#                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup
+node scripts/e2e-gaps.mjs        # שלב 6: דף בנק → אימות יתרה → שידוך → חשבונית ירוקה → מע"מ → פערים → שליחה לרו"ח
+node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 14 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
+#                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import
 # גוגל (ב.1): GOOGLE_CLIENT_ID/SECRET + SECRETS_KEY ב-.env.local → /settings → "חבר את גוגל"
 ```
 

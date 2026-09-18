@@ -4,12 +4,14 @@ import { Topbar } from '@/components/shell/topbar'
 import { KpiCard } from '@/components/kpi-card'
 import { Card } from '@/components/ui/card'
 import { DEFAULT_COLUMN_MAPS } from '@/lib/import/credit-card'
+import { DEFAULT_BANK_MAPS } from '@/lib/import/bank'
 import { activeAlertCount } from '@/lib/queries/common'
-import { automationRate, listBatches, listCardAccounts, listEntities, listRuleRows } from '@/lib/queries/imports'
+import { automationRate, listBankAccounts, listBatches, listCardAccounts, listEntities, listRuleRows } from '@/lib/queries/imports'
 import { intakeCounts } from '@/lib/queries/intake'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { formatPct } from '@/lib/ui/format'
 import { UploadCard } from './upload'
+import { BankUploadCard, GreenInvoiceUploadCard } from './upload-bank'
 import { BatchesTable } from './batches'
 import { RulesTable } from './rules'
 
@@ -23,8 +25,8 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams
   const now = new Date().toISOString()
   const { period, division } = readGlobalParams(sp, now)
-  const [batches, accounts, entities, rules, auto, alerts, intake] = await Promise.all([
-    listBatches(), listCardAccounts(), listEntities(), listRuleRows(), automationRate(), activeAlertCount(), intakeCounts(),
+  const [batches, accounts, bankAccounts, entities, rules, auto, alerts, intake] = await Promise.all([
+    listBatches(), listCardAccounts(), listBankAccounts(), listEntities(), listRuleRows(), automationRate(), activeAlertCount(), intakeCounts(),
   ])
   const pendingBatches = batches.filter((b) => b.status === 'review')
 
@@ -35,7 +37,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
         <div className="flex items-center gap-3">
           <FileUp size={20} className="text-text-2" />
           <h1 className="text-xl font-semibold">ייבוא</h1>
-          <span className="text-xs text-text-3">כרטיסי אשראי · בנק וחשבונית ירוקה בשלב 6 · WISE בשלב 8</span>
+          <span className="text-xs text-text-3">כרטיסי אשראי · דף בנק · חשבונית ירוקה · WISE בשלב 8</span>
           <Link href="/import/inbox" className={`ms-auto text-sm underline ${intake.pending ? 'text-open font-medium' : 'text-text-2'}`}>קליטת חשבוניות ממייל / דרייב ({intake.pending})</Link>
         </div>
 
@@ -54,6 +56,11 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
         </div>
 
         <UploadCard accounts={accounts} entities={entities} formats={DEFAULT_COLUMN_MAPS.map((m) => ({ id: m.id, label: m.label }))} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <BankUploadCard accounts={bankAccounts} formats={DEFAULT_BANK_MAPS.map((m) => ({ id: m.id, label: m.label }))} />
+          <GreenInvoiceUploadCard />
+        </div>
 
         <section className="flex flex-col gap-3">
           <h2 className="font-semibold">אצוות שיובאו</h2>
