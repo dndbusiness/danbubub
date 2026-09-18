@@ -1,7 +1,8 @@
 # העלאה לאוויר
 
-המערכת רצה על Next.js + Postgres. שני מסלולים: **Vercel + Supabase** (מומלץ, ~40 דקות)
-או שרת אחד עם Docker. בשני המקרים הסדר זהה: DB → משתני סביבה → נתונים → cron → גוגל.
+המערכת רצה על Next.js + Postgres. שני מסלולים: **שרת אחד משלנו** (סעיף 0 — פקודה
+אחת, וזה המסלול שנבחר) או **Vercel + Supabase** (סעיפים 1–3). בשניהם הסדר זהה:
+DB → משתני סביבה → נתונים → cron → גוגל.
 
 בכל שלב אפשר לבדוק איפה אנחנו עומדים:
 
@@ -9,6 +10,41 @@
 node scripts/preflight.mjs        # מה עובד, מה חוסם, מה רק מגביל
 curl $APP_BASE_URL/api/health     # 200 = ה-DB עונה והסכימה במקום
 ```
+
+---
+
+## 0. שרת אחד (Ubuntu 24.04) — פקודה אחת
+
+זה המסלול שנבחר: שרת Hetzner, Ubuntu 24.04 נקייה, הכול עליו — Postgres, האפליקציה,
+HTTPS והג'ובים. **כל מה שצריך זה SSH לשרת.**
+
+```bash
+ssh root@<IP>
+git clone <הריפו> /opt/harel && cd /opt/harel
+DOMAIN=finance.example.com ./scripts/server-install.sh      # עם דומיין: HTTPS אוטומטי
+./scripts/server-install.sh                                 # בלי דומיין: HTTP על ה-IP
+```
+
+הסקריפט מתקין Postgres 16 · Node 22 · Caddy · Chromium ל-PDF, מריץ את הסכימה
+וה-views לפי הסדר, מאמת את **26 ההבטחות המבניות** לפני שהוא ממשיך, מייצר סודות
+(`JOBS_SECRET`, `SECRETS_KEY`, `APP_PASSWORD`) פעם אחת ושומר אותם ב-`/opt/harel/.env.local`,
+מרים שירות `systemd`, פותח חומת אש ל-22/80/443 בלבד, ומייצר את **14 הג'ובים של חלק ג'
+ישירות מ-`vercel.json`** — מקור אחד לתזמונים, בלי עותק שלישי שיתיישן.
+
+הוא **idempotent**: ריצה שנייה מעדכנת קוד, בונה מחדש ומרעננת cron, בלי לגעת בסודות
+או בנתונים. אחרי עדכון קוד: `cd /opt/harel && git pull && ./scripts/server-install.sh`.
+
+**DNS לפני ההרצה עם דומיין:** רשומת `A` מהדומיין (או תת-דומיין) ל-IP של השרת,
+TTL 300. בלי זה Let's Encrypt לא יאשר תעודה והסקריפט יישאר על HTTP.
+
+> **בלי דומיין אין HTTPS.** סיסמת הכניסה, קודי ה-PIN לאזורי ניסים/שותפים/פרייבט
+> ונתוני הבנק עוברים אז בגלוי ברשת. להריץ שוב עם `DOMAIN=` ברגע שיש רשומת A.
+
+מה שנשאר אחרי הסקריפט (הוא מדפיס את זה בסוף): ייבוא הקובץ האמיתי · OAuth client
+של גוגל · מייל רו"ח · קודי PIN.
+
+בדיקה: `systemctl status harel` · `journalctl -u harel -f` · `node scripts/smoke.mjs` ·
+`curl localhost:3000/api/health`. גיבוי יומי: `/opt/harel/storage/backups` (14 יום אחורה).
 
 ---
 
@@ -89,17 +125,9 @@ node scripts/set-pin.mjs nissim <קוד>     # וגם partners / private
 **GitHub Actions** (עובד גם בתוכנית החינמית): `.github/workflows/cron.yml`.
 להגדיר secrets: `APP_BASE_URL`, `JOBS_SECRET`.
 
-**שרת משלכם:** crontab —
-
-```cron
-30 6 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/day_close
-45 6 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/alerts_eval
- 0 7 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/calendar_sync
-30 7 * * 0-5 curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/daily_summary
-30 8 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/anchor_reminder
-*/15 * * * * curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/gmail_scan
-*/15 * * * * curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/drive_intake_scan
-```
+**שרת משלנו:** `scripts/server-install.sh` מייצר את `/etc/cron.d/harel` **מתוך `vercel.json`** —
+כל 14 הג'ובים, אותם תזמונים, בלי עותק ידני שיתיישן. לשינוי תזמון: לערוך את `vercel.json`
+ולהריץ את הסקריפט שוב.
 
 > השעות בחלק ג' הן **Asia/Jerusalem**. Vercel ו-GitHub רצים ב-UTC, ולכן הקבצים
 > מכוונים ל-UTC+3 (קיץ). במעבר לשעון חורף הג׳ובים ירוצו שעה מוקדם יותר — לא מהותי,
@@ -133,5 +161,9 @@ node scripts/set-pin.mjs nissim <קוד>     # וגם partners / private
 
 ## 8. גיבוי
 
-עד שג׳וב `db_backup` (חלק ג') ייבנה: Supabase עושה גיבוי יומי אוטומטי בתוכנית Pro.
-בתוכנית החינמית — `pg_dump` שבועי לדרייב.
+**שרת משלנו:** `scripts/backup.sh` רץ מדי לילה מ-`/etc/cron.d/harel` ושומר `pg_dump`
+דחוס ב-`/opt/harel/storage/backups`, 14 יום אחורה. **זה גיבוי על אותה מכונה** — אם
+השרת נמחק הוא נמחק איתו. שתי שכבות חסרות (§6, שלב 9): עותק מחוץ לשרת (דרייב —
+הג'וב `db_backup` כבר עושה זאת כשגוגל מחובר) ו-snapshot של הספק.
+
+**Supabase:** גיבוי יומי אוטומטי בתוכנית Pro; בחינמית — `pg_dump` שבועי לדרייב.
