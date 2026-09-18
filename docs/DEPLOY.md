@@ -1,0 +1,126 @@
+# העלאה לאוויר
+
+המערכת רצה על Next.js + Postgres. שני מסלולים: **Vercel + Supabase** (מומלץ, ~40 דקות)
+או שרת אחד עם Docker. בשני המקרים הסדר זהה: DB → משתני סביבה → נתונים → cron → גוגל.
+
+בכל שלב אפשר לבדוק איפה אנחנו עומדים:
+
+```bash
+node scripts/preflight.mjs        # מה עובד, מה חוסם, מה רק מגביל
+curl $APP_BASE_URL/api/health     # 200 = ה-DB עונה והסכימה במקום
+```
+
+---
+
+## 1. בסיס הנתונים (Supabase)
+
+1. פרויקט חדש ב-[supabase.com](https://supabase.com) — אזור **Frankfurt** (הכי קרוב).
+2. Settings → Database → **Connection string → Transaction pooler** (פורט 6543). זה `DATABASE_URL`.
+3. להריץ את הסכימה לפי הסדר — **מספרית, בלי לדלג**:
+
+```bash
+export PGURL='postgresql://postgres.xxx:PASSWORD@aws-0-eu-central-1.pooler.supabase.com:6543/postgres'
+for f in db/schema/*.sql db/views/*.sql db/seed/*.sql; do
+  echo "→ $f"; psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f" >/dev/null || break
+done
+psql "$PGURL" -f db/tests/000_guarantees.sql   # 26 ההבטחות המבניות
+```
+
+> **גיבוי לפני כל שינוי סכימה** (SPEC §11.10): Supabase → Database → Backups, או
+> `pg_dump "$PGURL" > backup-$(date +%F).sql`.
+
+## 2. משתני סביבה
+
+| משתנה | חובה | מה קורה בלעדיו |
+|---|---|---|
+| `DATABASE_URL` | ✔ | שום דבר לא עובד |
+| `JOBS_SECRET` | ✔ | כל אחד ברשת יכול להריץ ג׳ובים. `openssl rand -hex 32` |
+| `SECRETS_KEY` | ✔ | אי אפשר לשמור refresh token של גוגל (הנחיה 15). `openssl rand -hex 32` |
+| `APP_BASE_URL` | ✔ | הקישורים במיילים, בוואטסאפ וביומן יוצאים שבורים |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | אין מייל, יומן, דרייב וסריקת חשבוניות (ב.1–ב.4) |
+| `GREEN_API_ID_INSTANCE` / `GREEN_API_TOKEN` | — | התראות ותזכורות וואטסאפ ממתינות ב-`outbox` |
+| `ANTHROPIC_API_KEY` | — | חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים (ב.3) |
+| `CRON_SECRET` | — | רק אם משתמשים ב-Vercel Cron (Vercel מגדיר אותו לבד) |
+
+> `SECRETS_KEY` מצפין את ה-refresh token של גוגל. **אם הוא מתחלף — החיבור לגוגל
+> נשבר וצריך לחבר מחדש.** לשמור אותו במקום שלא הולך לאיבוד.
+
+## 3. פריסה (Vercel)
+
+```bash
+npx vercel link && npx vercel env add DATABASE_URL production   # וכן הלאה
+npx vercel --prod
+```
+
+`vercel.json` כבר מגדיר את שבעת הג׳ובים של חלק ג' ואת תקרות הזמן.
+**Vercel Hobby מאפשר cron יומי בלבד** — לסריקה כל 15 דקות צריך Pro, או להשתמש
+ב-GitHub Actions (סעיף 5).
+
+**Playwright ל-PDF לא רץ ב-Vercel Serverless.** שתי אפשרויות: `@sparticuz/chromium`,
+או להריץ את ההפקה מ-GitHub Actions ולהעלות לדרייב. עד אז: PDF עובד מקומית, והמסכים
+`/…/print` עובדים תמיד (הדפסה מהדפדפן).
+
+## 4. נתונים ראשונים
+
+```bash
+node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx> --as-of YYYY-MM-DD
+node scripts/set-pin.mjs nissim <קוד>     # וגם partners / private
+```
+
+הייבוא idempotent — ריצה חוזרת על אותו קובץ מוסיפה 0 שורות (§11.9).
+
+ואז, במסכים:
+- `/alerts` → יעדי מסירה (מייל + וואטסאפ של דן). **בלעדיהם שום התראה לא יוצאת.**
+- `/settings` → יומנים, מיילים של ניסים והדס, ימי שכר/רו"ח/מע"מ, כתובת חשבונית ירוקה.
+- `/anchor` → יתרת הבנק. **בלי עוגן אין תזרים ואין סגירת יום.**
+
+## 5. Cron
+
+**Vercel:** אוטומטי מ-`vercel.json`. אימות דרך `Authorization: Bearer $CRON_SECRET`.
+
+**GitHub Actions** (עובד גם בתוכנית החינמית): `.github/workflows/cron.yml`.
+להגדיר secrets: `APP_BASE_URL`, `JOBS_SECRET`.
+
+**שרת משלכם:** crontab —
+
+```cron
+30 6 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/day_close
+45 6 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/alerts_eval
+ 0 7 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/calendar_sync
+30 7 * * 0-5 curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/daily_summary
+30 8 * * *  curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/anchor_reminder
+*/15 * * * * curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/gmail_scan
+*/15 * * * * curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" $APP/api/jobs/drive_intake_scan
+```
+
+> השעות בחלק ג' הן **Asia/Jerusalem**. Vercel ו-GitHub רצים ב-UTC, ולכן הקבצים
+> מכוונים ל-UTC+3 (קיץ). במעבר לשעון חורף הג׳ובים ירוצו שעה מוקדם יותר — לא מהותי,
+> ואפשר להזיז.
+
+בריאות הג׳ובים: `/settings` → "בריאות המערכת — 7 ימים".
+
+## 6. חיבור גוגל (ב.1)
+
+1. [Google Cloud Console](https://console.cloud.google.com) → פרויקט חדש.
+2. APIs & Services → **Enable**: Gmail API, Google Calendar API, Google Drive API, Google Sheets API.
+3. OAuth consent screen → **Internal** (אם יש Workspace) → scopes: המערכת מבקשת רק
+   `gmail.readonly`, `gmail.send`, `gmail.modify`, `calendar.events`, `drive.file`,
+   `spreadsheets`, `userinfo.email`.
+4. Credentials → OAuth client ID → **Web application** → Authorized redirect URI:
+   `https://<APP_BASE_URL>/api/google/callback`.
+5. להעתיק את ה-Client ID וה-Secret למשתני הסביבה, ואז `/settings` → **"חבר את גוגל"**.
+
+מרגע החיבור מתחילים לרוץ: סיכום יומי במייל (ב.4), אירועי יומן (ב.2), סריקת חשבוניות
+מ-Gmail ומתיקיית "להזנה" (ב.3), והעלאת דוחות לדרייב.
+
+## 7. אבטחה — מה עוד לא נעשה
+
+- **אין התחברות.** כל מי שמגיע לכתובת רואה הכול (חוץ מאזורי ה-PIN). עד שלב 10:
+  Vercel Password Protection, או Cloudflare Access, או לא לפרסם את הכתובת.
+- **RLS לא מופעל** (שלב 10). ה-`DATABASE_URL` הוא מפתח לכל הנתונים.
+- `/api/jobs/*` מוגן בסוד; `/api/health` פתוח ולא חושף נתונים עסקיים.
+
+## 8. גיבוי
+
+עד שג׳וב `db_backup` (חלק ג') ייבנה: Supabase עושה גיבוי יומי אוטומטי בתוכנית Pro.
+בתוכנית החינמית — `pg_dump` שבועי לדרייב.

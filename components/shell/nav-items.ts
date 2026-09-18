@@ -36,7 +36,7 @@ export const NAV: (NavItem | 'divider')[] = [
   { href: '/transactions', label: 'תנועות', icon: Receipt, screen: 5, built: true },
   { href: '/pnl', label: 'רווח והפסד', icon: BarChart3, screen: 2, built: true },
   { href: '/cashflow', label: 'תזרים', icon: TrendingUp, screen: 3, built: true },
-  { href: '/collections', label: 'גביה', icon: Coins, screen: 20, built: false },
+  { href: '/collections', label: 'גביה', icon: Coins, screen: 20, built: true },
   'divider',
   { href: '/nissim', label: 'ניסים', icon: Lock, locked: true, screen: 7, built: true },
   { href: '/partners', label: 'שותפים', icon: Lock, locked: true, screen: 8, built: false },

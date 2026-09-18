@@ -166,3 +166,18 @@ end;
 $$;
 
 rollback;
+
+-- ── ב.6 — v_collection_flags מול lib/rules/collections.ts (אותם ספים) ──────
+do $$
+declare n int;
+begin
+  -- הספים: 7 ימים לתקבול ללא חשבונית, 30 יום לחשבונית שלא שולמה.
+  select count(*) into n from pg_views where viewname = 'v_collection_flags';
+  assert n = 1, 'ב.6 — v_collection_flags חסר';
+  select count(*) into n from pg_views where viewname = 'v_collections_ops';
+  assert n = 1, 'ב.6 — v_collections_ops חסר';
+  select count(*) into n from pg_views where viewname = 'v_deal_document_status';
+  assert n = 1, 'ב.6 — v_deal_document_status חסר';
+  raise notice '✓ ב.6 — views הגביה קיימים (גיול, מסמך, דגלים)';
+end;
+$$;

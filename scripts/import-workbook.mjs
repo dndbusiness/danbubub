@@ -12,6 +12,12 @@ import { parseArgs } from 'node:util'
 import xlsx from 'xlsx'
 import postgres from 'postgres'
 import { parseWorkbook } from '../lib/import/workbook.ts'
+import { register } from 'node:module'
+import { pathToFileURL } from 'node:url'
+
+// lib/rules מייבא עם סיומת .js (כתיב TS/ESM); ההוק ממפה אותה ל-.ts.
+register('./ts-resolve.mjs', pathToFileURL(import.meta.filename))
+const { instantiateChecklist } = await import('../lib/rules/checklist.ts')
 
 const { values: args, positionals } = parseArgs({
   allowPositionals: true,
@@ -85,6 +91,22 @@ await sql.begin(async (tx) => {
     let id = row?.id
     if (!id) { const [ex] = await tx`select id from deals where wise_ref = ${d.sourceRef}`; id = ex?.id } else counts.deals++
     dealIdByRef.set(d.sourceRef, id)
+
+    // ADDENDUM ב.5 — צ'קליסט הביצוע נולד מתבנית לפי מוצר. בלעדיו "מה חסר כדי לקבל
+    // את הכסף" ריק, וזה בדיוק מה שהמסך אמור לענות עליו.
+    if (id) {
+      const items = instantiateChecklist(id, d.product)
+      for (const it of items) {
+        await tx`insert into deal_checklist_items (deal_id, sort_order, label, status_since)
+                 values (${id}, ${it.sortOrder}, ${it.label}, current_date)
+                 on conflict (deal_id, sort_order) do nothing`
+      }
+      // מה שכבר קרה — מסומן: הסכם נחתם אם התיק לא "פוטנציאל", וכסף שנכנס = נגבה.
+      if (d.stage !== 'prospect') await tx`update deal_checklist_items set status = 'done' where deal_id = ${id} and sort_order = 1 and status = 'pending'`
+      const collected = bundle.transactions.filter((t) => t.dealSourceRef === d.sourceRef && t.nature === 'income').reduce((a, t) => a + t.amountNet, 0)
+      if (collected > 0) await tx`update deal_checklist_items set status = 'done', auto_source = 'transaction' where deal_id = ${id} and label like 'שכ%נגבה' and status = 'pending'`
+      if (collected >= d.feeAgreedNet && d.feeAgreedNet > 0) await tx`update deal_checklist_items set status = 'done', auto_source = 'transaction' where deal_id = ${id} and status = 'pending'`
+    }
 
     // יתרה פתוחה → לוח תקבולים "על בסיס הצלחה" (expected) — SPEC §2.1
     if (row && d.status === 'open') {

@@ -1,0 +1,50 @@
+# חלק ג' של ה-ADDENDUM — הג'ובים המתוזמנים, כחלופה ל-Vercel Cron.
+# GitHub Actions רץ ב-UTC. ישראל: UTC+3 בקיץ (IDT), UTC+2 בחורף (IST).
+# הזמנים למטה מכוונים לקיץ; בחורף להזיז שעה אחורה (או להשאיר — הפרש של שעה לא מהותי לג'ובים האלה).
+# נדרש: secrets APP_BASE_URL ו-JOBS_SECRET במאגר.
+name: scheduled-jobs
+
+on:
+  schedule:
+    - cron: '30 3 * * *'      # 06:30 — day_close
+    - cron: '45 3 * * *'      # 06:45 — alerts_eval
+    - cron: '0 4 * * *'       # 07:00 — calendar_sync
+    - cron: '30 4 * * 0-5'    # 07:30 א'–ו' — daily_summary
+    - cron: '30 5 * * *'      # 08:30 — anchor_reminder
+    - cron: '*/15 * * * *'    # כל 15 דק' — gmail_scan + drive_intake_scan
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "שם הג'וב להרצה ידנית"
+        required: true
+        default: alerts_eval
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: הרצת הג׳ובים לפי השעה
+        env:
+          BASE: ${{ secrets.APP_BASE_URL }}
+          SECRET: ${{ secrets.JOBS_SECRET }}
+          CRON: ${{ github.event.schedule }}
+          MANUAL: ${{ github.event.inputs.job }}
+        run: |
+          set -euo pipefail
+          run_job() {
+            echo "→ $1"
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
+              -H "x-jobs-secret: $SECRET" "$BASE/api/jobs/$1")
+            cat /tmp/out.json; echo
+            [ "$code" = "200" ] || { echo "✗ $1 → HTTP $code"; exit 1; }
+          }
+          if [ -n "${MANUAL:-}" ]; then run_job "$MANUAL"; exit 0; fi
+          case "$CRON" in
+            '30 3 * * *')   run_job day_close ;;
+            '45 3 * * *')   run_job alerts_eval ;;
+            '0 4 * * *')    run_job calendar_sync ;;
+            '30 4 * * 0-5') run_job daily_summary ;;
+            '30 5 * * *')   run_job anchor_reminder ;;
+            '*/15 * * * *') run_job gmail_scan; run_job drive_intake_scan ;;
+            *) echo "אין ג׳וב לתזמון $CRON" ;;
+          esac

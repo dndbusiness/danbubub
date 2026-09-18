@@ -25,15 +25,25 @@ const JOBS = {
   calendar_sync: (d: string) => calendarSyncJob(d),
 } as const
 
-function authorized(req: Request): boolean {
-  const secret = process.env.JOBS_SECRET
-  if (!secret) return process.env.NODE_ENV !== 'production'
-  const given = req.headers.get('x-jobs-secret') ?? new URL(req.url).searchParams.get('secret') ?? ''
-  const a = Buffer.from(given), b = Buffer.from(secret)
-  return a.length === b.length && timingSafeEqual(a, b)
+const eq = (a: string, b: string) => {
+  const x = Buffer.from(a), y = Buffer.from(b)
+  return x.length === y.length && timingSafeEqual(x, y)
 }
 
-export async function POST(req: Request, { params }: { params: Promise<{ name: string }> }) {
+/**
+ * הרשאה: `x-jobs-secret` / `?secret=` (ה-cron שלנו), או `Authorization: Bearer $CRON_SECRET`
+ * (הפורמט ש-Vercel Cron שולח). בלי סוד מוגדר — רק בפיתוח.
+ */
+function authorized(req: Request): boolean {
+  const secret = process.env.JOBS_SECRET
+  const cronSecret = process.env.CRON_SECRET
+  if (!secret && !cronSecret) return process.env.NODE_ENV !== 'production'
+  const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
+  const given = req.headers.get('x-jobs-secret') ?? new URL(req.url).searchParams.get('secret') ?? ''
+  return (Boolean(secret) && (eq(given, secret!) || eq(bearer, secret!))) || (Boolean(cronSecret) && eq(bearer, cronSecret!))
+}
+
+async function run(req: Request, { params }: { params: Promise<{ name: string }> }) {
   if (!authorized(req)) return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
   const { name } = await params
   const job = JOBS[name as keyof typeof JOBS]
@@ -47,3 +57,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ name: s
     return NextResponse.json({ job: name, date, error: (e as Error).message }, { status: 500 })
   }
 }
+
+export const POST = run
+/** Vercel Cron שולח GET. אותה פעולה בדיוק. */
+export const GET = run

@@ -29,7 +29,7 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
     const committedOutflow30d = -in30.filter((i) => i.amount < 0).reduce((a, i) => a + i.amount, 0)
     const committedInflow30d = in30.filter((i) => i.amount > 0).reduce((a, i) => a + i.amount, 0)
 
-    const [closes, fixed, vatRows, incomeNoInv, unpaid, nissim, advMonth, decayed, failed, budgets, settings, disconnected, existing] = await Promise.all([
+    const [closes, fixed, vatRows, incomeNoInv, unpaid, nissim, advMonth, decayed, failed, budgets, settings, disconnected, stuckItems, existing] = await Promise.all([
       dailyCloses(1),
       listFixedExpenses(),
       sql<{ missing: number; n: number }[]>`
@@ -60,6 +60,9 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
       settingValues(['notify_whatsapp_dan', 'notify_email_dan']),
       sql<{ provider: string; account_label: string; status: string }[]>`
         select provider, account_label, status from integrations where deleted_at is null and status <> 'connected'`,
+      sql<{ deal_id: string; client_name: string; label: string; stuck_days: number; owner_user_id: string | null }[]>`
+        select p.deal_id, p.client_name, p.next_missing as label, p.stuck_days::int, p.owner_user_id
+        from v_execution_pipeline p where p.stuck_days >= 7 and p.next_missing is not null`,
       sql<{ id: string; rule_key: string; snoozed_until: string | null }[]>`
         select id, rule_key, to_char(snoozed_until, 'YYYY-MM-DD') as snoozed_until from alerts where resolved_at is null and deleted_at is null`,
     ])
@@ -107,6 +110,14 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
           on conflict (rule_key) where resolved_at is null and deleted_at is null do nothing
           returning id`
         if (row) toNotify.push({ alert: a, id: row.id })
+      }
+      // ב.10 — "פריט צ'קליסט תקוע 7 ימים" → משימה לאחראי התיק.
+      for (const it of stuckItems) {
+        await tx`
+          insert into tasks (title, due_date, priority, auto_generated, auto_key, deal_id, assignee_id, notes)
+          values (${`תקוע ${it.stuck_days} ימים: ${it.label} — ${it.client_name}`}, ${asOf}, 'high', true,
+                  ${`checklist_stuck:${it.deal_id}:${it.label}`}, ${it.deal_id}, ${it.owner_user_id}, 'ADDENDUM ב.5 — הפריט החוסם את התקבול')
+          on conflict do nothing`
       }
       // ב.1: "אם ההרשאה נופלת — התראה + משימה 'לחבר מחדש את גוגל'" (rule_key ייחודי, הנחיה 18).
       for (const i of disconnected) {

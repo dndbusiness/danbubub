@@ -115,6 +115,11 @@ node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs
 
 כל מסך שמציג רווח חייב להכריז איזו הגדרה מוצגת (§3.2).
 
+## העלאה לאוויר
+
+`docs/DEPLOY.md` — Supabase, Vercel, cron, חיבור גוגל. לבדוק מוכנות:
+`node scripts/preflight.mjs` (מה חוסם, מה מגביל) · `curl $APP/api/health`.
+
 ## מצב נוכחי
 
 ראו `docs/STATUS.md`. שאלות פתוחות שחוסמות: `docs/OPEN_QUESTIONS.md`.
