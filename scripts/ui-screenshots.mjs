@@ -11,7 +11,7 @@ import { mkdirSync } from 'node:fs'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const OUT = process.env.OUT ?? 'docs/screenshots'
-const routes = process.argv.slice(2).length ? process.argv.slice(2) : ['/', '/ui-kit', '/deals', '/transactions', '/fixed-expenses', '/pnl', '/nissim', '/import', '/cashflow', '/collections', '/alerts', '/anchor', '/quick', '/vat', '/gaps', '/partners', '/private', '/leads', '/forecast', '/payroll', '/settings']
+const routes = process.argv.slice(2).length ? process.argv.slice(2) : ['/', '/ui-kit', '/deals', '/transactions', '/fixed-expenses', '/pnl', '/nissim', '/import', '/cashflow', '/collections', '/alerts', '/anchor', '/quick', '/vat', '/gaps', '/partners', '/private', '/leads', '/forecast', '/payroll', '/tasks', '/questions', '/links', '/settings']
 const widths = [390, 768, 1280]
 
 mkdirSync(OUT, { recursive: true })

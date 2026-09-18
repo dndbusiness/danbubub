@@ -50,8 +50,9 @@ export const NAV: (NavItem | 'divider')[] = [
   { href: '/payroll', label: 'שכר', icon: Users, screen: 19, built: true },
   { href: '/leads', label: 'לידים', icon: BarChart3, screen: 14, built: true },
   { href: '/forecast', label: 'תחזית', icon: TrendingUp, screen: 13, built: true },
-  { href: '/tasks', label: 'משימות', icon: CheckSquare, screen: 15, built: false },
-  { href: '/links', label: 'קישורים', icon: Link2, screen: 17, built: false },
+  { href: '/tasks', label: 'משימות', icon: CheckSquare, screen: 15, built: true },
+  { href: '/questions', label: 'שאלות', icon: ClipboardList, screen: 16, built: true },
+  { href: '/links', label: 'קישורים', icon: Link2, screen: 17, built: true },
   { href: '/settings', label: 'הגדרות', icon: Settings, screen: 18, built: true },
 ]
 

@@ -32,6 +32,8 @@ const JOBS = [
   ['wise_import', 'תזכורת ייצוא WISE (§4.5)'],
   ['payroll_reminder', 'תזכורת אישור שכר (§3.9)'],
   ['accountant_payroll_send', 'דוח שכר לרו"ח (§3.9)'],
+  ['reports_to_drive', 'דוחות לדרייב (§6 שכבה 2)'],
+  ['cold_backup', 'עותק קר שבועי (§6 שכבה 3)'],
 ]
 
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - [...s].length))

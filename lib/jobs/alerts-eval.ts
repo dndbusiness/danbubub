@@ -5,6 +5,7 @@ import { addDays, monthOf } from '@/lib/rules/period'
 import { alertThresholds, bankAccount, dailyCloses, latestAnchor, loadCashflow, settingValues } from '@/lib/queries/cashflow'
 import { fixedExpenseMonths, listFixedExpenses } from '@/lib/queries/fixed-expenses'
 import { enqueueOutbox, flushOutbox } from './outbox'
+import { closeResolvedAutoTasks } from './task-autoclose'
 import { runJob } from './run'
 
 export interface AlertsEvalOutcome { rowsTouched: number; skipped?: string; detail?: Record<string, unknown>; created: number; resolved: number; active: number; queued: number }
@@ -130,13 +131,15 @@ export async function alertsEvalJob(asOf: string): Promise<AlertsEvalOutcome> {
         await tx`update alerts set resolved_at = now(), resolved_note = 'התנאי חדל להתקיים' where rule_key = any(${rec.toResolve}) and resolved_at is null and deleted_at is null`
       }
     })
+    // ב.10 — משימה אוטומטית נסגרת לבד כשהתנאי נפתר.
+    const autoClosed = await closeResolvedAutoTasks()
     // ה-outbox נכתב אחרי ה-commit של ההתראות (FK alert_id).
     for (const n of toNotify) queued += await enqueueOutbox(outboxRowsForAlert(n.alert, targets, process.env.APP_BASE_URL ?? ''), { alertId: n.id })
     const flush = queued ? await flushOutbox() : null
     return {
-      rowsTouched: rec.toCreate.length + rec.toResolve.length,
+      rowsTouched: rec.toCreate.length + rec.toResolve.length + autoClosed.closed,
       created: rec.toCreate.length, resolved: rec.toResolve.length, active: current.length, queued,
-      detail: { kinds: current.map((c: Alert) => c.kind), flush, targetsConfigured: { whatsapp: Boolean(targets.whatsapp), email: Boolean(targets.email) } },
+      detail: { kinds: current.map((c: Alert) => c.kind), flush, autoClosedTasks: autoClosed, targetsConfigured: { whatsapp: Boolean(targets.whatsapp), email: Boolean(targets.email) } },
     }
   })
 }
