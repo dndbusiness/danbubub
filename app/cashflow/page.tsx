@@ -10,7 +10,7 @@ import { activeAlertCount } from '@/lib/queries/common'
 import { bankAccount, dailyCloses, latestAnchor, loadCashflow, txBetween } from '@/lib/queries/cashflow'
 import { riskMode } from '@/lib/queries/dashboard'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
-import { formatDate } from '@/lib/ui/format'
+import { formatDate, formatMoneyInline } from '@/lib/ui/format'
 import { AnchorForm } from '@/app/anchor/form'
 import { CashflowView } from './client'
 
@@ -39,7 +39,7 @@ export default async function CashflowPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <Topbar period={period} division={division} alertCount={alerts} />
-      {risk.is_risk_mode && <RiskBanner message={ok?.result.lowPoint ? `נקודה נמוכה ${Math.round(ok.result.lowPoint.balance).toLocaleString('he-IL')} ₪ ב-${formatDate(ok.result.lowPoint.date)}` : `${risk.critical_count} התראות קריטיות`} />}
+      {risk.is_risk_mode && <RiskBanner message={ok?.result.lowPoint ? `נקודה נמוכה ${formatMoneyInline(ok.result.lowPoint.balance, { cents: false })} ב-${formatDate(ok.result.lowPoint.date)}` : `${risk.critical_count} התראות קריטיות`} />}
       <main className="p-4 md:p-6 flex flex-col gap-5">
         <div className="flex items-center gap-3">
           <TrendingUp size={20} className="text-text-2" />

@@ -21,6 +21,15 @@ export function formatMoney(value: number, opts: { cents?: boolean } = {}): stri
   return `${rounded < 0 ? MINUS : ''}${abs} ₪`
 }
 
+/**
+ * סכום בתוך משפט עברי — UIUX הנחיה 25 ("RTL נבדק עם מספרים שליליים").
+ * <Money> עוטף ב-dir="ltr"; כאן אין אלמנט, ולכן הבידוד נעשה בתווי FSI…PDI,
+ * אחרת הסימן השלילי קופץ לצד השני של המספר (−1,580 ₪ → 1,580− ₪).
+ */
+export function formatMoneyInline(value: number, opts: { cents?: boolean } = {}): string {
+  return `\u2068${formatMoney(value, opts)}\u2069`
+}
+
 /** תאריך ISO → dd/mm/yyyy. */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'

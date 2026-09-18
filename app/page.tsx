@@ -42,7 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   const attentionTotal = counts.unknown_tx + counts.missing_invoices + counts.inbox_pending + counts.open_questions + counts.overdue_tasks + counts.active_alerts + counts.open_closes
 
   const Line = ({ href, label, n }: { href: string; label: string; n: number }) => (
-    <li className="flex justify-between py-1"><Link href={href} prefetch={false} className={n ? 'underline' : 'text-text-3'}>{label}</Link><span className={n ? 'font-medium text-open tnum' : 'text-text-3 tnum'}>{n}</span></li>
+    <li className="flex justify-between gap-3 py-1"><Link href={href} prefetch={false} className={n ? 'underline' : 'text-text-3'}>{label}</Link><span className={n ? 'font-medium text-open tnum' : 'text-text-3 tnum'}>{n}</span></li>
   )
 
   return (
@@ -86,7 +86,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           {/* 5. רווח MTD — 3.2 */}
           <KpiCard title="רווח החודש" value={profit.distributable} certainty="actual" nature={profit.distributable < 0 ? 'open' : undefined}
             subtitle={<span className="flex flex-col gap-0.5"><span>לחלוקה · תפעולי {formatMoney(profit.operational)}</span>{profit.target != null && <span>יעד {formatMoney(profit.target)} · {Math.round((profit.distributable / profit.target) * 100)}%</span>}
-              <span className="text-text-3">{profit.series.map((s) => `${s.month.slice(5)}: ${Math.round(s.distributable / 1000)}K`).join(' · ')}</span></span>}
+              <span className="text-text-3 flex gap-2">{profit.series.map((s) => { const k = Math.round(s.distributable / 1000); return <bdi key={s.month} dir="ltr" className="tnum">{s.month.slice(5)}: {k < 0 ? '\u2212' : ''}{Math.abs(k)}K</bdi> })}</span></span>}
             drillTitle="רווח והפסד" drill={<div className="text-sm flex flex-col gap-1">{profit.series.map((s) => <div key={s.month} className="flex justify-between"><Link href={`/pnl?period=${s.month}`} className="underline">{s.month}</Link><span className="flex gap-3"><Money value={s.operational} /><Money value={s.distributable} certainty="actual" /></span></div>)}</div>} />
 
           {/* 6. דורש טיפול — ב.11 */}

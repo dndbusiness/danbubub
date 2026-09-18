@@ -8,7 +8,7 @@ import { Money } from '@/components/money'
 import { Card, CardTitle } from '@/components/ui/card'
 import { txByIds } from '@/lib/queries/pnl'
 import type { PnlLine, PnlMode } from '@/lib/queries/pnl'
-import { formatMonth } from '@/lib/ui/format'
+import { formatMonth, formatMoneyInline } from '@/lib/ui/format'
 import { cn } from '@/lib/ui/cn'
 
 type Line = PnlLine & { txIds: string[]; id?: string }
@@ -62,7 +62,7 @@ export function PnlTables({ income, expenses, byMonth, currentMonth }: { income:
         <CardTitle className="mb-3">רווח לפי חודש — לחלוקה (כחול) מול תפעולי (אפור)</CardTitle>
         <div className="flex items-end gap-3 h-40" dir="ltr">
           {byMonth.map((m) => (
-            <div key={m.month} className="flex-1 flex flex-col items-center gap-1 h-full justify-end" title={`${formatMonth(m.month)}: לחלוקה ${m.distributable.toLocaleString('he-IL')} · תפעולי ${m.operational.toLocaleString('he-IL')}`}>
+            <div key={m.month} className="flex-1 flex flex-col items-center gap-1 h-full justify-end" title={`${formatMonth(m.month)}: לחלוקה ${formatMoneyInline(m.distributable)} · תפעולי ${formatMoneyInline(m.operational)}`}>
               <div className="flex items-end gap-0.5 w-full h-full justify-center">
                 <div className={cn('w-4 rounded-t', m.distributable >= 0 ? 'bg-committed' : 'bg-open')} style={{ height: `${(Math.abs(m.distributable) / max) * 100}%` }} />
                 <div className="w-4 rounded-t bg-locked" style={{ height: `${(Math.abs(m.operational) / max) * 100}%` }} />

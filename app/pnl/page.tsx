@@ -58,7 +58,7 @@ export default async function PnlPage({ searchParams }: { searchParams: Promise<
             drill={lines(expenses)} drillTitle="הוצאות לפי קטגוריה" />
           <KpiCard title={mode === 'operational' ? 'רווח תפעולי' : 'רווח לחלוקה'} value={totals.profit} division={division} drill={<p className="text-sm text-text-2">הכנסות − הוצאות. ההרכב בשני הכרטיסים משמאל.</p>} />
           <KpiCard title={mode === 'operational' ? 'לחלוקה (להשוואה)' : 'תפעולי (להשוואה)'} value={other.profit} nature="locked" division={division}
-            subtitle={`הפרש ${Math.round(totals.profit - other.profit).toLocaleString('he-IL')} ₪`}
+            subtitle={<span className="flex gap-1">הפרש <Money value={totals.profit - other.profit} cents={false} nature="locked" size="sm" /></span>}
             drill={<p className="text-sm text-text-2">{mode === 'operational' ? 'רווח לחלוקה: רק הוצאות מוכרות (ובמימון: מאושרות), ישירות לפי חודש התיק.' : 'רווח תפעולי: כל ההוצאות, כולל לא-מוכרות ולא-מאושרות — מה שנשאר בקופה.'}</p>} />
         </div>
 
