@@ -59,8 +59,9 @@ export async function createTransaction(fd: FormData): Promise<{ ok: true; id: s
   }
 
   const vatRate = await vatRateOn(dateCash)
+  // jsonb: מעבירים אובייקט (postgres.js מסריאל), לא מחרוזת — מחרוזת+::jsonb נשמרת כ-JSON string.
   const split = division === 'shared'
-    ? JSON.stringify({ finance: financeSplit ?? 0.8, realestate: 1 - (financeSplit ?? 0.8) })
+    ? { finance: financeSplit ?? 0.8, realestate: 1 - (financeSplit ?? 0.8) }
     : null
 
   try {
@@ -71,7 +72,7 @@ export async function createTransaction(fd: FormData): Promise<{ ok: true; id: s
            category_id, tx_class, deductible, fixed_expense_id, deal_id, partner_id,
            counterparty, description, invoice_status, source)
         values
-          (${dateCash}, ${accountId}, ${signed}, ${vatMode}, ${vatRate}, ${nature}, ${division}, ${split}::jsonb,
+          (${dateCash}, ${accountId}, ${signed}, ${vatMode}, ${vatRate}, ${nature}, ${division}, ${split ? tx.json(split) : null},
            ${categoryId}, ${txClass}, ${nature === 'expense' ? deductible : null}, ${fixedExpenseId}, ${dealId}, ${partnerId},
            ${counterparty}, ${description}, ${invoiceStatus}, 'manual')
         returning id`

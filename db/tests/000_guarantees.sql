@@ -178,6 +178,22 @@ begin
   assert ok, '§2.1 תקופה סגורה בלי תצלום לא נחסמה';
   raise notice '✓ §2.1 תקופה סגורה חייבת תצלום';
 
+  -- ── 007: jsonb חייב להיות אובייקט, לא מחרוזת JSON ─────────────────────
+  ok := true;
+  begin
+    insert into transactions (date_cash, account_id, amount_net, nature, division, division_split, category_id, deductible)
+    values ('2026-11-05', acc, -100, 'expense', 'shared', to_jsonb('{"finance":0.8}'::text), cat, true);
+    ok := false;
+  exception when check_violation then null; end;
+  assert ok, '007 — division_split כמחרוזת JSON לא נחסם';
+  ok := true;
+  begin
+    insert into settings (key, value) values ('__test_double', to_jsonb('{"a":1}'::text));
+    ok := false;
+  exception when check_violation then null; end;
+  assert ok, '007 — settings עם מחרוזת JSON לא נחסם';
+  raise notice '✓ 007 jsonb מחזיק אובייקט, לא מחרוזת JSON (מפתח חלוקה לא נופל בשקט)';
+
   raise notice '';
   raise notice 'כל ההבטחות המבניות נאכפות.';
 end;

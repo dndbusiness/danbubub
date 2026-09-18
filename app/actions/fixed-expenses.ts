@@ -24,12 +24,12 @@ export async function createFixedExpense(fd: FormData) {
   if (!name || !categoryId || !division || amount === null || day === null || !accountId || !startDate) {
     return { ok: false as const, error: 'חסרים שדות חובה' }
   }
-  const split = division === 'shared' ? JSON.stringify({ finance: financeSplit ?? 0.8, realestate: 1 - (financeSplit ?? 0.8) }) : null
+  const split = division === 'shared' ? { finance: financeSplit ?? 0.8, realestate: 1 - (financeSplit ?? 0.8) } : null
   try {
     await withActor(async (tx) => {
       await tx`insert into fixed_expenses
         (name, category_id, division, division_split, amount_net, frequency, day_of_month, account_id, variable, approved_by_nissim, start_date)
-        values (${name}, ${categoryId}, ${division}, ${split}::jsonb, ${-Math.abs(amount)}, ${frequency}, ${day}, ${accountId}, ${variable}, ${approved}, ${startDate})`
+        values (${name}, ${categoryId}, ${division}, ${split ? tx.json(split) : null}, ${-Math.abs(amount)}, ${frequency}, ${day}, ${accountId}, ${variable}, ${approved}, ${startDate})`
     })
     revalidatePath('/fixed-expenses')
     return { ok: true as const }

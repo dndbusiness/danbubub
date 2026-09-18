@@ -63,7 +63,7 @@ docs/             OPEN_QUESTIONS.md, STATUS.md
 npm install
 npm test               # בדיקות היחידה של כל נוסחה ב-§3
 npm run typecheck
-./scripts/verify-db.sh # סכימה + views + 24 הבטחות מבניות + זהות מול lib/rules
+./scripts/verify-db.sh # סכימה + views + 25 הבטחות מבניות + זהות מול lib/rules
 ```
 
 `verify-db.sh` מרים Postgres זמני. מול DB קיים: `PGURL=postgres://… ./scripts/verify-db.sh`.
@@ -97,6 +97,11 @@ cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
 ```
+
+## jsonb: אובייקט, לא מחרוזת
+
+`${obj}` או `sql.json(obj)` — לעולם לא `${JSON.stringify(obj)}::jsonb` (נשמר כמחרוזת JSON,
+ו-`-> 'key'` מחזיר NULL בשקט). `007_jsonb_shape.sql` דוחה את זה ב-DB.
 
 ## שתי הגדרות רווח — לא לאחד ביניהן
 

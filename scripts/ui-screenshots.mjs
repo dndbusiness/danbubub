@@ -11,7 +11,7 @@ import { mkdirSync } from 'node:fs'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const OUT = process.env.OUT ?? 'docs/screenshots'
-const routes = process.argv.slice(2).length ? process.argv.slice(2) : ['/ui-kit', '/deals', '/transactions', '/fixed-expenses']
+const routes = process.argv.slice(2).length ? process.argv.slice(2) : ['/ui-kit', '/deals', '/transactions', '/fixed-expenses', '/pnl', '/nissim']
 const widths = [390, 768, 1280]
 
 mkdirSync(OUT, { recursive: true })
@@ -37,6 +37,16 @@ for (const route of routes) {
     await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
     const res = await page.goto(`${BASE}${route}`, { waitUntil: 'load', timeout: 20_000 })
     await page.waitForTimeout(300)
+    // אזור מוגן: אם הוגדר PIN בסביבה, מקלידים אותו (SPEC §6)
+    if (process.env.PIN) {
+      const gate = page.getByRole('button', { name: /הזן קוד|פתח שוב/ })
+      if (await gate.count()) {
+        await gate.first().click()
+        await page.getByRole('textbox', { name: 'קוד' }).fill(process.env.PIN)
+        await page.getByRole('button', { name: 'אישור' }).click()
+        await page.waitForTimeout(400)
+      }
+    }
     // שם קובץ נקי: בלי query, UUID → "id"
     const [pathname, query = ''] = route.split('?')
     const path = pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, 'id')
