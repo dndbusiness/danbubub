@@ -20,8 +20,10 @@
 מה לעשות, לפי הסדר:
 1. ssh root@5.75.153.167 ולוודא שהשרת עונה ושיש בו לפחות 10GB פנויים.
 2. git clone -b claude/new-session-3k3pta https://github.com/dndbusiness/danbubub /opt/harel
-3. אם יש דומיין: לוודא שרשומת A מצביעה ל-5.75.153.167 (dig +short <דומיין>),
-   ואז DOMAIN=<דומיין> /opt/harel/scripts/server-install.sh
+3. אם יש דומיין: לוודא שרשומת A מצביעה ל-5.75.153.167 (dig +short <דומיין>), ואז:
+   DOMAIN=<דומיין> APP_PASSWORD='<הסיסמה שלי>' \
+   NOTIFY_WHATSAPP=<הנייד שלי> NOTIFY_EMAIL=<המייל שלי> \
+   /opt/harel/scripts/server-install.sh
    אם אין דומיין: להריץ בלי DOMAIN, אבל להגיד לי במפורש שהתעבורה בגלוי
    ושצריך להריץ שוב עם DOMAIN= ברגע שתהיה רשומת A.
 4. אחרי ההתקנה: curl -fsS localhost:3000/api/health ו-node /opt/harel/scripts/preflight.mjs
@@ -29,6 +31,7 @@
 5. להעתיק לשרת את קובץ האקסל שאני אתן (scp) ולהריץ:
    cd /opt/harel && node --experimental-strip-types scripts/import-workbook.mjs <הקובץ> --as-of <היום>
 6. להגדיר קודי PIN: node scripts/set-pin.mjs nissim ****, וכנ"ל partners ו-private.
+   (יעדי המסירה והסיסמה כבר הוגדרו בשלב 3 — לא צריך להזין אותם במסך.)
 7. להדפיס לי: הכתובת, סיסמת הכניסה הזמנית (APP_PASSWORD מתוך /opt/harel/.env.local),
    ומה עוד חסר לפי preflight.
 
@@ -53,7 +56,8 @@
 |---|---|
 | מתקין | Postgres 16 · Node 22 · Caddy · Chromium ל-PDF |
 | DB | יוצר משתמש ובסיס נתונים, מריץ סכימה לפי סדר מספרי (**כל קובץ פעם אחת**, נרשם ב-`schema_migrations`), מרענן views ו-seed, ו**עוצר אם ההבטחות המבניות של §11 לא עוברות** |
-| סודות | `JOBS_SECRET`, `SECRETS_KEY`, `APP_PASSWORD` — נוצרים פעם אחת ונשמרים ב-`/opt/harel/.env.local` (600). ריצה חוזרת לא דורסת אותם |
+| סודות | `JOBS_SECRET`, `SECRETS_KEY`, `APP_PASSWORD` — נוצרים פעם אחת ונשמרים ב-`/opt/harel/.env.local` (600). ריצה חוזרת לא דורסת אותם, **אלא אם** מוסרים `APP_PASSWORD=` במפורש — ואז הסיסמה מוחלפת וכל מי שמחובר מנותק |
+| יעדי מסירה | `NOTIFY_WHATSAPP` (05… מומר ל-972…) ו-`NOTIFY_EMAIL` נכתבים ל-`settings`. בלעדיהם שום התראה לא יוצאת (ב.11) |
 | שירות | `systemd` יחידה `harel`, רסטרט אוטומטי |
 | HTTPS | Caddy עם תעודה אוטומטית כשיש `DOMAIN`; בלעדיו HTTP על ה-IP **עם אזהרה מפורשת** |
 | ג'ובים | 19 הג'ובים של חלק ג' ל-`/etc/cron.d/harel`, **נוצרים מ-`vercel.json`** — מקור אחד לתזמונים |

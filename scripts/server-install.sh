@@ -5,6 +5,11 @@
 #   DOMAIN=finance.example.com ./scripts/server-install.sh   # HTTPS אוטומטי
 #   ./scripts/server-install.sh                              # בלי דומיין: HTTP על ה-IP (מסוכן)
 #
+# משתנים אופציונליים, כדי שהשרת יעלה מוגדר ולא יחכה להקלדה ידנית:
+#   APP_PASSWORD=…        סיסמת הכניסה (ברירת מחדל: נוצרת אקראית פעם אחת)
+#   NOTIFY_WHATSAPP=…     יעד הוואטסאפ של דן; 05… מומר אוטומטית ל-972…
+#   NOTIFY_EMAIL=…        יעד המייל של דן
+#
 # הסקריפט idempotent: ריצה שנייה לא מוחקת סודות, לא דורסת את ה-DB, ולא מכפילה
 # שורות cron. מה שכבר קיים — נשאר.
 #
@@ -18,6 +23,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOMAIN="${DOMAIN:-}"
+# אופציונלי: מגיעים מהסביבה כדי שהשרת יעלה מוגדר, בלי הקלדה ידנית אחר כך.
+APP_PASSWORD="${APP_PASSWORD:-}"
+NOTIFY_WHATSAPP="${NOTIFY_WHATSAPP:-}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL:-}"
 APP_USER="${APP_USER:-harel}"
 APP_DIR="${APP_DIR:-/opt/harel}"
 PORT="${PORT:-3000}"
@@ -92,7 +101,7 @@ su postgres -c "psql -tAc \"select 1 from pg_database where datname='$DB_NAME'\"
 say "משתני סביבה"
 if [[ ! -f "$ENV_FILE" ]]; then
   [[ -n "$DB_PASS" ]] || die "$ENV_FILE לא קיים אבל משתמש ה-DB כן — הגדירו DATABASE_URL ידנית והריצו שוב"
-  APP_PASSWORD="$(openssl rand -hex 8)"
+  [[ -n "$APP_PASSWORD" ]] || APP_PASSWORD="$(openssl rand -hex 8)"
   cat > "$ENV_FILE" <<EOF
 # נוצר ע"י scripts/server-install.sh — $(date -u +%F)
 DATABASE_URL=postgres://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME
@@ -115,6 +124,13 @@ EOF
   ok "נוצר $ENV_FILE עם סודות חדשים"
 else
   [[ -n "$DOMAIN" ]] && sed -i "s|^APP_BASE_URL=.*|APP_BASE_URL=https://$DOMAIN|" "$ENV_FILE"
+  if [[ -n "$APP_PASSWORD" ]]; then
+    # שינוי סיסמה מנתק את כל מי שמחובר (הקוקי נגזר ממנה) — וזו ההתנהגות הרצויה.
+    # לא sed: סיסמה עם | או & הייתה שוברת את הביטוי או נכתבת מעוותת.
+    { grep -v '^APP_PASSWORD=' "$ENV_FILE"; printf 'APP_PASSWORD=%s\n' "$APP_PASSWORD"; } > "$ENV_FILE.new"
+    mv "$ENV_FILE.new" "$ENV_FILE"
+    ok "סיסמת הכניסה הוחלפה"
+  fi
   ok "$ENV_FILE קיים — הסודות נשמרו"
 fi
 chmod 600 "$ENV_FILE"; chown "$APP_USER:$APP_USER" "$ENV_FILE"
@@ -150,6 +166,27 @@ done
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$APP_DIR/db/tests/000_guarantees.sql" >/dev/null \
   || die "ההבטחות המבניות של §11 לא עוברות — לא ממשיכים"
 ok "views ו-seed עודכנו וההבטחות המבניות עוברות"
+
+# יעדי המסירה של דן (ADDENDUM ב.11). בלעדיהם אף התראה לא יוצאת, ולכן הם חלק
+# מההתקנה ולא משהו שנזכרים בו אחר כך. jsonb כמחרוזת אמיתית — לא ::jsonb על טקסט.
+set_setting() {
+  [[ "$2" == *"'"* ]] && die "ערך לא חוקי ל-$1: גרש בודד"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+    "insert into settings (key, value, description) values ('$1', to_jsonb('$2'::text), 'ADDENDUM ב.11 — יעד מסירה')
+     on conflict (key) do update set value = excluded.value, updated_at = now()" >/dev/null
+}
+if [[ -n "$NOTIFY_WHATSAPP" ]]; then
+  wa="${NOTIFY_WHATSAPP//[^0-9]/}"
+  [[ "$wa" == 0* ]] && wa="972${wa#0}"            # 05XXXXXXXX → 9725XXXXXXXX
+  [[ ${#wa} -ge 11 ]] || die "NOTIFY_WHATSAPP חייב להיות מספר ישראלי תקין"
+  set_setting notify_whatsapp_dan "$wa"
+  ok "יעד וואטסאפ: $wa"
+fi
+if [[ -n "$NOTIFY_EMAIL" ]]; then
+  [[ "$NOTIFY_EMAIL" == *@*.* ]] || die "NOTIFY_EMAIL לא נראה כמו כתובת מייל"
+  set_setting notify_email_dan "$NOTIFY_EMAIL"
+  ok "יעד מייל: $NOTIFY_EMAIL"
+fi
 
 # ── 6. בנייה ─────────────────────────────────────────────────────────────────
 say "התקנה ובנייה"
