@@ -7,6 +7,7 @@
  *   BASE_URL=http://localhost:3000 node scripts/e2e-ops.mjs
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { readFileSync, existsSync } from 'node:fs'
 import postgres from 'postgres'
 
@@ -42,6 +43,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 // מובייל — מסכים 15 ו-16 הם מובייל-first (הנחיה 6).
 const page = await browser.newPage({ viewport: { width: 390, height: 900 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 
 try {
   step('מסך 15 — משימה חדשה מהנייד')

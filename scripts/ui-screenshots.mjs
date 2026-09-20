@@ -8,6 +8,7 @@
  */
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'
+import { unlockGate } from './lib/gate.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const OUT = process.env.OUT ?? 'docs/screenshots'
@@ -16,11 +17,18 @@ const widths = [390, 768, 1280]
 
 mkdirSync(OUT, { recursive: true })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
+// הקשר אחד לכל הריצה — כדי שהקוקי של שער הגישה (APP_PASSWORD) ייפתח פעם אחת.
+const context = await browser.newContext({ locale: 'he-IL' })
+const opener = await context.newPage()
+await opener.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(opener, BASE)
+await opener.close()
 let failures = 0
 
 for (const route of routes) {
   for (const width of widths) {
-    const page = await browser.newPage({ viewport: { width, height: 900 }, locale: 'he-IL' })
+    const page = await context.newPage()
+    await page.setViewportSize({ width, height: 900 })
     const errors = []
     page.on('pageerror', (e) => errors.push(String(e)))
     page.on('console', (m) => {

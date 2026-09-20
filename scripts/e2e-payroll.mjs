@@ -8,6 +8,7 @@
  * הבדיקה מייצרת עובד זמני ומבטלת אותו בסוף (§11.4).
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { readFileSync, existsSync } from 'node:fs'
 import postgres from 'postgres'
 
@@ -39,6 +40,7 @@ const cleanup = async () => {
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 1280, height: 950 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 const row = () => page.locator('tbody tr', { hasText: NAME })
 
 try {

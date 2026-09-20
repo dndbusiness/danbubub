@@ -5,6 +5,7 @@
  * מניח DB מקומי עם חשבון בנק (dev-db.sh). BASE_URL, CHROMIUM_PATH.
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { readFileSync, existsSync } from 'node:fs'
 
 if (existsSync('.env.local')) for (const line of readFileSync('.env.local', 'utf8').split('\n')) { const m = line.match(/^([A-Z_]+)=(.*)$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2] }
@@ -13,6 +14,7 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); process.exit(1) } console.log(`✓ ${m}`) }
 const balance = process.env.BALANCE ?? '150000'

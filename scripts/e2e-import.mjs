@@ -6,6 +6,7 @@
  *   BASE_URL=http://localhost:3000 node scripts/e2e-import.mjs
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { resolve } from 'node:path'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
@@ -14,6 +15,7 @@ const MAX = resolve('tests/fixtures/cards/max-sample.xlsx.csv')
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 const step = (s) => console.log(`→ ${s}`)
 /** במסך יש שלושה טפסי העלאה (אשראי / בנק / חשבונית ירוקה) — זה של האשראי. */
 const cardForm = () => page.locator('form').filter({ has: page.locator('input[name=billing_date]') })

@@ -3,6 +3,7 @@
  *   PDF סינתטי → חילוץ (כללים) → כרטיס הצעה → "נכון" → invoices + שידוך לתנועה + תבנית ספק + משימה נסגרת → העלאה חוזרת = כפילות.
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { resolve } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 import postgres from 'postgres'
@@ -27,6 +28,7 @@ await sql`insert into transactions (date_cash, account_id, amount_net, vat_mode,
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 
 step('העלאת PDF מהנייד')
 await page.goto(`${BASE}/import/inbox`, { waitUntil: 'load' })

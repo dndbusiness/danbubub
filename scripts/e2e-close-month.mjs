@@ -6,6 +6,7 @@
  * 3. בודק ב-DB: periods=closed + snapshot, משימה "להעביר", report_runs, ונעילה (INSERT לחודש נדחה)
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import postgres from 'postgres'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
@@ -17,6 +18,7 @@ const [y, m] = MONTH.split('-').map(Number)
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 page.on('dialog', (d) => d.accept())
 await page.goto(`${BASE}/nissim?period=${MONTH}`, { waitUntil: 'load' })
 await page.getByRole('button', { name: /הזן קוד|פתח שוב/ }).click()

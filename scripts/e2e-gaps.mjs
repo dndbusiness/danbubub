@@ -6,6 +6,7 @@
  *   BASE_URL=http://localhost:3000 node scripts/e2e-gaps.mjs
  */
 import { chromium } from 'playwright'
+import { unlockGate } from './lib/gate.mjs'
 import { resolve } from 'node:path'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
@@ -14,6 +15,7 @@ const GI = resolve('tests/fixtures/greeninvoice/expenses-e2e.csv')
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined })
 const page = await browser.newPage({ viewport: { width: 1280, height: 950 }, locale: 'he-IL' })
 await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort())
+await unlockGate(page, BASE)
 const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); process.exit(1) } console.log(`✓ ${m}`) }
 const giForm = () => page.locator('form').filter({ has: page.locator('select[name=direction]') })
