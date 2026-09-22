@@ -93,6 +93,7 @@ npm run typecheck
 ```bash
 ./scripts/dev-db.sh start        # Postgres מקומי + סכימה + views + קטגוריות (בלי נתונים)
 node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx> --as-of YYYY-MM-DD   # הנתונים האמיתיים
+#   (או מהדפדפן: /import → "קובץ האקסל של הר-אל" — אותה פונקציה, lib/import/workbook-load.ts)
 cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
@@ -104,6 +105,7 @@ node scripts/e2e-partners.mjs    # שלב 7: PIN → 33/33/33 → משיכה →
 node scripts/e2e-wise.mjs        # שלב 8: ייבוא WISE → ערוץ אוטומטי → הגשות → משפך ב-₪ → תחזית
 node scripts/e2e-payroll.mjs     # שלב 8b: הסכם → קלט → תחשיב עם הסבר → אישור → דוח לרו"ח → תשלום
 node scripts/e2e-ops.mjs         # שלב 9: משימות → שאלה לשותף → תשובה מהנייד → קישורים → סגירה אוטומטית
+WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup
 # גוגל (ב.1): GOOGLE_CLIENT_ID/SECRET + SECRETS_KEY ב-.env.local → /settings → "חבר את גוגל"
