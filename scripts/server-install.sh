@@ -250,20 +250,22 @@ fi
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 ok "Caddy פעיל"
 
-# ── 9. הג'ובים של חלק ג' — מקור אחד: vercel.json ─────────────────────────────
+# ── 9. הג'ובים של חלק ג' — מקור אחד: deploy/jobs.schedule.json ───────────────
 say "ג'ובים מתוזמנים"
+SCHEDULES="$APP_DIR/deploy/jobs.schedule.json"
+[[ -f "$SCHEDULES" ]] || die "$SCHEDULES חסר — בלעדיו אין ג'ובים"
 timedatectl set-timezone UTC 2>/dev/null || true
 {
-  echo "# נוצר ע\"י scripts/server-install.sh מתוך vercel.json — חלק ג' של ה-ADDENDUM."
-  echo "# שעון UTC. לשינוי: לערוך את vercel.json ולהריץ שוב את הסקריפט."
+  echo "# נוצר ע\"י scripts/server-install.sh מתוך deploy/jobs.schedule.json — חלק ג'."
+  echo "# שעון UTC. לשינוי: לערוך את jobs.schedule.json ולהריץ שוב את הסקריפט."
   echo "SHELL=/bin/bash"
   jq -r --arg secret "$JOBS_SECRET" --arg port "$PORT" '
-    .crons[] | "\(.schedule) root curl -fsS -m 600 -X POST -H \"x-jobs-secret: \($secret)\" http://127.0.0.1:\($port)\(.path) > /dev/null 2>&1"
-  ' "$APP_DIR/vercel.json"
+    .jobs[] | "\(.schedule) root curl -fsS -m 600 -X POST -H \"x-jobs-secret: \($secret)\" http://127.0.0.1:\($port)\(.path) > /dev/null 2>&1"
+  ' "$SCHEDULES"
   echo "17 2 * * * root $APP_DIR/scripts/backup.sh >> /var/log/harel-backup.log 2>&1"
 } > /etc/cron.d/harel
 chmod 644 /etc/cron.d/harel
-ok "$(jq '.crons | length' "$APP_DIR/vercel.json") ג'ובים + גיבוי יומי ב-/etc/cron.d/harel"
+ok "$(jq '.jobs | length' "$SCHEDULES") ג'ובים + גיבוי יומי ב-/etc/cron.d/harel"
 
 cat > "$APP_DIR/scripts/backup.sh" <<EOF
 #!/usr/bin/env bash
