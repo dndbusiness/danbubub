@@ -11,7 +11,7 @@ import { intakeCounts } from '@/lib/queries/intake'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
 import { formatPct } from '@/lib/ui/format'
 import { UploadCard } from './upload'
-import { BankUploadCard, GreenInvoiceUploadCard, WiseUploadCard } from './upload-bank'
+import { BankUploadCard, GreenInvoiceUploadCard, WiseUploadCard, WorkbookUploadCard } from './upload-bank'
 import { BatchesTable } from './batches'
 import { RulesTable } from './rules'
 
@@ -61,6 +61,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
           <BankUploadCard accounts={bankAccounts} formats={DEFAULT_BANK_MAPS.map((m) => ({ id: m.id, label: m.label }))} />
           <GreenInvoiceUploadCard />
           <WiseUploadCard />
+          <WorkbookUploadCard />
         </div>
 
         <section className="flex flex-col gap-3">

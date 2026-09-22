@@ -2,10 +2,10 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Landmark, Receipt, Users } from 'lucide-react'
-import { uploadBankStatement, uploadGreenInvoice, uploadWiseExport } from '@/app/actions/imports'
+import { FileSpreadsheet, Landmark, Receipt, Users } from 'lucide-react'
+import { uploadBankStatement, uploadGreenInvoice, uploadWiseExport, uploadWorkbook } from '@/app/actions/imports'
 import { Button } from '@/components/ui/button'
-import { Field, Select } from '@/components/ui/field'
+import { Field, Input, Select } from '@/components/ui/field'
 import { Card } from '@/components/ui/card'
 import type { CardAccount } from '@/lib/queries/imports'
 import { cn } from '@/lib/ui/cn'
@@ -165,6 +165,56 @@ export function WiseUploadCard() {
         {done && <p className="text-sm text-actual" role="status">{done}</p>}
         {warnings.map((w) => <p key={w} className="text-xs text-expected">{w}</p>)}
         <Button type="submit" variant="primary" disabled={pending}>{pending ? 'קולט…' : 'קלוט ייצוא'}</Button>
+      </form>
+    </Card>
+  )
+}
+
+/**
+ * SPEC §9 שלב 2 — הקובץ הקיים. הייבוא היה עד עכשיו סקריפט בלבד, ולכן התקנה
+ * בלי גישת טרמינל נשארה עם מערכת ריקה. אותה פונקציה, מהדפדפן.
+ */
+export function WorkbookUploadCard() {
+  const router = useRouter()
+  const [pending, start] = React.useTransition()
+  const [error, setError] = React.useState<string | null>(null)
+  const [done, setDone] = React.useState<string | null>(null)
+  const [warnings, setWarnings] = React.useState<string[]>([])
+
+  function submit(fd: FormData) {
+    setError(null); setDone(null); setWarnings([])
+    start(async () => {
+      const r = await uploadWorkbook(fd)
+      if (!r.ok) { setError(r.error); return }
+      setDone(r.alreadyImported
+        ? 'הקובץ הזה כבר יובא (אותו תוכן) — 0 שורות חדשות.'
+        : `${r.deals} תיקים · ${r.transactions} תנועות · ${r.advances} מקדמות · ${r.plans} שורות לוח תקבולים`)
+      setWarnings(r.warnings)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <FileSpreadsheet size={18} className="text-text-2" />
+        <h2 className="font-semibold">קובץ האקסל של הר-אל</h2>
+        <span className="text-xs text-text-3">הייבוא החד-פעמי — עסקאות, הוצאות, מקדמות</span>
+      </div>
+      <form action={submit} className="flex flex-col gap-3">
+        <DropZone accept=".xlsx,.xls" hint="ארבעה גיליונות: עסקאות · הוצאות · מקדמות · כרטיס ניסים. העלאה חוזרת של אותו קובץ לא תיצור כפילויות." />
+        <Field label="תאריך הייבוא" hint="תקבול שבקובץ אין לו חודש יירשם בתאריך הזה ויסומן לשאול את ניסים">
+          <Input type="date" name="as_of" defaultValue={new Date().toISOString().slice(0, 10)} />
+        </Field>
+        {error && <p className="text-sm text-open" role="alert">{error}</p>}
+        {done && <p className="text-sm text-actual" role="status">{done}</p>}
+        {warnings.length > 0 && (
+          <details className="text-xs text-text-2">
+            <summary className="cursor-pointer text-expected">{warnings.length} שורות שהקובץ מטפל בהן בשקט — כאן הן מוצפות</summary>
+            <ul className="mt-2 flex flex-col gap-1">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+          </details>
+        )}
+        <Button type="submit" variant="primary" disabled={pending}>{pending ? 'מייבא…' : 'ייבא את הקובץ'}</Button>
       </form>
     </Card>
   )

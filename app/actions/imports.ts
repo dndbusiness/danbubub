@@ -9,6 +9,7 @@ import { DEFAULT_BANK_MAPS, parseBankStatement, type BankColumnMap } from '@/lib
 import { BANK_MATCH, matchTarget } from '@/lib/match/invoices'
 import { loadGreenInvoiceExport } from '@/lib/import/greeninvoice-load'
 import { loadWiseExport } from '@/lib/import/wise-load'
+import { loadWorkbook } from '@/lib/import/workbook-load'
 import { classifyBatch, normalizeDescription, proposeRule } from '@/lib/rules/classify'
 import { isPeriodLocked, vatRateOn } from '@/lib/queries/common'
 import { bankAccountId, existingSourceRefs, getBatch, listRules, unclassifiedCategoryId } from '@/lib/queries/imports'
@@ -522,6 +523,33 @@ export async function uploadGreenInvoice(fd: FormData): Promise<Result<{ created
     if ('error' in r) return { ok: false, error: r.error }
     revalidatePath('/import'); revalidatePath('/gaps'); revalidatePath('/vat'); revalidatePath('/transactions')
     return { ok: true, created: r.created, matched: r.matched, duplicates: r.duplicatesInFile, already: r.alreadyInSystem, partnerReview: r.partnerReview, existing: r.existing }
+  } catch (e) { return { ok: false, error: (e as Error).message } }
+}
+
+/**
+ * מסך 11 — הקובץ הקיים של הר-אל (SPEC §9 שלב 2).
+ *
+ * עד עכשיו הייבוא הזה היה זמין רק כסקריפט משורת פקודה, ולכן מי שהקים את
+ * המערכת בלי גישת טרמינל נשאר עם מערכת ריקה. אותה פונקציה בדיוק משרתת את
+ * שני המסלולים.
+ */
+export async function uploadWorkbook(fd: FormData): Promise<Result<{
+  alreadyImported: boolean; deals: number; transactions: number; advances: number; plans: number; warnings: string[]
+}>> {
+  const file = fd.get('file')
+  if (!(file instanceof File) || !file.size) return { ok: false, error: 'לא נבחר קובץ' }
+  if (file.size > 20 * 1024 * 1024) return { ok: false, error: 'הקובץ גדול מ-20MB' }
+  const asOf = str(fd, 'as_of') ?? new Date().toISOString().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return { ok: false, error: 'תאריך ייבוא לא תקין' }
+  try {
+    const r = await loadWorkbook(Buffer.from(await file.arrayBuffer()), { fileName: file.name, importDate: asOf })
+    for (const p of ['/import', '/deals', '/transactions', '/pnl', '/nissim', '/']) revalidatePath(p)
+    return {
+      ok: true,
+      alreadyImported: r.alreadyImported,
+      deals: r.deals, transactions: r.transactions, advances: r.advances, plans: r.plans,
+      warnings: r.warnings.map((w) => `${w.sourceRef}: ${w.message}`),
+    }
   } catch (e) { return { ok: false, error: (e as Error).message } }
 }
 
