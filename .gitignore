@@ -1,0 +1,13 @@
+node_modules/
+.next/
+dist/
+coverage/
+.env
+.env.local
+*.log
+.DS_Store
+db/build/
+storage/
+
+# צילומי מסך — נוצרים מנתונים אמיתיים (שמות לקוחות וסכומים). מקומי בלבד.
+docs/screenshots/
