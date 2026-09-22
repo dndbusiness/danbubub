@@ -11,3 +11,6 @@ storage/
 
 # צילומי מסך — נוצרים מנתונים אמיתיים (שמות לקוחות וסכומים). מקומי בלבד.
 docs/screenshots/
+
+# תוצר בנייה של tsc — משתנה בכל typecheck ומלכלך כל diff.
+tsconfig.tsbuildinfo

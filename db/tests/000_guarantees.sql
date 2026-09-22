@@ -111,9 +111,16 @@ begin
   end;
 
   -- ── SPEC §11.8: תקופה נעולה נדחית ברמת ה-DB ────────────────────────────
+  -- על DB טרי אין עדיין שורת תקופה, ו-update על 0 שורות לא נועל כלום —
+  -- הבדיקה הייתה "עוברת" בלי לבדוק דבר. הבדיקה מייצרת את מה שהיא צריכה.
+  insert into periods (division, year, month, status)
+  values ('finance', 2026, 7, 'open')
+  on conflict (division, year, month) do nothing;
+
   update periods
      set status = 'closed', closed_at = now(), snapshot_json = '{"test": true}'::jsonb
    where division = 'finance' and year = 2026 and month = 7;
+  assert found, '§11.8 לא נמצאה תקופה לנעילה — הבדיקה לא יכלה לרוץ';
 
   ok := true;
   begin

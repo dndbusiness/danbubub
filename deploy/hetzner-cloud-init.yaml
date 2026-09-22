@@ -1,0 +1,43 @@
+#cloud-config
+# ══════════════════════════════════════════════════════════════════════════════
+# התקנה בלי טרמינל, בלי SSH ובלי סיסמת root.
+#
+# בפלטפורמת הענן: Create Server → Ubuntu 24.04 → בשדה "Cloud config" / "User data"
+# מדביקים את הקובץ הזה אחרי שמחליפים את שלושת הערכים למטה. השרת קם ומתקין את
+# עצמו. אחרי 10–15 דקות המערכת עולה על http://<כתובת-השרת-החדש>.
+#
+# מה להחליף (שלושה מקומות, מסומנים ב-<<< >>>):
+#   APP_PASSWORD    סיסמת הכניסה למערכת
+#   NOTIFY_WHATSAPP הנייד לקבלת התראות
+#   NOTIFY_EMAIL    המייל לקבלת דוחות
+#
+# שים לב: הערכים האלה נשמרים אצל ספק הענן כחלק בהגדרות השרת. אחרי שהמערכת
+# עולה, אפשר להחליף סיסמה בהרצה חוזרת של ההתקנה עם APP_PASSWORD אחר.
+#
+# מעקב: הלוג נכתב ל-/var/log/harel-install.log, והקובץ /root/HAREL-READY
+# נוצר רק אם ההתקנה הסתיימה בהצלחה.
+# ══════════════════════════════════════════════════════════════════════════════
+package_update: true
+packages:
+  - git
+  - curl
+  - ca-certificates
+
+write_files:
+  - path: /root/harel-install.sh
+    permissions: '0700'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      export DOMAIN=""                                    # בלי דומיין — HTTP בלבד
+      export APP_PASSWORD='<<<הסיסמה שלי>>>'
+      export NOTIFY_WHATSAPP='<<<05XXXXXXXX>>>'
+      export NOTIFY_EMAIL='<<<המייל שלי>>>'
+      URL=https://raw.githubusercontent.com/dndbusiness/danbubub/claude/new-session-3k3pta/scripts/bootstrap.sh
+      curl -fsSL "$URL" | bash
+      touch /root/HAREL-READY
+
+runcmd:
+  - [ bash, -lc, "/root/harel-install.sh >> /var/log/harel-install.log 2>&1" ]
+
+final_message: "הר-אל: ההתקנה רצה. הלוג ב-/var/log/harel-install.log"
