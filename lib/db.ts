@@ -5,25 +5,40 @@
 
 import postgres from 'postgres'
 
-const url = process.env.DATABASE_URL
-if (!url) {
-  throw new Error('DATABASE_URL לא מוגדר. ראו .env.example')
-}
+type Sql = ReturnType<typeof postgres>
 
 // singleton כדי שלא ייפתח pool חדש בכל hot-reload
-const globalForDb = globalThis as unknown as { __harelSql?: ReturnType<typeof postgres> }
+const globalForDb = globalThis as unknown as { __harelSql?: Sql }
 
-export const sql =
-  globalForDb.__harelSql ??
-  postgres(url, {
+function connect(): Sql {
+  if (globalForDb.__harelSql) return globalForDb.__harelSql
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL לא מוגדר. ראו .env.example')
+  const client = postgres(url, {
     max: 5,
     // NUMERIC → number. SPEC §11.5: הערכים נשמרים ב-NUMERIC(14,2); בקריאה
     // הם מומרים למספר JS עם 2 ספרות — בטוח לתצוגה, וכל חישוב עובר ב-lib/rules.
     types: { numeric: { to: 1700, from: [1700], serialize: (v: number) => String(v), parse: Number } },
     transform: { undefined: null },
   })
+  globalForDb.__harelSql = client
+  return client
+}
 
-if (process.env.NODE_ENV !== 'production') globalForDb.__harelSql = sql
+/**
+ * החיבור נוצר בשימוש הראשון ולא בטעינת המודול.
+ * `next build` מייבא כל route כדי לאסוף את נתוני העמודים; כשהחיבור נוצר
+ * בטעינה, בנייה בלי DATABASE_URL נופלת — וזה בדיוק מה שקורה בפריסה מנוהלת,
+ * שבה משתני הסביבה קיימים בזמן ריצה ולא בזמן הבנייה.
+ */
+export const sql: Sql = new Proxy((() => {}) as unknown as Sql, {
+  apply: (_t, _this, args: unknown[]) => (connect() as unknown as (...a: unknown[]) => unknown)(...args),
+  get: (_t, prop: string | symbol) => {
+    const client = connect() as unknown as Record<string | symbol, unknown>
+    const value = client[prop]
+    return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(client) : value
+  },
+})
 
 /**
  * המשתמש הפועל — SPEC §1.7 (מי שינה מה) ו-§11.4 (created_by).
