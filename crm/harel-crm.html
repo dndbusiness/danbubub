@@ -68,6 +68,7 @@
   .push { margin-inline-start: auto; }
   .divs { display: inline-flex; background: var(--sunk); border-radius: var(--radius-btn); padding: 2px; }
   .divs button { border: 0; background: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-2); }
+  .divs[hidden], .divs button[hidden] { display: none !important; }
   .divs button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-card); font-weight: 600; }
 
   nav.tabs { display: flex; gap: 2px; overflow-x: auto; max-width: 1280px; margin-inline: auto; padding: 4px 12px 0; scrollbar-width: none; }
@@ -230,7 +231,8 @@
   .rchip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
   .r-dan { --lane: var(--dan); } .r-hadas { --lane: var(--hadas); } .r-nissim { --lane: var(--nissim); }
   .rchip.r-dan, .rchip.r-hadas, .rchip.r-nissim { color: var(--lane); }
-  .lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+  .lane:not(.r-dan):not(.r-hadas):not(.r-nissim) { --lane: var(--committed); }
   @media (max-width: 960px) { .lanes { grid-template-columns: 1fr; } }
   .lane { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--lane); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden; }
   .lane > header { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--sunk); flex-wrap: wrap; }
@@ -734,7 +736,8 @@ function vDay() {
 
   if (!me) return '<h1>היום שלי</h1><div class="notice warn"><b>אין זיהוי</b><span>כדי לנהל יום עבודה אישי, פתח את הדף מחובר לחשבון claude.ai שלך.</span></div>';
 
-  const head = '<div class="dayhead"><div class="grow"><div class="big">' + greet + (S.me.name ? ', ' + esc(S.me.name.split(' ')[0]) : '') + '</div>' +
+  const myName = (S.loginAs && S.loginAs.label) || S.me.name || '';
+  const head = '<div class="dayhead"><div class="grow"><div class="big">' + greet + (myName ? ', ' + esc(myName.split(' ')[0]) : '') + '</div>' +
     '<div class="hint">' + new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date()) +
     (d && d.openedAt ? ' · היום נפתח ב-' + new Date(d.openedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '') +
     (d && d.closedAt ? ' · נסגר ב-' + new Date(d.closedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '') + '</div></div>' +
@@ -754,11 +757,12 @@ function vDay() {
     '<div class="grid4">' +
       kpi('משימות באיחור', '<span class="num">' + overdue.length + '</span>', 'עליך, מלפני היום', null, overdue.length ? 'open' : '') +
       kpi('להיום', '<span class="num">' + dueToday.length + '</span>', dueToday.length ? 'משימות עם יעד היום' : 'אין יעדים להיום', null) +
-      kpi('תיקים באחריותך', '<span class="num">' + cases.length + '</span>', money(cases.reduce((a, c) => a + clientMoney(c).open, 0), { tone: 'expected' }) + ' פתוח לגביה', 'clients') +
+      kpi('תיקים באחריותך', '<span class="num">' + cases.length + '</span>', S.isCenter ? 'תיקים שמשויכים אליך' : money(cases.reduce((a, c) => a + clientMoney(c).open, 0), { tone: 'expected' }) + ' פתוח לגביה', S.isCenter ? null : 'clients') +
       kpi('בוצע היום', '<span class="num">' + doneToday.length + '</span>', 'משימות שסימנת כבוצעו', null, doneToday.length ? 'actual' : '') +
     '</div>' +
     (S.isOwner ? '<div class="grid2">' + kpi('נכנס היום', money(dm.income, { tone: dm.income ? 'actual' : 'muted' }), dm.incomeRows.length ? dm.incomeRows.map((t) => esc(cname(t.clientId) || t.counterparty || '')).join(' · ') : 'עוד לא נכנס כסף היום', null) +
       kpi('פוטנציאל שנחתם היום', money(dm.potential, { tone: dm.potential ? 'expected' : 'muted' }), dm.signed.length ? dm.signed.map((c) => esc(c.name)).join(' · ') : 'אין החתמות היום — תאריך חתימה נקבע בכרטיס', null) + '</div>' : '') +
+    dayExtras() +
     (rem.length ? '<section class="card"><header><h2>תזכורות יומיות</h2><span class="pill open">' + rem.length + '</span><span class="hint">חוזרות כל יום עד שמסמנים בכרטיס</span></header>' +
       rem.map((x) => '<div class="check"><span class="grow"><button class="xlink" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + '</button> — ' + esc(x.text) + '</span><span class="pill ' + (x.kind === 'fund' ? 'open' : 'expected') + '">' + (x.kind === 'fund' ? 'קרן' : 'פעימה') + '</span></div>').join('') + '</section>' : '') +
     '<div class="grid2">' +
@@ -776,7 +780,7 @@ function vDay() {
       '</section>' +
     '</div>' +
     '<section class="card"><header><h2>התיקים שלך — איפה כל אחד עומד</h2><span class="hint">הצעד הבא נקבע בסגירת היום</span></header>' + clientTable(cases.sort((a, b) => clientMoney(b).open - clientMoney(a).open), true) + '</section>' +
-    '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span><button class="btn small ghost" data-go="settings">ניהול ←</button></header>' + linksBlock(true) + '</section>';
+    (S.isCenter ? '' : '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span><button class="btn small ghost" data-go="settings">ניהול ←</button></header>' + linksBlock(true) + '</section>');
 }
 
 function vDayClose(cases, tasks) {
@@ -1152,11 +1156,13 @@ function vClient(id) {
             (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
             : '<p class="empty">אין צ׳קליסט לתיק הזה</p>') +
           (w ? '<div class="row" style="margin-top:8px"><input class="f grow" id="chkNew" placeholder="פריט נוסף…" aria-label="פריט נוסף"><button class="btn small" data-act="addChk">הוסף</button></div>' : '') + '</section>' +
-        '<section class="card"><header><h2>גופי מימון</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="addSub">+ הגשה</button>' : '') + '</header>' +
+        (c.division === 'realestate' ? '' : '<section class="card"><header><h2>גופי מימון</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="addSub">+ הגשה</button>' : '') + '</header>' +
           ((c.submissions || []).length ? '<div class="scroll"><table><tbody>' + c.submissions.map((s, i) => '<tr><td class="wide">' + esc(s.bank) + '</td>' +
             '<td>' + (w ? '<select class="f" data-substatus="' + i + '" aria-label="סטטוס הגשה">' + Object.entries(L.sub).map(([k, v]) => '<option value="' + k + '"' + (s.status === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>' : '<span class="pill committed">' + (L.sub[s.status] || s.status) + '</span>') + '</td>' +
-            '<td>' + (s.amount ? money(s.amount, { tone: 'muted' }) : '') + '</td><td class="num">' + (s.transferredAt ? dLabel(s.transferredAt) : '') + '</td></tr>').join('') + '</tbody></table></div>'
-            : '<p class="empty">לא הוגש לאף גוף</p>') + '</section>' +
+            '<td>' + (s.amount ? money(s.amount, { tone: 'muted' }) : '') + '</td><td class="num">' + (s.transferredAt ? dLabel(s.transferredAt) : '') + '</td>' +
+            (s.status === 'executed' ? '<td><input class="f" type="number" min="1" max="480" step="1" style="width:84px" data-subm="' + i + '" value="' + esc(s.months || '') + '" placeholder="חודשים" title="תקופת ההלוואה בחודשים"' + (w ? '' : ' disabled') + '></td><td><label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" data-subb="' + i + '"' + (s.balloon ? ' checked' : '') + (w ? '' : ' disabled') + '><span>בלון</span></label></td>' : '<td></td><td></td>') + '</tr>').join('') + '</tbody></table></div>' +
+            (refiOf(c).length ? refiOf(c).map((x) => '<p class="hint">' + (x.due ? '<span class="pill open">מחזור</span> ' : '') + esc(x.bank) + ': ' + (x.balloon ? 'הבלון' : 'ההלוואה') + ' מסתיים ב-' + dLabel(x.end) + (x.due ? ' — הגיע הזמן להציע מחזור' : ' · תזכורת ' + dLabel(x.from)) + '</p>').join('') : '')
+            : '<p class="empty">לא הוגש לאף גוף</p>') + '</section>') +
         detailsCard(c) + (lead ? '<p class="hint">הגיע מליד: ' + esc(lead.name) + ' · ' + esc([lead.campaign, lead.platform, lead.marketer].filter(Boolean).join(' · ')) + '</p>' : '') + privCard(c) +
       '</div>' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
@@ -1467,11 +1473,22 @@ function leadSheetCard() {
 const LEAD_OPEN = ['new', 'noanswer', 'followup', 'contacted', 'checking', 'thinking', 'meeting', 'proposal'];
 const LEAD_CLOSED = ['won', 'lost', 'ineligible', 'duplicate', 'credit', 'invalid'];
 const LEAD_TONE = { new: 'open', noanswer: 'open', followup: 'expected', contacted: 'expected', checking: 'expected', thinking: 'expected', meeting: 'committed', proposal: 'committed', won: 'actual', lost: 'muted', ineligible: 'muted', duplicate: 'locked', credit: 'locked', invalid: 'locked' };
-const leadStageLabel = (l) => l.stage === 'noanswer' ? 'אין מענה ' + Math.min(5, Math.max(1, n(l.tries))) + (n(l.tries) > 5 ? '+' : '') : L.leadStage[l.stage] || l.stage || 'חדש';
-const stageOpts = (l) => LEAD_STAGES.map((k) => '<option value="' + k + '"' + (k === (l.stage || 'new') ? ' selected' : '') + '>' + (k === 'noanswer' && l.stage === 'noanswer' ? leadStageLabel(l) : L.leadStage[k]) + '</option>').join('');
+/* סטטוסים לפי חברה: כל סטטוס "מתנהג כמו" אחד מהבסיסיים (פתוח / חתם / לא רלוונטי / לזיכוי…) כדי שהדוחות והמעקבים ימשיכו לעבוד.
+   נשמר בליד כ-stage (הבסיס) + sub (הסטטוס של החברה, אם שונה מהבסיס). ההגדרה: הגדרות ← סטטוסים לפי חברה. */
+const leadDiv = (l) => l.division || 'finance';
+const stageDefs = (div) => { const cfg = ((S.settings.statusSets || {})[div] || []).filter((x) => x && x.key && L.leadStage[x.base]);
+  return cfg.length ? cfg : LEAD_STAGES.map((k) => ({ key: k, label: L.leadStage[k], base: k })); };
+const stageDef = (l) => { const ds = stageDefs(leadDiv(l)); return ds.find((x) => x.key === (l.sub || l.stage || 'new')) || ds.find((x) => x.key === (l.stage || 'new') && x.base === (l.stage || 'new')); };
+const leadStageLabel = (l) => l.sub && stageDef(l) ? stageDef(l).label : l.stage === 'noanswer' ? 'אין מענה ' + Math.min(5, Math.max(1, n(l.tries))) + (n(l.tries) > 5 ? '+' : '') : (stageDef(l) && stageDef(l).label) || L.leadStage[l.stage] || l.stage || 'חדש';
+const stageOpts = (l) => { const cur = l.sub || l.stage || 'new', ds = stageDefs(leadDiv(l)), list = ds.some((x) => x.key === cur) ? ds : [...ds, { key: cur, label: leadStageLabel(l), base: l.stage || 'new' }];
+  return list.filter((x) => !x.hide || x.key === cur).map((x) => '<option value="' + esc(x.key) + '"' + (x.key === cur ? ' selected' : '') + '>' + esc(x.key === cur ? leadStageLabel(l) : x.label) + '</option>').join(''); };
+const stagePatch = (l, key) => { const d = stageDefs(leadDiv(l)).find((x) => x.key === key) || { key, base: key, label: L.leadStage[key] || key }; return { stage: d.base, sub: d.key !== d.base ? d.key : null, _label: d.label }; };
 const leadPill = (l) => '<span class="pill ' + (LEAD_TONE[l.stage] || 'muted') + '">' + esc(leadStageLabel(l)) + '</span>';
 const isLeadOpen = (l) => LEAD_OPEN.includes(l.stage || 'new');
 const leadDue = (l, d = today()) => isLeadOpen(l) && l.followUp && l.followUp <= d;
+const respEntries = (div) => peopleFor(div).map((p) => [p.key, p.label + (p.role === 'center' ? ' · מוקד' : '')]);
+const leadRespOpts = (l) => { const es = respEntries(leadDiv(l)); if (l.resp && !es.some(([k]) => k === l.resp)) es.push([l.resp, L.resp[l.resp] || l.resp]);
+  return '<option value="">—</option>' + es.map(([k, v]) => '<option value="' + esc(k) + '"' + (l.resp === k ? ' selected' : '') + '>' + esc(v) + '</option>').join(''); };
 const whoAmI = () => (S.loginAs && S.loginAs.label) || (S.isOwner ? 'דן' : nameOf(S.me.id));
 const waLink = (p) => { const d = normPhone(p); return d.length >= 9 ? 'https://wa.me/972' + d.replace(/^0/, '') : ''; };
 const leadLast = (l) => { const e = (l.log || []).find((x) => !x.auto) || (l.log || [])[0]; return e ? e.text : (l.note || ''); };
@@ -1486,7 +1503,8 @@ async function leadPatch(id, patch, text, auto = false) {
 function leadsFiltered() {
   const f = S.f, q = String(f.leadQ || '').trim(), qd = q.replace(/\D/g, ''), t0 = today();
   const since = { d1: t0, d7: addDays(t0, -7), d30: addDays(t0, -30) }[f.leadWhen || ''];
-  let L2 = live(S.leads);
+  let L2 = live(S.leads).filter((l) => S.division === 'all' || leadDiv(l) === S.division);
+  if (S.isCenter) L2 = L2.filter((l) => l.resp && l.resp === S.myKey);
   const st = f.leadSt || 'todo';
   L2 = L2.filter((l) => st === 'all' ? true : st === 'todo' ? isLeadOpen(l) : st === 'due' ? leadDue(l, t0) : st === 'credit' ? isCredit(l) : (l.stage || 'new') === st);
   if (f.leadType) L2 = L2.filter((l) => leadType(l) === f.leadType);
@@ -1498,15 +1516,203 @@ function leadsFiltered() {
   const sort = st === 'due' ? 'follow' : f.leadSort || 'new';
   return L2.sort((a, b) => sort === 'follow' ? String(a.followUp || '9').localeCompare(String(b.followUp || '9')) || leadAt(b).localeCompare(leadAt(a)) : sort === 'old' ? leadAt(a).localeCompare(leadAt(b)) : leadAt(b).localeCompare(leadAt(a)));
 }
+/* ═════════════ מחזור משכנתאות: 3 חודשים לפני סוף בלון (דן, 09/10) ═════════════ */
+const MORTGAGE_PRODUCTS = ['nonbank_mortgage', 'refinance', 'new_mortgage', 'mortgage_declined', 'deal_escort', 'renovation_loan'];
+const REFI_MONTHS_BEFORE = 3;
+const addMonths = (d, k) => { const x = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); const day = x.getUTCDate(); x.setUTCDate(1); x.setUTCMonth(x.getUTCMonth() + k); const last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate(); x.setUTCDate(Math.min(day, last)); return x.toISOString().slice(0, 10); };
+function refiOf(c, t0 = today()) {
+  if ((c.division || 'finance') !== 'finance' || !MORTGAGE_PRODUCTS.includes(c.product)) return [];
+  return (c.submissions || []).map((s, i) => ({ s, i })).filter(({ s }) => s.status === 'executed' && s.transferredAt && n(s.months) > 0)
+    .map(({ s, i }) => { const end = addMonths(s.transferredAt, n(s.months)), from = s.balloon ? addMonths(end, -REFI_MONTHS_BEFORE) : end;
+      return { c, i, bank: s.bank, balloon: !!s.balloon, end, from, due: t0 >= from && !((c.refi || {})[i] && c.refi[i].done) }; });
+}
+const refiDue = () => live(S.clients).flatMap((c) => refiOf(c)).filter((x) => x.due);
+/* ── תיק תקוע: 3 ימי עבודה (א׳–ה׳) בלי תזוזה — בלי שינוי, הערה או משימה שבוצעה ── */
+function bizDaysSince(iso, t0 = today()) { if (!iso) return 99; let d = String(iso).slice(0, 10), k = 0; while (d < t0 && k < 99) { d = addDays(d, 1); const wd = new Date(d + 'T12:00:00Z').getUTCDay(); if (wd !== 5 && wd !== 6) k++; } return k; }
+function lastMove(c) { const acts = [c.updatedAt, ...(c.log || []).slice(0, 1).map((e) => e.at), ...live(S.tasks).filter((t) => t.clientId === c.id && t.doneAt).map((t) => t.doneAt)].filter(Boolean).sort(); return acts[acts.length - 1] || c.createdAt; }
+const stuckFiles = () => live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && bizDaysSince(lastMove(c)) >= 3).sort((a, b) => String(lastMove(a)).localeCompare(String(lastMove(b))));
+function dayExtras() {
+  const t0 = today(); let h = '';
+  if (S.isCenter) { const mine = live(S.leads).filter((l) => l.resp === S.myKey), due = mine.filter((l) => leadDue(l, t0) || (l.stage || 'new') === 'new'), m = t0.slice(0, 7), cm = commRows().filter((x) => x.who === S.myKey && x.month === m);
+    h += '<div class="grid2">' + kpi('הלידים שלי לטיפול', '<span class="num">' + due.length + '</span>', mine.length + ' לידים משויכים אליך', 'leads', due.length ? 'open' : '') +
+      kpi('העמלות שלי — ' + mLabel(m), money(cm.reduce((a, x) => a + x.amount, 0), { tone: 'committed' }), cm.filter((x) => x.event === 'meeting').length + ' פגישות שהתקיימו · ' + cm.filter((x) => x.event === 'close').length + ' סגירות', null) + '</div>'; }
+  if (S.isOwner) { const rf = refiDue().filter((x) => inDiv(x.c));
+    if (rf.length) h += '<section class="card"><header><h2>מחזור משכנתאות — הגיע הזמן</h2><span class="pill open">' + rf.length + '</span><span class="hint">' + REFI_MONTHS_BEFORE + ' חודשים לפני סוף בלון</span></header>' +
+      rf.map((x) => '<div class="check"><span class="grow"><button class="xlink" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + '</button> — ' + esc(x.bank) + ': ' + (x.balloon ? 'הבלון' : 'ההלוואה') + ' מסתיים ב-' + dLabel(x.end) + '</span>' + (S.canTask ? '<button class="btn small" data-refitask="' + esc(x.c.id) + '|' + x.i + '">פתח משימה</button><button class="btn small ghost" data-refidone="' + esc(x.c.id) + '|' + x.i + '">טופל</button>' : '') + '</div>').join('') + '</section>';
+    const st = stuckFiles(); if (st.length) h += '<section class="card"><header><h2>תיקים תקועים</h2><span class="pill open">' + st.length + '</span><span class="hint">3 ימי עבודה בלי תזוזה</span></header><div class="scroll"><table><tbody>' +
+      st.slice(0, 15).map((c) => '<tr class="clickable" data-client="' + esc(c.id) + '"><td class="wide"><b>' + esc(c.name) + '</b><div class="hint">' + esc(L.stage[c.stage] || '') + (c.nextAction && c.nextAction.text ? ' · ' + esc(c.nextAction.text) : '') + '</div></td><td>' + respChip(c.resp) + '</td><td class="num">' + bizDaysSince(lastMove(c)) + ' ימי עבודה</td></tr>').join('') + '</tbody></table></div>' + (st.length > 15 ? '<p class="hint">ועוד ' + (st.length - 15) + '</p>' : '') + '</section>'; }
+  return h;
+}
+/* ═════════════ רווחיות לפי פעילות — לא תזרים: כמה כל פעילות תורמת, גם רטרו ═════════════ */
+const UNIT_GROUP = (c) => (c.division || 'finance') === 'realestate' ? 'נדל״ן' : MORTGAGE_PRODUCTS.includes(c.product) ? 'נכסים / משכנתאות' : ['car_loan', 'vehicle_lien'].includes(c.product) ? 'רכב' : ['business_nonbank', 'state_guarantee', 'business_credit'].includes(c.product) ? 'עסקים' : 'אחר';
+const LEADTYPE_GROUP = { 'נכסים': 'נכסים / משכנתאות', 'רכב': 'רכב', 'עסקים': 'עסקים' };
+function vUnits() {
+  if (!S.isOwner) return '<p class="empty">הדוח הזה פתוח למנהלים.</p>';
+  const per = S.f.unitPer || 'all', t0 = today(), y = t0.slice(0, 4);
+  const from = per === 'all' ? '0000' : per === 'year' ? y + '-01-01' : per === '12m' ? addMonths(t0, -12) : per + '-01', to = per.length === 7 ? addMonths(per + '-01', 1) : '9999';
+  const inR = (d) => d && String(d).slice(0, 10) >= from && String(d).slice(0, 10) < to;
+  const G = {}, row = (g) => (G[g] = G[g] || { g, prods: {}, income: 0, direct: 0, comm: 0, mkt: 0, won: 0 });
+  const prodRow = (r, k) => (r.prods[k] = r.prods[k] || { k, income: 0, direct: 0, comm: 0, won: 0 });
+  for (const t of live(S.transactions).filter((t) => inR(t.date) && (S.division === 'all' || (t.division || 'finance') === S.division))) {
+    const c = t.clientId && S.clients.get(t.clientId), g = c ? UNIT_GROUP(c) : 'לא משויך ללקוח', r = row(g), pr = prodRow(r, c ? L.product[c.product] || c.product || 'אחר' : (t.category || 'כללי'));
+    if (t.nature === 'income') { r.income += n(t.net); pr.income += n(t.net); }
+    if (t.nature === 'expense' && c) { r.direct += Math.abs(n(t.net)); pr.direct += Math.abs(n(t.net)); }
+  }
+  for (const x of commRows().filter((x) => x.month && inR(x.month + '-15') && (S.division === 'all' || x.div === S.division))) {
+    const c = x.ref.client ? S.clients.get(x.ref.client) : null, l = x.ref.lead ? S.leads.get(x.ref.lead) : null, g = c ? UNIT_GROUP(c) : l && leadDiv(l) === 'realestate' ? 'נדל״ן' : 'אחר';
+    const r = row(g); r.comm += x.amount; if (c) prodRow(r, L.product[c.product] || 'אחר').comm += x.amount; }
+  for (const l of live(S.leads).filter((l) => inR(l.createdAt) && billableLead(l) && (S.division === 'all' || leadDiv(l) === S.division))) row(leadDiv(l) === 'realestate' ? 'נדל״ן' : LEADTYPE_GROUP[leadType(l)] || 'אחר').mkt += leadCostOf(l);
+  for (const c of live(S.clients).filter((c) => c.status === 'won' && inR(c.closedAt || c.wonAt || c.updatedAt) && (S.division === 'all' || (c.division || 'finance') === S.division))) { const r = row(UNIT_GROUP(c)); r.won++; prodRow(r, L.product[c.product] || 'אחר').won++; }
+  const rows = Object.values(G).map((r) => ({ ...r, net: r2(r.income - r.direct - r.comm - r.mkt) })).sort((a, b) => b.income - a.income), tot = rows.reduce((a, r) => a + r.income, 0);
+  const pers = [['all', 'מההתחלה (רטרו)'], ['year', 'השנה'], ['12m', '12 חודשים'], ...[...new Set(live(S.transactions).map((t) => String(t.date).slice(0, 7)))].sort().reverse().slice(0, 18).map((m) => [m, mLabel(m)])];
+  return '<section class="card"><header><h2>רווחיות לפי פעילות</h2><span class="grow"></span><label class="fl">תקופה<select class="f" id="fUnitPer">' + pers.map(([k, v]) => '<option value="' + k + '"' + (k === per ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label></header>' +
+    '<p class="hint" style="margin:-4px 0 10px">לא תזרים — כמה כל פעילות מכניסה, מה היא עולה (הוצאות ישירות על לקוחות, עמלות, עלות לידים) וכמה היא תורמת מהמחזור. ההוצאות הקבועות לא מחולקות כאן.</p>' +
+    '<div class="scroll"><table><thead><tr><th>פעילות</th><th>נסגרו</th><th>הכנסות</th><th>ישירות</th><th>עמלות</th><th>לידים</th><th>תרומה</th><th>% מהמחזור</th><th>ממוצע לעסקה</th></tr></thead><tbody>' +
+    rows.map((r) => '<tr><td class="wide"><b>' + esc(r.g) + '</b>' + (Object.keys(r.prods).length > 1 ? '<div class="hint">' + Object.values(r.prods).sort((a, b) => b.income - a.income).map((p) => esc(p.k) + ' ' + plain(p.income)).join(' · ') + '</div>' : '') + '</td><td class="num">' + r.won + '</td><td>' + money(r.income, { tone: 'actual' }) + '</td><td>' + money(-r.direct) + '</td><td>' + money(-r.comm) + '</td><td>' + money(-r.mkt) + '</td><td>' + money(r.net, { tone: r.net < 0 ? 'open' : 'committed' }) + '</td><td class="num">' + pct(r.income, tot) + '%</td><td>' + (r.won ? plain(r.income / r.won) : '—') + '</td></tr>').join('') +
+    '</tbody><tfoot><tr><td>סה״כ</td><td class="num">' + rows.reduce((a, r) => a + r.won, 0) + '</td><td>' + money(tot, { tone: 'actual' }) + '</td><td>' + money(-rows.reduce((a, r) => a + r.direct, 0)) + '</td><td>' + money(-rows.reduce((a, r) => a + r.comm, 0)) + '</td><td>' + money(-rows.reduce((a, r) => a + r.mkt, 0)) + '</td><td>' + money(rows.reduce((a, r) => a + r.net, 0)) + '</td><td>100%</td><td></td></tr></tfoot></table></div></section>';
+}
+/* ═════════════ הר-אל השקעות: מסע הלקוח, דמי רצינות, סיכום פגישה ועמלות (דן, 09/10) ═════════════ */
+const RE_STEPS = [['docs', 'השלמת מסמכים'], ['zoom', 'פגישת זום'], ['frontal', 'פגישה פרונטלית'], ['summary', 'סיכום פגישה'], ['plan', 'תוכנית נכס'], ['second', 'פגישה נוספת'],
+  ['lawyer', 'תיאום עו״ד'], ['lawyerMeet', 'פגישה עם עו״ד'], ['register', 'הרשמה אצל היזם'], ['closed', 'נסגר — חתם ושילם']];
+const RE_SUMMARY = [['feeling', 'ההרגשה לגבי הלקוח', 'ta'], ['properties', 'נכסים שמתאימים', 'ta'], ['profiled', 'מילא אפיון?', 'yn'], ['equity', 'הון עצמי (₪)', 'num'], ['income', 'הכנסה חודשית (₪)', 'num'],
+  ['loans', 'כמה הלוואות יש לו', 'text'], ['wants', 'מה הלקוח רוצה', 'ta'], ['helpClose', 'מה יעזור לו לסגור', 'ta'], ['notes', 'עוד', 'ta']];
+const DEPOSIT_CAT = 'דמי רצינות';
+const reOf = (c) => c.re || {};
+const reLawyer = () => S.settings.reLawyer || 'אתי';
+function leadZoomCard(l, w) {
+  const z = l.zoom || {};
+  return '<section class="card"><header><h2>פגישת זום</h2>' + (z.attended ? '<span class="pill actual">התקיימה</span>' : z.at ? '<span class="pill committed">נקבעה</span>' : '<span class="pill muted">לא נקבעה</span>') + '<span class="grow"></span><span class="hint">פגישה שהתקיימה בפועל = עמלה למי שתיאם</span></header>' +
+    '<div class="row" style="align-items:flex-end"><label class="fl">מתי<input class="f" type="datetime-local" data-lzoom="at" data-id="' + esc(l.id) + '" value="' + esc(z.at || '') + '"' + (w ? '' : ' disabled') + '></label>' +
+    '<label class="fl grow">קישור<input class="f" dir="ltr" data-lzoom="link" data-id="' + esc(l.id) + '" value="' + esc(z.link || '') + '" placeholder="https://zoom.us/…"' + (w ? '' : ' disabled') + '></label>' +
+    '<label class="fl">מי תיאם<select class="f" data-lzoom="by" data-id="' + esc(l.id) + '"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts({ ...l, resp: z.by || l.resp }) + '</select></label>' +
+    '<label class="check" style="border:0"><input type="checkbox" class="cb" data-lzoom="attended" data-id="' + esc(l.id) + '"' + (z.attended ? ' checked' : '') + (w ? '' : ' disabled') + '><span>הגיע בפועל לזום</span></label></div>' +
+    (z.link ? '<p class="hint">' + linkify(z.link) + '</p>' : '') + '</section>';
+}
+function reJourneyCard(c) {
+  const w = S.canTask, r = reOf(c), cur = r.step || 'docs', ci = RE_STEPS.findIndex((x) => x[0] === cur), lead = c.leadId && S.leads.get(c.leadId), z = (lead && lead.zoom) || {};
+  const deps = live(S.transactions).filter((t) => t.clientId === c.id && t.nature === 'income' && t.category === DEPOSIT_CAT);
+  const chip = (s, i) => '<button class="pstep ' + (i < ci ? 'done' : i === ci ? 'cur' : 'next') + '" data-restep="' + s[0] + '"' + (w ? '' : ' disabled') + '><i>' + (i < ci ? '✓' : i + 1) + '</i><span>' + esc(s[1]) + '</span>' + (r.hist && r.hist[s[0]] ? '<small>' + dLabel(dayOf(r.hist[s[0]])).slice(0, 5) + '</small>' : '') + '</button>';
+  const inp = (k, label, type = 'text', val = r[k], attrs = '') => '<label class="fl">' + label + '<input class="f" type="' + type + '" data-ref="' + k + '" value="' + esc(val || '') + '"' + attrs + (w ? '' : ' disabled') + '></label>';
+  const cb = (k, label) => '<label class="check" style="border:0"><input type="checkbox" class="cb" data-ref="' + k + '"' + (r[k] ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + label + '</span></label>';
+  const sm = r.summary, coms = commRowsForClient(c);
+  return '<section class="card proc"><header><h2>מסע הלקוח — הר-אל השקעות</h2><span class="grow"></span>' + (r.closedAt ? '<span class="pill actual">נסגר ' + dLabel(dayOf(r.closedAt)) + '</span>' : '') + '</header>' +
+    '<div class="psteps">' + RE_STEPS.map(chip).join('') + '</div>' +
+    '<div class="grid2"><div class="ppanel"><h3 class="sec">פגישות</h3><div class="row" style="align-items:flex-end">' +
+      inp('zoomAt', 'זום', 'datetime-local', r.zoomAt || z.at) + cb('zoomAttended', 'הגיע בפועל לזום') + inp('frontalAt', 'פגישה פרונטלית', 'datetime-local') + inp('secondAt', 'פגישה נוספת', 'datetime-local') + '</div>' +
+      '<label class="fl">מי תיאם את הזום (לעמלה)<select class="f" data-ref="meetingBy"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts({ division: 'realestate', resp: r.meetingBy || z.by || (lead && lead.resp) || c.resp }) + '</select></label>' +
+      '<h3 class="sec">דמי רצינות <span class="hint">· 2,500–5,000 ₪ לפי העסקה · עבור התוכנית — לא מוחזר ובדרך כלל לא מתקזז</span></h3>' +
+      (deps.length ? deps.map((t) => '<div class="row"><span class="pill actual">' + plain(t.gross || t.net) + '</span><span class="hint">' + dLabel(t.date) + ' · ' + esc(t.description || '') + '</span></div>').join('') : '<p class="hint">עוד לא נרשמו.</p>') +
+      (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reDeposit">+ רישום דמי רצינות</button>' : '') + '</div>' +
+    '<div class="ppanel"><h3 class="sec">סיכום הפגישה הפרונטלית</h3>' + (sm ? '<table class="kv"><tbody>' + RE_SUMMARY.filter(([k]) => sm[k] != null && sm[k] !== '').map(([k, label, t]) => '<tr><th>' + label + '</th><td>' + (t === 'num' ? plain(sm[k]) : t === 'yn' ? (sm[k] === 'yes' ? 'כן' : 'לא') : esc(sm[k])) + '</td></tr>').join('') + '</tbody></table><p class="hint">' + esc(L.resp[sm.by] || '') + ' · ' + dLabel(dayOf(sm.at)) + '</p>' : '<p class="hint">מנהל הלקוח ממלא אחרי הפגישה (בהמשך — שאלון בוואטסאפ ישירות לכאן).</p>') +
+      (w ? '<button class="btn small" data-act="reSummary">' + (sm ? 'עדכון סיכום' : '+ סיכום פגישה') + '</button>' : '') + '</div></div>' +
+    '<div class="grid2" style="margin-top:12px"><div class="ppanel"><h3 class="sec">עו״ד ויזם</h3><div class="row" style="align-items:flex-end">' + inp('lawyer', 'עו״ד', 'text', r.lawyer || reLawyer()) + inp('lawyerAt', 'פגישה עם עו״ד', 'datetime-local') + '</div>' +
+      '<div class="row" style="align-items:flex-end">' + inp('developer', 'יזם') + inp('project', 'פרויקט / נכס') + inp('registerAt', 'פגישת הרשמה', 'datetime-local') + '</div>' +
+      '<div class="row">' + cb('devSigned', 'חתם אצל היזם') + cb('devPaid', 'שילם') + '</div></div>' +
+    '<div class="ppanel"><h3 class="sec">עמלות על העסקה</h3>' + (coms.length ? '<table><tbody>' + coms.map((x) => '<tr><td>' + esc(x.whoLabel) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + money(x.amount, { tone: 'muted' }) + '</td><td class="num hint">' + mLabel(x.month) + '</td>' + (x.manual && S.isOwner && S.canWrite ? '<td><button class="btn small ghost danger" data-rmcomm="' + x.idx + '">הסר</button></td>' : '<td></td>') + '</tr>').join('') + '</tbody></table>' : '<p class="hint">אין עדיין.</p>') +
+      (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reComm">+ עמלה ידנית (למשל יורם)</button>' : '') + '</div></div></section>';
+}
+/* ── עמלות: כללים (הגדרות) + אירועים (פגישת זום שהתקיימה, סגירה מלאה) + עמלות ידניות על עסקה ── */
+const COMM_DEFAULT = [{ id: 'meet', target: 'role:center', div: 'realestate', event: 'meeting', amount: 100, label: 'פגישת זום שהתקיימה' }, { id: 'close', target: 'role:center', div: 'realestate', event: 'close', amount: 1500, label: 'סגירה מלאה — חתם אצל היזם ושילם' }];
+const commRules = () => (S.settings.commRules && S.settings.commRules.length ? S.settings.commRules : COMM_DEFAULT);
+const COMM_EVENT = { meeting: 'פגישת זום שהתקיימה', close: 'סגירה מלאה (חתם ושילם)' };
+const ruleFits = (rule, key, div) => { const p = staff().find((x) => x.key === key); return (!rule.div || rule.div === div) && (rule.target === key || (p && rule.target === 'role:' + p.role)); };
+function commEvents() {
+  const ev = [];
+  for (const l of live(S.leads)) if (l.zoom && l.zoom.attended && l.zoom.at) ev.push({ event: 'meeting', who: l.zoom.by || l.resp, div: leadDiv(l), month: String(l.zoom.at).slice(0, 7), name: l.name, ref: { lead: l.id } });
+  for (const c of live(S.clients)) { const r = reOf(c), lead = c.leadId && S.leads.get(c.leadId);
+    if (!(lead && lead.zoom && lead.zoom.attended) && r.zoomAttended && r.zoomAt) ev.push({ event: 'meeting', who: r.meetingBy || c.resp, div: c.division || 'finance', month: String(r.zoomAt).slice(0, 7), name: c.name, ref: { client: c.id } });
+    if (r.closedAt) ev.push({ event: 'close', who: r.meetingBy || (lead && lead.zoom && lead.zoom.by) || (lead && lead.resp), div: c.division || 'finance', month: String(r.closedAt).slice(0, 7), name: c.name, ref: { client: c.id } }); }
+  return ev.filter((e) => e.who);
+}
+function commRows() {
+  const out = [];
+  for (const e of commEvents()) for (const rule of commRules()) if (rule.event === e.event && ruleFits(rule, e.who, e.div)) out.push({ ...e, amount: n(rule.amount), label: rule.label || COMM_EVENT[e.event], whoLabel: L.resp[e.who] || e.who });
+  for (const c of live(S.clients)) (reOf(c).comms || []).forEach((m, idx) => out.push({ event: 'manual', who: m.who, whoLabel: L.resp[m.who] || m.who, div: c.division || 'finance', month: String(m.month || reOf(c).closedAt || m.at || '').slice(0, 7), name: c.name, amount: n(m.amount), label: m.note || 'עמלה ידנית', manual: true, idx, ref: { client: c.id } }));
+  return out;
+}
+const commRowsForClient = (c) => commRows().filter((x) => x.ref.client === c.id || (c.leadId && x.ref.lead === c.leadId));
+function vComm() {
+  const months = [...new Set(commRows().map((x) => x.month).filter(Boolean))].sort().reverse(), m = S.f.commMonth || months[0] || today().slice(0, 7);
+  const rows = commRows().filter((x) => x.month === m && (S.division === 'all' || x.div === S.division) && (!S.isCenter || x.who === S.myKey)), paid = S.settings.commPaid || {};
+  const by = {}; rows.forEach((x) => { (by[x.who] = by[x.who] || { who: x.who, label: x.whoLabel, rows: [], total: 0 }).rows.push(x); by[x.who].total += x.amount; });
+  const people = Object.values(by).sort((a, b) => b.total - a.total), total = people.reduce((a, p) => a + p.total, 0);
+  return '<section class="card"><header><h2>עמלות</h2><span class="grow"></span><label class="fl">חודש<select class="f" id="fCommMonth">' + [...new Set([m, ...months])].map((x) => '<option value="' + x + '"' + (x === m ? ' selected' : '') + '>' + mLabel(x) + '</option>').join('') + '</select></label></header>' +
+    '<p class="hint" style="margin:-4px 0 10px">לפי הכללים בהגדרות: ' + commRules().map((r) => esc(r.label || COMM_EVENT[r.event]) + ' ' + plain(r.amount) + ' (' + esc(r.target.startsWith('role:') ? ROLES[r.target.slice(5)].label : L.resp[r.target] || r.target) + (r.div ? ' · ' + L.division[r.div] : '') + ')').join(' · ') + ' — ועמלות ידניות על עסקה.</p>' +
+    (people.length ? people.map((p) => { const pk = m + '|' + p.who, pd = paid[pk];
+      return '<details class="pside" open><summary><b>' + esc(p.label) + '</b> · ' + money(p.total, { tone: 'committed' }) + ' · ' + p.rows.length + ' פריטים ' + (pd ? '<span class="pill actual">שולם ' + dLabel(dayOf(pd.at)) + '</span>' : '<span class="pill expected">לתשלום</span>') + (S.isOwner && S.canWrite ? ' <button class="btn small" data-commpaid="' + esc(pk) + '">' + (pd ? 'בטל סימון' : 'סמן ששולם') + '</button>' : '') + '</summary>' +
+        '<div class="scroll"><table><tbody>' + p.rows.map((x) => '<tr' + (x.ref.client ? ' class="clickable" data-client="' + esc(x.ref.client) + '"' : x.ref.lead ? ' class="clickable" data-lead="' + esc(x.ref.lead) + '"' : '') + '><td class="wide">' + esc(x.name) + '</td><td>' + esc(x.label) + '</td><td>' + money(x.amount, { tone: 'muted' }) + '</td></tr>').join('') + '</tbody></table></div></details>'; }).join('') +
+      '<p style="margin-top:10px"><b>סה״כ ' + mLabel(m) + ': ' + plain(total) + '</b></p>' : '<p class="empty">אין עמלות בחודש הזה.</p>') + '</section>';
+}
+function commRulesCard() {
+  if (!S.isOwner) return ''; const w = S.canWrite, rules = commRules(), divs = DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d));
+  const targets = [['role:center', 'כל המוקד'], ...staff().filter((p) => p.key !== 'dan').map((p) => [p.key, p.label])];
+  return '<section class="card"><header><h2>כללי עמלות</h2></header><p class="hint" style="margin:-4px 0 10px">עמלה קבועה לפי אירוע. עמלות מיוחדות (כמו של יורם, 8,000–10,000 ₪ לסגירה) נרשמות ידנית בכרטיס העסקה.</p>' +
+    '<div class="scroll"><table id="commTable"><thead><tr><th>למי</th><th>חברה</th><th>על מה</th><th>סכום</th><th></th></tr></thead><tbody>' +
+    rules.filter((r) => !r.div || divs.includes(r.div)).map((r) => '<tr data-id="' + esc(r.id) + '"><td><select class="f" data-cr="target"' + (w ? '' : ' disabled') + '>' + targets.map(([k, v]) => '<option value="' + esc(k) + '"' + (k === r.target ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></td>' +
+      '<td><select class="f" data-cr="div"' + (w ? '' : ' disabled') + '>' + divs.map((d) => '<option value="' + d + '"' + (d === r.div ? ' selected' : '') + '>' + L.division[d] + '</option>').join('') + '</select></td>' +
+      '<td><select class="f" data-cr="event"' + (w ? '' : ' disabled') + '>' + Object.entries(COMM_EVENT).map(([k, v]) => '<option value="' + k + '"' + (k === r.event ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></td>' +
+      '<td><input class="f" type="number" min="0" step="1" data-cr="amount" value="' + esc(r.amount) + '"' + (w ? '' : ' disabled') + ' style="max-width:110px"></td><td>' + (w ? '<button class="btn small ghost danger" data-rmrule="' + esc(r.id) + '">הסר</button>' : '') + '</td></tr>').join('') +
+    '</tbody></table></div>' + (w ? '<div class="row" style="margin-top:10px"><button class="btn small" data-act="commAdd">+ כלל</button><span class="grow"></span><button class="btn small primary" data-act="commSave">שמור כללים</button></div>' : '') + '</section>';
+}
+function commRead() { return [...$('commTable').querySelectorAll('tbody tr')].map((tr) => { const g = (k) => tr.querySelector('[data-cr="' + k + '"]').value; return { id: tr.dataset.id, target: g('target'), div: g('div'), event: g('event'), amount: r2(g('amount')), label: COMM_EVENT[g('event')] }; }); }
+async function reSet(c, patch, text) { const r = { ...reOf(c), ...patch };
+  if (patch.step && patch.step !== reOf(c).step) r.hist = { ...(reOf(c).hist || {}), [patch.step]: stamp() };
+  if ((r.devSigned && r.devPaid) && !r.closedAt) { r.closedAt = stamp(); r.step = 'closed'; r.hist = { ...(r.hist || {}), closed: stamp() }; text = (text ? text + ' · ' : '') + 'נסגר — חתם אצל היזם ושילם'; }
+  if (!(r.devSigned && r.devPaid) && r.closedAt && (patch.devSigned === false || patch.devPaid === false)) { r.closedAt = null; }
+  await write('clients/' + c.id, { re: r, updatedAt: stamp() }, 'update', { journal: true }); if (text) await logClient(c.id, text).catch(() => {}); }
+/* ── הקצאת לידים: מנהל בוחר אנשים, והלידים הפתוחים שלא שויכו מתחלקים בסבב (הישן קודם) ── */
+const unassigned = () => live(S.leads).filter((l) => !l.resp && isLeadOpen(l) && !l.clientId && (S.division === 'all' || leadDiv(l) === S.division));
+function allocCard() {
+  const u = unassigned(); if (!u.length) return '';
+  return '<section class="notice warn"><b>' + u.length + ' לידים פתוחים בלי אחראי</b><span class="grow">' + (S.division === 'all' ? 'בכל החברות' : L.division[S.division]) + ' — אפשר לחלק אותם בסבב בין אנשי המוקד.</span><button class="btn small" data-act="leadAlloc">הקצאת לידים</button></section>';
+}
+function formReSummary(c) {
+  const sm = reOf(c).summary || {};
+  drawer('סיכום פגישה — ' + c.name, RE_SUMMARY.map(([k, label, t]) => t === 'ta' ? ft(k, label, sm[k] || '') : t === 'yn' ? fs(k, label, [['', '—'], ['yes', 'כן'], ['no', 'לא']], sm[k] || '') : fi(k, label, sm[k] != null ? sm[k] : '', t === 'num' ? 'number' : 'text', t === 'num' ? 'min="0" step="1"' : '')).join(''),
+    async (d) => { const out = {}; RE_SUMMARY.forEach(([k, , t]) => { const v = String(d[k] || '').trim(); if (v) out[k] = t === 'num' ? r2(v) : v; });
+      await reSet(c, { summary: { ...out, at: stamp(), by: S.myKey || null }, ...(['docs', 'zoom', 'frontal'].includes(reOf(c).step || 'docs') ? { step: 'summary' } : {}) }, 'סיכום פגישה נשמר'); toast('הסיכום נשמר'); });
+}
+function formReComm(c) {
+  drawer('עמלה ידנית — ' + c.name, fs('who', 'למי', [...staff().filter((p) => p.key !== 'dan').map((p) => [p.key, p.label]), ['__other', 'מישהו אחר (שם חופשי)']], '') + fi('other', 'שם (אם "מישהו אחר")', 'יורם') +
+    fi('amount', 'סכום (₪) *', '', 'number', 'min="0" step="1" required') + fi('month', 'חודש', (reOf(c).closedAt || today()).slice(0, 7), 'month') + fi('note', 'על מה', 'עמלת סגירה'),
+    async (d) => { const amt = r2(d.amount); if (!amt) return 'חסר סכום'; const who = d.who === '__other' ? String(d.other || '').trim() : d.who; if (!who) return 'למי?';
+      await reSet(c, { comms: [...(reOf(c).comms || []), { who, amount: amt, month: d.month || null, note: d.note || null, at: stamp(), by: S.myKey || null }] }, 'עמלה ידנית: ' + (L.resp[who] || who) + ' ' + plain(amt)); toast('נרשמה עמלה'); });
+}
+function formAlloc() {
+  const u = unassigned(), div = S.division, ppl = peopleFor(div).filter((p) => p.key !== 'dan');
+  drawer('הקצאת לידים', '<p class="full hint">' + u.length + ' לידים פתוחים בלי אחראי' + (div === 'all' ? '' : ' ב' + L.division[div]) + '. מסמנים מי מקבל — והלידים מתחלקים בסבב, הישן ראשון. כל אחד רואה רק את שלו.</p>' +
+    '<div class="full">' + ppl.map((p) => '<label class="check"><input type="checkbox" class="cb" name="allocWho" value="' + esc(p.key) + '"' + (p.role === 'center' ? ' checked' : '') + '><span>' + esc(p.label) + ' <span class="hint">· ' + esc(ROLES[p.role].label) + (p.freelancer ? ' · פרילנסר' : '') + ' · ' + p.divs.map((d) => L.division[d]).join(' + ') + '</span></span></label>').join('') + '</div>' +
+    fi('max', 'כמה לחלק (ריק = הכל)', '', 'number', 'min="1" step="1"'),
+    async (d) => {
+      const who = [...document.querySelectorAll('input[name=allocWho]:checked')].map((x) => x.value); if (!who.length) return 'סמן לפחות איש אחד';
+      const rows = u.sort((a, b) => leadAt(a).localeCompare(leadAt(b))).slice(0, d.max ? Math.max(1, Number(d.max)) : u.length); let k = 0;
+      for (const l of rows) { const ok = who.filter((key) => peopleFor(leadDiv(l)).some((p) => p.key === key)); if (!ok.length) continue; const key = ok[k % ok.length]; k++;
+        await leadPatch(l.id, { resp: key, assignedAt: stamp(), assignedBy: S.myKey || null }, 'הוקצה ל' + (L.resp[key] || key), true); }
+      toast(k + ' לידים הוקצו');
+    }, '', 'חלק');
+}
+/* ── סטטוסים לפי חברה (הגדרות) ── */
+function statusSetsCard() {
+  if (!S.isOwner) return '';
+  const divs = DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)), div = divs.includes(S.f.stDiv) ? S.f.stDiv : divs[0], w = S.canWrite;
+  const cfg = (S.settings.statusSets || {})[div], rows = cfg && cfg.length ? cfg : stageDefs(div);
+  return '<section class="card"><header><h2>סטטוסים לפי חברה / פעילות</h2><span class="grow"></span><div class="seg" role="group">' + divs.map((d) => '<button data-stdiv="' + d + '" aria-pressed="' + (d === div) + '">' + L.division[d] + '</button>').join('') + '</div></header>' +
+    '<p class="hint" style="margin:-4px 0 10px">שם הסטטוס כמו שהצוות מכיר אותו, ו"מתנהג כמו" — כדי שהדוחות, המעקבים והזיכויים ימשיכו לעבוד. ' + (cfg && cfg.length ? 'מוגדר לחברה הזו.' : 'עכשיו: ברירת המחדל.') + '</p>' +
+    '<div class="scroll"><table id="stTable" data-div="' + div + '"><thead><tr><th>שם הסטטוס</th><th>מתנהג כמו</th><th>מוסתר</th></tr></thead><tbody>' +
+    rows.map((x) => '<tr><td><input class="f" data-stlabel value="' + esc(x.label) + '"' + (w ? '' : ' disabled') + ' data-key="' + esc(x.key) + '"></td><td><select class="f" data-stbase' + (w ? '' : ' disabled') + '>' + LEAD_STAGES.map((k) => '<option value="' + k + '"' + (k === x.base ? ' selected' : '') + '>' + L.leadStage[k] + '</option>').join('') + '</select></td><td><input type="checkbox" class="cb" data-sthide' + (x.hide ? ' checked' : '') + (w ? '' : ' disabled') + '></td></tr>').join('') +
+    '</tbody></table></div>' + (w ? '<div class="row" style="margin-top:10px"><input class="f grow" id="stNew" placeholder="סטטוס חדש…"><button class="btn small" data-act="stAdd">הוסף</button><span class="grow"></span><button class="btn small primary" data-act="stSave">שמור</button>' + (cfg && cfg.length ? '<button class="btn small ghost" data-act="stReset">חזרה לברירת המחדל</button>' : '') + '</div>' : '') + '</section>';
+}
+function stRead() { const tb = $('stTable'); return [...tb.querySelectorAll('tbody tr')].map((tr) => { const inp = tr.querySelector('[data-stlabel]'), base = tr.querySelector('[data-stbase]').value, key = inp.dataset.key || ('s' + slug(inp.value + base));
+  return { key: LEAD_STAGES.includes(key) && key !== base ? 's' + slug(inp.value + base) : key, label: inp.value.trim() || L.leadStage[base], base, ...(tr.querySelector('[data-sthide]').checked ? { hide: true } : {}) }; }); }
 function vLeads() {
-  const v = S.f.leadView || 'list', nc = live(S.leads).filter((l) => creditable(l) && creditOf(l) === 'pending').length;
+  const v = S.isCenter ? 'list' : S.f.leadView || 'list', nc = live(S.leads).filter((l) => creditable(l) && creditOf(l) === 'pending').length;
   const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + [['list', 'לידים'], ['credit', 'דוח זיכויים' + (nc ? ' (' + nc + ' ממתינים)' : '')], ['day', 'סיכום יום']].map(([k, t]) => '<button data-leadview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
   if (v === 'credit') return '<div class="row"><h1 class="grow">לידים — זיכויים</h1></div>' + seg + vLeadCredit();
   if (v === 'day') return '<div class="row"><h1 class="grow">לידים — סיכום יום</h1></div>' + seg + vLeadDay();
   return vLeadsList(seg);
 }
 function vLeadsList(seg) {
-  const all = live(S.leads), t0 = today(), w = S.canTask, f = S.f, st = f.leadSt || 'todo';
+  const all = live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey)), t0 = today(), w = S.canTask, f = S.f, st = f.leadSt || 'todo';
   const open = all.filter(isLeadOpen), fresh = all.filter((l) => (l.stage || 'new') === 'new'), due = all.filter((l) => leadDue(l, t0)), won = all.filter((l) => l.stage === 'won'), cr = all.filter(isCredit);
   const billable = all.filter(billableLead).length, spendAll = all.filter(billableLead).reduce((a, l) => a + leadCostOf(l), 0), cost = leadCost(), mk = leadMarketer(), cr2 = all.filter(creditable);
   const srcs = leadSources(), runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || '') + ' ' + (r ? 'סונכרן ' + dLabel(dayOf(r.at)) + ' ' + String(r.at).slice(11, 16) : 'עוד לא סונכרן'); }).join(' · ');
@@ -1515,21 +1721,21 @@ function vLeadsList(seg) {
   const chans = [...new Set([...LEAD_CHANNELS.filter((c) => all.some((l) => leadChannel(l) === c)), ...all.map(leadChannel)])].filter(Boolean), ads = [...new Set(all.filter((l) => (!f.leadChan || leadChannel(l) === f.leadChan) && (!f.leadType || leadType(l) === f.leadType)).map((l) => l.ad || '—'))].sort();
   const sel = (id, label, opts, val) => '<label class="fl">' + label + '<select class="f" id="' + id + '">' + opts.map(([k, v]) => '<option value="' + esc(k) + '"' + (String(val || '') === String(k) ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>';
   const rows = leadsFiltered(), lim = f.leadLim || 120, shown = rows.slice(0, lim);
-  const respSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadresp="' + esc(l.id) + '" aria-label="אחראי"' + (w ? '' : ' disabled') + '><option value="">—</option>' + Object.entries(L.resp).map(([k, v]) => '<option value="' + k + '"' + (l.resp === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>';
+  const respSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadresp="' + esc(l.id) + '" aria-label="אחראי"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts(l) + '</select>';
   const stSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadstage="' + esc(l.id) + '" aria-label="סטטוס"' + (w ? '' : ' disabled') + '>' + stageOpts(l) + '</select>';
   const phoneCell = (l) => l.phone ? '<a class="num" dir="ltr" href="tel:' + esc(normPhone(l.phone)) + '">' + esc(normPhone(l.phone)) + '</a><div><button class="btn small ghost" data-copyq="l:' + esc(l.id) + '" title="העתק שם פרטי וטלפון" aria-label="העתק שם וטלפון">העתק</button></div>' + (waLink(l.phone) ? ' <a class="hint hide-m" href="' + waLink(l.phone) + '" target="_blank" rel="noopener" title="וואטסאפ">וואטסאפ</a>' : '') : '<span class="hint">—</span>';
-  return '<div class="row"><h1 class="grow">לידים</h1><span class="hint">' + (srcs.length ? 'מהטבלאות: ' + runs : '') + '</span>' +
-      (srcs.length ? '<button class="btn small" data-act="leadSync">סנכרן עכשיו</button>' : '') + (w ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' + seg +
+  return '<div class="row"><h1 class="grow">' + (S.isCenter ? 'הלידים שלי' : 'לידים') + (S.division !== 'all' && !S.isCenter ? ' · ' + L.division[S.division] : '') + '</h1><span class="hint">' + (srcs.length && !S.isCenter ? 'מהטבלאות: ' + runs : '') + '</span>' +
+      (srcs.length && !S.isCenter ? '<button class="btn small" data-act="leadSync">סנכרן עכשיו</button>' : '') + (w ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' + (S.isCenter ? '' : seg) +
     '<div class="grid4">' + kpi('לטיפול', '<span class="num">' + open.length + '</span>', fresh.length + ' חדשים שעוד לא טופלו', null, open.length ? 'open' : null) +
       kpi('מעקב להיום', '<span class="num">' + due.length + '</span>', due.length ? 'כולל מעקבים באיחור' : 'אין מעקבים פתוחים להיום', null, due.length ? 'open' : null) +
       kpi('חתמו', '<span class="num">' + won.length + '</span>', LEAD_TYPES.map((t) => { const b = all.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · '), null, 'actual') +
       (S.isOwner || S.isPartner ? kpi('עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'marketing') : kpi('לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', null)) + '</div>' +
-    leadMonthHtml() +
+    (S.isCenter ? '' : leadMonthHtml()) + (S.isOwner && w ? allocCard() : '') +
     '<section class="card"><div class="seg" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end"><label class="fl grow">חיפוש<input class="f" type="search" id="fLeadQ" value="' + esc(f.leadQ || '') + '" placeholder="שם, טלפון, עיר, הערה"></label></div>' +
       '<details class="lfilt"' + (innerWidth > 700 || f.leadType || f.leadChan || f.leadAd || f.leadResp || f.leadWhen ? ' open' : '') + '><summary class="hint">סינון ומיון' + ([f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length ? ' (' + [f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length + ' פעילים)' : '') + '</summary><div class="row" style="align-items:flex-end">' +
         sel('fLeadType', 'סוג', [['', 'כל הסוגים'], ...LEAD_TYPES.map((c) => [c, c + ' (' + all.filter((l) => leadType(l) === c).length + ')'])], f.leadType) + sel('fLeadChan', 'מקור / משווק', [['', 'כל המקורות'], ...chans.map((c) => [c, c + ' (' + all.filter((l) => leadChannel(l) === c).length + ')'])], f.leadChan) + sel('fLeadAd', 'מודעה', [['', 'כל המודעות'], ...ads.map((c) => [c, c])], f.leadAd) +
-        sel('fLeadResp', 'אחראי', [['', 'כולם'], ['none', 'לא שויך'], ...Object.entries(L.resp)], f.leadResp) + sel('fLeadWhen', 'נכנס', [['', 'כל הזמן'], ['d1', 'היום'], ['d7', '7 ימים'], ['d30', '30 ימים']], f.leadWhen) +
+        (S.isCenter ? '' : sel('fLeadResp', 'אחראי', [['', 'כולם'], ['none', 'לא שויך'], ...respEntries(S.division)], f.leadResp)) + sel('fLeadWhen', 'נכנס', [['', 'כל הזמן'], ['d1', 'היום'], ['d7', '7 ימים'], ['d30', '30 ימים']], f.leadWhen) +
         sel('fLeadSort', 'מיון', [['new', 'החדש ראשון'], ['old', 'הישן ראשון'], ['follow', 'לפי מעקב']], f.leadSort) + '</div></details></section>' +
     '<section class="card"><header><h2>' + esc((chips.find((c) => c[0] === st) || [])[1] || '') + '</h2><span class="pill muted">' + rows.length + '</span></header>' +
       (rows.length ? '<div class="scroll"><table class="leads"><thead><tr><th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
@@ -1556,12 +1762,14 @@ function vLead(id) {
       (!c && S.canClient ? '<button class="btn" data-convert="' + esc(l.id) + '">חתם — פתח לקוח</button>' : '') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end">' +
         '<label class="fl">סטטוס<select class="f" data-leadstage="' + esc(l.id) + '"' + (w ? '' : ' disabled') + '>' + stageOpts(l) + '</select></label>' +
-        '<label class="fl">אחראי<select class="f" data-leadresp="' + esc(l.id) + '"' + (w ? '' : ' disabled') + '><option value="">—</option>' + Object.entries(L.resp).map(([k, v]) => '<option value="' + k + '"' + (l.resp === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
+        '<label class="fl">אחראי<select class="f" data-leadresp="' + esc(l.id) + '"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts(l) + '</select></label>' +
+        (S.isOwner && DIVS.length > 1 ? '<label class="fl">חברה<select class="f" data-leaddiv="' + esc(l.id) + '"' + (w ? '' : ' disabled') + '>' + DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)).map((d) => '<option value="' + d + '"' + (leadDiv(l) === d ? ' selected' : '') + '>' + L.division[d] + '</option>').join('') + '</select></label>' : '') +
         '<label class="fl">מעקב הבא<input class="f" type="date" data-leadfollow="' + esc(l.id) + '" value="' + esc(l.followUp || '') + '"' + (w ? '' : ' disabled') + '></label>' +
         (l.followUp && leadDue(l, t0) ? '<span class="pill open">מעקב ' + (l.followUp < t0 ? 'באיחור' : 'להיום') + '</span>' : '') + (l.stage === 'noanswer' && n(l.tries) >= 5 ? '<span class="pill open">' + n(l.tries) + ' ניסיונות — לשקול לא רלוונטי או לזיכוי</span>' : '') +
         (creditable(l) ? '<span class="pill ' + CREDIT_TONE[creditOf(l)] + '">זיכוי: ' + CREDIT_ST[creditOf(l)] + '</span>' : '') + '</div>' +
       (w ? '<div class="seg" style="margin-top:10px" role="group" aria-label="פעולה מהירה">' + quick.map(([k, v]) => '<button data-leadquick="' + k + '" data-id="' + esc(l.id) + '">' + v + '</button>').join('') + '</div>' : '') +
       (!c && S.canClient && l.stage === 'won' ? '<div class="row" style="margin-top:10px"><select class="f" data-linklead="' + esc(l.id) + '" aria-label="קשר ללקוח" style="max-width:240px"><option value="">או קשר ללקוח קיים…</option>' + live(S.clients).filter((k) => k.status !== 'cancelled').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he')).map((k) => '<option value="' + esc(k.id) + '">' + esc(k.name) + '</option>').join('') + '</select></div>' : '') + '</section>' +
+    (leadDiv(l) === 'realestate' ? leadZoomCard(l, w) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
       ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(String(e.at || '').slice(11, 16)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
@@ -1569,10 +1777,10 @@ function vLead(id) {
     '<section class="card"><header><h2>פרטים</h2></header><div class="row">' + inp('name', 'שם') + inp('phone', 'טלפון', 'tel', 'dir="ltr" inputmode="tel"') + inp('email', 'מייל', 'email', 'dir="ltr"') + inp('city', 'עיר') + '</div>' +
       '<table class="kv" style="margin-top:8px"><tbody>' + D.map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v) + '</td></tr>').join('') + '</tbody></table></section></div>';
 }
-async function leadQuick(id, k) {
+async function leadQuick(id, k, sub = null) {
   const l = S.leads.get(id); if (!l) return;
-  if (k === 'noanswer') { const t = (l.stage === 'noanswer' ? n(l.tries) : 0) + 1; await leadPatch(id, { stage: 'noanswer', followUp: addDays(today(), 1), tries: t }, 'אין מענה ' + t + ' — מעקב מחר'); return toast(t >= 5 ? 'אין מענה ' + t + ' — לשקול לא רלוונטי או לזיכוי' : 'אין מענה ' + t + ' · מעקב מחר'); }
-  await leadPatch(id, { stage: k }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + L.leadStage[k]);
+  if (k === 'noanswer') { const t = (l.stage === 'noanswer' ? n(l.tries) : 0) + 1; await leadPatch(id, { stage: 'noanswer', sub, followUp: addDays(today(), 1), tries: t }, 'אין מענה ' + t + ' — מעקב מחר'); return toast(t >= 5 ? 'אין מענה ' + t + ' — לשקול לא רלוונטי או לזיכוי' : 'אין מענה ' + t + ' · מעקב מחר'); }
+  await leadPatch(id, { stage: k, sub: null }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + L.leadStage[k]);
   return toast(L.leadStage[k]);
 }
 /* סנכרון אוטומטי גם לצוות: אחרי סנכרון ידני מוצלח אחד בדפדפן הזה, כל חצי שעה כשהמערכת פתוחה */
@@ -1817,6 +2025,7 @@ async function procAdvance(c, to) {
 }
 /* ── תצוגה ── */
 function procCard(c) {
+  if (c.division === 'realestate') return reJourneyCard(c);
   const w = S.canTask, st = procSteps(c), cur = procCur(c), ci = procIdx(c, cur), view = S.f.procView && procIdx(c, S.f.procView) >= 0 ? S.f.procView : cur, p = c.proc || {}, hist = p.hist || {};
   const chip = (s, i) => { const state = i < ci ? 'done' : i === ci ? 'cur' : 'next';
     return '<button class="pstep ' + state + (s[0] === view ? ' sel' : '') + '" data-procview="' + s[0] + '" title="' + esc(s[1]) + '"><i>' + (i < ci ? '✓' : i + 1) + '</i><span>' + esc(s[1]) + '</span>' + (hist[s[0]] && hist[s[0]].start ? '<small>' + dLabel(dayOf(hist[s[0]].start)).slice(0, 5) + '</small>' : '') + '</button>'; };
@@ -2307,16 +2516,19 @@ function vImport() {
     (S.canWrite ? '<input type="file" id="leadFile" accept=".csv,.xlsx,.xls" class="f">' : '<p class="empty">אין הרשאת עריכה</p>') +
     (p ? '<div style="margin-top:12px"><div class="row"><b>' + esc(p.fileName) + '</b><span class="pill committed">' + p.rows.length + ' שורות</span><span class="pill actual">' + p.fresh + ' חדשים</span><span class="pill muted">' + (p.rows.length - p.fresh) + ' כבר קיימים</span></div>' +
       '<p class="hint">עמודות שזוהו: ' + Object.entries(p.map).filter(([, v]) => v != null).map(([k]) => IMPORT_LABEL[k]).join(' · ') + '</p>' +
+      '<div class="row" style="align-items:flex-end"><label class="fl">לאיזו חברה<select class="f" id="impDiv">' + DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)).map((d) => '<option value="' + d + '"' + (d === p.division ? ' selected' : '') + '>' + L.division[d] + '</option>').join('') + '</select></label>' +
+        '<label class="fl">מקור (למשל: כוורת)<input class="f" id="impSrc" value="' + esc(p.src || '') + '"></label><span class="hint">הסטטוס המקורי נשמר בליד ("סטטוס בייבוא") עד שנמפה אותו לסטטוסים של החברה.</span></div>' +
       '<div class="scroll"><table><thead><tr><th>שם</th><th>טלפון</th><th>קמפיין</th><th>פלטפורמה</th><th>משווק</th><th>שלב</th><th></th></tr></thead><tbody>' +
       p.rows.slice(0, 12).map((r) => '<tr><td>' + esc(r.name) + '</td><td dir="ltr">' + esc(r.phone) + '</td><td>' + esc(r.campaign) + '</td><td>' + esc(r.platform) + '</td><td>' + esc(r.marketer) + '</td><td>' + L.leadStage[r.stage] + '</td><td>' + (r.exists ? '<span class="pill muted">קיים</span>' : '<span class="pill actual">חדש</span>') + '</td></tr>').join('') +
       '</tbody></table></div>' + (p.rows.length > 12 ? '<p class="hint">ועוד ' + (p.rows.length - 12) + ' שורות</p>' : '') +
       '<div class="row" style="margin-top:10px"><button class="btn go" data-act="doImport"' + (p.fresh || p.updates ? '' : ' disabled') + '>ייבא ' + p.fresh + ' לידים חדשים' + (p.updates ? ' ועדכן ' + p.updates + ' סגירות' : '') + '</button><button class="btn ghost" data-act="cancelImport">ביטול</button></div></div>' : '') + '</section>';
 }
-const IMPORT_LABEL = { name: 'שם', phone: 'טלפון', email: 'מייל', campaign: 'קמפיין', platform: 'פלטפורמה', marketer: 'משווק', date: 'תאריך', status: 'סטטוס', value: 'סכום' };
+const IMPORT_LABEL = { name: 'שם', phone: 'טלפון', email: 'מייל', campaign: 'קמפיין', platform: 'פלטפורמה', marketer: 'משווק', date: 'תאריך', status: 'סטטוס', value: 'סכום', note: 'הערות', city: 'עיר' };
 const IMPORT_KEYS = {
   name: ['שם', 'שם מלא', 'name', 'full name', 'לקוח'], phone: ['טלפון', 'נייד', 'phone', 'mobile', 'tel'], email: ['מייל', 'אימייל', 'email', 'e-mail'],
   campaign: ['קמפיין', 'campaign', 'מודעה', 'ad'], platform: ['פלטפורמה', 'מקור', 'platform', 'source', 'ערוץ', 'channel'], marketer: ['משווק', 'marketer', 'סוכן', 'agent', 'אחראי'],
   date: ['תאריך', 'date', 'created', 'נוצר'], status: ['סטטוס', 'status', 'שלב', 'stage', 'סגירה'], value: ['סכום', 'שווי', 'value', 'amount', 'שכ"ט', 'שכ״ט'],
+  note: ['הערות', 'הערה', 'note', 'notes', 'תיאור', 'פירוט'], city: ['עיר', 'יישוב', 'city', 'אזור'],
 };
 function mapStatus(s) {
   s = String(s || '').trim().toLowerCase();
@@ -2367,18 +2579,18 @@ async function parseLeadFile(file) {
     const campaign = g('campaign'), stage = mapStatus(g('status'));
     const key = normPhone(phone) + '|' + campaign, ex = existing.get(key);
     const rec = { name: name || phone, phone, email: g('email'), campaign, platform: g('platform'), marketer: g('marketer'), stage, value: n(String(g('value')).replace(/[^\d.]/g, '')) || null,
-      date: dateOf(g('date')) || today(), exists: !!ex, exId: ex && ex.id, closes: ex && stage === 'won' && ex.stage !== 'won' };
+      date: dateOf(g('date')) || today(), note: g('note'), city: g('city'), rawStatus: g('status'), exists: !!ex, exId: ex && ex.id, closes: ex && stage === 'won' && ex.stage !== 'won' };
     if (!ex) fresh++; else if (rec.closes) updates++;
     out.push(rec);
   }
-  pendingImport = { fileName: file.name, rows: out, fresh, updates, map };
+  pendingImport = { fileName: file.name, rows: out, fresh, updates, map, division: S.division !== 'all' ? S.division : (S.allowedDivs || DIVS)[0], src: /kaveret|כוורת/i.test(file.name) ? 'כוורת' : '' };
   render();
 }
 async function doImport() {
   const p = pendingImport; if (!p) return;
   const batch = uid(); let made = 0, upd = 0;
   for (const r of p.rows) {
-    if (!r.exists) { const id = uid(); await write('leads/' + id, { id, name: r.name, phone: r.phone, email: r.email, campaign: r.campaign, platform: r.platform, marketer: r.marketer, stage: r.stage, value: r.value, createdAt: r.date ? r.date + 'T12:00:00Z' : stamp(), importBatch: batch, by: S.me.id }); made++; }
+    if (!r.exists) { const id = uid(); await write('leads/' + id, { id, name: r.name, phone: r.phone, email: r.email, campaign: r.campaign, platform: r.platform || p.src || '', marketer: r.marketer, stage: r.stage, value: r.value, division: p.division || 'finance', ...(r.note ? { note: r.note } : {}), ...(r.city ? { city: r.city } : {}), ...(r.rawStatus ? { importStatus: r.rawStatus } : {}), ...(p.src ? { channel: p.src } : {}), createdAt: r.date ? r.date + 'T12:00:00Z' : stamp(), importBatch: batch, by: S.me.id }); made++; }
     else if (r.closes) { await write('leads/' + r.exId, { stage: 'won', updatedAt: stamp() }, 'update'); upd++; }
   }
   for (const k of ['platform']) for (const v of [...new Set(p.rows.map((r) => r[k]).filter(Boolean))]) await ensureInList('platforms', v);
@@ -2433,8 +2645,8 @@ function vService() {
 /* ═════════════════════════ דוחות ═════════════════════════ */
 function vReports() {
   const sub = S.f.rep;
-  const tabs = '<div class="seg" role="group" aria-label="דוחות">' + [['weekly', 'שבועי מפורט'], ['monthly', 'חודשי'], ['team', 'מדדי הצלחה לצוות'], ['outbox', 'מיילים שנשלחו']].map(([k, v]) => '<button data-rep="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = { weekly: vWeekly, monthly: vMonthly, team: vTeamRep, outbox: vOutbox }[sub] || vWeekly;
+  const tabs = '<div class="seg" role="group" aria-label="דוחות">' + [['weekly', 'שבועי מפורט'], ['monthly', 'חודשי'], ['team', 'מדדי הצלחה לצוות'], ['units', 'רווחיות לפי פעילות'], ['comm', 'עמלות'], ['outbox', 'מיילים שנשלחו']].map(([k, v]) => '<button data-rep="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+  const body = { weekly: vWeekly, monthly: vMonthly, team: vTeamRep, units: vUnits, comm: vComm, outbox: vOutbox }[sub] || vWeekly;
   return '<div class="row"><h1 class="grow">דוחות</h1>' + tabs + '</div>' + body();
 }
 function periodReport(from, to) {
@@ -2580,6 +2792,7 @@ function linksBlock(compact) {
 }
 function vSettings() {
   const s = S.settings, w = S.canWrite;
+  if (S.role === 'admin_re') return '<h1>הגדרות — הר-אל השקעות</h1>' + usersCard() + statusSetsCard() + commRulesCard();
   const list = (key, label, hint) => '<section class="card"><header><h2>' + label + '</h2></header><p class="hint" style="margin:-4px 0 10px">' + hint + '</p>' +
     '<div class="row">' + (s[key] || []).map((t) => '<span class="tag">' + esc(t) + (w ? ' <button data-rm="' + key + '" data-v="' + esc(t) + '" aria-label="הסר">×</button>' : '') + '</span>').join('') + (!(s[key] || []).length ? '<span class="hint">ריק</span>' : '') + '</div>' +
     (w ? '<div class="row" style="margin-top:10px"><input class="f grow" id="add_' + key + '" placeholder="הוסף…" aria-label="' + label + '"><button class="btn small" data-addto="' + key + '">הוסף</button></div>' : '') + '</section>';
@@ -2595,9 +2808,9 @@ function vSettings() {
     '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="newLink">+ קישור</button>' : '') + '</header>' + linksBlock(false) + '</section>' +
     '<div class="grid2">' + list('partnersRE', 'שותפי הר-אל נדל״ן', 'לחלוקת 33/33/33 ולרישום משיכות.') + list('partnersFin', 'שותפי הר-אל פתרונות', 'משיכות של דן; ניסים מקבל דרך מקדמות.') + '</div>' +
     '<div class="grid3">' + list('tags', 'תגיות לקוח', 'מופיעות כהצעה בכרטיס הלקוח.') + list('sources', 'מקורות הגעה', 'פייסבוק, המלצה, גוגל, שותף.') + list('platforms', 'פלטפורמות שיווק', 'נכנסות לבד מקובץ לידים שמועלה.') + '</div>' +
-    usersCard() +
-    '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
-      (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>' +
+    usersCard() + statusSetsCard() + commRulesCard() +
+    (!S.isDan ? '' : '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
+      (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
     '<section class="card"><header><h2>התחשבנות פנימית</h2></header>' +
       '<div class="row"><label class="fl">חלקו של ניסים ברווח לחלוקה<select class="f" id="nissimPct"' + (w ? '' : ' disabled') + '>' + [0.5, 0.4, 0.33, 0.3, 0.25].map((v) => '<option value="' + v + '"' + (n(s.nissimPct || 0.5) === v ? ' selected' : '') + '>' + Math.round(v * 100) + '%</option>').join('') + '</select></label>' +
@@ -2766,11 +2979,11 @@ function formTicket(x, preset = {}) {
     });
 }
 function formLead() {
-  drawer('ליד חדש', fi('name', 'שם *', '', 'text', 'required', true) + fi('phone', 'טלפון', '', 'tel', 'dir="ltr"') + fi('city', 'עיר', '') + fs('ctype', 'סוג', [['', '—'], ...LEAD_TYPES.map((c) => [c, c])], '') + fs('channel', 'מקור / משווק', [['', '—'], ...LEAD_CHANNELS.map((c) => [c, c]), ['הפניה', 'הפניה'], ['אחר', 'אחר']], '') + fs('resp', 'אחראי', [['', '—'], ...Object.entries(L.resp)], respOf(S.me.id) || '') + fi('campaign', 'קמפיין', '', 'text', 'list="dlCamp"') + fi('platform', 'פלטפורמה', '', 'text', 'list="dlPlat"') +
+  drawer('ליד חדש', fi('name', 'שם *', '', 'text', 'required', true) + fi('phone', 'טלפון', '', 'tel', 'dir="ltr"') + fi('city', 'עיר', '') + fs('ctype', 'סוג', [['', '—'], ...LEAD_TYPES.map((c) => [c, c])], '') + fs('channel', 'מקור / משווק', [['', '—'], ...LEAD_CHANNELS.map((c) => [c, c]), ['הפניה', 'הפניה'], ['אחר', 'אחר']], '') + fs('division', 'חברה', DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)).map((d) => [d, L.division[d]]), S.division !== 'all' ? S.division : 'finance') + fs('resp', 'אחראי', [['', '—'], ...respEntries('all')], S.myKey || respOf(S.me.id) || '') + fi('campaign', 'קמפיין', '', 'text', 'list="dlCamp"') + fi('platform', 'פלטפורמה', '', 'text', 'list="dlPlat"') +
     fi('marketer', 'משווק', '') + fi('value', 'שווי משוער (₪)', '', 'number', 'min="0" step="1"') + ft('note', 'הערה', '') + dl('dlCamp', live(S.campaigns).map((c) => c.name)) + dl('dlPlat', S.settings.platforms || []),
     async (d) => {
       if (!String(d.name || '').trim()) return 'חסר שם';
-      const id = uid(); await write('leads/' + id, { id, name: d.name.trim(), phone: d.phone.trim(), campaign: d.campaign.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), value: d.value ? r2(d.value) : null, note: d.note, city: (d.city || '').trim(), resp: d.resp || null, ctype: d.ctype || null, channel: d.channel || null, stage: 'new', createdAt: stamp(), by: S.me.id, log: [{ at: stamp(), by: S.me.id, who: whoAmI(), text: 'נפתח ידנית', auto: true }] });
+      const id = uid(); await write('leads/' + id, { id, name: d.name.trim(), phone: d.phone.trim(), campaign: d.campaign.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), value: d.value ? r2(d.value) : null, note: d.note, city: (d.city || '').trim(), resp: d.resp || null, division: d.division || 'finance', ctype: d.ctype || null, channel: d.channel || null, stage: 'new', createdAt: stamp(), by: S.me.id, log: [{ at: stamp(), by: S.me.id, who: whoAmI(), text: 'נפתח ידנית', auto: true }] });
       if (d.platform.trim()) await ensureInList('platforms', d.platform.trim()); toast('הליד נוסף');
     });
 }
@@ -3004,6 +3217,29 @@ const OWNER_READ = ['transactions', 'planned', 'expenses', 'campaigns', 'runs', 
 const PARTNER_WRITE = ['clients', 'transactions'];
 const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
+/* ── תפקידים והרשאות לפי חברה (דן, 09/10) ──────────────────────────────────
+   owner = דן · admin = מנהל מערכת בשתי החברות (הדס) · admin_re = מנהל מערכת הר-אל השקעות בלבד (אביב)
+   partner = שותף הר-אל פתרונות מימון (ניסים) · center = מוקד (רואה רק את הלידים והמשימות שלו, בחברות שהוגדרו לו)
+   פתיחת משתמש והגדרת הרשאות: דן, הדס, ואביב — בהשקעות בלבד. */
+const DIVS = ['finance', 'realestate'];
+const ROLES = {
+  owner: { label: 'בעלים', divs: DIVS, manage: true },
+  admin: { label: 'מנהל מערכת — שתי החברות', divs: DIVS, manage: true },
+  admin_re: { label: 'מנהל מערכת — הר-אל השקעות', divs: ['realestate'], manage: true },
+  partner: { label: 'שותף — פתרונות מימון', divs: ['finance'] },
+  center: { label: 'מוקד', divs: null },
+};
+const userKey = (u) => u.resp || normUser(u.username);
+const userRole = (u) => (u.role && ROLES[u.role] ? u.role : u.resp === 'nissim' ? 'partner' : u.resp === 'hadas' ? 'admin' : 'center');
+const userDivs = (u) => { const r = ROLES[userRole(u)]; return r.divs || ((u.divs || []).filter((d) => DIVS.includes(d)).length ? u.divs.filter((d) => DIVS.includes(d)) : ['finance']); };
+/* כל האנשים במערכת: דן + משתמשי הצוות. key = מזהה האחראי (resp) בלידים ובמשימות */
+const staff = () => [{ key: 'dan', label: 'דן', role: 'owner', divs: DIVS },
+  ...(S.settings.users || []).map((u) => ({ key: userKey(u), label: u.label || L.resp[u.resp] || u.username, role: userRole(u), divs: userDivs(u), freelancer: !!u.freelancer, username: u.username, pending: !u.hash }))];
+function syncPeople() { for (const p of staff()) { if (!L.resp[p.key] || p.key !== 'dan' && !RESP_KEYS.includes(p.key)) L.resp[p.key] = p.label; if (!L.respRole[p.key]) L.respRole[p.key] = ROLES[p.role].label + (p.freelancer ? ' · פרילנסר' : ''); } }
+/* מי יכול לנהל את מי: דן והדס — כולם (חוץ מדן). אביב — רק משתמשי השקעות (מוקד / מנהל השקעות) */
+const rolesICanGrant = () => S.role === 'owner' || S.role === 'admin' ? ['admin', 'admin_re', 'partner', 'center'] : S.role === 'admin_re' ? ['admin_re', 'center'] : [];
+const canManageUser = (u) => S.canManageUsers && (S.role !== 'admin_re' || (rolesICanGrant().includes(userRole(u)) && userDivs(u).every((d) => d === 'realestate')));
+const peopleFor = (div) => staff().filter((p) => !div || div === 'all' || p.divs.includes(div));
 const hex = (b) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const unhex = (h) => new Uint8Array((String(h).match(/../g) || []).map((x) => parseInt(x, 16)));
 async function pwHash(pw, salt, iter) {
@@ -3019,10 +3255,25 @@ async function userOk(username, pw) {
   return (await pwHash(pw, u.salt, u.iter || 210000)) === u.hash ? u : null;
 }
 function usersCard() {
-  const us = S.settings.users || [], w = S.canWrite;
-  return '<section class="card"><header><h2>משתמשי צוות</h2><span class="pill muted">' + us.length + '</span></header><p class="hint" style="margin:-4px 0 10px">שם משתמש וסיסמה לפתיחת מסך הנעילה. כדי להיכנס בכלל, כל אחד צריך גם שהדף ישותף איתו מחשבון Claude שלו (תפריט השיתוף). הפרייבט נפתח רק בסיסמה שלך.</p>' +
-    (us.length ? '<div class="tlist">' + us.map((u) => '<div class="trow"><div class="tname"><b dir="ltr">' + esc(u.username) + '</b> <span class="hint">· ' + esc(u.label || L.resp[u.resp] || '') + (u.setAt ? ' · עודכן ' + dLabel(dayOf(u.setAt)) : '') + '</span></div><div class="row">' + (w ? '<button class="btn small ghost danger" data-rmuser="' + esc(u.username) + '">הסר</button>' : '') + '</div></div>').join('') + '</div>' : '<p class="empty">אין משתמשי צוות.</p>') +
-    (w ? '<form class="row" id="userForm" autocomplete="off" style="margin-top:10px"><input class="f" id="uName" dir="ltr" autocapitalize="none" spellcheck="false" placeholder="שם משתמש" aria-label="שם משתמש"><select class="f" id="uResp" aria-label="מי">' + RESP_KEYS.filter((r) => r !== 'dan').map((r) => '<option value="' + r + '">' + L.resp[r] + '</option>').join('') + '</select><input class="f" type="password" id="uPw" autocomplete="new-password" placeholder="סיסמה (6 תווים לפחות)" aria-label="סיסמה"><button class="btn small primary" type="submit">שמור משתמש</button></form>' : '') + '</section>';
+  const us = S.settings.users || [], w = S.canManageUsers, grant = rolesICanGrant(), ed = S.f.userEdit ? us.find((x) => normUser(x.username) === S.f.userEdit) : null;
+  const shown = us.filter((u) => S.role !== 'admin_re' || userDivs(u).includes('realestate'));
+  const row = (u) => { const role = userRole(u), can = canManageUser(u);
+    return '<div class="trow"><div class="tname"><b>' + esc(u.label || L.resp[u.resp] || u.username) + '</b> <span class="hint" dir="ltr">' + esc(u.username) + '</span>' +
+      '<div class="hint">' + esc(ROLES[role].label) + ' · ' + userDivs(u).map((d) => L.division[d]).join(' + ') + (u.freelancer ? ' · פרילנסר' : '') + (u.setAt ? ' · עודכן ' + dLabel(dayOf(u.setAt)) : '') + '</div></div>' +
+      '<div class="row">' + (u.hash ? '<span class="pill actual">פעיל</span>' : '<span class="pill open">ממתין לסיסמה</span>') +
+      (can ? '<button class="btn small" data-edituser="' + esc(normUser(u.username)) + '">עריכה</button><button class="btn small ghost danger" data-rmuser="' + esc(u.username) + '">הסר</button>' : '') + '</div></div>'; };
+  const r0 = ed ? userRole(ed) : grant.includes('center') ? 'center' : grant[0], d0 = ed ? userDivs(ed) : S.role === 'admin_re' ? ['realestate'] : ['finance'];
+  const form = !w ? '' : '<form id="userForm" autocomplete="off" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px"><h3 class="sec">' + (ed ? 'עריכת משתמש — ' + esc(ed.username) : 'משתמש חדש') + '</h3><div class="form">' +
+    '<label class="fl">שם משתמש (לועזית)<input class="f" id="uName" dir="ltr" autocapitalize="none" spellcheck="false" value="' + esc(ed ? ed.username : '') + '"' + (ed ? ' readonly' : '') + '></label>' +
+    '<label class="fl">שם תצוגה<input class="f" id="uLabel" value="' + esc(ed ? ed.label || '' : '') + '" placeholder="למשל: עדן"></label>' +
+    '<label class="fl">תפקיד<select class="f" id="uRole">' + grant.map((k) => '<option value="' + k + '"' + (k === r0 ? ' selected' : '') + '>' + esc(ROLES[k].label) + '</option>').join('') + '</select></label>' +
+    '<div class="fl">חברות (למוקד)<div class="row" style="margin-top:4px">' + DIVS.map((dv) => '<label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" name="uDiv" value="' + dv + '"' + (d0.includes(dv) ? ' checked' : '') + (S.role === 'admin_re' && dv !== 'realestate' ? ' disabled' : '') + '><span>' + L.division[dv] + '</span></label>').join('') + '</div></div>' +
+    '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uFree"' + (ed && ed.freelancer ? ' checked' : '') + '><span>פרילנסר (עמלות בלבד)</span></label>' +
+    '<label class="fl">סיסמה' + (ed ? ' — ריק = בלי שינוי' : ' — אפשר להשאיר ריק ולהגדיר אחר כך') + '<input class="f" type="password" id="uPw" autocomplete="new-password" placeholder="6 תווים לפחות"></label></div>' +
+    '<div class="row" style="margin-top:10px"><button class="btn small primary" type="submit">' + (ed ? 'שמור שינויים' : 'הוסף משתמש') + '</button>' + (ed ? '<button class="btn small ghost" type="button" data-edituser="">ביטול</button>' : '') + '</div>' +
+    '<p class="hint">מנהל מערכת ושותף מקבלים את החברות של התפקיד. מוקד רואה רק לידים ומשימות שמשויכים אליו, בחברות שסימנת. ' + (S.role === 'admin_re' ? 'אתה יכול לפתוח משתמשים להר-אל השקעות בלבד.' : '') + '</p></form>';
+  return '<section class="card"><header><h2>משתמשים והרשאות</h2><span class="pill muted">' + shown.length + '</span></header><p class="hint" style="margin:-4px 0 10px">שם משתמש וסיסמה למסך הכניסה, תפקיד וחברות. כדי להיכנס בכלל, כל אחד צריך גם שהדף ישותף איתו מחשבון Claude שלו (תפריט השיתוף) — מנהלי מערכת בהרשאת עריכה. הפרייבט נפתח רק בסיסמה של דן.</p>' +
+    (shown.length ? '<div class="tlist">' + shown.map(row).join('') + '</div>' : '<p class="empty">אין משתמשים.</p>') + form + '</section>';
 }
 async function pwOk(pw) { const lk = S.settings.lock; if (!lk || !lk.hash) return true; return (await pwHash(pw, lk.salt, lk.iter || 210000)) === lk.hash; }
 const UNLOCK_MS = 8 * 36e5, IDLE_MS = 30 * 6e4, PRIV_MS = 10 * 6e4;
@@ -3033,10 +3284,15 @@ const LEVEL = { owner: 'בעלים', admin: 'עריכה (Can edit)', interact: '
 function applyRole() {
   const full = ['owner', 'admin'].includes(S.level), w = S.cw !== false;
   const r = S.loginAs && S.loginAs.resp;
-  const role = r === 'dan' ? 'owner' : r === 'nissim' ? 'partner' : r ? 'team' : S.claudeOwner ? 'owner' : 'team';
-  S.role = role; S.isOwner = role === 'owner'; S.isPartner = role === 'partner';
+  const u = r && r !== 'dan' ? (S.settings.users || []).find((x) => userKey(x) === r || (S.loginAs.username && normUser(x.username) === normUser(S.loginAs.username))) : null;
+  /* בלי כניסה ובלי בעלות על הדף = 'team' (התנהגות קודמת, למקרה שאין נעילה) */
+  const role = r === 'dan' ? 'owner' : u ? userRole(u) : r === 'nissim' ? 'partner' : r === 'hadas' ? 'admin' : r ? 'center' : S.claudeOwner ? 'owner' : 'team';
+  S.role = role; S.isDan = role === 'owner'; S.isOwner = ['owner', 'admin', 'admin_re'].includes(role); S.isPartner = role === 'partner'; S.isCenter = role === 'center';
+  S.myKey = r || (S.claudeOwner ? 'dan' : null);
+  S.allowedDivs = role === 'owner' || role === 'admin' || role === 'team' ? DIVS : u ? userDivs(u) : role === 'partner' ? ['finance'] : role === 'admin_re' ? ['realestate'] : DIVS;
+  if (!S.allowedDivs.includes(S.division) && !(S.division === 'all' && S.allowedDivs.length > 1)) S.division = S.allowedDivs.length > 1 ? 'all' : S.allowedDivs[0];
+  S.canManageUsers = ROLES[role] && ROLES[role].manage && full && w;
   S.canTask = w; S.canWrite = S.isOwner && w && full; S.canClient = (S.isOwner || S.isPartner) && w && full; S.canExpense = S.canClient;
-  if (S.isPartner) S.division = 'finance';
 }
 function logout() { setUnlocked(false); S.privUntil = 0; S.loginAs = null; try { sessionStorage.removeItem('harel-user'); } catch (e) {} render(); }
 function storedUnlock() { try { return Number(sessionStorage.getItem('harel-unlock') || 0); } catch (e) { return 0; } }
@@ -3060,8 +3316,9 @@ function respOf(uid) { const tm = uid && teamOf(uid); return (tm && tm.resp) || 
 function userOfResp(r) { const tm = live(S.team).find((x) => x.resp === r); return tm ? tm.userId : (r === 'dan' ? ownerFallback() : null); }
 function taskResp(t) { if (t.resp) return t.resp; const tm = t.assigneeId && teamOf(t.assigneeId); return (tm && tm.resp) || (t.assigneeId && t.assigneeId !== ownerFallback() ? null : 'dan'); }
 const taskUser = (t) => t.assigneeId || userOfResp(taskResp(t)) || ('resp:' + (taskResp(t) || 'dan'));
-function isMyTask(t, uid = S.me.id) { const r = respOf(uid); return r ? taskResp(t) === r : t.assigneeId === uid; }
-function isMyCase(c, uid = S.me.id) { const r = respOf(uid); if (c.resp) return c.resp === r; return c.ownerId === uid || (!c.ownerId && uid === ownerFallback()); }
+const myResp = (uid) => (S.loginAs && S.loginAs.resp && uid === S.me.id ? S.loginAs.resp : respOf(uid));
+function isMyTask(t, uid = S.me.id) { const r = myResp(uid); return r ? taskResp(t) === r : t.assigneeId === uid; }
+function isMyCase(c, uid = S.me.id) { const r = myResp(uid); if (c.resp) return c.resp === r; return c.ownerId === uid || (!c.ownerId && uid === ownerFallback()); }
 const respChip = (r) => r && L.resp[r] ? '<span class="rchip r-' + r + '">' + L.resp[r] + '</span>' : '<span class="hint">—</span>';
 const APPROVAL_TONE = { approved: 'actual', finished: 'actual', pending: 'expected', waiting_guarantor: 'expected', rejected: 'open', cancelled: 'muted' };
 const approvalPill = (c) => c.approval ? '<span class="pill ' + (APPROVAL_TONE[c.approval] || 'muted') + '">' + esc(L.approval[c.approval] || c.approvalText || '') + '</span>' : '<span class="hint">—</span>';
@@ -3112,14 +3369,16 @@ function vLanes() {
   };
   const files = live(S.clients).filter(inDiv).filter((c) => (c.resp || fileOf(c.id)) && (c.status === 'open' || c.status === 'hold' || (c.status === 'won' && ((c.installments || []).some((i) => !i.paid) || (c.fundDue && !c.fundDue.done)))))
     .sort((a, b) => RESP_KEYS.indexOf(a.resp || 'dan') - RESP_KEYS.indexOf(b.resp || 'dan') || String(a.name).localeCompare(String(b.name), 'he'));
-  return '<div class="lanes">' + RESP_KEYS.map(lane).join('') + '</div>' +
+  const extra = staff().filter((p) => !RESP_KEYS.includes(p.key) && p.role !== 'partner' && live(S.tasks).some((t) => taskResp(t) === p.key && t.status !== 'done')).map((p) => p.key);
+  const keys = S.isCenter ? [S.myKey] : [...RESP_KEYS, ...extra];
+  return '<div class="lanes">' + keys.map(lane).join('') + '</div>' + (S.isCenter ? '' :
     '<div class="row"><h2 class="grow">תיקים מנוהלים ואחריות</h2><span class="hint">הסטטוס והעדכון נכנסים לסיכום היומי · כל אחד מהצוות יכול לעדכן</span></div>' +
     '<div class="files">' + files.map((c) => { const f = fileOf(c.id) || {}, r = c.resp || 'dan';
       return '<article class="file r-' + r + '"><div class="row"><h4 class="grow"><button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button></h4>' + respChip(r) + '</div>' +
         '<div class="row" style="margin-top:6px">' + (w ? '<select class="f small" data-filestatus="' + esc(c.id) + '" aria-label="סטטוס תיק">' + L.fileStatus.map((s) => '<option' + ((f.status || 'פתוח') === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' : '<span class="pill committed">' + esc(f.status || 'פתוח') + '</span>') +
           approvalPill(c) + (f.needsDan ? '<span class="chip q">דורש הכרעה של דן</span>' : '') + '</div>' +
         (w ? '<textarea class="f" data-filedetail="' + esc(c.id) + '" rows="2" placeholder="מה המצב / מה הצעד הבא…" aria-label="עדכון תיק ' + esc(c.name) + '">' + esc(f.detail || '') + '</textarea>' : (f.detail ? '<p class="action">' + esc(f.detail) + '</p>' : '')) +
-        (f.note ? '<p class="hint">' + esc(f.note) + '</p>' : '') + '</article>'; }).join('') + '</div>';
+        (f.note ? '<p class="hint">' + esc(f.note) + '</p>' : '') + '</article>'; }).join('') + '</div>');
 }
 
 /* ═════════════════════════ כרטיס לקוח — תוספות ═════════════════════════ */
@@ -3357,7 +3616,7 @@ async function parseBankFile(file) {
 
 /* ═════════════════════════ פרייבט ═════════════════════════ */
 function vPrivate() {
-  if (!S.isOwner) return '<p class="empty">האזור הזה פתוח רק לדן.</p>';
+  if (!S.isDan) return '<p class="empty">האזור הזה פתוח רק לדן.</p>';
   if (!(S.privUntil > Date.now())) return lockForm('privForm', 'פרייבט', 'אזור אישי — רק לך. הזן את הסיסמה שוב.');
   const rows = privRows(), plan = privPlan(rows), notes = S.private.get('notes') || {};
   const exp = rows.filter((x) => x.state === 'expected'), rec = rows.filter((x) => x.state === 'received'), unset = rows.filter((x) => x.state === 'unset');
@@ -4520,11 +4779,13 @@ function render() {
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === (['client', 'intake'].includes(S.view.tab) ? 'clients' : S.view.tab === 'lead' ? 'leads' : S.view.tab))));
   document.querySelectorAll('#divs [data-d]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.d === S.division)));
   if (!S.ready) { $('main').innerHTML = S.db === false ? '<div class="notice bad"><b>אין חיבור למסד</b><span>הממשק שומר את הנתונים במסד של הדף, והתצוגה הזו לא מקבלת אליו גישה. פתח אותו מהקישור ב-claude.ai כשאתה מחובר לחשבון.</span></div>' : '<p class="empty">טוען…</p>'; return; }
+  syncPeople();
   const OWNER_TABS = ['home', 'money', 'books', 'private', 'marketing', 'lenders', 'reports', 'settings'];
-  const PARTNER_HIDE = ['books', 'private', 'settings'], hideT = S.isOwner ? [] : S.isPartner ? PARTNER_HIDE : OWNER_TABS;
+  const HIDE = { owner: [], admin: ['private'], admin_re: ['private', 'books', 'lenders'], partner: ['books', 'private', 'settings'], center: [...OWNER_TABS, 'service', 'clients'], team: OWNER_TABS };
+  const hideT = HIDE[S.role] || OWNER_TABS;
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.hidden = hideT.includes(b.dataset.tab); });
-  if (S.isPartner) { S.division = 'finance'; const dv = $('divs'); if (dv) dv.hidden = true; }
-  $('divs').hidden = !S.isOwner;
+  $('divs').hidden = !(S.isOwner || S.isCenter) || (S.allowedDivs || DIVS).length < 2;
+  document.querySelectorAll('#divs [data-d]').forEach((b) => { b.hidden = b.dataset.d !== 'all' && !(S.allowedDivs || DIVS).includes(b.dataset.d); });
   if (S.ready && S.noAccess) { document.body.classList.add('locked'); $('main').innerHTML = '<section class="card lockcard"><h1>הר-אל</h1><p><b>אין לך עדיין גישה לנתונים.</b></p><p class="hint">הדף נפתח, אבל ההרשאה שקיבלת היא צפייה בלבד, ולכן מסך הכניסה והנתונים לא נטענים.</p>' + accessHint() +
     '<ol class="hint" style="padding-inline-start:18px;margin:8px 0"><li>שלח לדן את המייל שאיתו נכנסת ל-Claude' + (S.me && S.me.name ? ' (מחובר כרגע: ' + esc(S.me.name) + ')' : '') + '.</li><li>דן מזמין אותו מתפריט Share של הדף, בהרשאה המתאימה.</li><li>רענן את הדף — יופיע מסך הכניסה עם שם משתמש וסיסמה.</li></ol></section>'; return; }
   const locked = isLocked(); document.body.classList.toggle('locked', locked);
@@ -4537,7 +4798,7 @@ function render() {
   const me = S.me.id, t0 = today();
   const mine = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due <= t0 && isMyTask(t, me)).length;
   document.querySelector('#tabs [data-tab="day"]').innerHTML = 'היום שלי' + (mine ? '<span class="badge">' + mine + '</span>' : '');
-  const ld = live(S.leads).filter((l) => (l.stage || 'new') === 'new' || leadDue(l, t0)).length;
+  const ld = live(S.leads).filter((l) => (!S.isCenter || l.resp === S.myKey) && (S.division === 'all' || leadDiv(l) === S.division) && ((l.stage || 'new') === 'new' || leadDue(l, t0))).length;
   document.querySelector('#tabs [data-tab="leads"]').innerHTML = 'לידים' + (ld ? '<span class="badge">' + ld + '</span>' : '');
   const tk = live(S.tickets).filter((x) => x.status !== 'closed').length;
   document.querySelector('#tabs [data-tab="service"]').innerHTML = 'פניות שירות' + (tk ? '<span class="badge">' + tk + '</span>' : '');
@@ -4552,9 +4813,19 @@ document.addEventListener('click', async (e) => {
   const d = el.dataset;
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
-    if (d.d) { S.division = d.d; return render(); }
+    if (d.d) { if (d.d !== 'all' && !(S.allowedDivs || DIVS).includes(d.d)) return; S.division = d.d; return render(); }
     if (d.go) { if (d.rep) S.f.rep = d.rep; const [tab, sub] = d.go.split(':'); if (sub) S.f.money = sub; return go(tab); }
     if (d.lead && el.matches('tr')) { if (e.target.closest('a, select, input')) return; return go('lead', d.lead); }
+    if (d.stdiv) { S.f.stDiv = d.stdiv; return render(); }
+    if (d.restep && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canTask) return; const lbl = (RE_STEPS.find((x) => x[0] === d.restep) || [])[1];
+      return reSet(c, { step: d.restep, ...(d.restep === 'closed' ? { devSigned: true, devPaid: true } : {}) }, 'שלב: ' + lbl); }
+    if (d.refitask || d.refidone) { const [cid, i] = (d.refitask || d.refidone).split('|'), c = S.clients.get(cid); if (!c) return; const x = refiOf(c).find((r) => String(r.i) === i);
+      if (d.refitask) { const id = 'refi-' + slug(cid + '|' + i + '|' + (x && x.end)); if (!S.tasks.has(id)) await write('tasks/' + id, { id, title: 'להציע מחזור — ' + (x ? x.bank + ', ' + (x.balloon ? 'בלון' : 'הלוואה') + ' מסתיים ' + dLabel(x.end) : ''), clientId: cid, resp: c.resp || 'dan', due: today(), priority: 'high', status: 'open', ruleKey: 'refi:' + cid + ':' + i, createdAt: stamp(), createdBy: S.me.id });
+        await write('clients/' + cid, { refi: { ...(c.refi || {}), [i]: { taskAt: stamp(), done: true } }, updatedAt: stamp() }, 'update', { journal: true }); await logClient(cid, 'מחזור: נפתחה משימה'); return toast('נפתחה משימה'); }
+      await write('clients/' + cid, { refi: { ...(c.refi || {}), [i]: { done: true, at: stamp() } }, updatedAt: stamp() }, 'update', { journal: true }); return logClient(cid, 'מחזור: סומן כטופל'); }
+    if (d.commpaid) { const o = { ...(S.settings.commPaid || {}) }; if (o[d.commpaid]) delete o[d.commpaid]; else o[d.commpaid] = { at: stamp(), by: S.myKey || null }; await write('settings/main', { commPaid: o }, 'update'); return toast(o[d.commpaid] ? 'סומן ששולם' : 'הסימון בוטל'); }
+    if (d.rmrule) { const rules = commRead().filter((r) => r.id !== d.rmrule); await write('settings/main', { commRules: rules }, 'update'); return toast('הכלל הוסר'); }
+    if (d.rmcomm != null && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); const list = (reOf(c).comms || []).filter((_, i) => i !== Number(d.rmcomm)); return reSet(c, { comms: list }, 'עמלה ידנית הוסרה'); }
     if (d.procview) { S.f.procView = d.procview; return render(); }
     if ((d.repact || d.simdel != null) && S.view.tab === 'intake') { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid)));
       const save = (msg) => write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }).then(() => msg && toast(msg));
@@ -4666,7 +4937,8 @@ document.addEventListener('click', async (e) => {
     if (d.editcamp) return formCampaign(S.campaigns.get(d.editcamp));
     if (d.editticket) return formTicket(S.tickets.get(d.editticket));
     if (d.editlender != null) return formLender(d.editlender ? S.lenders.get(d.editlender) : null, d.lname);
-    if (d.rmuser) { await write('settings/main', { users: (S.settings.users || []).filter((x) => normUser(x.username) !== normUser(d.rmuser)) }, 'update'); return toast('המשתמש הוסר'); }
+    if (d.edituser != null && el.matches('button')) { S.f.userEdit = d.edituser || null; render(); const x = $('uLabel'); if (x) x.focus(); return; }
+    if (d.rmuser) { const ux = (S.settings.users || []).find((x) => normUser(x.username) === normUser(d.rmuser)); if (!ux || !canManageUser(ux)) return toast('אין לך הרשאה להסיר את המשתמש הזה'); if (!confirm('להסיר את ' + (ux.label || ux.username) + '?')) return; await write('settings/main', { users: (S.settings.users || []).filter((x) => normUser(x.username) !== normUser(d.rmuser)) }, 'update'); return toast('המשתמש הוסר'); }
     if (d.dellink) { await write('links/' + d.dellink, { deletedAt: stamp() }, 'update'); return toast('הקישור הוסר'); }
     if (d.setowner) { await write('settings/main', { ownerId: d.setowner }, 'update'); return toast(nameOf(d.setowner) + ' מקבל עותק מכל סגירת יום'); }
     if (d.rmteam) { await write('team/' + d.rmteam, { deletedAt: stamp() }, 'update'); return toast('הוסר מהצוות'); }
@@ -4676,7 +4948,8 @@ document.addEventListener('click', async (e) => {
     }
     if (d.convert) {
       const l = S.leads.get(d.convert); if (!l) return; const id = uid();
-      await write('clients/' + id, { id, name: l.name, phone: l.phone || '', source: l.platform || l.campaign || '', product: 'mortgage_declined', division: 'finance', status: 'open', stage: 'prospect', fee: l.value || 0, tags: [], checklist: [], submissions: [], leadId: l.id, ownerId: S.me.id,
+      await write('clients/' + id, { id, name: l.name, phone: l.phone || '', source: l.platform || l.campaign || '', product: leadDiv(l) === 'realestate' ? 'presale' : 'mortgage_declined', division: leadDiv(l), status: 'open', stage: 'prospect', fee: l.value || 0, tags: [], checklist: [], submissions: [], leadId: l.id, ownerId: S.me.id, resp: l.resp || null,
+        ...(leadDiv(l) === 'realestate' ? { re: { step: l.zoom && l.zoom.attended ? 'frontal' : 'docs', ...(l.zoom ? { zoomAt: l.zoom.at || null, zoomLink: l.zoom.link || null, zoomAttended: !!l.zoom.attended, meetingBy: l.zoom.by || l.resp || null } : {}) } } : {}),
         log: [{ at: stamp(), text: 'נפתח מליד' + (l.campaign ? ' (קמפיין: ' + l.campaign + ')' : ''), auto: true, by: S.me.id }], createdAt: stamp(), updatedAt: stamp() });
       await leadPatch(l.id, { stage: 'won', clientId: id, followUp: null }, 'חתם — נפתח לקוח'); toast('הליד הפך ללקוח'); return go('client', id);
     }
@@ -4695,6 +4968,17 @@ document.addEventListener('click', async (e) => {
         case 'newTask': return formTask(null, inClient ? { clientId: c.id, resp: c.resp || respOf(S.me.id) || 'dan' } : {});
         case 'newTicket': return formTicket(null, inClient ? { clientId: c.id, ownerId: c.ownerId || S.me.id } : {});
         case 'newLead': return formLead();
+        case 'leadAlloc': return formAlloc();
+        case 'commAdd': { const rules = [...commRead(), { id: uid(), target: 'role:center', div: S.division !== 'all' ? S.division : 'realestate', event: 'meeting', amount: 0, label: COMM_EVENT.meeting }]; await write('settings/main', { commRules: rules }, 'update'); return toast('נוסף כלל — עדכן ושמור'); }
+        case 'commSave': { await write('settings/main', { commRules: commRead() }, 'update'); return toast('כללי העמלות נשמרו'); }
+        case 'reDeposit': return formTx(null, { nature: 'income', clientId: c.id, counterparty: c.name, division: 'realestate', category: DEPOSIT_CAT, description: 'דמי רצינות — עבור התוכנית (לא מוחזר)', vatMode: 'incl', deductible: true });
+        case 'reSummary': return formReSummary(c);
+        case 'reComm': return formReComm(c);
+        case 'stAdd': { const v = ($('stNew').value || '').trim(); if (!v) return; const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); rows.push({ key: 's' + slug(v + Date.now()), label: v, base: 'followup' });
+          await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('נוסף — בחר "מתנהג כמו" ושמור'); }
+        case 'stSave': { const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); if (rows.some((r) => !r.label)) return toast('חסר שם');
+          await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('הסטטוסים של ' + L.division[div] + ' נשמרו'); }
+        case 'stReset': { const div = $('stTable').dataset.div; const o = { ...(S.settings.statusSets || {}) }; delete o[div]; await write('settings/main', { statusSets: o }, 'update'); return toast('חזרה לברירת המחדל'); }
         case 'simAdd': case 'simPreset': { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))); x.sim = { ...SIM_DEFAULT(), ...(x.sim || {}) };
           if (d.act === 'simAdd') x.sim.tracks = [...x.sim.tracks, { t: 'kz', pct: 0, years: 25, rate: 3.5 }]; else x.sim.tracks = SIM_DEFAULT().tracks.map((t) => ({ ...t, pct: t.t === 'prime' ? 34 : 33 }));
           return write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }); }
@@ -4883,6 +5167,9 @@ document.addEventListener('change', async (e) => {
       if (el.value && el.value !== S.me.id) notify(el.value, 'תיק באחריותך: ' + c.name, ['שויך אליך התיק <b>' + esc(c.name) + '</b>.', 'שלב: ' + esc(L.stage[c.stage] || '') + ' · פתוח לגביה ' + plain(clientMoney(c).open)], c.id); return; }
     if (el.dataset.chk != null && c) { const list = (c.checklist || []).map((i, idx) => idx === Number(el.dataset.chk) ? { ...i, status: el.checked ? 'done' : 'pending' } : i);
       await write('clients/' + c.id, { checklist: list, updatedAt: stamp() }, 'update'); return logClient(c.id, (el.checked ? '✓ ' : 'בוטל: ') + c.checklist[Number(el.dataset.chk)].label); }
+    if ((el.dataset.subm != null || el.dataset.subb != null) && c) { const i = Number(el.dataset.subm ?? el.dataset.subb);
+      const list = (c.submissions || []).map((s, k) => k === i ? { ...s, ...(el.dataset.subm != null ? { months: el.value ? Math.round(n(el.value)) : null } : { balloon: el.checked }) } : s);
+      await write('clients/' + c.id, { submissions: list, updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, list[i].bank + ': ' + (el.dataset.subm != null ? 'תקופה ' + (el.value || '—') + ' חודשים' : el.checked ? 'מסלול בלון' : 'לא בלון')); }
     if (el.dataset.substatus != null && c) { const list = (c.submissions || []).map((s, i) => i === Number(el.dataset.substatus) ? { ...s, status: el.value, transferredAt: el.value === 'executed' ? (s.transferredAt || today()) : s.transferredAt } : s);
       await write('clients/' + c.id, { submissions: list, updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, list[Number(el.dataset.substatus)].bank + ': ' + (SUBST[el.value] || L.sub[el.value] || el.value)); }
     if (el.dataset.taskdone) { const t = S.tasks.get(el.dataset.taskdone);
@@ -4909,9 +5196,20 @@ document.addEventListener('change', async (e) => {
       if (!/consolidate$/.test(path) && r.status === 'verified') { r.status = 'proposal'; r.editedAfterVerify = stamp(); }
       return write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }); }
     if (el.id === 'condScan' && el.files && el.files[0]) { const c2 = S.clients.get(S.view.clientId); return scanConditions(c2, el.files[0]); }
-    if (el.dataset.leadstage && el.value === 'noanswer') return leadQuick(el.dataset.leadstage, 'noanswer');
+    if (el.dataset.leadstage && stagePatch(S.leads.get(el.dataset.leadstage) || {}, el.value).stage === 'noanswer') return leadQuick(el.dataset.leadstage, 'noanswer', stagePatch(S.leads.get(el.dataset.leadstage), el.value).sub);
     if (el.id === 'fLeadDay') { S.f.leadDay = el.value || today(); return render(); }
-    if (el.dataset.leadstage) { const l = S.leads.get(el.dataset.leadstage); return leadPatch(l.id, { stage: el.value, ...(['lost', 'credit', 'invalid', 'won'].includes(el.value) ? { followUp: null } : {}) }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + L.leadStage[el.value]); }
+    if (el.dataset.leadstage) { const l = S.leads.get(el.dataset.leadstage); if (!l || el.dataset.leadstage === 'x') return; const { _label, ...sp } = stagePatch(l, el.value); return leadPatch(l.id, { ...sp, ...(['lost', 'credit', 'invalid', 'won'].includes(sp.stage) ? { followUp: null } : {}) }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + _label); }
+    if (el.dataset.lzoom) { const l = S.leads.get(el.dataset.id); if (!l) return; const k = el.dataset.lzoom, v = el.type === 'checkbox' ? el.checked : el.value || null;
+      const z = { ...(l.zoom || {}), [k]: v, ...(k === 'attended' && v && !(l.zoom && l.zoom.by) ? { by: l.resp || S.myKey || null } : {}), ...(k === 'at' && !(l.zoom && l.zoom.by) ? { by: l.resp || S.myKey || null } : {}) };
+      return leadPatch(l.id, { zoom: z, ...(k === 'at' && v && ['new', 'noanswer', 'followup', 'contacted', 'checking', 'thinking'].includes(l.stage || 'new') ? { stage: 'meeting', sub: null } : {}) }, k === 'attended' ? (v ? 'הגיע לזום' : 'זום — בוטל "הגיע"') : k === 'at' ? 'זום נקבע: ' + String(v || '').replace('T', ' ') : k === 'by' ? 'תיאם: ' + (L.resp[v] || '') : 'קישור זום עודכן', true); }
+    if (el.dataset.ref && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; const k = el.dataset.ref, v = el.type === 'checkbox' ? el.checked : el.value || null;
+      const lbl = { zoomAt: 'זום', zoomAttended: 'הגיע לזום', frontalAt: 'פגישה פרונטלית', secondAt: 'פגישה נוספת', lawyer: 'עו״ד', lawyerAt: 'פגישה עם עו״ד', developer: 'יזם', project: 'פרויקט', registerAt: 'פגישת הרשמה', devSigned: 'חתם אצל היזם', devPaid: 'שילם', meetingBy: 'מי תיאם' }[k] || k;
+      return reSet(c, { [k]: v }, lbl + ': ' + (v === true ? 'כן' : v === false ? 'לא' : k === 'meetingBy' ? L.resp[v] || '—' : String(v || '—').replace('T', ' '))); }
+    if (el.id === 'impDiv' && pendingImport) { pendingImport.division = el.value; return; }
+    if (el.id === 'impSrc' && pendingImport) { pendingImport.src = el.value.trim(); return; }
+    if (el.id === 'fUnitPer') { S.f.unitPer = el.value; return render(); }
+    if (el.id === 'fCommMonth') { S.f.commMonth = el.value; return render(); }
+    if (el.dataset.leaddiv) { const l = S.leads.get(el.dataset.leaddiv); return leadPatch(l.id, { division: el.value }, 'חברה: ' + L.division[el.value], true); }
     if (el.dataset.leadresp) { const l = S.leads.get(el.dataset.leadresp); return leadPatch(l.id, { resp: el.value || null }, 'אחראי: ' + (L.resp[el.value] || 'ללא'), true); }
     if (el.dataset.leadfollow) return leadPatch(el.dataset.leadfollow, { followUp: el.value || null }, el.value ? 'מעקב נקבע ל-' + dLabel(el.value) : 'המעקב בוטל', true);
     if (el.dataset.leadf && S.view.tab === 'lead') { const l = S.leads.get(S.view.clientId), k = el.dataset.leadf, v = el.value.trim(); if (!l || (l[k] || '') === v) return; return leadPatch(l.id, { [k]: v }, ({ name: 'שם', phone: 'טלפון', email: 'מייל', city: 'עיר' })[k] + ' עודכן: ' + v, true); }
@@ -4947,13 +5245,21 @@ document.addEventListener('submit', async (e) => {
   const f = e.target; if (!['lockForm', 'privForm', 'pwForm', 'userForm'].includes(f.id)) return;
   e.preventDefault();
   if (f.id === 'userForm') {
-    const name = normUser($('uName').value), resp = $('uResp').value, pw = $('uPw').value;
+    if (!S.canManageUsers) return toast('אין לך הרשאה לנהל משתמשים');
+    const us = S.settings.users || [], name = normUser($('uName').value), pw = $('uPw').value, role = $('uRole').value, label = $('uLabel').value.trim();
+    const divs = [...document.querySelectorAll('input[name=uDiv]:checked')].map((x) => x.value), old = us.find((x) => normUser(x.username) === name);
     if (!/^[a-z0-9._-]{3,32}$/.test(name)) return toast('שם משתמש: 3–32 אותיות לועזיות, ספרות, נקודה או מקף');
-    if (pw.length < 6) return toast('סיסמה של 6 תווים לפחות');
-    const salt = hex(crypto.getRandomValues(new Uint8Array(16))), iter = 210000;
-    const rest = (S.settings.users || []).filter((x) => normUser(x.username) !== name);
-    try { await write('settings/main', { users: [...rest, { username: name, resp, label: L.resp[resp], salt, iter, hash: await pwHash(pw, salt, iter), setAt: stamp() }] }, 'update');
-      toast(pw === name ? 'נשמר — הסיסמה זהה לשם המשתמש, כדאי להחליף' : 'המשתמש נשמר'); } catch (err) {}
+    if (!rolesICanGrant().includes(role)) return toast('אין לך הרשאה לתת את התפקיד הזה');
+    if (old && !S.f.userEdit) return toast('יש כבר משתמש בשם הזה — לחץ עליו "עריכה"');
+    if (old && !canManageUser(old)) return toast('אין לך הרשאה לערוך את המשתמש הזה');
+    if (pw && pw.length < 6) return toast('סיסמה של 6 תווים לפחות');
+    if (role === 'center' && !divs.length) return toast('סמן לפחות חברה אחת');
+    if (S.role === 'admin_re' && role === 'center' && divs.some((d) => d !== 'realestate')) return toast('אפשר לתת רק הר-אל השקעות');
+    const resp = old && old.resp ? old.resp : role === 'partner' && !us.some((x) => x.resp === 'nissim' && x !== old) ? 'nissim' : name;
+    const rec = { ...(old || {}), username: name, resp, role, label: label || (old && old.label) || L.resp[resp] || name, divs: role === 'center' ? divs : ROLES[role].divs, freelancer: !!($('uFree') && $('uFree').checked), setAt: stamp(), setBy: S.myKey || null };
+    if (pw) { const salt = hex(crypto.getRandomValues(new Uint8Array(16))), iter = 210000; Object.assign(rec, { salt, iter, hash: await pwHash(pw, salt, iter) }); }
+    try { await write('settings/main', { users: [...us.filter((x) => normUser(x.username) !== name), rec] }, 'update'); S.f.userEdit = null;
+      toast(pw && pw === name ? 'נשמר — הסיסמה זהה לשם המשתמש, כדאי להחליף' : pw ? 'המשתמש נשמר' : old ? 'השינויים נשמרו' : 'המשתמש נוסף — ממתין לסיסמה'); render(); } catch (err) {}
     return;
   }
   if (f.id === 'pwForm') {
@@ -4968,8 +5274,8 @@ document.addEventListener('submit', async (e) => {
   if (pwFails >= 3) { const wait = Math.min(30, 2 ** (pwFails - 2)); errEl.textContent = 'המתן ' + wait + ' שניות…'; await new Promise((r) => setTimeout(r, wait * 1000)); }
   const userEl = f.id === 'lockForm' && $('lockFormUser'), uname = userEl ? userEl.value.trim() : '';
   const uObj = uname ? await userOk(uname, pwEl.value) : null, ok = uname ? !!uObj : await pwOk(pwEl.value);
-  if (ok && f.id === 'lockForm') { S.loginAs = uObj ? { username: uObj.username, resp: uObj.resp, label: uObj.label || L.resp[uObj.resp] } : { resp: 'dan', label: 'דן' }; try { sessionStorage.setItem('harel-user', JSON.stringify(S.loginAs)); } catch (e) {} }
-  if (uObj && uObj.resp && !S.claudeOwner && S.me && S.me.id && !teamOf(S.me.id)) write('team/' + S.me.id, { id: S.me.id, userId: S.me.id, resp: uObj.resp, role: '', linkedBy: 'login', createdAt: stamp() }).catch(() => {});
+  if (ok && f.id === 'lockForm') { S.loginAs = uObj ? { username: uObj.username, resp: userKey(uObj), label: uObj.label || L.resp[uObj.resp] || uObj.username } : { resp: 'dan', label: 'דן' }; try { sessionStorage.setItem('harel-user', JSON.stringify(S.loginAs)); } catch (e) {} }
+  if (uObj && !S.claudeOwner && S.me && S.me.id && !teamOf(S.me.id)) write('team/' + S.me.id, { id: S.me.id, userId: S.me.id, resp: userKey(uObj), role: '', linkedBy: 'login', createdAt: stamp() }).catch(() => {});
   if (ok) { pwFails = 0; if (f.id === 'lockForm') setUnlocked(true); else { S.privUntil = Date.now() + PRIV_MS; setUnlocked(true); } render(); }
   else { pwFails++; errEl.textContent = uname ? 'שם משתמש או סיסמה שגויים' : 'סיסמה שגויה'; pwEl.value = ''; pwEl.focus(); }
 });
