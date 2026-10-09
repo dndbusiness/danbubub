@@ -13,6 +13,7 @@ import { greenInvoiceImportJob } from '@/lib/jobs/greeninvoice'
 import { wiseImportJob } from '@/lib/jobs/wise'
 import { accountantPayrollSendJob, payrollReminderJob } from '@/lib/jobs/payroll'
 import { coldBackupJob, reportsToDriveJob } from '@/lib/jobs/backup'
+import { crmMirrorJob } from '@/lib/jobs/crm-mirror'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,7 @@ const JOBS = {
   accountant_payroll_send: (d: string) => accountantPayrollSendJob(d),
   reports_to_drive: (d: string) => reportsToDriveJob(d),
   cold_backup: (d: string) => coldBackupJob(d),
+  crm_mirror: (d: string) => crmMirrorJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

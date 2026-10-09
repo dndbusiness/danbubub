@@ -95,6 +95,11 @@
       "name": "cold_backup",
       "path": "/api/jobs/cold_backup",
       "schedule": "0 1 * * 0"
+    },
+    {
+      "name": "crm_mirror",
+      "path": "/api/jobs/crm_mirror",
+      "schedule": "20 * * * *"
     }
   ]
 }

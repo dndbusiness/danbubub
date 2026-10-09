@@ -7,6 +7,8 @@ export type JobName =
   | 'calendar_sync' | 'weekly_report' | 'pnl_draft' | 'pnl_final' | 'accountant_pack' | 'deal_decay' | 'db_backup'
   | 'greeninvoice_import' | 'wise_import' | 'payroll_reminder' | 'accountant_payroll_send'
   | 'reports_to_drive' | 'cold_backup'
+  /** שלב המעבר מהדף ב-Claude — לא בחלק ג' המקורי; נוסף באישור דן (09/10/26) ונעצר לבד אחרי המעבר. */
+  | 'crm_mirror'
 
 export interface JobOutcome { rowsTouched: number; detail?: Record<string, unknown>; skipped?: string }
 

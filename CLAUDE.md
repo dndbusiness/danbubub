@@ -96,6 +96,7 @@ node --experimental-strip-types scripts/import-workbook.mjs <הקובץ.xlsx> --
 #   (או מהדפדפן: /import → "קובץ האקסל של הר-אל" — אותה פונקציה, lib/import/workbook-load.ts)
 cp .env.example .env.local        # DATABASE_URL
 npm run dev                       # http://localhost:3000/ui-kit
+# ה-CRM (הדף מ-Claude על השרת): http://localhost:3000/crm · שכפול מגיבוי: node --experimental-strip-types scripts/crm-mirror.mjs <harel-crm-….json.gz>
 npm run build && npm start && node scripts/ui-screenshots.mjs   # UIUX הנחיה 24
 node scripts/e2e-import.mjs      # מסך 11 מקצה לקצה על הקבצים הסינתטיים ב-tests/fixtures/cards
 node scripts/e2e-anchor.mjs      # שלב 5: עוגן מהנייד → סגירת יום → התראות → תזרים → דף הבית
