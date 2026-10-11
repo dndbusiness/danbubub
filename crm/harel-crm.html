@@ -488,7 +488,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['kaveretPool', 'attendance', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
+const COLL = ['kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -1241,7 +1241,7 @@ function vClient(id) {
       '<div><span>שכר טרחה</span><b>' + money(m.fee) + '</b></div><div><span>נגבה</span><b>' + money(m.collected, { tone: 'actual' }) + '</b></div>' +
       '<div><span>פתוח לגביה</span><b>' + money(m.open, { tone: m.open ? 'expected' : 'muted' }) + '</b>' + (c.expectedPayDate ? '<span>צפוי ' + dLabel(c.expectedPayDate) + '</span>' : '') + '</div>' +
       '<div><span>הוצאות ישירות</span><b>' + money(m.direct) + '</b></div><div><span>תרומה נטו</span><b>' + money(m.net, { tone: m.net < 0 ? 'open' : 'committed' }) + '</b></div>' +
-    '</div>') + docsCard(c) +
+    '</div>') +
     '<div class="grid2">' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
         '<section class="card"><header><h2>הצעד הבא</h2></header>' +
@@ -1279,7 +1279,7 @@ function vClient(id) {
             : '<p class="empty">היומן ריק.</p>') + '</section>' +
         (w ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (S.isOwner ? 'העבר לארכיון' : 'בקש העברה לארכיון') + '</button></div>' : '') +
       '</div>' +
-    '</div>';
+    '</div>' + (S.isOwner ? '<div style="margin-top:16px">' + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
 const goalsRows = (c) => { const g = c.goals; if (!g) return ''; const pr = Object.keys(g.prefs || {}).filter((k) => g.prefs[k]).map((k) => IK.prefs[k]);
   const exp = [n(g.rateMax) ? 'ריבית ' + (n(g.rateMin) ? n(g.rateMin) + '–' : 'עד ') + n(g.rateMax) + '%' : '', n(g.payment) ? 'החזר כולל עד ' + plain(g.payment) : '', ...pr].filter(Boolean).join(' · ');
@@ -2007,16 +2007,21 @@ async function rootMatchRun() {
 function sendFundBox(c, files) {
   const sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id)), re = (c.division || 'finance') === 'realestate', co = re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', ls = live(S.lenders).filter((l) => re || l.kind !== 'developer').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
   return '<details class="ppanel" style="margin-top:12px"' + (sel.length ? ' open' : '') + '><summary><b>שליחה לקרן / גוף מימון</b> <span class="hint">' + (sel.length ? sel.length + ' מסמכים מסומנים' : 'מסמנים מסמכים למעלה') + '</span></summary>' +
-    '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl">גוף<select class="f" id="fundTo"><option value="">— בחר —</option>' + ls.map((l) => '<option value="' + esc(l.id) + '">' + esc(l.name) + (l.email ? ' · ' + esc(l.email) : ' · אין מייל') + '</option>').join('') + '</select></label>' +
-      '<label class="fl grow">מייל (אם אחר / אין בגוף)<input class="f" id="fundMail" dir="ltr" placeholder="name@fund.co.il"></label></div>' +
+    '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl">נמען<select class="f" id="fundTo"><option value="">— בחר —</option>' +
+        '<optgroup label="' + (re ? 'גופים ויזמים' : 'גופי מימון') + ' (ברשימת הגופים)">' + ls.filter((l) => l.email).map((l) => '<option value="l:' + esc(l.id) + '">' + esc(l.name) + ' · ' + esc(l.email) + '</option>').join('') + '</optgroup>' +
+        CONTACT_CATS.filter(([k]) => !['team', 'client'].includes(k)).map(([k, lb]) => { const cs = live(S.contacts || new Map()).filter((x) => (x.cat || 'other') === k).sort((a, b) => String(a.org || a.name).localeCompare(String(b.org || b.name), 'he'));
+          return cs.length ? '<optgroup label="' + esc(lb) + '">' + cs.map((x) => '<option value="c:' + esc(x.id) + '">' + esc((x.org ? x.org + ' — ' : '') + x.name) + ' · ' + esc(x.email) + '</option>').join('') + '</optgroup>' : ''; }).join('') + '</select></label>' +
+      '<label class="fl grow">מייל (אחר / נוסף — כמה עם פסיק)<input class="f" id="fundMail" dir="ltr" placeholder="name@fund.co.il"></label></div>' +
     '<label class="fl">נושא<input class="f" id="fundSubj" value="' + esc('הגשת תיק — ' + c.name + ' — ' + co) + '"></label>' +
     '<label class="fl">גוף המייל<textarea class="f" id="fundBody" rows="5">' + esc('שלום,\n\nמצורפים המסמכים של ' + c.name + (c.baseAmount ? ' לבקשה בסך ' + plain(c.baseAmount) : '') + '.\nנשמח לבדיקה ולתשובה.\n\nבברכה,\n' + (S.loginAs && S.loginAs.label || 'דן') + '\n' + co) + '</textarea></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
     '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. עד 25MB קבצים.</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div></details>';
 }
 async function fundSend(c) {
-  const lid = ($('fundTo') || {}).value, l = lid && S.lenders.get(lid), to = (($('fundMail') || {}).value || '').trim() || (l && l.email) || '';
-  if (!/.+@.+\..+/.test(to)) return toast('חסר מייל לגוף — הוסף בגופי מימון או כתוב כאן');
+  const pick = ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
+  const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+  const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])], to = tos.join(', ');
+  if (!tos.length) return toast('בחר נמען או כתוב מייל');
   const st = (S.docRes || {})[c.id] || {}, ids = [...(S.docSel || new Set())].filter((id) => (st.files || []).some((f) => f.id === id)); if (!ids.length) return toast('סמן מסמכים');
   const est = ids.reduce((a, id) => a + (+((st.files.find((x) => x.id === id) || {}).fileSize) || 0), 0); if (est > 24e6) return toast('הקבצים גדולים מ-25MB — שלח בשני מיילים');
   toast('מכין ' + ids.length + ' קבצים…'); const att = []; let size = 0;
@@ -2026,10 +2031,10 @@ async function fundSend(c) {
     size += b64.length * 3 / 4; att.push({ filename: gNative && !/\.pdf$/i.test(f.title) ? f.title + '.pdf' : f.title, mimeType: gNative ? 'application/pdf' : (p.mimeType || f.mimeType || 'application/octet-stream'), content: b64 }); }
   if (size > 24e6) return toast('הקבצים גדולים מ-25MB — שלח בשני מיילים');
   const subj = ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body = ($('fundBody') || {}).value || '';
-  const r = await sendMail({ to: [to], cc: [FIN_BOX], subject: subj, html: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' + esc(body) + '</div>', text: body, kind: 'fund', ref: c.id, attachments: att });
+  const r = await sendMail({ to: tos, cc: [FIN_BOX], subject: subj, html: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' + esc(body) + '</div>', text: body, kind: 'fund', ref: c.id, attachments: att });
   if (!r.ok) return toast('לא נשלח: ' + r.why);
-  const bank = l ? l.name : to; await logClient(c.id, 'נשלח ל' + bank + ' (' + to + '): ' + subj + ' · ' + att.map((a) => a.filename).join(', ')).catch(() => {});
-  if (($('fundSub') || {}).checked && !(c.submissions || []).some((x) => x.bank === bank)) await write('clients/' + c.id, { submissions: [...(c.submissions || []), { bank, status: 'submitted', amount: c.baseAmount || null, at: stamp(), sentDocs: att.map((a) => a.filename) }], updatedAt: stamp() }, 'update');
+  const bank = l ? l.name : ct ? (ct.org || ct.name) : to; await logClient(c.id, 'נשלח ל' + bank + ' (' + to + '): ' + subj + ' · ' + att.map((a) => a.filename).join(', ')).catch(() => {});
+  if (($('fundSub') || {}).checked && (l || !ct || ['bank', 'fund', 'developer'].includes(ct.cat)) && !(c.submissions || []).some((x) => x.bank === bank)) await write('clients/' + c.id, { submissions: [...(c.submissions || []), { bank, status: 'submitted', amount: c.baseAmount || null, at: stamp(), sentDocs: att.map((a) => a.filename) }], updatedAt: stamp() }, 'update');
   S.docSel = new Set(); toast('נשלח ל' + bank + ' עם ' + att.length + ' קבצים'); render(); }
 function dayExtras() {
   const t0 = today(); let h = '';
@@ -3313,7 +3318,103 @@ function formDev(l, name) {
       await write('lenders/' + id, { ...l, id, kind: 'developer', division: 'realestate', name: d.name.trim(), contact: d.contact.trim(), phone: d.phone.trim(), email: d.email.trim(), commission: d.commission === '' ? null : Number(d.commission), terms: d.terms.trim(), projects: d.projects.trim(), notes: d.notes, updatedAt: stamp(), ...(isNew ? { createdAt: stamp(), createdBy: S.me.id } : {}) });
       toast('נשמר'); });
 }
-function vLendersTab() { const d = screenDiv('lendDiv'); S._divOnly = d; try { return divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
+function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : 'bodies';
+  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px"><button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
+  if (v === 'contacts') return seg + vContacts();
+  S._divOnly = d; try { return seg + divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
+/* ═════════════ אנשי קשר — לשליחת מיילים לפי סיווג (ייבוא מאנשי הקשר של גוגל) ═════════════ */
+const CONTACT_CATS = [['bank', 'בנקים'], ['fund', 'גופי מימון וקרנות'], ['lawyer', 'עורכי דין'], ['appraiser', 'שמאים'], ['cpa', 'רו״ח והנהלת חשבונות'], ['developer', 'יזמים, קבלנים ומתווכים'], ['credit', 'נתוני אשראי'],
+  ['insurance', 'ביטוח ופנסיה'], ['leads', 'ספקי לידים ושיווק'], ['gov', 'רשויות'], ['client', 'לקוחות'], ['team', 'צוות'], ['other', 'לא מסווג']];
+const contactCatLabel = (k) => (CONTACT_CATS.find((x) => x[0] === k) || [k, 'לא מסווג'])[1];
+/* דומיין → [סיווג, שם הגוף]. מה שלא כאן — לפי מילים בשם / בתפקיד, ואחרת "לא מסווג" */
+const CONTACT_DOMAINS = { 'umtb.co.il': ['bank', 'בנק מזרחי טפחות'], 'poalim.co.il': ['bank', 'בנק הפועלים'], 'bankleumi.co.il': ['bank', 'בנק לאומי'], 'dbank.co.il': ['bank', 'בנק דיסקונט'], 'jbank.co.il': ['bank', 'בנק ירושלים'],
+  'bankjerusalem.co.il': ['bank', 'בנק ירושלים'], 'fibi.co.il': ['bank', 'הבנק הבינלאומי'], 'bankmassad.co.il': ['bank', 'בנק מסד'], 'mdb.co.il': ['bank', 'בנק מרכנתיל'],
+  '5555.co.il': ['fund', 'מימון ישיר'], 'pama-lis.co.il': ['fund', 'פמה'], 'btbisrael.co.il': ['fund', 'BTB'], 'efficapital.com': ['fund', 'אפי קפיטל'], 'mor.co.il': ['fund', 'מור'], 'more.co.il': ['fund', 'מור'],
+  'fnx.co.il': ['fund', 'הפניקס'], 'max.co.il': ['fund', 'מקס'], 'max-finance.co.il': ['fund', 'מקס פיננסים'], 'isracard.co.il': ['fund', 'ישראכרט'], 'freesbe.com': ['fund', 'פרייסבי'], 'credit360.co.il': ['fund', 'קרדיט 360'],
+  'silverway.co.il': ['fund', 'סילברוויי'], 'tarya.co.il': ['fund', 'טריא'], 'provalue.fund': ['fund', 'פרווליו'], 'atarot-finance.co.il': ['fund', 'עטרות'], 'netzachcapital.com': ['fund', 'נצח קפיטל'], 'wecheck.co.il': ['fund', 'וויצ׳ק'],
+  'credito.co.il': ['fund', 'קרדיטו'], 'arcdb.co.il': ['fund', 'ARC'], 'esg.co.il': ['fund', 'ESG'], 'lbr.co.il': ['fund', 'LBR'], 'carasso.co.il': ['fund', 'כרסו'], 'loanwise.co.il': ['fund', 'לונוויז'], 'mindspace.me': ['other', 'מיינדספייס'],
+  'etilaw.com': ['lawyer', 'אתי מאור עו״ד'], 'segalcohen.com': ['lawyer', 'סגל כהן'], 'bgr-law.com': ['lawyer', 'BGR Law'], 'sfa.law': ['lawyer', 'SFA'], 'rgi-law.com': ['lawyer', 'RGI'], 'zenoulaw.co.il': ['lawyer', 'זנו'], 'berant-law.co.il': ['lawyer', 'ברנט'],
+  'kenigf.com': ['lawyer', 'קניג'], 'bergmanbueno.com': ['lawyer', 'ברגמן בואנו'], 'av-cpa.co.il': ['cpa', 'א.ו רו״ח'], 'osfinance.co.il': ['cpa', 'OS Finance'], 'osnatmatatov.co.il': ['cpa', 'אסנת מטטוב'], 'mastov.co.il': ['cpa', 'מסטוב'],
+  'amramltd.co.il': ['developer', 'עמרם אברהם'], 'amremltd.co.il': ['developer', 'עמרם אברהם'], 'as-eitan.co.il': ['developer', 'איתן מטרופארק'], 'mishab.co.il': ['developer', 'משהב'], 'tama38-grp.co.il': ['developer', 'תמ״א 38'], 't-group.co.il': ['developer', 'T-Group'],
+  'e-p.co.il': ['developer', 'E-P'], 'ysr.co.il': ['developer', 'YSR'], 'geokom.co.il': ['developer', 'גיאוקום'],
+  'bdi.co.il': ['credit', 'BDI'], 'dbisrael.co.il': ['credit', 'D&B'], 'creditdata.org.il': ['credit', 'מאגר נתוני אשראי'], 'credit2000.co.il': ['credit', 'קרדיט 2000'],
+  'harel-ins.co.il': ['insurance', 'הראל ביטוח'], 'altshul.co.il': ['insurance', 'אלטשולר שחם'], 'alt-ins.com': ['insurance', 'אלט'], 'wobi.co.il': ['insurance', 'וובי'],
+  'kaveret.biz': ['leads', 'כוורת'], 'alexanderleizer.com': ['leads', 'אלכסנדר לייזר'], 'madlan.co.il': ['leads', 'מדלן'], 'wisecard.co.il': ['leads', 'WISE'],
+  'justice.gov.il': ['gov', 'משרד המשפטים'], 'taxes.gov.il': ['gov', 'רשות המסים'], 'shoham.muni.il': ['gov', 'מועצת שוהם'], 'rnd.org.il': ['gov', 'RND'], 'ibca.org.il': ['gov', 'IBCA'],
+  'harelinvest.co.il': ['team', 'הר-אל'] };
+const CONTACT_SKIP = /@(wolt\.com|unilever\.com|telegram\.org|anthropic\.com|pandazzz\.com|blender\.co\.il|meshulam\.co\.il|woki\.co\.il|teleco\.co\.il|hello\.rows\.com|cybernet\.co\.il|spotnet\.co\.il|1com\.co\.il|gnrgy\.com|pyrogss\.com|studio-perets\.co\.il|magal-s3\.com|mis-security\.co\.il|mya-global\.co\.il|avisror\.com)$/i;
+function contactCat(email, text, team) {
+  const dom = String(email || '').toLowerCase().split('@')[1] || '', d = CONTACT_DOMAINS[dom], t = String(text || '');
+  if (d) return d;
+  if (team && team.has(String(email || '').toLowerCase())) return ['team', 'הר-אל']; /* מיילי הצוות — מההגדרות, לא מקודדים כאן */
+  if (/(^|[\s(])לקוח(ה)?(?!ות)/.test(t)) return ['client', ''];
+  if (/שמאי|shamay/i.test(t + ' ' + email)) return ['appraiser', ''];
+  if (/עו["״'׳]*ד|עורכ|law|adv[.@]/i.test(t + ' ' + email)) return ['lawyer', ''];
+  if (/רו["״]?ח|cpa|חשבונות/i.test(t + ' ' + email)) return ['cpa', ''];
+  if (/בנק/.test(t)) return ['bank', ''];
+  if (/מימון|קרן|fund|משכנת/i.test(t)) return ['fund', ''];
+  if (/מתווך|יזם|קבלן|נדל/.test(t)) return ['developer', ''];
+  return ['other', ''];
+}
+function csvRows(text) { const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) { const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true; else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch; }
+  if (cell || row.length) { row.push(cell); rows.push(row); } return rows.filter((r) => r.some((x) => x.trim())); }
+/* קובץ אנשי קשר של גוגל → אנשי קשר עם מייל, מסווגים. מפתח = המייל, כך שייבוא חוזר לא מכפיל ולא דורס סיווג שנקבע ידנית */
+function contactsFromCsv(text, team) {
+  const [h, ...rows] = csvRows(String(text || '').replace(/^\uFEFF/, '')), ix = (k) => h.indexOf(k), out = new Map();
+  for (const r of rows) { const g = (k) => (ix(k) >= 0 ? String(r[ix(k)] || '').trim() : '');
+    const emails = [g('E-mail 1 - Value'), g('E-mail 2 - Value')].join(' ::: ').split(':::').map((x) => x.trim().toLowerCase()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+    if (!emails.length) continue; const email = emails[0]; if (CONTACT_SKIP.test(email)) continue;
+    const name = [g('First Name'), g('Middle Name'), g('Last Name')].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(), org = g('Organization Name'), title = g('Organization Title'), phone = g('Phone 1 - Value');
+    const [cat, dOrg] = contactCat(email, [name, org, title].join(' '), team), cand = { email, emails, name: name || email.split('@')[0], org: org || dOrg, title, phone, cat };
+    const prev = out.get(email); /* אותו מייל פעמיים — שומרים את הרשומה העשירה (עם שם בעברית / ארגון / תפקיד) */
+    const score = (x) => (/[\u0590-\u05FF]/.test(x.name) ? 2 : 0) + (x.title ? 2 : 0) + (x.org ? 1 : 0) + (x.phone ? 1 : 0);
+    if (!prev || score(cand) > score(prev)) out.set(email, { ...cand, phone: cand.phone || (prev && prev.phone) || '', emails: [...new Set([...(prev ? prev.emails : []), ...emails])] }); }
+  return [...out.values()]; }
+const contactId = (email) => 'ct-' + String(email).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120);
+async function contactsImport(file) {
+  const team = new Set([...Object.values(S.settings.teamEmails || {}), ...live(S.team).map((t) => t.email), S.settings.ownerEmail, ...(S.settings.users || []).map((u) => u.email)].filter(Boolean).map((x) => String(x).toLowerCase()));
+  const list = contactsFromCsv(await file.text(), team); let add = 0, upd = 0;
+  for (const c of list) { const id = contactId(c.email), cur = S.contacts.get(id);
+    if (!cur) { await write('contacts/' + id, { id, ...c, createdAt: stamp(), updatedAt: stamp(), by: S.me.id }); add++; }
+    else { const patch = {}; for (const k of ['name', 'org', 'title', 'phone']) if (!cur[k] && c[k]) patch[k] = c[k]; if (Object.keys(patch).length) { await write('contacts/' + id, { ...patch, updatedAt: stamp() }, 'update'); upd++; } } }
+  toast(add + ' אנשי קשר נוספו' + (upd ? ' · ' + upd + ' עודכנו' : '') + ' · ' + (list.length - add - upd) + ' כבר קיימים'); render(); }
+function vContacts() {
+  const all = live(S.contacts || new Map()), cat = S.f.ctCat || 'all', q = String(S.f.ctQ || '').trim(), sel = (S.ctSel = S.ctSel || new Set()), w = S.canWrite;
+  const cnt = (k) => all.filter((c) => (c.cat || 'other') === k).length;
+  const rows = all.filter((c) => cat === 'all' || (c.cat || 'other') === cat).filter((c) => !q || [c.name, c.org, c.title, c.email, c.phone].some((v) => String(v || '').toLowerCase().includes(q.toLowerCase())))
+    .sort((a, b) => String(a.org || a.name).localeCompare(String(b.org || b.name), 'he'));
+  const chosen = all.filter((c) => sel.has(c.id));
+  return '<div class="row"><div class="grow"><h1>אנשי קשר</h1><p class="hint">בנקאים, קרנות, עורכי דין, שמאים ועוד — לפי סיווג. מסמנים ושולחים מייל, או בוחרים אותם בשליחה לקרן מתוך כרטיס הלקוח.</p></div>' +
+      (w ? '<label class="btn" style="cursor:pointer">ייבוא מגוגל (CSV)<input type="file" accept=".csv,text/csv" hidden data-ctimport="1"></label><button class="btn primary" data-act="newContact">+ איש קשר</button>' : '') + '</div>' +
+    '<div class="dchips" role="group" aria-label="סיווג"><button class="dchip" data-ctcat="all" aria-pressed="' + (cat === 'all') + '">הכל <span class="num">' + all.length + '</span></button>' +
+      CONTACT_CATS.filter(([k]) => cnt(k)).map(([k, l]) => '<button class="dchip" data-ctcat="' + k + '" aria-pressed="' + (cat === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') + '</div>' +
+    '<section class="card"><div class="row" style="align-items:center;margin-bottom:8px"><input class="f search grow" id="fCtQ" type="search" placeholder="חיפוש — שם, גוף, מייל, טלפון…" value="' + esc(q) + '" aria-label="חיפוש אנשי קשר">' +
+      (rows.length ? '<button class="btn small ghost" data-act="ctSelAll">סמן את כל ה' + rows.length + '</button>' : '') + (sel.size ? '<button class="btn small ghost" data-act="ctSelClear">נקה סימון</button><button class="btn small primary" data-act="ctMail">שלח מייל ל-' + sel.size + '</button>' : '') + '</div>' +
+      (rows.length ? '<div class="scroll"><table><thead><tr><th></th><th>שם</th><th>גוף / תפקיד</th><th>מייל</th><th>טלפון</th><th>סיווג</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map((c) =>
+        '<tr><td><input type="checkbox" class="cb" data-ctsel="' + esc(c.id) + '"' + (sel.has(c.id) ? ' checked' : '') + ' aria-label="סמן"></td><td><b><bdi>' + esc(c.name) + '</bdi></b></td><td><bdi>' + esc(c.org || '') + '</bdi>' + (c.title ? '<div class="hint">' + esc(c.title) + '</div>' : '') + '</td>' +
+        '<td dir="ltr" style="text-align:end"><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></td><td class="num" dir="ltr" style="text-align:end">' + esc(c.phone || '') + '</td>' +
+        '<td>' + (w ? '<select class="f small" data-ctcatset="' + esc(c.id) + '" aria-label="סיווג">' + CONTACT_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === (c.cat || 'other') ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : esc(contactCatLabel(c.cat))) + '</td>' +
+        (w ? '<td><button class="btn small ghost" data-ctedit="' + esc(c.id) + '">עריכה</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>' : '<p class="empty">' + (all.length ? 'אין התאמות' : 'עוד אין אנשי קשר — ייבוא מגוגל: contacts.google.com ← ייצוא ← Google CSV') + '</p>') + '</section>' +
+    (chosen.length ? '<p class="hint">מסומנים: ' + chosen.slice(0, 12).map((c) => esc(c.name)).join(', ') + (chosen.length > 12 ? ' ועוד ' + (chosen.length - 12) : '') + '</p>' : '');
+}
+function formContact(c) {
+  return drawer(c ? 'עריכת איש קשר' : 'איש קשר חדש', fi('name', 'שם', c ? c.name : '', 'text', 'required') + fi('org', 'גוף', c ? c.org : '') + fi('title', 'תפקיד', c ? c.title : '') + fi('email', 'מייל', c ? c.email : '', 'email', 'dir="ltr" required') + fi('phone', 'טלפון', c ? c.phone : '', 'tel', 'dir="ltr"') +
+    fs('cat', 'סיווג', CONTACT_CATS, c ? c.cat || 'other' : 'fund') + ft('note', 'הערה', c ? c.note : ''),
+    async (d) => { const email = String(d.email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'מייל לא תקין'; if (!String(d.name || '').trim()) return 'חסר שם';
+      const id = c ? c.id : contactId(email); if (!c && S.contacts.get(id) && !S.contacts.get(id).deletedAt) return 'המייל הזה כבר ברשימה';
+      const data = { name: d.name.trim(), org: (d.org || '').trim(), title: (d.title || '').trim(), email, phone: (d.phone || '').trim(), cat: d.cat || 'other', note: d.note || '', updatedAt: stamp() };
+      await write('contacts/' + id, c ? data : { id, ...data, emails: [email], createdAt: stamp(), by: S.me.id }, c ? 'update' : 'set'); toast('נשמר'); },
+    c ? '<button class="btn danger ghost" type="button" data-ctdel="' + esc(c.id) + '">מחק</button>' : '');
+  const del = document.querySelector('[data-ctdel]'); if (del) del.addEventListener('click', async () => { if (del.dataset.sure !== '1') { del.dataset.sure = '1'; del.textContent = 'בטוח? לחץ שוב'; return; }
+    await write('contacts/' + c.id, { deletedAt: stamp(), updatedAt: stamp() }, 'update'); $('layer').innerHTML = ''; toast('נמחק'); });
+}
+async function ctMailSend(list, subj, body) { let ok = 0; const fails = [];
+  for (const c of list) { const r = await sendMail({ to: [c.email], subject: subj, html: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' + esc(body.replace(/\{שם\}/g, (c.name || '').split(' ')[0])) + '</div>', text: body.replace(/\{שם\}/g, (c.name || '').split(' ')[0]), kind: 'contact', ref: c.id });
+    if (r.ok) ok++; else fails.push(c.name + ': ' + r.why); }
+  return { ok, fails }; }
 function vLenders() {
   const st = lenderStats();
   return '<div class="row"><div class="grow"><h1>גופים ומימון</h1><p class="hint">בנקים, קרנות וגופים חוץ-בנקאיים — כמה תיקים בכל אחד, מה אושר וכמה כסף עבר דרכו.</p></div>' + (S.canWrite ? '<button class="btn primary" data-act="newLender">+ גוף</button>' : '') + '</div>' +
@@ -5622,6 +5723,9 @@ document.addEventListener('click', async (e) => {
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.lendview) { S.f.lendView = d.lendview; return render(); }
+    if (d.ctcat) { S.f.ctCat = d.ctcat; return render(); }
+    if (d.ctedit) { const c = S.contacts.get(d.ctedit); if (c && S.canWrite) return formContact(c); return; }
     if (d.doclink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), f = (S.rootIdx || []).find((x) => x.id === d.doclink); if (!c || !f || !S.canWrite) return; return linkFolder(c, { id: f.id, title: f.title + ' (' + f.root + ')' }); }
     if (d.docunlink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canWrite) return; await write('clients/' + c.id, { driveLinks: (c.driveLinks || []).filter((l) => l.id !== d.docunlink), updatedAt: stamp() }, 'update', { journal: true }); if (S.docRes) delete S.docRes[c.id]; return toast('השיקוף הוסר (בדרייב לא נמחק כלום)'); }
     if (d.rootrm) { if (!S.canWrite) return; await write('settings/main', { driveRoots: (S.settings.driveRoots || []).filter((r) => r.id !== d.rootrm) }, 'update'); S.rootIdx = null; S.rootMatch = null; return toast('הוסרה'); }
@@ -5962,6 +6066,17 @@ document.addEventListener('click', async (e) => {
           async (x) => { const m = String(x.url || '').match(/folders\/([\w-]{10,})/) || String(x.url || '').match(/[?&]id=([\w-]{10,})/); if (!m) return 'זה לא נראה כמו קישור לתיקייה';
             const roots = S.settings.driveRoots || []; if (roots.some((r) => r.id === m[1])) return 'כבר ברשימה'; await write('settings/main', { driveRoots: [...roots, { id: m[1], title: String(x.title || '').trim() || 'תיקיית לקוחות' }] }, 'update'); S.rootIdx = null; S.rootMatch = null; toast('נוספה'); }, '', 'הוסף');
         case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
+        case 'newContact': return formContact(null);
+        case 'ctSelAll': { const cat = S.f.ctCat || 'all', q = String(S.f.ctQ || '').trim().toLowerCase(); S.ctSel = S.ctSel || new Set();
+          live(S.contacts).filter((c) => cat === 'all' || (c.cat || 'other') === cat).filter((c) => !q || [c.name, c.org, c.title, c.email, c.phone].some((v) => String(v || '').toLowerCase().includes(q))).forEach((c) => S.ctSel.add(c.id)); return render(); }
+        case 'ctSelClear': S.ctSel = new Set(); return render();
+        case 'ctMail': { const list = live(S.contacts).filter((c) => (S.ctSel || new Set()).has(c.id)); if (!list.length) return;
+          return drawer('מייל ל-' + list.length + ' אנשי קשר', '<p class="full hint">כל נמען מקבל מייל נפרד (לא רואה את האחרים). {שם} מוחלף בשם הפרטי. נשלח מה-Gmail המחובר ונרשם בתיבת היוצא.</p>' +
+            '<p class="full hint">' + list.slice(0, 20).map((c) => esc(c.name) + ' &lt;' + esc(c.email) + '&gt;').join(' · ') + (list.length > 20 ? ' ועוד ' + (list.length - 20) : '') + '</p>' +
+            fi('subject', 'נושא', '', 'text', 'required', true) + ft('body', 'תוכן', 'שלום {שם},\n\n\n\nבברכה,\n' + ((S.loginAs && S.loginAs.label) || 'דן') + '\nהר-אל'),
+            async (x) => { if (!String(x.subject || '').trim()) return 'חסר נושא'; if (list.length > 60) return 'עד 60 נמענים בפעם אחת';
+              toast('שולח ' + list.length + ' מיילים…'); const r = await ctMailSend(list, x.subject.trim(), x.body || ''); S.ctSel = new Set();
+              toast(r.ok + ' נשלחו' + (r.fails.length ? ' · ' + r.fails.length + ' נכשלו: ' + r.fails.slice(0, 2).join('; ') : '')); render(); }, '', 'שלח'); }
         case 'rootLinkSel': { const picks = (S.rootMatch || []).filter((m) => m.pick); if (!picks.length) return toast('לא סומן כלום'); let k = 0;
           for (const m of picks) { await linkFolder(m.c, { id: m.f.id, title: m.f.title + ' (' + m.root + ')' }); k++; } S.rootMatch = null; return toast(k + ' תיקיות שויכו'); }
         default: if (EXPORTS[d.act]) return EXPORTS[d.act]();
@@ -5976,6 +6091,9 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
   if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup === '@pick' ? (($('docUpCat') || {}).value || 'other') : el.dataset.docup, el.files);
   if (el.dataset && el.dataset.rootpick !== undefined && S.rootMatch) { S.rootMatch[+el.dataset.rootpick].pick = el.checked; return; }
+  if (el.dataset && el.dataset.ctsel) { S.ctSel = S.ctSel || new Set(); if (el.checked) S.ctSel.add(el.dataset.ctsel); else S.ctSel.delete(el.dataset.ctsel); return render(); }
+  if (el.dataset && el.dataset.ctcatset && S.canWrite) { await write('contacts/' + el.dataset.ctcatset, { cat: el.value, updatedAt: stamp() }, 'update'); return toast('סווג כ' + contactCatLabel(el.value)); }
+  if (el.dataset && el.dataset.ctimport && el.files && el.files[0] && S.canWrite) { const f = el.files[0]; el.value = ''; return contactsImport(f); }
   if (el.dataset && el.dataset.rootcli !== undefined && S.rootMatch) { const m = S.rootMatch[+el.dataset.rootcli], c = S.clients.get(el.value); if (m && c) { m.c = c; m.tie = false; } return; }
   if (el.dataset && el.dataset.lsel) { if (el.checked) SEL.add(el.dataset.lsel); else SEL.delete(el.dataset.lsel); return render(); }
   if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
@@ -6097,7 +6215,7 @@ let qT;
 document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pside')) S.f.psideOpen = e.target.open; if (e.target.matches && e.target.matches('details.convbox')) S.f.convOpen = e.target.open; }, true);
 document.addEventListener('input', async (e) => {
   if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
-  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ' };
+  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ', fCtQ: 'ctQ' };
   if (map[e.target.id]) { S.f[map[e.target.id]] = e.target.value; clearTimeout(qT); qT = setTimeout(render, 160); return; }
   if (e.target.id === 'teamSearch' && S.user) {
     const hits = await S.user.search(e.target.value.trim());
