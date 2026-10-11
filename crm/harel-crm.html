@@ -247,6 +247,23 @@
   .lane .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lane); align-self: center; }
   ul.blocks { list-style: none; margin: 0; padding: 0; }
   .v.p-urgent { color: var(--p-urgent); } .v.p-normal { color: var(--p-normal); } .v.p-low { color: var(--p-low); }
+  .dchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+  .dchip { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; }
+  .dchip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .dchip .num { opacity: .7; margin-inline-start: 2px; }
+  .dsec { margin-bottom: 14px; }
+  .dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 10px; margin-top: 6px; }
+  .dtile { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); min-width: 0; }
+  .dtile.on { border-color: var(--committed); box-shadow: 0 0 0 1px var(--committed); }
+  .dthumb { display: flex; align-items: center; justify-content: center; aspect-ratio: 3 / 4; border-radius: 6px; background: var(--sunk); overflow: hidden; text-decoration: none; }
+  .dthumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .dext { font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: .04em; }
+  .dsel { position: absolute; top: 10px; inset-inline-start: 10px; margin: 0; background: var(--surface); }
+  .dflag { position: absolute; top: 10px; inset-inline-end: 10px; font-size: 10px; padding: 0 6px; border-radius: 999px; background: var(--expected-bg); color: var(--expected); border: 1px solid var(--expected); }
+  .dname { font-size: 12px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .dmeta { font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .dtile select.f { width: 100%; font-size: 11px; padding: 2px 4px; }
+  @media (max-width: 480px) { .dgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .doccats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
   .doccat { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
   .docrow a { overflow-wrap: anywhere; }
@@ -1209,7 +1226,7 @@ function vClient(id) {
       '<div><span>שכר טרחה</span><b>' + money(m.fee) + '</b></div><div><span>נגבה</span><b>' + money(m.collected, { tone: 'actual' }) + '</b></div>' +
       '<div><span>פתוח לגביה</span><b>' + money(m.open, { tone: m.open ? 'expected' : 'muted' }) + '</b>' + (c.expectedPayDate ? '<span>צפוי ' + dLabel(c.expectedPayDate) + '</span>' : '') + '</div>' +
       '<div><span>הוצאות ישירות</span><b>' + money(m.direct) + '</b></div><div><span>תרומה נטו</span><b>' + money(m.net, { tone: m.net < 0 ? 'open' : 'committed' }) + '</b></div>' +
-    '</div>') +
+    '</div>') + docsCard(c) +
     '<div class="grid2">' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
         '<section class="card"><header><h2>הצעד הבא</h2></header>' +
@@ -1220,7 +1237,7 @@ function vClient(id) {
           (ctasks.length ? '<h3 class="sec">משימות פתוחות על התיק</h3>' + ctasks.map((t) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + esc(t.title) + '</span></label>' + respChip(taskResp(t)) +
             '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
           (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>' +
-        (S.isOwner ? instCard(c, w) : '') + docsCard(c) + mailCard(c) + calCard(c) +
+        (S.isOwner ? instCard(c, w) : '') + mailCard(c) + calCard(c) +
         '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
           (tot ? '<div class="progress" style="margin-bottom:8px"><i style="width:' + pct(done, tot) + '%"></i></div>' +
             (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
@@ -1843,29 +1860,56 @@ function vCost() {
 /* ═════════════ מסמכי לקוח — שיקוף של תיקיית הדרייב לפי קטגוריות (דן, 11/10) · העלאה ישירה · שליחה לקרן ═════════════
    כל קטגוריה = תת-תיקייה בתיקיית הלקוח בדרייב. קובץ שיושב בתיקייה הראשית משויך לפי השם (או לפי מה שנבחר), והעברה לקטגוריה מזיזה אותו בדרייב. */
 const DOC_CATS = [['income', 'הכנסות'], ['appraisal', 'שמאות'], ['business', 'מסמכים עסקיים'], ['private', 'מסמכים פרטיים'], ['property', 'נכס'], ['agreements', 'הסכמי התקשרות'], ['other', 'מסמכים נוספים']];
-const DOC_GUESS = [['appraisal', /שמא(ות|י)|appraisal/i], ['agreements', /הסכ(ם|מ)|יי?פוי כו?ח|התקשרות|חתום|כתב הסכמה|agreement/i], ['property', /נסח|טאבו|חוזה רכישה|היתר|תשריט|נכס|משכנתא|רישום/i],
-  ['income', /תלוש|משכורת|שכר|106|עו["״]?ש|דפי חשבון|תדפיס|הכנס|פנסיה|קצבה|ביטוח לאומי/i], ['business', /דו["״]?ח כספי|מאזן|רווח (ו|ו-)?הפסד|מע["״]?מ|עוסק|ח\.?פ|התאגדות|רואה חשבון|רו["״]?ח|שומה/i],
-  ['private', /ת\.?ז|תעודת זהות|ספח|רישיון|דרכון|נישואין|גירושין|\bid\b/i]];
+const DOC_GUESS = [['appraisal', /שמא(ות|י)|appraisal/i], ['agreements', /הסכ(ם|מ)|יי?פוי כו?ח|התקשרות|חתום|כתב הסכמה|כתב הסמכה|הרשאה|agreement/i], ['property', /נסח|טאבו|חוזה רכישה|היתר|תשריט|נכס|משכנתא|רישום/i],
+  ['income', /תלוש|משכורת|שכר|106|עו["״]?ש|עובר ושב|דפי חשבון|תדפיס|הכנס|פנסיה|קצבה|ביטוח לאומי/i], ['business', /דו["״]?ח כספי|מאזן|רווח (ו|ו-)?הפסד|מע["״]?מ|עוסק|ח\.?פ|התאגדות|רואה חשבון|רו["״]?ח|שומה/i],
+  ['private', /ת\.?ז|תעודת זהות|ספח|רישיון|דרכון|נישואין|גירושין|אשראי|BDI|\bid\b/i]];
 const docGuess = (title) => (DOC_GUESS.find(([, re]) => re.test(String(title || ''))) || ['other'])[0];
 const docName = (t) => { const m = String(t || '').match(/^(.+)\.([A-Za-z0-9]{2,5})$/); return m ? '<bdi>' + esc(m[1]) + '</bdi> <span class="pill muted" dir="ltr" style="font-size:10px;padding:0 5px">' + esc(m[2].toUpperCase()) + '</span>' : '<bdi>' + esc(t) + '</bdi>'; };
 const catLabel = (k) => (DOC_CATS.find((x) => x[0] === k) || [k, k])[1];
 const drivePayload = (r) => { let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} } return p || {}; };
 async function driveList(folderId) { const out = []; let tok = null, k = 0;
-  do { const p = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + folderId + "'", pageSize: 100, excludeContentSnippets: true, ...(tok ? { pageToken: tok } : {}) }, { cache: false })); out.push(...(p.files || [])); tok = p.nextPageToken || null; k++; } while (tok && k < 5);
+  do { const p = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + folderId + "'", pageSize: 100, excludeContentSnippets: true, ...(tok ? { pageToken: tok } : {}) }, { cache: false })); out.push(...(p.files || []).map((f) => ({ ...f, title: decodeHtml(f.title || '') }))); tok = (p.files || []).length ? p.nextPageToken || null : null; k++; } while (tok && k < 60); /* הדרייב מחזיר לפעמים 5 בעמוד */
   return out; }
 const isFolder = (f) => f.mimeType === 'application/vnd.google-apps.folder';
+const docRoots = (c) => [c.driveFolder ? { id: c.driveFolder, title: '' } : null, ...(c.driveLinks || [])].filter(Boolean);
+const hasDocs = (c) => !!(c.driveFolder || (c.driveLinks || []).length);
 async function docsLoad(c, force) {
-  S.docRes = S.docRes || {}; if (!force && S.docRes[c.id] && !S.docRes[c.id].error) return; if (!S.mcp || !c.driveFolder) return;
+  S.docRes = S.docRes || {}; if (!force && S.docRes[c.id] && !S.docRes[c.id].error) return; if (!S.mcp || !hasDocs(c)) return;
   const st = (S.docRes[c.id] = { loading: true }); render();
-  try { const root = await driveList(c.driveFolder), folders = {}, files = [], others = [];
-    for (const f of root) { if (isFolder(f)) { const cat = (DOC_CATS.find(([, l]) => l === String(f.title).trim()) || [])[0]; if (cat) folders[cat] = f.id; else others.push(f); } else files.push({ ...f, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: true }); }
-    for (const [cat, fid] of Object.entries(folders)) (await driveList(fid)).forEach((f) => files.push({ ...f, cat, inFolder: true }));
-    for (const d of others) { const kids = (await driveList(d.id)).filter((f) => !isFolder(f)); /* תת-תיקייה שאינה קטגוריה: מציגים את הקבצים שבה, משויכים לפי השם */
-      if (kids.length) kids.forEach((f) => files.push({ ...f, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: true, sub: d.title })); else files.push({ ...d, cat: 'other', sub: d.title, folderLink: true }); }
+  try { const folders = {}, files = [], seen = new Set(), add = (f) => { if (!seen.has(f.id)) { seen.add(f.id); files.push(f); } };
+    for (const [ri, r] of docRoots(c).entries()) { const root = await driveList(r.id), pre = ri ? (r.title || 'תיקייה מקושרת') : '', others = [];
+      for (const f of root) { if (isFolder(f)) { const cat = (DOC_CATS.find(([, l]) => l === String(f.title).trim()) || [])[0];
+          if (cat) { if (!ri) folders[cat] = f.id; (await driveList(f.id)).filter((x) => !isFolder(x)).forEach((x) => add({ ...x, ri, cat: (c.docCats || {})[x.id] || cat, inFolder: !ri, sub: pre ? pre + '/' + f.title : '' })); } else others.push(f); }
+        else add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: pre }); }
+      const walk = async (d, path, depth) => { const kids = await driveList(d.id); let n = 0; /* תת-תיקייה שאינה קטגוריה (למשל "מסמכי משכנתא" של WISE): הקבצים שבה, עד 3 רמות, משויכים לפי השם */
+        for (const f of kids) { if (isFolder(f)) { if (depth < 3) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
+      for (const d of others) if (!(await walk(d, (pre ? pre + '/' : '') + d.title, 1))) add({ ...d, ri, cat: 'other', sub: pre, folderLink: true }); }
     st.files = files.sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || ''))); st.folders = folders; st.at = stamp();
   } catch (e) { st.error = e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'קריאת התיקייה בדרייב נכשלה (' + ((e && e.code) || 'שגיאה') + ')'; }
   st.loading = false; render(); }
-async function catFolder(c, cat) { const st = (S.docRes || {})[c.id] || {}; if (st.folders && st.folders[cat]) return st.folders[cat]; const parent = await clientFolder(S.clients.get(c.id) || c); if (!parent) return null;
+/* ── תצוגה מקדימה: תמונה / עמוד ראשון של PDF, מוקטנים ל-JPEG קטן. נשמר בזיכרון ובדפדפן של הצופה בלבד ── */
+const THUMB_MAX = 8e6;
+const thumbKey = (f) => 'th:' + f.id + ':' + (f.modifiedTime || '');
+const thumbable = (f) => !f.folderLink && (+f.fileSize || 0) <= THUMB_MAX && (/^image\/(jpeg|png|gif|webp|bmp)/.test(f.mimeType || '') || f.mimeType === 'application/pdf' || f.mimeType === 'application/vnd.google-apps.document');
+function thumbGet(f) { S.thumbs = S.thumbs || {}; if (S.thumbs[f.id]) return S.thumbs[f.id]; try { const v = localStorage.getItem(thumbKey(f)); if (v) return (S.thumbs[f.id] = v); } catch (e) {} return null; }
+async function thumbMake(f) {
+  const gdoc = f.mimeType === 'application/vnd.google-apps.document', p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id, ...(gdoc ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }));
+  const b64 = p.content || ''; if (!b64) throw new Error('empty'); const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), W = 260, cv = document.createElement('canvas');
+  if (gdoc || f.mimeType === 'application/pdf') { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pg = await (await lib.getDocument({ data: bytes }).promise).getPage(1), v0 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: W / v0.width }); cv.width = vp.width; cv.height = vp.height;
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); await pg.render({ canvasContext: g, viewport: vp }).promise; }
+  else { const bm = await createImageBitmap(new Blob([bytes], { type: f.mimeType })), k = Math.min(1, W / bm.width); cv.width = Math.round(bm.width * k); cv.height = Math.round(bm.height * k); cv.getContext('2d').drawImage(bm, 0, 0, cv.width, cv.height); }
+  return cv.toDataURL('image/jpeg', 0.72); }
+function thumbsKick() {
+  S.thumbQ = S.thumbQ || []; S.thumbBusy = S.thumbBusy || 0; S.thumbFail = S.thumbFail || new Set();
+  S.thumbRun = S.thumbRun || new Set();
+  document.querySelectorAll('[data-thumb]:not([data-thumbed])').forEach((el) => { const id = el.dataset.thumb; if (!S.thumbQ.includes(id) && !S.thumbFail.has(id) && !S.thumbRun.has(id)) S.thumbQ.push(id); });
+  const all = Object.values(S.docRes || {}).flatMap((r) => r.files || []);
+  while (S.thumbBusy < 2 && S.thumbQ.length) { const id = S.thumbQ.shift(), f = all.find((x) => x.id === id); if (!f || thumbGet(f) || S.thumbRun.has(id)) continue; S.thumbBusy++; S.thumbRun.add(id);
+    thumbMake(f).then((u) => { S.thumbs[f.id] = u; try { localStorage.setItem(thumbKey(f), u); } catch (e) {} document.querySelectorAll('[data-thumb="' + f.id + '"]').forEach((el) => { el.dataset.thumbed = '1'; el.innerHTML = '<img src="' + u + '" alt="">'; }); })
+      .catch(() => { S.thumbFail.add(f.id); }).finally(() => { S.thumbBusy--; S.thumbRun.delete(f.id); thumbsKick(); }); } }
+async function catFolder(c, cat) { const st = (S.docRes || {})[c.id] || {}; if (st.folders && st.folders[cat]) return st.folders[cat];
+  const cur = S.clients.get(c.id) || c; if (cur.driveFolder && !st.folders) { const hit = (await driveList(cur.driveFolder)).find((f) => isFolder(f) && String(f.title).trim() === catLabel(cat)); if (hit) { st.folders = { [cat]: hit.id }; return hit.id; } } const parent = await clientFolder(S.clients.get(c.id) || c); if (!parent) return null;
   const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: catLabel(cat), mimeType: 'application/vnd.google-apps.folder', parentId: parent }, { cache: false }).catch(() => null)); const id = p.id || p.fileId || (p.file && p.file.id);
   if (id) { st.folders = { ...(st.folders || {}), [cat]: id }; } return id || null; }
 async function docUpload(c, cat, fileList) {
@@ -1875,24 +1919,75 @@ async function docUpload(c, cat, fileList) {
   await logClient(c.id, k + ' מסמכים הועלו ל' + catLabel(cat) + ': ' + files.map((f) => f.name).join(', ')).catch(() => {}); toast(k + ' קבצים נשמרו ב' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
 async function docMove(c, fileId, cat) {
   const st = (S.docRes || {})[c.id] || {}, f = (st.files || []).find((x) => x.id === fileId); if (!f) return;
+  if (f.ri) { /* תיקייה מקושרת (למשל של WISE): לא מזיזים קבצים שלה — הסוג נשמר במערכת */ c = S.clients.get(c.id) || c; await write('clients/' + c.id, { docCats: { ...(c.docCats || {}), [fileId]: cat }, updatedAt: stamp() }, 'update', { journal: true }); toast('סומן כ' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
   const fid = await catFolder(c, cat); { const ok = fid ? await S.mcp.callTool('Google Drive', 'update_file', { fileId, parentId: fid }, { cache: false }).then(() => true).catch(() => false) : false;
     if (!ok) { await write('clients/' + c.id, { docCats: { ...(c.docCats || {}), [fileId]: cat }, updatedAt: stamp() }, 'update', { journal: true }); toast('סומן כ' + catLabel(cat) + ' (ההעברה בדרייב לא הצליחה)'); return docsLoad(S.clients.get(c.id) || c, true); } }
   toast('הועבר ל' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
-function docsCard(c) {
-  if (!S.isOwner) return ''; const st = (S.docRes || {})[c.id], w = S.canWrite; if (c.driveFolder && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
-  const files = (st && st.files) || [], sel = (S.docSel = S.docSel || new Set());
-  const fileRow = (f) => '<div class="row docrow" style="align-items:center;gap:6px;margin:3px 0">' + (w ? '<input type="checkbox" class="cb" data-docsel="' + esc(f.id) + '"' + (sel.has(f.id) ? ' checked' : '') + ' aria-label="לצרף למייל">' : '') +
-    '<a class="grow" href="' + esc(f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view')) + '" target="_blank" rel="noopener">' + docName(f.title) + '</a>' + (f.sub && !f.folderLink ? '<span class="hint">' + esc(f.sub) + '/</span>' : '') + (f.folderLink ? '<span class="pill muted">תיקייה</span>' : '') + (f.loose ? '<span class="pill expected" title="יושב בתיקייה הראשית — שויך לפי השם">לא מסודר</span>' : '') +
-    '<span class="hint num">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</span>' + (w && !f.folderLink ? '<select class="f small" data-docmove="' + esc(f.id) + '" aria-label="קטגוריה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === f.cat ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : '') + '</div>';
-  return '<section class="card docs"><header><h2>מסמכי לקוח — דרייב</h2>' + (st && st.files ? '<span class="pill muted">' + files.length + '</span>' : '') + '<span class="grow"></span>' +
-      (c.driveFolder ? '<a class="btn small ghost" href="' + folderUrl(c.driveFolder) + '" target="_blank" rel="noopener">התיקייה בדרייב ↗</a><button class="btn small ghost" data-act="docsReload">' + (st && st.loading ? 'טוען…' : 'רענן') + '</button>' : (S.mcp && w ? '<button class="btn small" data-act="mkFolder">פתח תיקייה בדרייב</button>' : '')) +
-      (w ? '<button class="btn small ghost" data-act="docsLinkFolder" title="אם המסמכים של הלקוח כבר בתיקייה אחרת בדרייב">שייך תיקייה קיימת</button>' : '') + '</header>' +
-    (st && st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') + (!S.mcp ? '<p class="hint">דרייב לא זמין בתצוגה הזו.</p>' : !c.driveFolder ? '<p class="hint">עוד אין תיקייה בדרייב ללקוח הזה.</p>' : '') +
-    (c.driveFolder ? '<div class="doccats">' + DOC_CATS.map(([k, l]) => { const g = files.filter((f) => f.cat === k);
-      return '<div class="doccat"><div class="row" style="align-items:center"><b class="grow">' + l + ' <span class="hint">' + g.length + '</span></b>' + (w && S.mcp ? '<label class="btn small ghost" style="cursor:pointer">+ העלאה<input type="file" multiple hidden data-docup="' + k + '"></label>' : '') + '</div>' +
-        (g.length ? g.map(fileRow).join('') : '<p class="hint" style="margin:2px 0">אין</p>') + '</div>'; }).join('') + '</div>' : '') +
-    (w && c.driveFolder ? sendFundBox(c, files) : '') + '</section>';
+const docExt = (f) => f.folderLink ? 'תיקייה' : f.mimeType === 'application/vnd.google-apps.document' ? 'DOC' : f.mimeType === 'application/vnd.google-apps.spreadsheet' ? 'XLS' : (String(f.title || '').match(/\.([A-Za-z0-9]{2,5})$/) || [, /^image\//.test(f.mimeType || '') ? 'IMG' : 'קובץ'])[1].toUpperCase();
+function docTile(f, w, sel) {
+  const th = thumbGet(f), url = f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view');
+  return '<div class="dtile' + (sel.has(f.id) ? ' on' : '') + '">' +
+    '<a class="dthumb" href="' + esc(url) + '" target="_blank" rel="noopener" title="' + esc(f.title) + '"' + (!th && thumbable(f) ? ' data-thumb="' + esc(f.id) + '"' : '') + '>' + (th ? '<img src="' + th + '" alt="">' : '<span class="dext">' + esc(docExt(f)) + '</span>') + '</a>' +
+    (w && !f.folderLink ? '<input type="checkbox" class="cb dsel" data-docsel="' + esc(f.id) + '"' + (sel.has(f.id) ? ' checked' : '') + ' aria-label="לצרף למייל">' : '') +
+    (f.loose ? '<span class="dflag" title="הסוג זוהה לפי שם הקובץ — אפשר לשנות למטה">לפי השם</span>' : '') +
+    '<div class="dname" title="' + esc(f.title) + '">' + docName(f.title) + '</div>' +
+    '<div class="hint dmeta"><span class="num">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</span>' + (f.sub ? ' · <bdi>' + esc(f.sub) + '</bdi>' : '') + '</div>' +
+    (w && !f.folderLink ? '<select class="f small" data-docmove="' + esc(f.id) + '" aria-label="קטגוריה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === f.cat ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : '') + '</div>';
 }
+function docsCard(c) {
+  if (!S.isOwner) return ''; const st = (S.docRes || {})[c.id], w = S.canWrite, on = hasDocs(c); if (on && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
+  const files = (st && st.files) || [], sel = (S.docSel = S.docSel || new Set()), cur = (S.f.docCat = S.f.docCat || 'all'), cnt = (k) => files.filter((f) => f.cat === k).length;
+  const cand = (c.driveLinks || []).length || (st && st.files && st.files.length) || (on && !(st && st.files)) ? [] : rootMatches(c); /* רק כשאין עדיין מסמכים */
+  const chips = '<div class="dchips" role="group" aria-label="סוג מסמך"><button class="dchip" data-doccat="all" aria-pressed="' + (cur === 'all') + '">הכל <span class="num">' + files.length + '</span></button>' +
+    DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') + '</div>';
+  const upl = (k) => w && S.mcp ? '<label class="btn small ghost" style="cursor:pointer">+ העלאה ל' + catLabel(k) + '<input type="file" multiple hidden data-docup="' + k + '"></label>' : '';
+  const body = cur === 'all'
+    ? DOC_CATS.filter(([k]) => cnt(k)).map(([k, l]) => '<div class="dsec"><div class="row" style="align-items:center"><b class="grow">' + l + ' <span class="hint num">' + cnt(k) + '</span></b>' + upl(k) + '</div><div class="dgrid">' + files.filter((f) => f.cat === k).map((f) => docTile(f, w, sel)).join('') + '</div></div>').join('') +
+      (st && st.files && !files.length ? '<p class="empty">התיקייה ריקה.</p>' : '') +
+      (w && S.mcp && st && st.files ? '<div class="row" style="align-items:center;margin-top:8px"><span class="hint">העלאה ישירה לדרייב:</span><select class="f small" id="docUpCat" aria-label="קטגוריה להעלאה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '">' + l + '</option>').join('') + '</select><label class="btn small" style="cursor:pointer">בחר קבצים<input type="file" multiple hidden data-docup="@pick"></label></div>' : '')
+    : '<div class="row" style="align-items:center;margin-bottom:6px"><b class="grow">' + catLabel(cur) + '</b>' + upl(cur) + '</div>' + (cnt(cur) ? '<div class="dgrid">' + files.filter((f) => f.cat === cur).map((f) => docTile(f, w, sel)).join('') + '</div>' : '<p class="empty">אין מסמכים בקטגוריה הזו.</p>');
+  if (st && st.files) setTimeout(thumbsKick, 30);
+  return '<section class="card docs"><header><h2>מסמכי לקוח</h2>' + (st && st.files ? '<span class="pill muted">' + files.length + '</span>' : '') + '<span class="grow"></span>' +
+      (c.driveFolder ? '<a class="btn small ghost" href="' + folderUrl(c.driveFolder) + '" target="_blank" rel="noopener">דרייב ↗</a>' : '') + (on ? '<button class="btn small ghost" data-act="docsReload">' + (st && st.loading ? 'טוען…' : 'רענן') + '</button>' : (S.mcp && w ? '<button class="btn small" data-act="mkFolder">פתח תיקייה בדרייב</button>' : '')) +
+      (w ? '<button class="btn small ghost" data-act="docsLinkFolder" title="תיקייה קיימת בדרייב עם מסמכים של הלקוח">+ תיקייה קיימת</button>' : '') + '</header>' +
+    (st && st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') + (!S.mcp ? '<p class="hint">דרייב לא זמין בתצוגה הזו.</p>' : !on ? '<p class="hint">עוד אין תיקייה בדרייב ללקוח הזה.</p>' : '') +
+    (w && cand.length ? '<div class="ppanel" style="margin:6px 0 10px"><b>נמצאו תיקיות קיימות בדרייב בשם הזה</b>' + cand.slice(0, 4).map((m) => '<div class="row" style="align-items:center;margin-top:6px"><span class="grow"><bdi>' + esc(m.f.title) + '</bdi> <span class="hint">ב' + esc(m.root) + (m.full ? '' : ' · התאמה חלקית') + '</span></span><button class="btn small" data-doclink="' + esc(m.f.id) + '">שייך</button></div>').join('') + '</div>' : '') +
+    ((c.driveLinks || []).length ? '<p class="hint" style="margin:-2px 0 8px">משקף גם: ' + c.driveLinks.map((l) => '<a href="' + folderUrl(l.id) + '" target="_blank" rel="noopener"><bdi>' + esc(l.title || 'תיקייה') + '</bdi></a>' + (w ? ' <button class="xlink" data-docunlink="' + esc(l.id) + '" aria-label="הסר שיקוף">×</button>' : '')).join(' · ') + '</p>' : '') +
+    (on ? chips + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
+    (w && on ? sendFundBox(c, files) : '') + '</section>';
+}
+/* ── שיוך תיקיות קיימות: תיקיות-אב בדרייב (הגדרות) → תיקיית לקוח לפי שם ── */
+const NAME_STOP = new Set(['של', 'אבא', 'אמא', 'הלוואה', 'עסקית', 'עסקי', 'משכנתא', 'זוג', 'שם', 'לעדכן', 'טירת', 'כרמל']);
+const nameToks = (x) => String(x || '').replace(/["'׳״`.,()\-–—_/\\]+/g, ' ').split(/\s+/).map((t) => t.length > 2 && t[0] === 'ו' ? t.slice(1) : t).filter((t) => t.length >= 2 && !/^\d+$/.test(t) && !NAME_STOP.has(t));
+function nameScore(client, folder) { const a = nameToks(client), b = new Set(nameToks(folder)); if (!a.length) return { hit: 0 }; const hit = a.filter((t) => b.has(t)).length; return { hit, full: hit === a.length && a.length >= 2 }; }
+async function driveRootsLoad(force) {
+  const roots = S.settings.driveRoots || []; if (!S.mcp || !roots.length) return []; if (S.rootIdx && !force) return S.rootIdx; if (S.rootLoading) return S.rootLoading;
+  S.rootLoading = (async () => { const out = []; for (const r of roots) { let tok = null, k = 0; do { const p = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + r.id + "'", pageSize: 100, excludeContentSnippets: true, ...(tok ? { pageToken: tok } : {}) }, { cache: false }).catch(() => ({})));
+      (p.files || []).filter(isFolder).forEach((f) => out.push({ id: f.id, title: decodeHtml(String(f.title || '')).trim(), root: r.title || 'תיקייה' })); tok = (p.files || []).length ? p.nextPageToken || null : null; k++; } while (tok && k < 60); }
+    S.rootIdx = out; S.rootLoading = null; render(); return out; })(); return S.rootLoading; }
+function rootMatches(c) { if (!(S.settings.driveRoots || []).length || !S.mcp) return []; if (!S.rootIdx) { driveRootsLoad(); return []; }
+  const used = new Set(live(S.clients).flatMap((x) => [x.driveFolder, ...(x.driveLinks || []).map((l) => l.id)]));
+  return S.rootIdx.filter((f) => !used.has(f.id)).map((f) => ({ f, root: f.root, ...nameScore(c.name, f.title) })).filter((m) => m.hit).sort((a, b) => (b.full - a.full) || (b.hit - a.hit)); }
+async function linkFolder(c, folder) {
+  c = S.clients.get(c.id) || c; const links = c.driveLinks || []; if (c.driveFolder === folder.id || links.some((l) => l.id === folder.id)) return toast('כבר משויכת');
+  const patch = { driveLinks: [...links, { id: folder.id, title: folder.title || 'תיקייה' }] }; /* משקפים בלבד — לא מזיזים ולא משנים קבצים בתיקייה הקיימת (WISE) */
+  await write('clients/' + c.id, { ...patch, updatedAt: stamp() }, 'update', { journal: true }); await logClient(c.id, 'שויכה תיקיית דרייב קיימת: ' + (folder.title || folder.id)).catch(() => {});
+  if (S.docRes) delete S.docRes[c.id]; toast('התיקייה שויכה'); render(); }
+function driveRootsCard() {
+  if (!S.isOwner || S.role === 'admin_re' && !S.isDan) return ''; const roots = S.settings.driveRoots || [], w = S.canWrite, R = S.rootMatch;
+  return '<section class="card"><header><h2>תיקיות לקוחות קיימות בדרייב</h2><span class="grow"></span>' + (w ? '<button class="btn small ghost" data-act="rootAdd">+ תיקיית-אב</button>' : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 10px">תיקיות שבתוכן תיקייה לכל לקוח. המערכת מציעה לכל לקוח את התיקייה בשם שלו, והמסמכים שבה מוצגים בכרטיס לפי סוג.</p>' +
+    (roots.length ? roots.map((r) => '<div class="row" style="align-items:center"><a class="grow" href="' + folderUrl(r.id) + '" target="_blank" rel="noopener"><bdi>' + esc(r.title || r.id) + '</bdi></a>' + (w ? '<button class="btn small ghost danger" data-rootrm="' + esc(r.id) + '">הסר</button>' : '') + '</div>').join('') : '<p class="empty">אין</p>') +
+    (w && roots.length && S.mcp ? '<div class="row" style="margin-top:10px"><button class="btn" data-act="rootMatch">' + (S.rootLoading ? 'סורק…' : 'התאם תיקיות ללקוחות') + '</button></div>' : '') +
+    (R ? (R.length ? '<div class="scroll" style="margin-top:10px"><table><thead><tr><th></th><th>תיקייה</th><th>לקוח</th><th>התאמה</th></tr></thead><tbody>' + R.map((m, i) => '<tr><td><input type="checkbox" class="cb" data-rootpick="' + i + '"' + (m.pick ? ' checked' : '') + '></td><td><bdi>' + esc(m.f.title) + '</bdi><div class="hint">' + esc(m.root) + '</div></td><td>' + (m.opts.length > 1 ? '<select class="f small" data-rootcli="' + i + '" aria-label="לקוח">' + m.opts.map((c) => '<option value="' + esc(c.id) + '"' + (c.id === m.c.id ? ' selected' : '') + '>' + esc(c.name) + (c.status && c.status !== 'open' ? ' · ' + esc(L.status[c.status] || c.status) : '') + '</option>').join('') + '</select>' : esc(m.c.name)) + '</td><td>' + (m.tie ? '<span class="pill open">כמה לקוחות</span>' : m.full ? '<span class="pill actual">מלאה</span>' : '<span class="pill expected">חלקית</span>') + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="row" style="margin-top:8px"><span class="hint grow">מסומנות: התאמה מלאה של השם. בדוק את החלקיות לפני סימון.</span><button class="btn primary" data-act="rootLinkSel">שייך מסומנים</button></div>' : '<p class="hint">לא נמצאו התאמות חדשות.</p>') : '') + '</section>';
+}
+async function rootMatchRun() {
+  await driveRootsLoad(true); const used = new Set(live(S.clients).flatMap((x) => [x.driveFolder, ...(x.driveLinks || []).map((l) => l.id)])), out = [];
+  for (const f of S.rootIdx || []) { if (used.has(f.id)) continue; const ms = live(S.clients).map((c) => ({ c, ...nameScore(c.name, f.title) })).filter((m) => m.hit).sort((a, b) => (b.full - a.full) || (b.hit - a.hit)), best = ms[0];
+    if (!best) continue; const tie = ms.filter((m) => m.full === best.full && m.hit === best.hit).length > 1; /* שני לקוחות באותו שם — לא מסמנים מראש */
+    out.push({ f, root: f.root, c: best.c, opts: ms.slice(0, 5).map((m) => m.c), full: best.full, tie, pick: best.full && !tie }); }
+  S.rootMatch = out.sort((a, b) => (b.full - a.full) || String(a.c.name).localeCompare(String(b.c.name), 'he')); render(); }
 /* ── שליחה לקרן / גוף מימון מתוך התיק: מסמנים מסמכים → בוחרים גוף → נשלח עם הקבצים, finance@ בעותק, ונרשם כהגשה ── */
 function sendFundBox(c, files) {
   const sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id)), re = (c.division || 'finance') === 'realestate', co = re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', ls = live(S.lenders).filter((l) => re || l.kind !== 'developer').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
@@ -3404,7 +3499,7 @@ function vSettings() {
     '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="newLink">+ קישור</button>' : '') + '</header>' + linksBlock(false) + '</section>' +
     '<div class="grid2">' + list('partnersRE', 'שותפי הר-אל השקעות', 'לחלוקת 33/33/33 ולרישום משיכות.') + list('partnersFin', 'שותפי הר-אל פתרונות', 'משיכות של דן; ניסים מקבל דרך מקדמות.') + '</div>' +
     '<div class="grid3">' + list('tags', 'תגיות לקוח', 'מופיעות כהצעה בכרטיס הלקוח.') + list('sources', 'מקורות הגעה', 'פייסבוק, המלצה, גוגל, שותף.') + list('platforms', 'פלטפורמות שיווק', 'נכנסות לבד מקובץ לידים שמועלה.') + '</div>' +
-    usersCard() + statusSetsCard() + callScriptCard() + commRulesCard() +
+    usersCard() + driveRootsCard() + statusSetsCard() + callScriptCard() + commRulesCard() +
     (!S.isDan ? '' : '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
       (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
@@ -4744,7 +4839,8 @@ function stmtHtml(D, forPdf) {
     (D.notDed.length ? h('לא נוכו מהרווח (מסומנות "לא מוכרת")') + tbl(['תאריך', 'ספק', 'קטגוריה', 'נטו'], D.notDed.map((t) => tr([dLabel(t.date), who(t), esc(t.category || ''), m(Math.abs(n(t.net)))]))) : '') +
     '<p style="font-size:11px;color:#667085;margin-top:14px">הכנסות נספרות לפי יום הכניסה לבנק; הוצאות ישירות לפי חודש התשלום. ' + (D.mode === 'dan_first' ? 'הפסד מומן ע״י דן ומוחזר לו מהרווחים הבאים לפני החלוקה. ' : '') + 'החשבון רבעוני — ניסים מקבל את חלקו אחרי ניכוי ההוצאות והמקדמות. ' + (D.unconfirmed ? D.unconfirmed + ' תקבולים עוד לא אושרו.' : '') + '</p></div>';
 }
-const loadScript = (src) => new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')) return ok(); const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => bad(new Error('load ' + src)); document.head.appendChild(s); });
+const SCRIPTS = {}; /* הבטחה אחת לכל סקריפט — שתי קריאות במקביל מחכות לאותה טעינה */
+const loadScript = (src) => SCRIPTS[src] || (SCRIPTS[src] = new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => { delete SCRIPTS[src]; bad(new Error('load ' + src)); }; document.head.appendChild(s); }));
 async function stmtPdfBytes(D) { return pdfFromHtml(stmtHtml(D, true)); }
 const stmtName = (D) => 'מצב-חשבון-ניסים-' + (D.period === 'all' ? 'מצטבר' : D.period) + '-' + today() + (D.final ? '' : '-טיוטה') + '.pdf';
 async function stmtDownload(period) {
@@ -5510,6 +5606,10 @@ document.addEventListener('click', async (e) => {
     if (d.go) { if (d.rep) S.f.rep = d.rep; const [tab, sub] = d.go.split(':'); if (sub && tab === 'tasks') { S.f.taskView = 'bucket'; S.f.taskBucket = sub; } else if (sub) S.f.money = sub; return go(tab); }
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
+    if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.doclink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), f = (S.rootIdx || []).find((x) => x.id === d.doclink); if (!c || !f || !S.canWrite) return; return linkFolder(c, { id: f.id, title: f.title + ' (' + f.root + ')' }); }
+    if (d.docunlink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canWrite) return; await write('clients/' + c.id, { driveLinks: (c.driveLinks || []).filter((l) => l.id !== d.docunlink), updatedAt: stamp() }, 'update', { journal: true }); if (S.docRes) delete S.docRes[c.id]; return toast('השיקוף הוסר (בדרייב לא נמחק כלום)'); }
+    if (d.rootrm) { if (!S.canWrite) return; await write('settings/main', { driveRoots: (S.settings.driveRoots || []).filter((r) => r.id !== d.rootrm) }, 'update'); S.rootIdx = null; S.rootMatch = null; return toast('הוסרה'); }
     if (d.costdrill) { const [key, k, b] = d.costdrill.split('|'); S.f.leadView = 'list'; S.f.leadSt = 'all'; S.f.leadCost = { key, k, b }; if (S.division === 'all') S.division = screenDiv('mktDiv'); S.f.leadReach = null; S.f.leadWhen = ''; S.f.leadResp = ''; return go('leads'); }
     if (d.taskbucket) { S.f.taskView = 'bucket'; S.f.taskBucket = d.taskbucket; return render(); }
     if (d.taskwho != null && el.matches('[data-taskwho]')) { S.f.taskWho = d.taskwho; return render(); }
@@ -5751,9 +5851,10 @@ document.addEventListener('click', async (e) => {
         case 'calSearch': return calSearch(c);
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
-        case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', c.driveFolder ? folderUrl(c.driveFolder) : '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. התיקייה הקודמת לא נמחקת.</p>',
+        case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
           async (d) => { const m = String(d.url || '').match(/folders\/([\w-]{10,})/) || String(d.url || '').match(/[?&]id=([\w-]{10,})/) || String(d.url || '').match(/^([\w-]{20,})$/); if (!m) return 'זה לא נראה כמו קישור לתיקייה';
-            await write('clients/' + c.id, { driveFolder: m[1], updatedAt: stamp() }, 'update', { journal: true }); await logClient(c.id, 'שויכה תיקיית דרייב קיימת').catch(() => {}); if (S.docRes) delete S.docRes[c.id]; toast('התיקייה שויכה'); }, '', 'שייך');
+            let title = ''; if (S.mcp) { const md = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + m[1] + "'", pageSize: 1, excludeContentSnippets: true }, { cache: false }).catch(() => null)); if (!md.files) return 'אין גישה לתיקייה הזו בדרייב'; }
+            const hit = (S.rootIdx || []).find((f) => f.id === m[1]); title = hit ? hit.title : 'תיקייה מקושרת'; await linkFolder(c, { id: m[1], title }); }, '', 'שייך');
         case 'mailPaste': { const v = ($('mailPaste') || {}).value || ''; return mailLinkPasted(c, v); }
         case 'mailFiles': return mailFilesToDrive(c, (c.emails || []).filter((t) => !isSysMail(t)).map((t) => t.id), false);
         case 'mkFolder': { toast('פותח תיקייה בדרייב…'); const f = await clientFolder(c); toast(f ? 'נפתחה תיקייה בדרייב' : 'לא הצלחתי לפתוח תיקייה בדרייב'); return render(); }
@@ -5842,6 +5943,12 @@ document.addEventListener('click', async (e) => {
         case 'mailMonthly': return mailReport('monthly');
         case 'doImport': return doImport();
         case 'cancelImport': pendingImport = null; return render();
+        case 'rootAdd': return drawer('תיקיית-אב של לקוחות בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + fi('title', 'שם להצגה', '', 'text', '', true) + '<p class="full hint">תיקייה שבתוכה תיקייה לכל לקוח. לא משנים בה כלום — רק קוראים.</p>',
+          async (x) => { const m = String(x.url || '').match(/folders\/([\w-]{10,})/) || String(x.url || '').match(/[?&]id=([\w-]{10,})/); if (!m) return 'זה לא נראה כמו קישור לתיקייה';
+            const roots = S.settings.driveRoots || []; if (roots.some((r) => r.id === m[1])) return 'כבר ברשימה'; await write('settings/main', { driveRoots: [...roots, { id: m[1], title: String(x.title || '').trim() || 'תיקיית לקוחות' }] }, 'update'); S.rootIdx = null; S.rootMatch = null; toast('נוספה'); }, '', 'הוסף');
+        case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
+        case 'rootLinkSel': { const picks = (S.rootMatch || []).filter((m) => m.pick); if (!picks.length) return toast('לא סומן כלום'); let k = 0;
+          for (const m of picks) { await linkFolder(m.c, { id: m.f.id, title: m.f.title + ' (' + m.root + ')' }); k++; } S.rootMatch = null; return toast(k + ' תיקיות שויכו'); }
         default: if (EXPORTS[d.act]) return EXPORTS[d.act]();
       }
     }
@@ -5852,7 +5959,9 @@ document.addEventListener('change', async (e) => {
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
-  if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup, el.files);
+  if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup === '@pick' ? (($('docUpCat') || {}).value || 'other') : el.dataset.docup, el.files);
+  if (el.dataset && el.dataset.rootpick !== undefined && S.rootMatch) { S.rootMatch[+el.dataset.rootpick].pick = el.checked; return; }
+  if (el.dataset && el.dataset.rootcli !== undefined && S.rootMatch) { const m = S.rootMatch[+el.dataset.rootcli], c = S.clients.get(el.value); if (m && c) { m.c = c; m.tie = false; } return; }
   if (el.dataset && el.dataset.lsel) { if (el.checked) SEL.add(el.dataset.lsel); else SEL.delete(el.dataset.lsel); return render(); }
   if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
   try {
