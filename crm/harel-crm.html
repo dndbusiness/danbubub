@@ -2161,7 +2161,7 @@ async function fundSend(c) {
     if (!bad.length && !queue.length) { S.docSel = new Set(); toast('נשלח ל' + bank + ' — ' + att.length + ' קבצים' + (sent > 1 ? ' ב-' + sent + ' מיילים' : '')); } else S.docSel = new Set(bad.map((nm) => (st.files.find((f) => f.title === nm || f.title.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg' === nm) || {}).id).filter(Boolean));
   } finally { S._fundBusy = false; render(); } }
 function dayExtras() {
-  const t0 = today(); let h = '';
+  const t0 = today(); let h = reDayCard();
   if (S.isCenter) { const mine = live(S.leads).filter((l) => l.resp === S.myKey), due = mine.filter((l) => leadDue(l, t0) || (l.stage || 'new') === 'new'), m = t0.slice(0, 7), cm = commRows().filter((x) => x.who === S.myKey && x.month === m);
     h += '<div class="grid2">' + kpi('הלידים שלי לטיפול', '<span class="num">' + due.length + '</span>', mine.length + ' לידים משויכים אליך', 'leads', due.length ? 'open' : '') +
       kpi('העמלות שלי — ' + mLabel(m), money(cm.reduce((a, x) => a + x.amount, 0), { tone: 'committed' }), cm.filter((x) => x.event === 'meeting').length + ' פגישות שהתקיימו · ' + cm.filter((x) => x.event === 'close').length + ' סגירות', null) + '</div>'; }
@@ -2263,7 +2263,8 @@ function commEvents() {
 }
 function commRows() {
   const out = [];
-  for (const e of commEvents()) for (const rule of commRules()) if (rule.event === e.event && ruleFits(rule, e.who, e.div)) out.push({ ...e, amount: n(rule.amount), label: rule.label || COMM_EVENT[e.event], whoLabel: L.resp[e.who] || e.who });
+  for (const e of commEvents()) { const fit = commRules().filter((rule) => rule.event === e.event && ruleFits(rule, e.who, e.div)), own = fit.filter((rule) => rule.target === e.who); /* כלל אישי (למשל מיכל — פרילנסרית) גובר על הכלל של התפקיד */
+    for (const rule of own.length ? own : fit) out.push({ ...e, amount: n(rule.amount), label: rule.label || COMM_EVENT[e.event], whoLabel: L.resp[e.who] || e.who }); }
   for (const c of live(S.clients)) (reOf(c).comms || []).forEach((m, idx) => out.push({ event: 'manual', who: m.who, whoLabel: L.resp[m.who] || m.who, div: c.division || 'finance', month: String(m.month || reOf(c).closedAt || m.at || '').slice(0, 7), name: c.name, amount: n(m.amount), label: m.note || 'עמלה ידנית', manual: true, idx, ref: { client: c.id } }));
   return out;
 }
@@ -3227,11 +3228,81 @@ const divSeg = (key, cur) => S.division === 'all' && DIVS.filter(canSeeDiv).leng
 function vMarketing() { const d = screenDiv('mktDiv'); S._divOnly = d; try { return divSeg('mktDiv', d) + vMarketingDiv(d); } finally { S._divOnly = null; } }
 function vMarketingDiv(mDiv) {
   const sub = mDiv !== 'realestate' && S.f.mkt === 'pool' ? 'funnel' : S.f.mkt;
-  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['cost', 'עלות לפי קמפיין'], ['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(mDiv === 'realestate' ? [['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = { cost: vCost, funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool }[sub] || vCost;
+  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['cost', 'עלות לפי קמפיין'], ['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(mDiv === 'realestate' ? [['refunnel', 'משפך ויעדים'], ['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+  const body = { cost: vCost, funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool, refunnel: vReFunnel }[sub] || vCost;
   return '<div class="row"><h1 class="grow">שיווק · ' + L.division[mDiv] + '</h1>' + tabs + (S.canTask ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' +
     (leadSources().some((x) => (x.division || 'finance') === mDiv) ? leadSheetCard() : '') + body();
 }
+/* ═════ נדל״ן — משפך ויעדים (דן, 11/10): ליד → זום שהתקיים → פגישה פרונטלית → סגירה (חתם אצל היזם),
+   יחסי המרה לפי מחזור לידים, פעילות בתקופה, יעד זום, דוח פגישות יומי וניצולת לידים. כל מספר נפתח לרשימה. ═════ */
+function rePeriod(key) { const t = today();
+  if (key === 'today') return { from: t, to: t, label: 'היום' };
+  if (key === 'week') return { from: weekStart(t), to: t, label: 'השבוע' };
+  if (key === 'prev') { const m = addDays(t.slice(0, 7) + '-01', -1).slice(0, 7); return { from: m + '-01', to: addDays(addDays(m + '-01', 32).slice(0, 7) + '-01', -1), label: mLabel(m) }; }
+  if (/^\d{4}-\d{2}$/.test(key || '')) return { from: key + '-01', to: addDays(addDays(key + '-01', 32).slice(0, 7) + '-01', -1), label: mLabel(key) };
+  return { from: t.slice(0, 7) + '-01', to: t, label: 'החודש' }; }
+const inP = (d, p) => !!d && String(d).slice(0, 10) >= p.from && String(d).slice(0, 10) <= p.to;
+/* העובדות לכל ליד נדל״ן: מתי נכנס, מתי נקבע זום, מתי התקיים, פרונטלית, סגירה — מהליד ומהכרטיס שנוצר ממנו */
+function reFacts() {
+  const out = [], byLead = new Map(live(S.clients).filter((c) => c.leadId).map((c) => [c.leadId, c]));
+  const setLbl = (stageDefs('realestate').find((x) => x.key === 're_zoom_set') || {}).label || 'נקבעה פגישת זום';
+  for (const l of live(S.leads).filter((x) => leadDiv(x) === 'realestate')) { const c = (l.clientId && S.clients.get(l.clientId)) || byLead.get(l.id), r = c ? reOf(c) : {}, z = l.zoom || {};
+    const setAt = ((l.log || []).find((e) => String(e.text || '').includes('← ' + setLbl)) || {}).at || (z.at && l.stage === 're_zoom_set' ? l.updatedAt : null);
+    const zoomAt = z.at || r.zoomAt || null, held = !!(z.attended || r.zoomAttended), d = stageDefs('realestate').find((x) => x.key === (l.stage || 'new'));
+    out.push({ l, c, who: l.resp || (c && c.resp) || '', created: l.createdAt || l.date || null, setAt, zoomAt, held, heldAt: held ? zoomAt : null,
+      frontalAt: r.frontalAt || null, frontalDone: !!(r.frontalAt && String(r.frontalAt).slice(0, 16) <= localNow()), closedAt: r.devSigned ? (r.closedAt || r.devSignedAt || (c && c.updatedAt)) : (c && c.status === 'won' ? c.updatedAt : null),
+      touched: (l.stage || 'new') !== 'new', reach: d ? n(d.reach) : 0, relevant: leadRelevant(l) }); }
+  for (const c of live(S.clients).filter((x) => (x.division || 'finance') === 'realestate' && !x.leadId)) { const r = reOf(c);
+    out.push({ l: null, c, who: c.resp || '', created: c.createdAt, setAt: null, zoomAt: r.zoomAt || null, held: !!r.zoomAttended, heldAt: r.zoomAttended ? r.zoomAt : null, frontalAt: r.frontalAt || null,
+      frontalDone: !!(r.frontalAt && String(r.frontalAt).slice(0, 16) <= localNow()), closedAt: r.devSigned ? (r.closedAt || c.updatedAt) : (c.status === 'won' ? c.updatedAt : null), touched: true, reach: 2, relevant: true, noLead: true }); }
+  return out; }
+const localNow = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }; /* שעה מקומית — כמו בשדות datetime-local */
+const rePct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
+function reTarget() { return { day: 0, week: 0, month: 0, basis: 'held', ...(S.settings.reZoomTarget || {}) }; }
+function vReFunnel() {
+  const key = S.f.reP || 'month', p = rePeriod(key), who = S.f.reWho || '', F = reFacts().filter((x) => !who || x.who === who), T = reTarget(), w = S.isOwner && S.canWrite;
+  const people = [...new Set(reFacts().map((x) => x.who).filter(Boolean))];
+  const coh = F.filter((x) => !x.noLead && inP(x.created, p)), cZ = coh.filter((x) => x.held), cF = coh.filter((x) => x.frontalDone), cC = coh.filter((x) => x.closedAt);
+  const aSet = F.filter((x) => inP(x.setAt, p)), aHeld = F.filter((x) => inP(x.heldAt, p)), aF = F.filter((x) => x.frontalDone && inP(x.frontalAt, p)), aC = F.filter((x) => inP(x.closedAt, p));
+  const drill = (k, list) => { S.reDrill = S.reDrill || {}; S.reDrill[k] = list; return 'data-redrill="' + k + '"'; };
+  const tile = (label, list, k, sub, tone = 'committed') => '<button class="card kpi click" style="text-align:start" ' + drill(k, list) + '><h3>' + label + '</h3><span class="v num m ' + (list.length ? tone : 'muted') + '">' + list.length + '</span>' + (sub ? '<span class="hint">' + sub + '</span>' : '') + '</button>';
+  const tgt = T[key === 'today' ? 'day' : key === 'week' ? 'week' : 'month'], got = (T.basis === 'set' ? aSet : aHeld).length;
+  const seg = '<div class="seg" role="group" aria-label="תקופה" style="flex-wrap:wrap">' + [['today', 'היום'], ['week', 'השבוע'], ['month', 'החודש'], ['prev', 'חודש קודם']].map(([k, v]) => '<button data-reper="' + k + '" aria-pressed="' + (key === k) + '">' + v + '</button>').join('') + '</div>' +
+    (people.length > 1 ? '<div class="seg" role="group" aria-label="נציג" style="flex-wrap:wrap"><button data-rewho="" aria-pressed="' + !who + '">כולם</button>' + people.map((k) => '<button data-rewho="' + esc(k) + '" aria-pressed="' + (who === k) + '">' + esc(L.resp[k] || k) + '</button>').join('') + '</div>' : '');
+  /* טבלה לפי נציג */
+  const rows = people.map((k) => { const X = reFacts().filter((x) => x.who === k), co = X.filter((x) => !x.noLead && inP(x.created, p));
+    return { k, leads: co.length, held: co.filter((x) => x.held).length, fr: co.filter((x) => x.frontalDone).length, cl: co.filter((x) => x.closedAt).length, set: X.filter((x) => inP(x.setAt, p)).length, aheld: X.filter((x) => inP(x.heldAt, p)).length }; }).filter((r) => r.leads || r.set || r.aheld);
+  /* דוח פגישות של היום */
+  const t0 = today(), meet = reFacts().filter((x) => (x.zoomAt && String(x.zoomAt).slice(0, 10) === t0) || (x.frontalAt && String(x.frontalAt).slice(0, 10) === t0)).filter((x) => !who || x.who === who)
+    .map((x) => ({ x, kind: x.frontalAt && String(x.frontalAt).slice(0, 10) === t0 ? 'פרונטלית' : 'זום', at: String((x.frontalAt && String(x.frontalAt).slice(0, 10) === t0 ? x.frontalAt : x.zoomAt) || '').slice(11, 16) })).sort((a, b) => a.at.localeCompare(b.at));
+  /* ניצולת לידים בתקופה */
+  const util = coh.length ? [['לא טופלו', coh.filter((x) => !x.touched), 'open'], ['טופלו — בלי שיחה', coh.filter((x) => x.touched && x.reach < 1 && !x.held && x.relevant), 'expected'], ['שיחה — עוד בלי זום', coh.filter((x) => x.reach >= 1 && !x.held && x.relevant), 'committed'], ['הגיעו לזום', cZ, 'actual'], ['לא רלוונטי', coh.filter((x) => !x.relevant), 'muted']] : [];
+  return '<div class="row" style="margin-bottom:10px">' + seg + '<span class="grow"></span><span class="hint">' + esc(p.label) + ' · ' + dLabel(p.from) + '–' + dLabel(p.to) + '</span></div>' +
+    (tgt ? '<section class="card"><header><h2>יעד זום — ' + esc(p.label) + '</h2><span class="pill ' + (got >= tgt ? 'actual' : 'expected') + '">' + got + ' / ' + tgt + '</span><span class="hint">' + (T.basis === 'set' ? 'זומים שנקבעו' : 'זומים שהתקיימו') + '</span></header>' +
+      '<div style="height:10px;border-radius:99px;background:var(--sunk);overflow:hidden"><div style="height:100%;width:' + Math.min(100, Math.round(got / tgt * 100)) + '%;background:var(--' + (got >= tgt ? 'actual' : 'committed') + ')"></div></div></section>' : '') +
+    '<section class="card"><header><h2>משפך — לידים שנכנסו ב' + esc(p.label) + '</h2><span class="hint">מה קרה עם הלידים האלה עד היום</span></header><div class="grid4">' +
+      tile('לידים', coh, 'coh') + tile('הגיעו לזום', cZ, 'cZ', rePct(cZ.length, coh.length) + ' מהלידים') + tile('פגישה פרונטלית', cF, 'cF', rePct(cF.length, cZ.length) + ' מהזומים') + tile('נסגרו', cC, 'cC', rePct(cC.length, cF.length) + ' מהפרונטליות · ' + rePct(cC.length, coh.length) + ' מהלידים', 'actual') + '</div></section>' +
+    '<section class="card"><header><h2>פעילות ב' + esc(p.label) + '</h2><span class="hint">לפי תאריך האירוע</span></header><div class="grid4">' +
+      tile('זומים שנקבעו', aSet, 'aSet') + tile('זומים שהתקיימו', aHeld, 'aHeld', aSet.length ? rePct(aHeld.length, aSet.length) + ' מהנקבעים' : '') + tile('פגישות פרונטליות', aF, 'aF') + tile('סגירות', aC, 'aC', '', 'actual') + '</div></section>' +
+    (rows.length > 1 || !who ? '<section class="card"><header><h2>לפי נציג</h2></header><div class="scroll"><table><thead><tr><th>נציג</th><th>לידים</th><th>זום</th><th>ליד→זום</th><th>פרונטלית</th><th>זום→פרונטלית</th><th>סגירה</th><th>פרונטלית→סגירה</th><th>זומים שנקבעו</th><th>זומים שהתקיימו</th></tr></thead><tbody>' +
+      rows.map((r) => '<tr><td>' + respChip(r.k) + '</td><td class="num">' + r.leads + '</td><td class="num">' + r.held + '</td><td class="num">' + rePct(r.held, r.leads) + '</td><td class="num">' + r.fr + '</td><td class="num">' + rePct(r.fr, r.held) + '</td><td class="num">' + r.cl + '</td><td class="num">' + rePct(r.cl, r.fr) + '</td><td class="num">' + r.set + '</td><td class="num">' + r.aheld + '</td></tr>').join('') +
+      '</tbody></table></div></section>' : '') +
+    '<div class="grid2"><section class="card"><header><h2>פגישות היום</h2><span class="pill muted">' + meet.length + '</span></header>' + (meet.length ? meet.map((m) => '<div class="check"><span class="num">' + esc(m.at || '—') + '</span><span class="pill ' + (m.kind === 'זום' ? 'committed' : 'actual') + '">' + m.kind + '</span><span class="grow">' + (m.x.c ? '<button class="xlink" data-client="' + esc(m.x.c.id) + '">' + esc(m.x.c.name) + '</button>' : '<button class="xlink" data-lead="' + esc(m.x.l.id) + '">' + esc(m.x.l.name) + '</button>') + '</span>' + respChip(m.x.who) + (m.kind === 'זום' ? (m.x.held ? '<span class="pill actual">הגיע</span>' : '') : '') + '</div>').join('') : '<p class="empty">אין פגישות היום</p>') + '</section>' +
+      '<section class="card"><header><h2>ניצולת הלידים של ' + esc(p.label) + '</h2><span class="pill muted">' + coh.length + '</span></header>' + (util.length ? util.map(([lb, list, tone]) => '<button class="row xrow" style="width:100%;align-items:center;margin:4px 0;background:none;border:0;cursor:pointer" ' + drill('u' + lb, list) + '><span class="grow" style="text-align:start">' + lb + '</span><span class="pill ' + (list.length ? tone : 'muted') + '">' + list.length + '</span><span class="hint num" style="min-width:42px">' + rePct(list.length, coh.length) + '</span></button>').join('') : '<p class="empty">אין לידים בתקופה</p>') + '</section></div>' +
+    (w ? '<details class="card" style="margin-top:12px"><summary><b>יעד זום</b> <span class="hint">יום ' + (T.day || '—') + ' · שבוע ' + (T.week || '—') + ' · חודש ' + (T.month || '—') + '</span></summary><div class="row" style="align-items:flex-end;margin-top:8px">' +
+      [['day', 'ליום'], ['week', 'לשבוע'], ['month', 'לחודש']].map(([k, l]) => '<label class="fl">' + l + '<input class="f num" type="number" min="0" id="reT_' + k + '" value="' + esc(T[k] || '') + '" style="width:90px"></label>').join('') +
+      '<label class="fl">נספר לפי<select class="f" id="reT_basis"><option value="held"' + (T.basis !== 'set' ? ' selected' : '') + '>זומים שהתקיימו</option><option value="set"' + (T.basis === 'set' ? ' selected' : '') + '>זומים שנקבעו</option></select></label><button class="btn" data-act="reTargetSave">שמור יעד</button></div></details>' : '') +
+    (S.reDrillOpen ? reDrillList() : '');
+}
+function reDrillList() { const k = S.reDrillOpen, list = ((S.reDrill || {})[k]) || [];
+  return '<section class="card" style="margin-top:12px"><header><h2>הרשימה</h2><span class="pill muted">' + list.length + '</span><span class="grow"></span><button class="btn small ghost" data-redrill="">סגור</button></header>' + (list.length ? '<div class="scroll"><table><tbody>' + list.slice(0, 200).map((x) => '<tr class="clickable" ' + (x.c ? 'data-client="' + esc(x.c.id) + '"' : 'data-lead="' + esc(x.l.id) + '"') + '><td class="wide"><b>' + esc((x.c || x.l).name) + '</b><div class="hint">' + (x.l ? esc(leadStageLabel(x.l)) : 'לקוח') + (x.created ? ' · נכנס ' + dLabel(dayOf(x.created)) : '') + '</div></td><td>' + respChip(x.who) + '</td><td class="num hint">' + (x.zoomAt ? 'זום ' + dLabel(String(x.zoomAt).slice(0, 10)) : '') + (x.frontalAt ? ' · פרונטלית ' + dLabel(String(x.frontalAt).slice(0, 10)) : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">ריק</p>') + '</section>'; }
+/* "היום שלי" — שורה אחת למנהלים / אביב: זום היום מול יעד + פגישות היום */
+function reDayCard() {
+  if (!(S.isOwner && canSeeDiv('realestate'))) return ''; const T = reTarget(); const F = reFacts(), t0 = today(), p = rePeriod('today');
+  const got = (T.basis === 'set' ? F.filter((x) => inP(x.setAt, p)) : F.filter((x) => inP(x.heldAt, p))).length, zToday = F.filter((x) => x.zoomAt && String(x.zoomAt).slice(0, 10) === t0).length, fToday = F.filter((x) => x.frontalAt && String(x.frontalAt).slice(0, 10) === t0).length;
+  if (!T.day && !zToday && !fToday) return '';
+  return '<section class="card"><header><h2>נדל״ן היום</h2><span class="grow"></span><button class="btn small ghost" data-mktgo="refunnel">למשפך ↗</button></header><div class="row" style="gap:16px">' +
+    (T.day ? '<span><b class="num">' + got + ' / ' + T.day + '</b> <span class="hint">' + (T.basis === 'set' ? 'זומים נקבעו' : 'זומים התקיימו') + ' מול היעד</span></span>' : '') + '<span><b class="num">' + zToday + '</b> <span class="hint">זומים היום</span></span><span><b class="num">' + fToday + '</b> <span class="hint">פרונטליות היום</span></span></div></section>'; }
 /* ── מאגר כוורת: כל אנשי הקשר שיוצאו מכוורת (11/10) — שם, טלפון, אישור דיוור. לא לידים פתוחים: מחפשים, ומעבירים לליד כשחוזרים אליו ── */
 let POOL = { key: '', rows: [], byPhone: new Map() };
 function poolIdx() {
@@ -5851,6 +5922,10 @@ document.addEventListener('click', async (e) => {
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.reper !== undefined && el.matches('[data-reper]')) { S.f.reP = d.reper; S.reDrillOpen = null; return render(); }
+    if (d.rewho !== undefined && el.matches('[data-rewho]')) { S.f.reWho = d.rewho; S.reDrillOpen = null; return render(); }
+    if (d.redrill !== undefined && el.matches('[data-redrill]')) { S.reDrillOpen = d.redrill || null; render(); if (d.redrill) setTimeout(() => { const x = document.querySelectorAll('main section.card'); x[x.length - 1].scrollIntoView({ behavior: 'smooth' }); }, 30); return; }
+    if (d.mktgo) { S.f.mkt = d.mktgo; S.f.mktDiv = 'realestate'; return go('marketing'); }
     if ((d.signfin || d.signcancel) && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; el.disabled = true;
       try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel), { action: d.signfin ? 'finalize' : 'cancel' }); toast(d.signfin ? (r.ok ? 'ה-PDF נשמר בדרייב' : 'נכשל: ' + (r.error || '')) : (r.ok ? 'בוטל' : 'לא בוטל')); } catch (e) { toast('נכשל: ' + e.message); } return signLoad(c); }
     if (d.lendview) { S.f.lendView = d.lendview; return render(); }
@@ -6197,6 +6272,7 @@ document.addEventListener('click', async (e) => {
             const roots = S.settings.driveRoots || []; if (roots.some((r) => r.id === m[1])) return 'כבר ברשימה'; await write('settings/main', { driveRoots: [...roots, { id: m[1], title: String(x.title || '').trim() || 'תיקיית לקוחות' }] }, 'update'); S.rootIdx = null; S.rootMatch = null; toast('נוספה'); }, '', 'הוסף');
         case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
         case 'newContact': return formContact(null);
+        case 'reTargetSave': { const v = (k) => Math.max(0, Math.round(n(($('reT_' + k) || {}).value))); await write('settings/main', { reZoomTarget: { day: v('day'), week: v('week'), month: v('month'), basis: ($('reT_basis') || {}).value === 'set' ? 'set' : 'held' } }, 'update'); return toast('היעד נשמר'); }
         case 'signSend': { if (!c) return; const tpl = SIGN_TPL(c.division || 'finance'); if (/טיוטה/.test(tpl)) return toast('הנוסח עדיין טיוטה — לעדכן בהגדרות');
           const fields = signFormRead(c), title = (($('signTitle') || {}).value || '').trim(), email = (($('signEmail') || {}).value || '').trim(), phone = (($('signPhone') || {}).value || '').trim();
           const miss = signTplFields(tpl).filter((k) => !fields[k]); if (miss.length) return toast('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
