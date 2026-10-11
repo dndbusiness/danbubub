@@ -515,7 +515,7 @@ function taskDiv(t) { if (t.division) return t.division; const d = cDiv(t.client
 const inRe = (k, x) => S[k] && S[k].has(x.id) ? 'realestate' : null;
 const DIV_OF = { clients: (x) => x.division || 'finance', leads: (x) => x.division || 'finance', transactions: (x) => x.division || inRe('reTx', x) || cDiv(x.clientId) || 'finance', expenses: (x) => x.division || inRe('reExpenses', x) || 'finance',
   planned: (x) => x.division || inRe('rePlanned', x) || cDiv(x.clientId) || 'finance', tasks: taskDiv, tickets: (x) => x.division || cDiv(x.clientId) || 'finance', files: (x) => cDiv(x.clientId || x.id) || 'finance',
-  intakes: (x) => cDiv(x.clientId) || lDiv(x.id) || 'finance', approvals: (x) => cDiv(x.clientId) || 'finance', lenders: () => 'finance', campaigns: (x) => x.division || 'finance',
+  intakes: (x) => cDiv(x.clientId) || lDiv(x.id) || 'finance', approvals: (x) => cDiv(x.clientId) || 'finance', lenders: (x) => x.kind === 'developer' ? 'realestate' : 'finance', campaigns: (x) => x.division || 'finance',
   reTx: () => 'realestate', reExpenses: () => 'realestate', rePlanned: () => 'realestate', kaveretPool: () => 'realestate' };
 const restricted = () => !S._all && !!(S.allowedDivs && S.allowedDivs.length < DIVS.length);
 /* חישוב שחייב את כל הנתונים (למשל החלק של שותפי נדל״ן ברווח של פתרונות) — מחזיר רק את התוצאה, בלי השורות */
@@ -523,7 +523,10 @@ const withAll = (fn) => { const o = S._all; S._all = true; try { return fn(); } 
 const canSeeDiv = (d) => !restricted() || S.allowedDivs.includes(d || 'finance');
 const collOf = (map) => COLL.find((k) => S[k] === map);
 const visible = (k, x) => { const f = DIV_OF[k]; return !f || canSeeDiv(f(x)); };
-const live = (map) => { const all = [...map.values()].filter((x) => !x.deletedAt); if (!restricted()) return all; const k = collOf(map); return k && DIV_OF[k] ? all.filter((x) => visible(k, x)) : all; };
+const live = (map) => { let all = [...map.values()].filter((x) => !x.deletedAt); const k = (restricted() || S._divOnly) && collOf(map);
+  if (restricted() && k && DIV_OF[k]) all = all.filter((x) => visible(k, x));
+  if (S._divOnly && k && DIV_OF[k] && k !== 'kaveretPool') all = all.filter((x) => (DIV_OF[k](x) || 'finance') === S._divOnly); /* מסך שמוצג לחברה אחת (שיווק, יזמים) */
+  return all; };
 const inDiv = (x) => canSeeDiv(x.division || 'finance') && (S.division === 'all' || (x.division || 'finance') === S.division);
 /* משימה שייכת לחטיבה של הלקוח שלה; משימה בלי לקוח מופיעה בכל התצוגות. */
 const taskInDiv = (t) => { const d = taskDiv(t); return canSeeDiv(d) && (S.division === 'all' || d === S.division); };
@@ -2712,12 +2715,16 @@ async function scanUpload(scope, key, file) {
     }, '', 'הכנס את המסומנים');
   } catch (e) { if (e.code !== 'unavailable') toast('הסריקה נשמרה, אבל Claude לא הצליח לקרוא אותה'); }
 }
-function vMarketing() {
-  const sub = S.f.mkt;
-  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(canSeeDiv('realestate') ? [['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+/* שיווק — כל חברה בנפרד (דן, 11/10). ב"הכל" בוחרים חברה בתוך המסך */
+const screenDiv = (key) => { const md = DIVS.filter(canSeeDiv); return S.division !== 'all' ? S.division : md.includes(S.f[key]) ? S.f[key] : md[0]; };
+const divSeg = (key, cur) => S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? '<div class="seg" role="group" aria-label="חברה" style="margin:0 0 12px">' + DIVS.filter(canSeeDiv).map((d) => '<button data-scrdiv="' + key + '|' + d + '" aria-pressed="' + (d === cur) + '">' + L.division[d] + '</button>').join('') + '</div>' : '';
+function vMarketing() { const d = screenDiv('mktDiv'); S._divOnly = d; try { return divSeg('mktDiv', d) + vMarketingDiv(d); } finally { S._divOnly = null; } }
+function vMarketingDiv(mDiv) {
+  const sub = mDiv !== 'realestate' && S.f.mkt === 'pool' ? 'funnel' : S.f.mkt;
+  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(mDiv === 'realestate' ? [['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
   const body = { funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool }[sub] || vFunnel;
-  return '<div class="row"><h1 class="grow">שיווק</h1>' + tabs + (S.canTask ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' +
-    leadSheetCard() + body();
+  return '<div class="row"><h1 class="grow">שיווק · ' + L.division[mDiv] + '</h1>' + tabs + (S.canTask ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' +
+    (leadSources().some((x) => (x.division || 'finance') === mDiv) ? leadSheetCard() : '') + body();
 }
 /* ── מאגר כוורת: כל אנשי הקשר שיוצאו מכוורת (11/10) — שם, טלפון, אישור דיוור. לא לידים פתוחים: מחפשים, ומעבירים לליד כשחוזרים אליו ── */
 let POOL = { key: '', rows: [], byPhone: new Map() };
@@ -2854,7 +2861,7 @@ async function parseLeadFile(file) {
   Object.keys(map).forEach((k) => { if (map[k] < 0) map[k] = null; });
   if (map.name == null && map.phone == null) { toast('לא זוהו עמודות שם או טלפון'); return; }
   const existing = new Map(live(S.leads).map((l) => [normPhone(l.phone) + '|' + (l.campaign || ''), l]));
-  const div = S.division !== 'all' ? S.division : (S.allowedDivs || DIVS)[0];
+  const div = S.view.tab === 'marketing' ? screenDiv('mktDiv') : S.division !== 'all' ? S.division : (S.allowedDivs || DIVS)[0];
   /* עמודות שלא זוהו (למשל שאלות מדף הנחיתה: "מהו טווח ההון העצמי…", "האם יש דירה בבעלותך?") — נשמרות כתשובות בכרטיס */
   const used = new Set(Object.values(map).filter((v) => v != null)), extra = rows[hi].map((h, i) => [String(h).trim(), i]).filter(([h, i]) => h && !used.has(i) && !/^(id|#|מס['׳]?|מזהה)$/i.test(h)).slice(0, 20);
   const ppl = staff();
@@ -2890,7 +2897,7 @@ async function doImport() {
 /* ═════════════════════════ גופים ומימון ═════════════════════════ */
 function lenderStats() {
   const g = {};
-  live(S.lenders).forEach((l) => (g[l.name] = { l, name: l.name, cases: 0, submitted: 0, approved: 0, executed: 0, requested: 0, transferred: 0, clients: [] }));
+  live(S.lenders).filter((l) => l.kind !== 'developer').forEach((l) => (g[l.name] = { l, name: l.name, cases: 0, submitted: 0, approved: 0, executed: 0, requested: 0, transferred: 0, clients: [] }));
   live(S.clients).forEach((c) => (c.submissions || []).forEach((s) => {
     const r = (g[s.bank] = g[s.bank] || { l: null, name: s.bank, cases: 0, submitted: 0, approved: 0, executed: 0, requested: 0, transferred: 0, clients: [] });
     r.cases++; r.clients.push(c); r[s.status === 'executed' ? 'executed' : s.status === 'approved' ? 'approved' : 'submitted']++;
@@ -2898,6 +2905,38 @@ function lenderStats() {
   }));
   return Object.values(g).sort((a, b) => b.cases - a.cases);
 }
+/* הר-אל השקעות: במקום גופי מימון — יזמים (דן, 11/10). העסקאות, החתימות והעמלה מהיזם נלקחות מכרטיסי הלקוחות */
+const devOf = (c) => String(reOf(c).developer || c.developer || '').trim();
+function devStats() {
+  const g = {}, row = (name, l) => (g[name] = g[name] || { l: l || null, name, deals: 0, open: 0, signed: 0, paid: 0, amount: 0, comExp: 0, comGot: 0, clients: [] });
+  live(S.lenders).filter((l) => l.kind === 'developer').forEach((l) => row(l.name, l));
+  live(S.clients).filter((c) => (c.division || 'finance') === 'realestate' && c.status !== 'cancelled').forEach((c) => { const nm = devOf(c); if (!nm) return; const r = row(nm); const R2 = reOf(c);
+    r.deals++; r.clients.push(c); if (c.status === 'open') r.open++; if (R2.devSigned) r.signed++; if (R2.devPaid) r.paid++; r.amount += n(c.baseAmount);
+    (c.installments || []).filter((i) => /יזם/.test(i.note || '')).forEach((i) => { if (i.paid) r.comGot += instNet(i); else r.comExp += instNet(i); }); });
+  return Object.values(g).sort((a, b) => b.deals - a.deals || String(a.name).localeCompare(String(b.name), 'he'));
+}
+function vDevelopers() {
+  const st = devStats(), w = S.canWrite;
+  return '<div class="row"><div class="grow"><h1>יזמים</h1><p class="hint">הר-אל השקעות — היזמים שאנחנו עובדים מולם: עסקאות, חתימות, ועמלת היזם (בדרך כלל כ-1% כולל מע״מ, שוטף+30).</p></div>' + (w ? '<button class="btn primary" data-act="newDev">+ יזם</button>' : '') + '</div>' +
+    '<div class="grid4">' + kpi('יזמים', '<span class="num">' + st.length + '</span>', st.filter((r) => r.deals).length + ' עם עסקאות', null) + kpi('עסקאות', '<span class="num">' + st.reduce((a, r) => a + r.deals, 0) + '</span>', st.reduce((a, r) => a + r.signed, 0) + ' חתמו אצל היזם · ' + st.reduce((a, r) => a + r.paid, 0) + ' שילמו', null) +
+      kpi('עמלת יזם צפויה', money(st.reduce((a, r) => a + r.comExp, 0), { tone: 'committed' }), 'נטו, לפני מע״מ — פעימות שעוד לא נכנסו', null) + kpi('עמלת יזם שנכנסה', money(st.reduce((a, r) => a + r.comGot, 0), { tone: 'actual' }), 'נטו', null) + '</div>' +
+    (st.length ? '<section class="card"><div class="scroll"><table><thead><tr><th>יזם</th><th>עסקאות</th><th>פתוחות</th><th>חתמו</th><th>שילמו</th><th>היקף עסקאות</th><th>עמלה צפויה</th><th>עמלה שנכנסה</th><th></th></tr></thead><tbody>' +
+      st.map((r) => '<tr><td class="wide"><b>' + esc(r.name) + '</b>' + (r.l ? '<div class="hint">' + [r.l.contact, r.l.phone ? '<span dir="ltr">' + esc(r.l.phone) + '</span>' : '', r.l.commission ? 'עמלה ' + esc(r.l.commission) + '%' : '', r.l.terms].filter(Boolean).map((x) => String(x).startsWith('<') ? x : esc(x)).join(' · ') + '</div>' : '<div class="hint">עוד לא נשמר כיזם — מופיע בכרטיסי לקוחות</div>') + '</td>' +
+        '<td class="num">' + r.deals + '</td><td class="num">' + r.open + '</td><td><span class="pill ' + (r.signed ? 'committed' : 'muted') + '">' + r.signed + '</span></td><td><span class="pill ' + (r.paid ? 'actual' : 'muted') + '">' + r.paid + '</span></td>' +
+        '<td>' + money(r.amount, { tone: 'muted' }) + '</td><td>' + money(r.comExp, { tone: r.comExp ? 'committed' : 'muted' }) + '</td><td>' + money(r.comGot, { tone: r.comGot ? 'actual' : 'muted' }) + '</td>' +
+        '<td>' + (w ? '<button class="btn small ghost" data-editdev="' + esc(r.l ? r.l.id : '') + '" data-dname="' + esc(r.name) + '">' + (r.l ? 'עריכה' : 'שמור כיזם') + '</button>' : '') + '</td></tr>').join('') + '</tbody></table></div></section>' +
+      '<section class="card"><header><h2>עסקאות לפי יזם</h2></header>' + st.filter((r) => r.clients.length).map((r) => '<h3 class="sec">' + esc(r.name) + ' · ' + r.clients.length + '</h3><div class="row">' + r.clients.map((c) => '<button class="tag" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>').join('') + '</div>').join('') + '</section>'
+    : '<section class="card"><p class="empty">עוד אין יזמים. מוסיפים כאן, או ממלאים "יזם" במסע הלקוח בכרטיס של עסקת נדל״ן.</p></section>');
+}
+function formDev(l, name) {
+  const isNew = !l; l = l || { name: name || '', commission: 1, terms: 'שוטף+30' };
+  drawer(isNew ? 'יזם חדש' : 'עריכת ' + l.name, fi('name', 'שם היזם *', l.name || '', 'text', 'required', true) + fi('contact', 'איש קשר', l.contact || '') + fi('phone', 'טלפון', l.phone || '', 'tel', 'dir="ltr"') + fi('email', 'מייל', l.email || '', 'email', 'dir="ltr"') +
+    fi('commission', 'עמלה מהיזם (% כולל מע״מ)', l.commission ?? '', 'number', 'min="0" step="0.1"') + fi('terms', 'תנאי תשלום', l.terms || '') + fi('projects', 'פרויקטים', l.projects || '') + ft('notes', 'הערות', l.notes || ''),
+    async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; const id = isNew ? uid() : l.id;
+      await write('lenders/' + id, { ...l, id, kind: 'developer', division: 'realestate', name: d.name.trim(), contact: d.contact.trim(), phone: d.phone.trim(), email: d.email.trim(), commission: d.commission === '' ? null : Number(d.commission), terms: d.terms.trim(), projects: d.projects.trim(), notes: d.notes, updatedAt: stamp(), ...(isNew ? { createdAt: stamp(), createdBy: S.me.id } : {}) });
+      toast('נשמר'); });
+}
+function vLendersTab() { const d = screenDiv('lendDiv'); S._divOnly = d; try { return divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
 function vLenders() {
   const st = lenderStats();
   return '<div class="row"><div class="grow"><h1>גופים ומימון</h1><p class="hint">בנקים, קרנות וגופים חוץ-בנקאיים — כמה תיקים בכל אחד, מה אושר וכמה כסף עבר דרכו.</p></div>' + (S.canWrite ? '<button class="btn primary" data-act="newLender">+ גוף</button>' : '') + '</div>' +
@@ -3283,7 +3322,7 @@ function formCampaign(c) {
   drawer(isNew ? 'קמפיין' : 'עריכת ' + c.name, fi('name', 'שם הקמפיין *', c.name || '', 'text', 'required', true) + fi('platform', 'פלטפורמה', c.platform || '', 'text', 'list="dlPlat"') + fi('marketer', 'משווק', c.marketer || '') +
     fi('spend', 'הוצאה כוללת (₪)', c.spend || '', 'number', 'min="0" step="1"') + fi('startDate', 'התחלה', c.startDate || '', 'date') + fi('endDate', 'סיום', c.endDate || '', 'date') + dl('dlPlat', S.settings.platforms || []),
     async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; const id = isNew ? uid() : c.id;
-      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, updatedAt: stamp() });
+      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, division: c.division || screenDiv('mktDiv'), updatedAt: stamp() });
       if (d.platform.trim()) await ensureInList('platforms', d.platform.trim()); toast('נשמר'); });
 }
 function formLender(l, name) {
@@ -5162,9 +5201,10 @@ function render() {
   if (!S.ready) { $('main').innerHTML = S.db === false ? '<div class="notice bad"><b>אין חיבור למסד</b><span>הממשק שומר את הנתונים במסד של הדף, והתצוגה הזו לא מקבלת אליו גישה. פתח אותו מהקישור ב-claude.ai כשאתה מחובר לחשבון.</span></div>' : '<p class="empty">טוען…</p>'; return; }
   syncPeople();
   const OWNER_TABS = ['home', 'money', 'books', 'private', 'marketing', 'lenders', 'reports', 'settings'];
-  const HIDE = { owner: [], admin: ['private'], admin_re: ['private', 'books', 'lenders'], partner: ['books', 'private', 'settings'], center: [...OWNER_TABS, 'service', 'clients'], team: OWNER_TABS };
+  const HIDE = { owner: [], admin: ['private'], admin_re: ['private', 'books'], partner: ['books', 'private', 'settings'], center: [...OWNER_TABS, 'service', 'clients'], team: OWNER_TABS };
   const hideT = HIDE[S.role] || OWNER_TABS;
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.hidden = hideT.includes(b.dataset.tab); });
+  { const lb = document.querySelector('#tabs [data-tab="lenders"]'); if (lb) lb.textContent = screenDiv('lendDiv') === 'realestate' && S.division !== 'all' ? 'יזמים' : S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? 'גופים ויזמים' : 'גופים ומימון'; }
   $('divs').hidden = !(S.isOwner || S.isCenter) || (S.allowedDivs || DIVS).length < 2;
   document.querySelectorAll('#divs [data-d]').forEach((b) => { b.hidden = b.dataset.d !== 'all' && !(S.allowedDivs || DIVS).includes(b.dataset.d); });
   if (S.ready && S.noAccess) { document.body.classList.add('locked'); $('main').innerHTML = '<section class="card lockcard"><h1>הר-אל</h1><p><b>אין לך עדיין גישה לנתונים.</b></p><p class="hint">הדף נפתח, אבל ההרשאה שקיבלת היא צפייה בלבד, ולכן מסך הכניסה והנתונים לא נטענים.</p>' + accessHint() +
@@ -5172,7 +5212,7 @@ function render() {
   const locked = isLocked(); document.body.classList.toggle('locked', locked);
   if (locked) { $('main').innerHTML = vLock(); const pw = $('lockFormPw'); if (pw) pw.focus(); return; }
   if (hideT.includes(S.view.tab)) S.view.tab = 'day';
-  const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLenders, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
   $('main').innerHTML = partnerHint() + (S.canTask ? '' : '<div class="notice warn"><b>קריאה בלבד</b><span>בתצוגה הזו אין הרשאת עריכה. בעל הדף יכול לתת גישה מתפריט השיתוף.</span></div>') + (V[S.view.tab] || vDay)();
@@ -5208,6 +5248,7 @@ document.addEventListener('click', async (e) => {
     if (d.stdiv) { S.f.stDiv = d.stdiv; return render(); }
     if (d.boardper) { S.f.boardPer = d.boardper; return render(); }
     if (d.boarddiv) { S.f.boardDiv = d.boarddiv; return render(); }
+    if (d.scrdiv) { const [k, v] = d.scrdiv.split('|'); S.f[k] = v; return render(); }
     if (d.boardwho != null && el.matches('[data-boardwho]')) { S.f.boardWho = d.boardwho; return render(); }
     if (d.boardst) { const [k, perFlag] = d.boardst.split('@'); if (S.division === 'all') { const md = DIVS.filter(canSeeDiv); S.division = md.includes(S.f.boardDiv) ? S.f.boardDiv : md[0]; } S.f.leadView = 'list'; S.f.leadWhen = perFlag || k.startsWith('reach:') ? ({ today: 'd1', week: 'd7', month: 'dm', all: '' }[S.f.boardPer || 'month']) : ''; S.f.leadSt = k.startsWith('reach:') ? 'all' : k; S.f.leadReach = k.startsWith('reach:') ? Number(k.slice(6)) : null; if (!S.isCenter) S.f.leadResp = S.f.boardWho || ''; return render(); }
     if (d.restep && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canTask) return; const lbl = (RE_STEPS.find((x) => x[0] === d.restep) || [])[1];
@@ -5333,6 +5374,7 @@ document.addEventListener('click', async (e) => {
     if (d.editexp) return formExpense(S.expenses.get(d.editexp));
     if (d.editcamp) return formCampaign(S.campaigns.get(d.editcamp));
     if (d.editticket) return formTicket(S.tickets.get(d.editticket));
+    if (d.editdev != null) return formDev(d.editdev ? S.lenders.get(d.editdev) : null, d.dname);
     if (d.editlender != null) return formLender(d.editlender ? S.lenders.get(d.editlender) : null, d.lname);
     if (d.edituser != null && el.matches('button')) { S.f.userEdit = d.edituser || null; render(); const x = $('uLabel'); if (x) x.focus(); return; }
     if (d.rmuser) { const ux = (S.settings.users || []).find((x) => normUser(x.username) === normUser(d.rmuser)); if (!ux || !canManageUser(ux)) return toast('אין לך הרשאה להסיר את המשתמש הזה'); if (!confirm('להסיר את ' + (ux.label || ux.username) + '?')) return; await write('settings/main', { users: (S.settings.users || []).filter((x) => normUser(x.username) !== normUser(d.rmuser)) }, 'update'); return toast('המשתמש הוסר'); }
@@ -5376,6 +5418,7 @@ document.addEventListener('click', async (e) => {
         case 'stSave': { const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); if (rows.some((r) => !r.label)) return toast('חסר שם');
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('הסטטוסים של ' + L.division[div] + ' נשמרו'); }
         case 'mkFolders': return mkFolders();
+        case 'newDev': return formDev(null);
         case 'selClear': SEL.clear(); return render();
         case 'selUnassigned': leadsFiltered().filter((l) => !l.resp && isLeadOpen(l)).forEach((l) => SEL.add(l.id)); return render();
         case 'selAssign': { const who = ($('selWho') || {}).value; if (!who || !SEL.size) return; const lbl = L.resp[who] || (staff().find((p) => p.key === who) || {}).label || who; let k = 0, skip = 0;
