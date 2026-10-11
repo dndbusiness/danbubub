@@ -722,6 +722,8 @@ function withVat(t) {
 
 /* ── מיילים — דרך Gmail של מי שפועל, עם רישום ב-outbox ──────────────────── */
 const MAIL_FIX = {
+  bad_request: 'Gmail דחה את ההודעה — בדרך כלל כי היא גדולה מדי (קבצים מצורפים). נסה פחות קבצים בכל מייל.',
+  payload_too_large: 'ההודעה גדולה מדי לשליחה. נסה פחות קבצים בכל מייל.',
   needs_reauth: 'החיבור ל-Gmail פג. חבר מחדש ב-claude.ai ← הגדרות ← Connectors.',
   server_not_connected: 'Gmail לא מחובר לחשבון שלך. הוסף אותו ב-claude.ai ← הגדרות ← Connectors.',
   selection_required: 'יש יותר מחשבון Gmail אחד מחובר — בחר אחד בחלון שנפתח.',
@@ -744,7 +746,7 @@ async function sendMail({ to, cc, subject, html, text, kind, ref, attachments })
     const code = (e && e.code) || 'upstream_error';
     const why = MAIL_FIX[code] || (code === 'tool_error' ? 'Gmail דחה את ההודעה: ' + (e.message || '') : code === 'server_unavailable' || code === 'upstream_error' ? 'Gmail לא ענה. ייתכן שההודעה נשלחה בכל זאת — בדוק ב"נשלחו" לפני ששולחים שוב.' : 'השליחה נכשלה (' + code + ')');
     await write('outbox/' + id, { ...rec, status: 'failed', error: why, code }).catch(() => {});
-    return { ok: false, why };
+    return { ok: false, why, code };
   }
 }
 const mailWrap = (title, body) => '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;color:#111827;line-height:1.55">' +
@@ -2063,27 +2065,59 @@ function sendFundBox(c, files) {
     '<label class="fl">נושא<input class="f" id="fundSubj" value="' + esc('הגשת תיק — ' + c.name + ' — ' + co) + '"></label>' +
     '<label class="fl">גוף המייל<textarea class="f" id="fundBody" rows="5">' + esc('שלום,\n\nמצורפים המסמכים של ' + c.name + (c.baseAmount ? ' לבקשה בסך ' + plain(c.baseAmount) : '') + '.\nנשמח לבדיקה ולתשובה.\n\nבברכה,\n' + (S.loginAs && S.loginAs.label || 'דן') + '\n' + co) + '</textarea></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
-    '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. עד 25MB קבצים.</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div></details>';
+    '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div></details>';
 }
+/* תמונה גדולה (צילום טלפון) → JPEG מוקטן לצד ארוך 2000px. מסמך נשאר קריא, והמשקל יורד פי 5-10 */
+async function shrinkImage(b64, mime) {
+  if (!/^image\/(jpeg|png|webp|heic|heif)/i.test(mime || '') || b64.length * 3 / 4 < 1.2e6) return null;
+  try { const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), bm = await createImageBitmap(new Blob([bytes], { type: mime })), k = Math.min(1, 2000 / Math.max(bm.width, bm.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bm.width * k); cv.height = Math.round(bm.height * k); const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bm, 0, 0, cv.width, cv.height);
+    const out = cv.toDataURL('image/jpeg', 0.82).split(',')[1]; return out && out.length < b64.length ? out : null; } catch (e) { return null; } }
+const FUND_PART_MAX = 4e6; /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
 async function fundSend(c) {
+  if (S._fundBusy) return toast('השליחה כבר בדרך — רגע');
   const pick = ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
   const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])], to = tos.join(', ');
   if (!tos.length) return toast('בחר נמען או כתוב מייל');
   const st = (S.docRes || {})[c.id] || {}, ids = [...(S.docSel || new Set())].filter((id) => (st.files || []).some((f) => f.id === id)); if (!ids.length) return toast('סמן מסמכים');
-  const est = ids.reduce((a, id) => a + (+((st.files.find((x) => x.id === id) || {}).fileSize) || 0), 0); if (est > 24e6) return toast('הקבצים גדולים מ-25MB — שלח בשני מיילים');
-  toast('מכין ' + ids.length + ' קבצים…'); const att = []; let size = 0;
-  for (const id of ids) { const f = st.files.find((x) => x.id === id), gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || '');
-    const p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: id, ...(gNative ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }).catch(() => null));
-    const b64 = p.content || p.data || p.base64Content || (typeof p === 'string' ? p : ''); if (!b64) return toast('לא הצלחתי להוריד את ' + f.title);
-    size += b64.length * 3 / 4; att.push({ filename: gNative && !/\.pdf$/i.test(f.title) ? f.title + '.pdf' : f.title, mimeType: gNative ? 'application/pdf' : (p.mimeType || f.mimeType || 'application/octet-stream'), content: b64 }); }
-  if (size > 24e6) return toast('הקבצים גדולים מ-25MB — שלח בשני מיילים');
-  const subj = ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body = ($('fundBody') || {}).value || '';
-  const r = await sendMail({ to: tos, cc: [FIN_BOX], subject: subj, html: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' + esc(body) + '</div>', text: body, kind: 'fund', ref: c.id, attachments: att });
-  if (!r.ok) return toast('לא נשלח: ' + r.why);
-  const bank = l ? l.name : ct ? (ct.org || ct.name) : to; await logClient(c.id, 'נשלח ל' + bank + ' (' + to + '): ' + subj + ' · ' + att.map((a) => a.filename).join(', ')).catch(() => {});
-  if (($('fundSub') || {}).checked && (l || !ct || ['bank', 'fund', 'developer'].includes(ct.cat)) && !(c.submissions || []).some((x) => x.bank === bank)) await write('clients/' + c.id, { submissions: [...(c.submissions || []), { bank, status: 'submitted', amount: c.baseAmount || null, at: stamp(), sentDocs: att.map((a) => a.filename) }], updatedAt: stamp() }, 'update');
-  S.docSel = new Set(); toast('נשלח ל' + bank + ' עם ' + att.length + ' קבצים'); render(); }
+  const subj = ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body = ($('fundBody') || {}).value || '', wantSub = ($('fundSub') || {}).checked;
+  S._fundBusy = true; const btn = document.querySelector('[data-act="fundSend"]'); if (btn) { btn.disabled = true; btn.textContent = 'מכין קבצים…'; }
+  try {
+    const att = [];
+    for (const [i, id] of ids.entries()) { const f = st.files.find((x) => x.id === id), gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || '');
+      if (btn) btn.textContent = 'מוריד ' + (i + 1) + '/' + ids.length + '…';
+      const p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: id, ...(gNative ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }).catch(() => null));
+      let b64 = p.content || p.data || p.base64Content || (typeof p === 'string' ? p : ''); if (!b64) return toast('לא הצלחתי להוריד את ' + f.title);
+      let mime = gNative ? 'application/pdf' : (p.mimeType || f.mimeType || 'application/octet-stream'), name = gNative && !/\.pdf$/i.test(f.title) ? f.title + '.pdf' : f.title;
+      const small = await shrinkImage(b64, mime); if (small) { b64 = small; if (!/^image\/jpeg/i.test(mime)) { mime = 'image/jpeg'; name = name.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg'; } }
+      const bytes = Math.round(b64.length * 3 / 4); if (bytes > FUND_PART_MAX) return toast('"' + f.title + '" גדול מדי לשליחה במייל (' + (bytes / 1e6).toFixed(1) + 'MB) — הורד אותו מהסימון');
+      att.push({ filename: name, mimeType: mime, content: b64, bytes }); }
+    /* חלוקה לכמה מיילים לפי משקל — כל חלק עד FUND_PART_MAX */
+    const parts = []; for (const a of att) { const last = parts[parts.length - 1]; if (last && last.size + a.bytes <= FUND_PART_MAX) { last.items.push(a); last.size += a.bytes; } else parts.push({ items: [a], size: a.bytes }); }
+    const html = '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' + esc(body) + '</div>';
+    /* שליחה עם פיצול אוטומטי: חלק שנדחה (בדרך כלל גודל) מתפצל לשניים ונשלח שוב; קובץ בודד שנדחה — מדלגים עליו ומדווחים */
+    const queue = parts.map((x) => x.items), okParts = [], bad = []; let n = 0, lastWhy = '', cap = S._mailCap || FUND_PART_MAX; const wt = (xs) => xs.reduce((a, x) => a + x.bytes, 0);
+    while (queue.length && n < 60) { const items = queue.shift();
+      if (items.length > 1 && wt(items) > cap) { const h = Math.ceil(items.length / 2); queue.unshift(items.slice(0, h), items.slice(h)); continue; } /* כבר יודעים שזה גדול מדי — מפצלים בלי לנסות */
+      n++;
+      if (btn) btn.textContent = 'שולח ' + (okParts.length + 1) + '…';
+      const no = okParts.length + 1, tag = ' (חלק ' + no + ')';
+      const r = await sendMail({ to: tos, cc: [FIN_BOX], subject: subj + (parts.length > 1 || okParts.length || queue.length ? tag : ''), html: okParts.length ? '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px">המשך המסמכים' + esc(tag) + '.</div>' : html, text: okParts.length ? 'המשך המסמכים' + tag : body, kind: 'fund', ref: c.id, attachments: items.map(({ filename, mimeType, content }) => ({ filename, mimeType, content })) });
+      if (r.ok) { okParts.push(items); continue; }
+      lastWhy = r.why;
+      if (!['bad_request', 'payload_too_large', 'tool_error'].includes(r.code)) break; /* חיבור / הרשאה — אין טעם לפצל */
+      if (items.length > 1) { cap = Math.min(cap, wt(items) * 0.6); S._mailCap = Math.max(cap, 5e5); const h = Math.ceil(items.length / 2); queue.unshift(items.slice(0, h), items.slice(h)); } else bad.push(items[0].filename); }
+    const sent = okParts.length, sentFiles = okParts.flat();
+    if (!sent) return toast('לא נשלח: ' + lastWhy);
+    if (bad.length || queue.length) toast('נשלחו ' + sentFiles.length + ' מתוך ' + att.length + ' קבצים ב-' + sent + ' מיילים' + (bad.length ? ' · Gmail דחה: ' + bad.join(', ') : '') + (queue.length ? ' · לא נשלח הכל: ' + lastWhy : ''));
+    parts.length = 0; okParts.forEach((items) => parts.push({ items }));
+    const bank = l ? l.name : ct ? (ct.org || ct.name) : to, done = sentFiles.map((a) => a.filename);
+    await logClient(c.id, 'נשלח ל' + bank + ' (' + to + '): ' + subj + (parts.length > 1 ? ' · ' + sent + '/' + parts.length + ' מיילים' : '') + ' · ' + done.join(', ')).catch(() => {});
+    const cur = S.clients.get(c.id) || c;
+    if (wantSub && sent && (l || !ct || ['bank', 'fund', 'developer'].includes(ct.cat)) && !(cur.submissions || []).some((x) => x.bank === bank)) await write('clients/' + c.id, { submissions: [...(cur.submissions || []), { bank, status: 'submitted', amount: cur.baseAmount || null, at: stamp(), sentDocs: done }], updatedAt: stamp() }, 'update');
+    if (!bad.length && !queue.length) { S.docSel = new Set(); toast('נשלח ל' + bank + ' — ' + att.length + ' קבצים' + (sent > 1 ? ' ב-' + sent + ' מיילים' : '')); } else S.docSel = new Set(bad.map((nm) => (st.files.find((f) => f.title === nm || f.title.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg' === nm) || {}).id).filter(Boolean));
+  } finally { S._fundBusy = false; render(); } }
 function dayExtras() {
   const t0 = today(); let h = '';
   if (S.isCenter) { const mine = live(S.leads).filter((l) => l.resp === S.myKey), due = mine.filter((l) => leadDue(l, t0) || (l.stage || 'new') === 'new'), m = t0.slice(0, 7), cm = commRows().filter((x) => x.who === S.myKey && x.month === m);
