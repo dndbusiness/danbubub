@@ -1164,7 +1164,22 @@ function vClientBoard(all) {
     '<section><div class="row"><h2 class="grow">לפי שלב' + (who ? ' · ' + esc((ppl.find(([k]) => k === who) || [])[1] || '') : '') + '</h2><span class="hint">תיקים פתוחים (בלי השהייה)</span></div><div class="grid4" style="margin-top:8px">' +
       STAGE_ORDER.map((k) => { const g = open.filter((c) => (c.stage || '') === k), d2 = g.filter((c) => (fileOf(c.id) || {}).needsDan).length;
         return tile(g.length, L.stage[k], k === 'completed' ? 'actual' : ['approved_in_principle', 'appraisal', 'lawyer_signing', 'execution'].includes(k) ? 'committed' : 'expected', k, d2 ? d2 + ' לאישור דן' : ''); }).join('') + '</div></section>' +
+    doneBoard(mineC, who) +
     '<p class="hint" style="margin-top:12px">סימון "לאישור דן" — בכרטיס הלקוח. לחיצה על מספר פותחת את התיקים שמרכיבים אותו.</p>';
+}
+/* הסתיימו — מי שכבר קיבל את הכסף (נסגר בהצלחה): ממתין לגבייה שלנו / נגבה במלואו, ובהשהייה. בלוח עם שמות, לא רק מספר */
+function doneBoard(mineC, who) {
+  const won = mineC.filter((c) => c.status === 'won').sort((a, b) => String(b.closedAt || b.updatedAt || '').localeCompare(String(a.closedAt || a.updatedAt || ''))),
+    owe = won.filter((c) => clientMoney(c).open > 0), paid = won.filter((c) => clientMoney(c).open <= 0), hold = mineC.filter((c) => c.status === 'hold');
+  const card = (title, list, tone, key, sum) => '<section class="card" style="border-inline-start:4px solid var(--' + tone + ')"><header><h2>' + title + '</h2><span class="pill ' + (list.length ? tone : 'muted') + '">' + list.length + '</span>' + (sum && S.isOwner ? '<span class="hint">' + sum + '</span>' : '') + '<span class="grow"></span>' +
+      (list.length ? '<button class="btn small ghost" data-clboard="' + esc(key + '|' + who) + '">לרשימה המלאה</button>' : '') + '</header>' +
+    (list.length ? '<div class="scroll"><table><tbody>' + list.slice(0, 12).map((c) => { const m = clientMoney(c);
+      return '<tr class="clickable" data-client="' + esc(c.id) + '"><td class="wide"><b>' + esc(c.name) + '</b><div class="hint">' + esc(c.service || L.product[c.product] || '') + ((c.closedAt || c.updatedAt) && key !== 'hold' ? ' · ' + dLabel(dayOf(c.closedAt || c.updatedAt)) : '') + (key === 'hold' && c.holdReason ? ' · ' + esc(c.holdReason) : '') + '</div></td><td>' + respChip(c.resp) + '</td>' +
+        (S.isOwner ? '<td>' + (key === 'owe' ? money(m.open, { tone: 'expected' }) : key === 'paid' ? money(m.collected, { tone: 'actual' }) : money(m.fee)) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>' + (list.length > 12 ? '<p class="hint">ועוד ' + (list.length - 12) + '</p>' : '') : '<p class="empty">אין</p>') + '</section>';
+  return '<section style="margin-top:16px"><div class="row"><h2 class="grow">הסתיימו' + (who ? ' · ' + esc(L.resp[who] || who) : '') + '</h2><span class="hint">לקוחות שכבר קיבלו את הכסף, ותיקים בהשהייה</span></div><div class="grid2" style="margin-top:8px">' +
+    card('קיבלו — עוד לא נגבה הכל', owe, 'expected', 'owe', 'פתוח ' + plain(owe.reduce((a, c) => a + clientMoney(c).open, 0))) +
+    card('קיבלו ונגבה במלואו', paid, 'actual', 'paid', 'נגבה ' + plain(paid.reduce((a, c) => a + clientMoney(c).collected, 0))) + '</div>' +
+    (hold.length ? '<div style="margin-top:12px">' + card('בהשהייה', hold, 'locked', 'hold') + '</div>' : '') + '</section>';
 }
 const sel = (id, label, opts, val) => '<select class="f" id="' + id + '" aria-label="' + label + '">' + opts.map(([k, v]) => '<option value="' + esc(k) + '"' + (String(val) === String(k) ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select>';
 /* מצב / הצעד הבא = מה שעודכן אחרון: משימה פתוחה, הערה ביומן, עדכון בלוח התיקים או הצעד הבא */
@@ -5614,7 +5629,7 @@ document.addEventListener('click', async (e) => {
     if (d.taskbucket) { S.f.taskView = 'bucket'; S.f.taskBucket = d.taskbucket; return render(); }
     if (d.taskwho != null && el.matches('[data-taskwho]')) { S.f.taskWho = d.taskwho; return render(); }
     if (d.taskmorrow) { const t = S.tasks.get(d.taskmorrow); if (!t || !S.canTask) return; await write('tasks/' + t.id, { due: addDays(today(), 1), updatedAt: stamp() }, 'update'); return toast('נדחה למחר'); }
-    if (d.clboard) { const [k, who] = d.clboard.split('|'); S.f.clientResp = who || ''; if (k === 'dan') { S.f.clientView = 'dan'; } else if (k === 'stuck') { S.f.clientView = 'stuck'; } else if (k === 'notok') { S.f.clientView = 'notok'; } else if (!k) { S.f.clientView = 'table'; S.f.clientStage = ''; S.f.clientStatus = 'open'; } else { S.f.clientView = 'table'; S.f.clientStage = k; S.f.clientStatus = 'open'; } return render(); }
+    if (d.clboard) { const [k, who] = d.clboard.split('|'); S.f.clientResp = who || ''; if (k === 'dan') { S.f.clientView = 'dan'; } else if (k === 'stuck') { S.f.clientView = 'stuck'; } else if (k === 'notok') { S.f.clientView = 'notok'; } else if (k === 'owe' || k === 'paid') { S.f.clientView = 'done'; } else if (k === 'hold') { S.f.clientView = 'table'; S.f.clientStage = ''; S.f.clientStatus = 'hold'; } else if (!k) { S.f.clientView = 'table'; S.f.clientStage = ''; S.f.clientStatus = 'open'; } else { S.f.clientView = 'table'; S.f.clientStage = k; S.f.clientStatus = 'open'; } return render(); }
     if (d.clwho != null && el.matches('[data-clwho]')) { S.f.clientBoardWho = d.clwho; return render(); }
     if (d.needsdan) { const cid = d.needsdan, f = fileOf(cid) || {}, v = !f.needsDan; await write('files/' + cid, { ...f, id: cid, clientId: cid, needsDan: v, ...(v ? { danAskedAt: stamp(), danAskedBy: S.myKey || null } : { danDoneAt: stamp() }), updatedAt: stamp(), updatedBy: S.me.id }); await logClient(cid, v ? 'סומן לאישור דן' : 'אושר ע״י דן / הוסר מ"לאישור דן"').catch(() => {}); return toast(v ? 'סומן לאישור דן' : 'הוסר מאישור דן'); }
     if (d.lead && el.matches('tr')) { if (e.target.closest('a, select, input')) return; return go('lead', d.lead); }
