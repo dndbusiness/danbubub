@@ -1903,6 +1903,17 @@ function vLeads() {
   if (v === 'day') return '<div class="row"><h1 class="grow">לידים — סיכום יום</h1></div>' + seg + vLeadDay();
   return vLeadsList(seg);
 }
+/* הקצאה פשוטה מתוך הרשימה (דן, 11/10): מסמנים לידים → בוחרים נציג → הקצה */
+const SEL = new Set();
+function allocBar(rows) {
+  const un = rows.filter((l) => !l.resp && isLeadOpen(l)), n0 = SEL.size, divs = [...new Set(rows.filter((l) => SEL.has(l.id)).map(leadDiv))];
+  const ppl = respEntries(divs.length === 1 ? divs[0] : S.division === 'all' ? null : S.division).filter(([k]) => k !== 'dan');
+  return '<div class="row allocbar" style="align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border-radius:10px;background:var(--sunk)">' +
+    (n0 ? '<b>נבחרו ' + n0 + '</b><label class="fl" style="margin:0">הקצה ל<select class="f" id="selWho">' + ppl.map(([k, v]) => '<option value="' + esc(k) + '">' + esc(v) + ' — ' + live(S.leads).filter((l) => l.resp === k && isLeadOpen(l)).length + ' פתוחים</option>').join('') + '</select></label>' +
+      '<button class="btn small primary" data-act="selAssign">הקצה</button><button class="btn small ghost" data-act="selClear">נקה</button>'
+    : '<span class="hint grow">לסמן לידים בטבלה ולהקצות אותם לנציג' + (un.length ? ' · ' + un.length + ' בלי אחראי ברשימה הזו' : '') + '</span>') +
+    (un.length ? '<button class="btn small" data-act="selUnassigned">בחר את כל ה' + un.length + ' בלי אחראי</button>' : '') + '</div>';
+}
 function vLeadsList(seg) {
   const all = live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey)), t0 = today(), w = S.canTask, f = S.f, st = f.leadSt || 'todo';
   const open = all.filter(isLeadOpen), fresh = all.filter((l) => (l.stage || 'new') === 'new'), due = all.filter((l) => leadDue(l, t0)), won = all.filter((l) => l.stage === 'won'), cr = all.filter(isCredit);
@@ -1914,7 +1925,8 @@ function vLeadsList(seg) {
   if (ownSet) chips.splice(0, chips.length, ['todo', 'לטיפול'], ['due', 'מעקב להיום'], ...stageDefs(S.division).filter((x) => !x.hide && (cnt(x.key) || st === x.key || ['new', 'noanswer'].includes(x.key))).map((x) => [x.key, x.label]), ['all', 'הכל']);
   const chans = [...new Set([...LEAD_CHANNELS.filter((c) => all.some((l) => leadChannel(l) === c)), ...all.map(leadChannel)])].filter(Boolean), ads = [...new Set(all.filter((l) => (!f.leadChan || leadChannel(l) === f.leadChan) && (!f.leadType || leadType(l) === f.leadType)).map((l) => l.ad || '—'))].sort();
   const sel = (id, label, opts, val) => '<label class="fl">' + label + '<select class="f" id="' + id + '">' + opts.map(([k, v]) => '<option value="' + esc(k) + '"' + (String(val || '') === String(k) ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>';
-  const rows = leadsFiltered(), lim = f.leadLim || 120, shown = rows.slice(0, lim);
+  const rows = leadsFiltered(), lim = f.leadLim || 120, shown = rows.slice(0, lim), canAlloc = S.isOwner && w;
+  [...SEL].forEach((id) => { if (!rows.some((l) => l.id === id)) SEL.delete(id); });
   const respSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadresp="' + esc(l.id) + '" aria-label="אחראי"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts(l) + '</select>';
   const stSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadstage="' + esc(l.id) + '" aria-label="סטטוס"' + (w ? '' : ' disabled') + '>' + stageOpts(l) + '</select>';
   const phoneCell = (l) => l.phone ? '<a class="num" dir="ltr" href="tel:' + esc(normPhone(l.phone)) + '">' + esc(normPhone(l.phone)) + '</a><div><button class="btn small ghost" data-copyq="l:' + esc(l.id) + '" title="העתק שם פרטי וטלפון" aria-label="העתק שם וטלפון">העתק</button></div>' + (waLink(l.phone) ? ' <a class="hint hide-m" href="' + waLink(l.phone) + '" target="_blank" rel="noopener" title="וואטסאפ">וואטסאפ</a>' : '') : '<span class="hint">—</span>';
@@ -1933,8 +1945,9 @@ function vLeadsList(seg) {
         (S.isCenter ? '' : sel('fLeadResp', 'אחראי', [['', 'כולם'], ['none', 'לא שויך'], ...respEntries(S.division)], f.leadResp)) + sel('fLeadWhen', 'נכנס', [['', 'כל הזמן'], ['d1', 'היום'], ['d7', '7 ימים'], ['dm', 'החודש'], ['d30', '30 ימים']], f.leadWhen) +
         sel('fLeadSort', 'מיון', [['new', 'החדש ראשון'], ['old', 'הישן ראשון'], ['follow', 'לפי מעקב']], f.leadSort) + '</div></details></section>' +
     '<section class="card"><header><h2>' + esc(f.leadReach ? ({ 1: 'פגישות זום', 2: 'הגיעו לפגישת זום', 3: 'המשיכו לפרונטלי', 4: 'המשיכו לפרונטלי — הגיעו בפועל' })[f.leadReach] || '' : (chips.find((c) => c[0] === st) || [])[1] || '') + '</h2>' + (f.leadReach ? '<button class="btn small ghost" data-leadst="todo">✕ נקה</button>' : '') + '<span class="pill muted">' + rows.length + '</span></header>' +
-      (rows.length ? '<div class="scroll"><table class="leads"><thead><tr><th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
-        shown.map((l) => '<tr class="clickable" data-lead="' + esc(l.id) + '"><td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
+      (canAlloc && rows.length ? allocBar(rows) : '') +
+      (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
+        shown.map((l) => '<tr class="clickable" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
           '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
           '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m">' + respSel(l) + '</td>' +
           '<td class="hide-m">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
@@ -5363,6 +5376,12 @@ document.addEventListener('click', async (e) => {
         case 'stSave': { const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); if (rows.some((r) => !r.label)) return toast('חסר שם');
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('הסטטוסים של ' + L.division[div] + ' נשמרו'); }
         case 'mkFolders': return mkFolders();
+        case 'selClear': SEL.clear(); return render();
+        case 'selUnassigned': leadsFiltered().filter((l) => !l.resp && isLeadOpen(l)).forEach((l) => SEL.add(l.id)); return render();
+        case 'selAssign': { const who = ($('selWho') || {}).value; if (!who || !SEL.size) return; const lbl = L.resp[who] || (staff().find((p) => p.key === who) || {}).label || who; let k = 0, skip = 0;
+          for (const id of [...SEL]) { const l = S.leads.get(id); if (!l) continue; if (!peopleFor(leadDiv(l)).some((p) => p.key === who)) { skip++; continue; } if (l.resp === who) continue;
+            await leadPatch(id, { resp: who, assignedAt: stamp(), assignedBy: S.myKey || null }, (l.resp ? 'הועבר מ' + (L.resp[l.resp] || l.resp) + ' ל' : 'הוקצה ל') + lbl, true); k++; }
+          SEL.clear(); toast(k + ' לידים הוקצו ל' + lbl + (skip ? ' · ' + skip + ' לא שייכים לחברה שלו' : '')); return render(); }
         case 'poolAlloc': return poolAlloc();
         case 'scriptSave': { const o = { ...(S.settings.callScripts || {}) }; document.querySelectorAll('[data-script]').forEach((t) => { o[t.dataset.script] = t.value; }); await write('settings/main', { callScripts: o }, 'update'); return toast('התסריט נשמר'); }
         case 'stReset': { const div = $('stTable').dataset.div; const o = { ...(S.settings.statusSets || {}) }; delete o[div]; await write('settings/main', { statusSets: o }, 'update'); return toast('חזרה לברירת המחדל'); }
@@ -5502,6 +5521,8 @@ document.addEventListener('click', async (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
+  if (el.dataset && el.dataset.lsel) { if (el.checked) SEL.add(el.dataset.lsel); else SEL.delete(el.dataset.lsel); return render(); }
+  if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
   try {
     if (el.id === 'leadFile' && el.files && el.files[0]) return parseLeadFile(el.files[0]);
     if (el.dataset.scan && el.files && el.files[0]) { const [sc, k] = el.dataset.scan.split('|'), f = el.files[0]; el.value = ''; return scanUpload(sc, k, f); }
