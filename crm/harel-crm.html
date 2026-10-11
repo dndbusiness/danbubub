@@ -1828,10 +1828,16 @@ function formReComm(c) {
 function formAlloc() {
   const u = unassigned(), div = S.division, ppl = peopleFor(div).filter((p) => p.key !== 'dan');
   drawer('הקצאת לידים', '<p class="full hint">' + u.length + ' לידים פתוחים בלי אחראי' + (div === 'all' ? '' : ' ב' + L.division[div]) + '. מסמנים מי מקבל — והלידים מתחלקים בסבב, הישן ראשון. כל אחד רואה רק את שלו.</p>' +
-    '<div class="full">' + ppl.map((p) => '<label class="check"><input type="checkbox" class="cb" name="allocWho" value="' + esc(p.key) + '"' + (p.role === 'center' ? ' checked' : '') + '><span>' + esc(p.label) + ' <span class="hint">· ' + esc(ROLES[p.role].label) + (p.freelancer ? ' · פרילנסר' : '') + ' · ' + p.divs.map((d) => L.division[d]).join(' + ') + '</span></span></label>').join('') + '</div>' +
+    '<div class="full">' + ppl.map((p) => '<div class="row" style="align-items:center;gap:8px"><label class="check grow"><input type="checkbox" class="cb" name="allocWho" value="' + esc(p.key) + '"' + (p.role === 'center' ? ' checked' : '') + '><span>' + esc(p.label) + ' <span class="hint">· ' + esc(ROLES[p.role].label) + (p.freelancer ? ' · פרילנסר' : '') + ' · ' + p.divs.map((d) => L.division[d]).join(' + ') + ' · יש לו ' + live(S.leads).filter((l) => l.resp === p.key && isLeadOpen(l)).length + ' פתוחים</span></span></label>' +
+      '<input class="f" type="number" min="0" step="1" style="width:80px" name="allocN" data-who="' + esc(p.key) + '" placeholder="כמה" aria-label="כמה ל' + esc(p.label) + '"></div>').join('') + '<p class="hint">"כמה" ריק לכולם = חלוקה שווה בסבב. מספר ליד נציג = בדיוק כמה הוא מקבל.</p></div>' +
     fi('max', 'כמה לחלק (ריק = הכל)', '', 'number', 'min="1" step="1"'),
     async (d) => {
       const who = [...document.querySelectorAll('input[name=allocWho]:checked')].map((x) => x.value); if (!who.length) return 'סמן לפחות איש אחד';
+      const quota = Object.fromEntries([...document.querySelectorAll('input[name=allocN]')].filter((x) => who.includes(x.dataset.who) && x.value !== '').map((x) => [x.dataset.who, Math.max(0, Math.floor(Number(x.value) || 0))]));
+      if (Object.keys(quota).length) { const rows = u.sort((a, b) => leadAt(a).localeCompare(leadAt(b))); let i = 0, k = 0;
+        for (const key of who) { let want = quota[key] != null ? quota[key] : 0; while (want > 0 && i < rows.length) { const l = rows[i++]; if (!peopleFor(leadDiv(l)).some((p) => p.key === key)) continue;
+          await leadPatch(l.id, { resp: key, assignedAt: stamp(), assignedBy: S.myKey || null }, 'הוקצה ל' + (L.resp[key] || key), true); want--; k++; } }
+        return void toast(k + ' לידים הוקצו לפי הכמויות'); }
       const rows = u.sort((a, b) => leadAt(a).localeCompare(leadAt(b))).slice(0, d.max ? Math.max(1, Number(d.max)) : u.length); let k = 0;
       for (const l of rows) { const ok = who.filter((key) => peopleFor(leadDiv(l)).some((p) => p.key === key)); if (!ok.length) continue; const key = ok[k % ok.length]; k++;
         await leadPatch(l.id, { resp: key, assignedAt: stamp(), assignedBy: S.myKey || null }, 'הוקצה ל' + (L.resp[key] || key), true); }
@@ -1854,8 +1860,12 @@ function stRead() { const tb = $('stTable'); return [...tb.querySelectorAll('tbo
 /* ── לוח מעקב כמו בכוורת: מעקב לבקרה (לפי סטטוס) + זום ופרונטלי לפי תאריך יצירה. כל מספר נפתח לרשימה ── */
 const TONE_OF_BASE = (b) => b === 'won' ? 'actual' : ['meeting', 'proposal'].includes(b) ? 'committed' : ['lost', 'ineligible', 'duplicate', 'credit', 'invalid'].includes(b) ? 'locked' : b === 'new' || b === 'noanswer' ? 'open' : 'expected';
 function vLeadBoard() {
-  if (S.division === 'all') return '<div class="notice info"><b>בחר חברה</b><span class="grow">לכל חברה סטטוסים משלה — בחר הר-אל פתרונות או הר-אל השקעות למעלה.</span>' + DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)).map((d) => '<button class="btn small" data-d="' + d + '">' + L.division[d] + '</button>').join('') + '</div>';
-  const div = S.division, per = S.f.boardPer || 'month', t0 = today(), defs = stageDefs(div).filter((x) => !x.hide);
+  const myDivs = DIVS.filter(canSeeDiv), div = S.division !== 'all' ? S.division : myDivs.includes(S.f.boardDiv) ? S.f.boardDiv : myDivs[0];
+  const divSel = S.division === 'all' && myDivs.length > 1 ? '<div class="seg" role="group" aria-label="חברה" style="margin:0 0 12px">' + myDivs.map((d) => '<button data-boarddiv="' + d + '" aria-pressed="' + (d === div) + '">' + L.division[d] + '</button>').join('') + '</div>' : '';
+  return divSel + vLeadBoardDiv(div);
+}
+function vLeadBoardDiv(div) {
+  const per = S.f.boardPer || 'month', t0 = today(), defs = stageDefs(div).filter((x) => !x.hide);
   const from = { today: t0, week: addDays(t0, -6), month: t0.slice(0, 7) + '-01', all: '0000' }[per] || '0000';
   const ppl = S.isCenter ? [] : peopleFor(div), who = S.isCenter ? S.myKey : ppl.some((p) => p.key === S.f.boardWho) ? S.f.boardWho : '';
   const mine = live(S.leads).filter((l) => leadDiv(l) === div && (!who || l.resp === who)), inPer = mine.filter((l) => dayOf(l.createdAt) >= from);
@@ -1885,7 +1895,7 @@ function vLeadBoard() {
     '<p class="hint" style="margin-top:12px">לחיצה על מספר פותחת את הלידים שמרכיבים אותו. הסטטוסים נלקחו מכוורת — עריכה: הגדרות ← סטטוסים לפי חברה.</p>';
 }
 function vLeads() {
-  const fin = S.division !== 'realestate' && canSeeDiv('finance'), v0 = S.isCenter ? (S.f.leadView === 'board' ? 'board' : 'list') : S.f.leadView || 'list', v = v0 === 'credit' && !fin ? 'list' : v0;
+  const fin = S.division !== 'realestate' && canSeeDiv('finance'), v0 = S.isCenter ? (S.f.leadView === 'list' ? 'list' : 'board') : S.f.leadView || 'board', v = v0 === 'credit' && !fin ? 'list' : v0;
   const nc = fin ? live(S.leads).filter((l) => leadDiv(l) === 'finance' && creditable(l) && creditOf(l) === 'pending').length : 0;
   const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + [['list', 'לידים'], ['board', 'לוח מעקב'], ...(fin ? [['credit', 'דוח זיכויים' + (nc ? ' (' + nc + ' ממתינים)' : '')]] : []), ['day', 'סיכום יום']].map(([k, t]) => '<button data-leadview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
   if (v === 'board') return '<div class="row"><h1 class="grow">לידים — לוח מעקב</h1></div>' + (S.isCenter ? '<div class="seg" role="group" style="margin:0 0 12px"><button data-leadview="list" aria-pressed="false">הלידים שלי</button><button data-leadview="board" aria-pressed="true">לוח מעקב</button></div>' : seg) + vLeadBoard();
@@ -2705,6 +2715,18 @@ function poolIdx() {
   return POOL;
 }
 const poolOf = (phone) => canSeeDiv('realestate') ? poolIdx().byPhone.get(normPhone(phone)) : null;
+async function poolAlloc() {
+  const who = ($('poolWho') || {}).value, n = Math.min(200, Math.max(1, Number(($('poolN') || {}).value) || 0)); if (!who) return toast('בחר נציג');
+  const P = poolIdx(), q = String(S.f.poolQ || '').trim(), qd = q.replace(/\D/g, ''), leadPh = new Set(live(S.leads).map((l) => normPhone(l.phone)));
+  const pick = P.rows.filter((r) => r.ok && /^05\d{8}$/.test(r.phone) && !leadPh.has(r.phone) && (!q || String(r.name).includes(q) || (qd.length >= 3 && r.phone.includes(qd)) || String(r.kid) === q))
+    .filter((r, i, a) => a.findIndex((x) => x.phone === r.phone) === i).sort((a, b) => Number(b.kid) - Number(a.kid)).slice(0, n);
+  if (!pick.length) return toast('אין במאגר אנשי קשר מתאימים שעוד לא לידים');
+  const label = (staff().find((p) => p.key === who) || {}).label || who, at = stamp();
+  for (const r of pick) { const id = 'kv-' + (r.kid || r.phone); if (S.leads.has(id) && !S.leads.get(id).deletedAt) continue;
+    await write('leads/' + id, { id, name: r.name || r.phone, phone: r.phone, division: 'realestate', stage: 'new', platform: 'כוורת', channel: 'מאגר כוורת', campaign: 'מאגר כוורת', kaveretId: r.kid || null, resp: who, assignedAt: at, assignedBy: S.myKey || null, createdAt: at, by: S.me.id,
+      log: [{ at, by: S.me.id, who: whoAmI(), text: 'הוקצה מהמאגר של כוורת ל' + label + ' (כרטיס ' + (r.kid || '—') + ')', auto: true }] }); }
+  toast(pick.length + ' לידים מהמאגר הוקצו ל' + label);
+}
 function vPool() {
   if (!canSeeDiv('realestate')) return '<p class="empty">המאגר שייך להר-אל השקעות.</p>';
   const P = poolIdx(), q = String(S.f.poolQ || '').trim(), qd = q.replace(/\D/g, ''), leadPh = new Set(live(S.leads).map((l) => normPhone(l.phone)));
@@ -2714,6 +2736,9 @@ function vPool() {
       kpi('כבר לידים במערכת', '<span class="num">' + P.rows.filter((r) => leadPh.has(r.phone)).length.toLocaleString('he-IL') + '</span>', 'לפי מספר טלפון', null) + '</div>' +
     '<section class="card"><header><h2>מאגר כוורת</h2><span class="grow"></span>' + (S.isOwner ? '<button class="btn small" data-act="poolCsv">ייצוא מאשרי דיוור (CSV)</button>' : '') + '</header>' +
     '<label class="fl">חיפוש — שם, טלפון או מספר כרטיס<input class="f" type="search" id="fPoolQ" value="' + esc(q) + '" placeholder="לפחות 3 ספרות לטלפון"></label>' +
+    (S.isOwner && S.canTask ? '<div class="ppanel" style="margin:10px 0"><h3 class="sec">הקצאה מהמאגר לנציג</h3><p class="hint" style="margin:0 0 6px">נפתחים לידים חדשים אצל הנציג — רק מי שאישר דיוור ועוד לא ליד במערכת' + (q ? ', מתוך החיפוש "' + esc(q) + '"' : '') + '. המוקד לא טוען את המאגר — רק את הלידים שהוקצו לו.</p><div class="row" style="align-items:flex-end">' +
+      '<label class="fl">נציג<select class="f" id="poolWho">' + peopleFor('realestate').filter((p) => p.key !== 'dan').map((p) => '<option value="' + esc(p.key) + '"' + (p.role === 'center' ? '' : '') + '>' + esc(p.label) + (p.role === 'center' ? ' · מוקד' : '') + ' — ' + live(S.leads).filter((l) => l.resp === p.key && isLeadOpen(l)).length + ' פתוחים</option>').join('') + '</select></label>' +
+      '<label class="fl">כמה<input class="f" type="number" id="poolN" min="1" max="200" step="1" value="20" style="width:90px"></label><button class="btn small primary" data-act="poolAlloc">הקצה</button></div></div>' : '') +
     (hits.length ? '<div class="scroll"><table><thead><tr><th>כרטיס</th><th>שם</th><th>טלפון</th><th>דיוור</th><th></th></tr></thead><tbody>' + hits.map((r) => '<tr><td class="num">' + esc(r.kid) + '</td><td class="wide">' + esc(r.name) + '</td><td class="num" dir="ltr">' + esc(r.phone) + '</td><td>' + (r.ok ? '<span class="pill actual">כן</span>' : '<span class="pill muted">לא</span>') + '</td><td>' +
       (leadPh.has(r.phone) ? '<span class="pill committed">ליד</span>' : S.canTask ? '<button class="btn small" data-poollead="' + esc(r.phone) + '">פתח ליד</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' + (!q ? '<p class="hint">מוצגים 50 הראשונים — חפש כדי למצוא.</p>' : '') : '<p class="empty">לא נמצא במאגר.</p>') + '</section>';
 }
@@ -5169,8 +5194,9 @@ document.addEventListener('click', async (e) => {
     if (d.lead && el.matches('tr')) { if (e.target.closest('a, select, input')) return; return go('lead', d.lead); }
     if (d.stdiv) { S.f.stDiv = d.stdiv; return render(); }
     if (d.boardper) { S.f.boardPer = d.boardper; return render(); }
+    if (d.boarddiv) { S.f.boardDiv = d.boarddiv; return render(); }
     if (d.boardwho != null && el.matches('[data-boardwho]')) { S.f.boardWho = d.boardwho; return render(); }
-    if (d.boardst) { const [k, perFlag] = d.boardst.split('@'); S.f.leadView = 'list'; S.f.leadWhen = perFlag || k.startsWith('reach:') ? ({ today: 'd1', week: 'd7', month: 'dm', all: '' }[S.f.boardPer || 'month']) : ''; S.f.leadSt = k.startsWith('reach:') ? 'all' : k; S.f.leadReach = k.startsWith('reach:') ? Number(k.slice(6)) : null; if (!S.isCenter) S.f.leadResp = S.f.boardWho || ''; return render(); }
+    if (d.boardst) { const [k, perFlag] = d.boardst.split('@'); if (S.division === 'all') { const md = DIVS.filter(canSeeDiv); S.division = md.includes(S.f.boardDiv) ? S.f.boardDiv : md[0]; } S.f.leadView = 'list'; S.f.leadWhen = perFlag || k.startsWith('reach:') ? ({ today: 'd1', week: 'd7', month: 'dm', all: '' }[S.f.boardPer || 'month']) : ''; S.f.leadSt = k.startsWith('reach:') ? 'all' : k; S.f.leadReach = k.startsWith('reach:') ? Number(k.slice(6)) : null; if (!S.isCenter) S.f.leadResp = S.f.boardWho || ''; return render(); }
     if (d.restep && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canTask) return; const lbl = (RE_STEPS.find((x) => x[0] === d.restep) || [])[1];
       return reSet(c, { step: d.restep, ...(d.restep === 'closed' ? { devSigned: true, devPaid: true } : {}) }, 'שלב: ' + lbl); }
     if (d.refitask || d.refidone) { const [cid, i] = (d.refitask || d.refidone).split('|'), c = S.clients.get(cid); if (!c) return; const x = refiOf(c).find((r) => String(r.i) === i);
@@ -5337,6 +5363,7 @@ document.addEventListener('click', async (e) => {
         case 'stSave': { const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); if (rows.some((r) => !r.label)) return toast('חסר שם');
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('הסטטוסים של ' + L.division[div] + ' נשמרו'); }
         case 'mkFolders': return mkFolders();
+        case 'poolAlloc': return poolAlloc();
         case 'scriptSave': { const o = { ...(S.settings.callScripts || {}) }; document.querySelectorAll('[data-script]').forEach((t) => { o[t.dataset.script] = t.value; }); await write('settings/main', { callScripts: o }, 'update'); return toast('התסריט נשמר'); }
         case 'stReset': { const div = $('stTable').dataset.div; const o = { ...(S.settings.statusSets || {}) }; delete o[div]; await write('settings/main', { statusSets: o }, 'update'); return toast('חזרה לברירת המחדל'); }
         case 'simAdd': case 'simPreset': { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))); x.sim = { ...SIM_DEFAULT(), ...(x.sim || {}) };
