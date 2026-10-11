@@ -1279,7 +1279,7 @@ function vClient(id) {
             : '<p class="empty">היומן ריק.</p>') + '</section>' +
         (w ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (S.isOwner ? 'העבר לארכיון' : 'בקש העברה לארכיון') + '</button></div>' : '') +
       '</div>' +
-    '</div>' + (S.isOwner ? '<div style="margin-top:16px">' + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
+    '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + planCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
 const goalsRows = (c) => { const g = c.goals; if (!g) return ''; const pr = Object.keys(g.prefs || {}).filter((k) => g.prefs[k]).map((k) => IK.prefs[k]);
   const exp = [n(g.rateMax) ? 'ריבית ' + (n(g.rateMin) ? n(g.rateMin) + '–' : 'עד ') + n(g.rateMax) + '%' : '', n(g.payment) ? 'החזר כולל עד ' + plain(g.payment) : '', ...pr].filter(Boolean).join(' · ');
@@ -1938,6 +1938,54 @@ async function docMove(c, fileId, cat) {
   const fid = await catFolder(c, cat); { const ok = fid ? await S.mcp.callTool('Google Drive', 'update_file', { fileId, parentId: fid }, { cache: false }).then(() => true).catch(() => false) : false;
     if (!ok) { await write('clients/' + c.id, { docCats: { ...(c.docCats || {}), [fileId]: cat }, updatedAt: stamp() }, 'update', { journal: true }); toast('סומן כ' + catLabel(cat) + ' (ההעברה בדרייב לא הצליחה)'); return docsLoad(S.clients.get(c.id) || c, true); } }
   toast('הועבר ל' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
+/* ═════ בניית תוכנית לקרן (ערבות מדינה) — בקרה על הנתונים והמסמכים, ואז הודעה מוכנה לשיחה של דן עם ה-skill.
+   הדף לא יכול לכתוב לתוך שיחה קיימת — מעתיקים את ההודעה ופותחים את השיחה; שם Claude קורא את המסמכים מהדרייב ושומר את הפלט לתיקיית הלקוח. ═════ */
+const PLAN_DOCS = [['רווח והפסד / דוחות כספיים', /רווח|הפסד|דו["״]?ח כספי|דוחות כספיים|מאזן|P&L/i], ['שומות / דוח שנתי למס', /שומ|דו["״]?ח שנתי|1301|1214/i], ['מע״מ (ESNA)', /מע["״]?מ|esna|874/i],
+  ['102 / ביטוח לאומי', /102|ביטוח לאומי/], ['ריכוז יתרות / עו״ש 3 חודשים', /ריכוז יתרות|עו["״]?ש|עובר ושב|תדפיס/], ['לוחות סילוקין', /סילוקין|לוח סילוק/], ['תעודת עוסק / התאגדות', /עוסק|התאגדות|נסח חברה/],
+  ['ת״ז + ספח', /ת\.?ז|תעודת זהות|ספח/], ['הצעות מחיר / חוזים לשימושים', /הצע(ת|ות) מחיר|חוזה|quote/i], ['דוח אשראי', /אשראי|BDI/i]];
+const PLAN_DEFAULT_REQ = 'תיק ערבות מדינה מלא לפי ה-skill state-guarantee-loan-package: שאלון הגשת בקשה + תוכנית עסקית 10-15 עמודים, עברית RTL.\nכל מספר מחושב בסקריפט ומוצלב — בלי להמציא נתונים; מה שחסר מסומן (להשלמה) ומופיע ברשימת החסרים.\nלהפיק גם גרסה חיצונית לקרן (בלי סעיף 9 הפנימי).\nבסוף: רשימה קצרה של מה עוד פתוח לפני הגשה.';
+function planCheck(c) {
+  const ik = S.intakes.get(c.id) || {}, rq = ik.request || {}, bz = ik.biz || {}, st = (S.docRes || {})[c.id], files = (st && st.files) || [], notes = String(c.planNotes || '');
+  const docs = PLAN_DOCS.map(([label, re]) => { const hit = files.filter((f) => re.test(f.title || '')); return { label, ok: hit.length > 0, files: hit }; });
+  const has = (v, re) => (v !== undefined && v !== null && String(v).trim() !== '') || (re && re.test(notes));
+  const data = [['סכום מבוקש', has(rq.amount || c.baseAmount, /סכום|₪|\d{3},?\d{3}/)], ['מטרת ההלוואה ושימושים', has(rq.purpose, /מטר|שימוש|לטובת/)], ['שם העסק וסוג ישות', has(bz.name || bz.entity, /עוסק|חברה|בע["״]?מ/)],
+    ['ותק העסק', has(bz.years, /ותק|שנים|נפתח/)], ['מחזור שנתי', has(bz.turnover, /מחזור/)], ['מספר עובדים', has(bz.employees, /עובד/)], ['משיכת הבעלים בחודש', has(null, /משיכ|מחי/)],
+    ['הון עצמי ומקורו', has(null, /הון עצמי|עצמי/)], ['ביטחונות', has(null, /ביטחו|בטוחה|ערב|שעבוד|פיקדון/)], ['תחזית 3 שנים', has(null, /תחזית|צפי/)]].map(([label, ok]) => ({ label, ok }));
+  return { docs, data, loaded: !!(st && st.files), missing: [...docs.filter((d) => !d.ok).map((d) => d.label), ...data.filter((d) => !d.ok).map((d) => d.label)] };
+}
+function planPrompt(c) {
+  const ik = S.intakes.get(c.id) || {}, chk = planCheck(c), st = (S.docRes || {})[c.id], files = (st && st.files) || [];
+  const clean = (o) => JSON.stringify(o, (k, v) => (v === '' || v === null || (Array.isArray(v) && !v.length) || ['id', 'clientId', 'createdAt', 'updatedAt', 'kind'].includes(k) ? undefined : v));
+  const folder = c.driveFolder ? folderUrl(c.driveFolder) : '';
+  const notes = (c.log || []).filter((e) => !e.auto && e.text).slice(0, 15).map((e) => '- ' + dayOf(e.at) + ': ' + e.text).join('\n');
+  return ['בנה לי תיק ערבות מדינה ללקוח: ' + c.name, '',
+    '## הדרישות שלי', S.settings.planReq || PLAN_DEFAULT_REQ, '',
+    '## נתונים ודגשים לתיק הזה (מלל חופשי שלי)', String(c.planNotes || '').trim() || '(לא נרשם)', '',
+    '## פרטי הלקוח מה-CRM', [['טלפון', c.phone], ['מייל', c.email], ['מוצר', L.product[c.product] || c.service], ['סכום הבקשה', c.baseAmount ? plain(c.baseAmount) : ''], ['שלב', L.stage[c.stage]], ['אחראי', L.resp[c.resp]], ['הערות', c.notes]].filter(([, v]) => v).map(([k, v]) => '- ' + k + ': ' + v).join('\n'), '',
+    '## הכר את הלקוח (כפי שמולא במערכת, JSON)', Object.keys(ik).length ? clean(ik) : '(לא מולא)', '',
+    ...(notes ? ['## הערות אחרונות מיומן הלקוח', notes, ''] : []),
+    '## מסמכים בדרייב (לקרוא דרך מחבר Google Drive)', files.length ? DOC_CATS.map(([k, l]) => { const g = files.filter((f) => f.cat === k && !f.folderLink); return g.length ? l + ':\n' + g.map((f) => '- ' + f.title + ' — ' + (f.viewUrl || 'https://drive.google.com/file/d/' + f.id + '/view')).join('\n') : ''; }).filter(Boolean).join('\n') : '(לא נטענו מסמכים)', '',
+    '## בקרה מה-CRM — מה חסר לפני שמתחילים', chk.missing.length ? chk.missing.map((m) => '- ' + m).join('\n') : '- נראה שהכל קיים', '',
+    '## שמירה', folder ? 'בסיום שמור את שני ה-PDF, את case.report.md ואת case.json ישירות בדרייב, בתיקיית הלקוח: ' + folder + ' — בתת-תיקייה "מסמכים עסקיים" (אם אין — צור אותה). שמות קבצים: "שאלון — ' + c.name + '", "תוכנית עסקית — ' + c.name + '" (+ "גרסה לקרן").' : 'ללקוח אין עדיין תיקייה בדרייב — תחזיר לי את הקבצים כאן.'].join('\n');
+}
+function planCard(c) {
+  if (!S.isOwner || (c.division || 'finance') === 'realestate') return ''; const w = S.canWrite, st = (S.docRes || {})[c.id];
+  if (hasDocs(c) && S.mcp && !st) setTimeout(() => docsLoad(c), 80);
+  const chk = planCheck(c), chat = S.settings.planChatUrl || '', mark = (ok) => '<span class="pill ' + (ok ? 'actual' : 'open') + '" style="min-width:22px;justify-content:center">' + (ok ? '✓' : '✗') + '</span>';
+  const okN = chk.docs.filter((d) => d.ok).length + chk.data.filter((d) => d.ok).length, all = chk.docs.length + chk.data.length;
+  return '<section class="card plan"><header><h2>בניית תוכנית לקרן</h2><span class="pill ' + (okN === all ? 'actual' : 'expected') + '">' + okN + '/' + all + '</span><span class="grow"></span>' + (c.planSentAt ? '<span class="hint">נשלח לשיחה ' + dLabel(dayOf(c.planSentAt)) + '</span>' : '') + '</header>' +
+    '<div class="grid2" style="gap:12px"><div><b>מסמכים</b>' + (chk.loaded ? '' : ' <span class="hint">' + (hasDocs(c) ? 'טוען מהדרייב…' : 'אין תיקייה בדרייב') + '</span>') +
+      chk.docs.map((d) => '<div class="row" style="align-items:center;margin:3px 0;gap:6px">' + mark(d.ok) + '<span class="grow">' + d.label + (d.ok ? ' <span class="hint">' + d.files.slice(0, 2).map((f) => '<bdi>' + esc(String(f.title || '').replace(/\.[A-Za-z0-9]{2,5}$/, '')) + '</bdi>').join(', ') + (d.files.length > 2 ? ' +' + (d.files.length - 2) : '') + '</span>' : '') + '</span></div>').join('') + '</div>' +
+    '<div><b>נתונים</b> <span class="hint">מ"הכר את הלקוח" או מהמלל החופשי</span>' + chk.data.map((d) => '<div class="row" style="align-items:center;margin:3px 0;gap:6px">' + mark(d.ok) + '<span class="grow">' + d.label + '</span></div>').join('') + '</div></div>' +
+    '<label class="fl full" style="margin-top:10px">נתונים ודגשים לתיק — מלל חופשי (נשמר אוטומטית)<textarea class="f" id="planNotes" rows="5" data-plannotes="' + esc(c.id) + '"' + (w ? '' : ' readonly') + ' placeholder="למשל: משיכת בעלים 12,000 ₪ לחודש · הון עצמי 125,000 מחסכונות · ביטחונות: ערבות אישית של האח · לא לציין את ההלוואה הישנה מ-2021 · להדגיש את החוזה עם רשת X">' + esc(c.planNotes || '') + '</textarea></label>' +
+    '<div class="row" style="align-items:center;margin-top:10px">' + (chat ? '<a class="btn primary" href="' + esc(chat) + '" target="_blank" rel="noopener" data-plango="' + esc(c.id) + '">העתק ופתח בשיחה שלי ↗</a>' : '<span class="hint">אין קישור לשיחה — הוסף ב"הגדרות התוכנית"</span>') +
+      '<button class="btn" data-act="planCopy">רק העתק</button><span class="hint grow">ההודעה כוללת את הדרישות, הכר את הלקוח, הדגשים, רשימת המסמכים עם קישורים, מה חסר — והוראה לשמור את הפלט בתיקיית הלקוח בדרייב. בשיחה: הדבק ושלח.</span></div>' +
+    (S.isDan || w ? '<details style="margin-top:10px"><summary class="hint">הגדרות התוכנית — הקישור לשיחה והדרישות הקבועות שלי</summary>' +
+      '<label class="fl full" style="margin-top:6px">קישור לשיחה<input class="f" id="planChatUrl" dir="ltr" value="' + esc(chat) + '" placeholder="https://claude.ai/chat/…"></label>' +
+      '<label class="fl full">הדרישות הקבועות שלי (נכנסות לכל תוכנית)<textarea class="f" id="planReq" rows="5">' + esc(S.settings.planReq || PLAN_DEFAULT_REQ) + '</textarea></label>' +
+      '<div class="row"><button class="btn small" data-act="planSettings">שמור הגדרות</button></div></details>' : '') + '</section>';
+}
+async function planMarkSent(c) { await write('clients/' + c.id, { planSentAt: stamp(), updatedAt: stamp() }, 'update').catch(() => {}); await logClient(c.id, 'נשלח לבניית תוכנית לקרן (שיחה עם Claude)' + (planCheck(c).missing.length ? ' · חסרים: ' + planCheck(c).missing.join(', ') : '')).catch(() => {}); }
 const docExt = (f) => f.folderLink ? 'תיקייה' : f.mimeType === 'application/vnd.google-apps.document' ? 'DOC' : f.mimeType === 'application/vnd.google-apps.spreadsheet' ? 'XLS' : (String(f.title || '').match(/\.([A-Za-z0-9]{2,5})$/) || [, /^image\//.test(f.mimeType || '') ? 'IMG' : 'קובץ'])[1].toUpperCase();
 function docTile(f, w, sel) {
   const th = thumbGet(f), url = f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view');
@@ -5696,9 +5744,11 @@ function render() {
   if (hideT.includes(S.view.tab)) S.view.tab = 'day';
   const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
+  const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
   $('main').innerHTML = (S._idle ? '<div class="notice bad"><b>40 דקות בלי פעילות במערכת</b><span class="grow">הכל בסדר? כל פעולה במערכת מחזירה אותך לפעיל.</span><button class="btn small" data-act="attHere">אני כאן</button></div>' : '') + partnerHint() + (S.canTask ? '' : '<div class="notice warn"><b>קריאה בלבד</b><span>בתצוגה הזו אין הרשאת עריכה. בעל הדף יכול לתת גישה מתפריט השיתוף.</span></div>') + (V[S.view.tab] || vDay)();
   if (active && $(active) && $(active).matches('input[type=search]')) { $(active).focus(); try { $(active).setSelectionRange(pos, pos); } catch (e) {} }
+  keep.forEach(([id, v]) => { const el = $(id); if (el && el.value !== v) el.value = v; }); if (KEEP.includes(active) && $(active)) { $(active).focus(); try { $(active).setSelectionRange(pos, pos); } catch (e) {} }
   if (ikA) { const el = document.querySelector('[data-ik="' + ikA + '"]'); if (el) { if (el.type !== 'checkbox' && ikV != null && el.value !== ikV) el.value = ikV; el.focus(); try { if (ikP != null) el.setSelectionRange(ikP, ikP); } catch (e) {} } }
   const me = S.me.id, t0 = today();
   const mine = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due <= t0 && isMyTask(t, me)).length;
@@ -5711,6 +5761,8 @@ function render() {
     (S.settings.lock && S.settings.lock.hash && !isLocked() ? ' <button class="btn small ghost" data-act="logout" title="יציאה / החלפת משתמש">יציאה</button>' : '') : '';
 }
 
+document.addEventListener('click', (e) => { const a = e.target.closest('a[data-plango]'); if (!a) return; const c = S.clients.get(a.dataset.plango); if (!c) return;
+  copyText(planPrompt(c), 'ההודעה הועתקה — הדבק בשיחה שנפתחה'); planMarkSent(c); });
 document.addEventListener('click', async (e) => {
   if (e.target.closest('a.lnk')) return;
   const el = e.target.closest('button, tr[data-client], tr[data-attn], tr[data-pm], tr[data-cat], tr[data-owner], tr[data-sm], tr[data-intake], tr[data-lead], a[data-leadopen], tr[data-sdrill], tr[data-expchk], article[data-go], [data-client]');
@@ -6067,6 +6119,9 @@ document.addEventListener('click', async (e) => {
             const roots = S.settings.driveRoots || []; if (roots.some((r) => r.id === m[1])) return 'כבר ברשימה'; await write('settings/main', { driveRoots: [...roots, { id: m[1], title: String(x.title || '').trim() || 'תיקיית לקוחות' }] }, 'update'); S.rootIdx = null; S.rootMatch = null; toast('נוספה'); }, '', 'הוסף');
         case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
         case 'newContact': return formContact(null);
+        case 'planCopy': if (!c) return; await copyText(planPrompt(c), 'ההודעה הועתקה — הדבק בשיחה'); return planMarkSent(c);
+        case 'planSettings': { const url = String(($('planChatUrl') || {}).value || '').trim(); if (url && !/^https:\/\/claude\.ai\//.test(url)) return toast('הקישור צריך להתחיל ב-https://claude.ai/');
+          await write('settings/main', { planChatUrl: url, planReq: String(($('planReq') || {}).value || '').trim() }, 'update'); return toast('ההגדרות נשמרו'); }
         case 'ctSelAll': { const cat = S.f.ctCat || 'all', q = String(S.f.ctQ || '').trim().toLowerCase(); S.ctSel = S.ctSel || new Set();
           live(S.contacts).filter((c) => cat === 'all' || (c.cat || 'other') === cat).filter((c) => !q || [c.name, c.org, c.title, c.email, c.phone].some((v) => String(v || '').toLowerCase().includes(q))).forEach((c) => S.ctSel.add(c.id)); return render(); }
         case 'ctSelClear': S.ctSel = new Set(); return render();
@@ -6215,6 +6270,8 @@ let qT;
 document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pside')) S.f.psideOpen = e.target.open; if (e.target.matches && e.target.matches('details.convbox')) S.f.convOpen = e.target.open; }, true);
 document.addEventListener('input', async (e) => {
   if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
+  if (e.target.dataset && e.target.dataset.plannotes && S.canWrite) { const el = e.target, id = el.dataset.plannotes; clearTimeout(S._planT);
+    S._planT = setTimeout(() => write('clients/' + id, { planNotes: el.value, updatedAt: stamp() }, 'update').catch(() => {}), 900); return; }
   const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ', fCtQ: 'ctQ' };
   if (map[e.target.id]) { S.f[map[e.target.id]] = e.target.value; clearTimeout(qT); qT = setTimeout(render, 160); return; }
   if (e.target.id === 'teamSearch' && S.user) {
