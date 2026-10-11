@@ -62,3 +62,13 @@ export function reportFolder(kind: 'daily' | 'weekly' | 'pnl' | 'nissim' | 'payr
   }
   return [...root, y, m, ...(names[kind] ?? [])]
 }
+
+/** תת-תיקייה בשם נתון בתוך תיקייה קיימת (למשל "הסכמי התקשרות" בתיקיית הלקוח) — יוצר אם אין. */
+export async function ensureChildFolder(accessToken: string, parentId: string, name: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+  const found = await findChild(accessToken, parentId, name, FOLDER, fetchImpl)
+  if (found) return found
+  const created = await api(accessToken, 'https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, mimeType: FOLDER, parents: [parentId] }),
+  }, fetchImpl) as { id: string }
+  return created.id
+}

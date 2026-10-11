@@ -9,7 +9,8 @@ import { NextResponse, type NextRequest } from 'next/server'
  */
 const COOKIE = 'harel_gate'
 // המניפסט והאייקונים של ה-CRM נטענים בלי עוגיות (כך הדפדפן מבקש מניפסט) — אין בהם נתונים
-const OPEN_PATHS = ['/api/health', '/api/jobs', '/api/google/callback', '/gate', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
+// /s ו-/api/s — דף החתימה של הלקוח (הטוקן בקישור הוא ההרשאה; /s/print מוגן ב-HMAC)
+const OPEN_PATHS = ['/api/health', '/api/jobs', '/api/google/callback', '/gate', '/s', '/api/s', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
 
 export function middleware(req: NextRequest) {
   const password = process.env.APP_PASSWORD

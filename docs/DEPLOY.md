@@ -82,6 +82,10 @@ psql "$PGURL" -f db/tests/000_guarantees.sql   # 26 ההבטחות המבניו�
 | `CRON_SECRET` | — | רק אם משתמשים ב-Vercel Cron (Vercel מגדיר אותו לבד) |
 | `CHROMIUM_PACK_URL` | — | הפקת PDF ב-Vercel נכשלת (ראו §3) |
 | `APP_PASSWORD` | — | **האתר פתוח לכל מי שיש לו הכתובת** (ראו §7) |
+| `SIGN_SECRET` | — | חתימה דיגיטלית: מפתח לעמוד ההדפסה הפנימי של ההסכם. ריק = נגזר מ-`APP_PASSWORD`. `openssl rand -hex 32` |
+
+> **חתימה דיגיטלית:** הלקוח פותח `<APP_BASE_URL>/s/<token>` בלי סיסמה — `middleware.ts` משאיר פתוחים רק את `/s` ו-`/api/s`. הטוקן בקישור הוא ההרשאה; ב-DB נשמר רק ה-hash שלו.
+> ה-PDF החתום נוצר ב-Playwright (ב-Vercel צריך `CHROMIUM_PACK_URL`), נשמר בדרייב של הלקוח ב"הסכמי התקשרות" ונשלח במייל דרך ה-outbox.
 
 > `SECRETS_KEY` מצפין את ה-refresh token של גוגל. **אם הוא מתחלף — החיבור לגוגל
 > נשבר וצריך לחבר מחדש.** לשמור אותו במקום שלא הולך לאיבוד.

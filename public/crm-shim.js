@@ -9,6 +9,7 @@
  */
 (function () {
   'use strict';
+  window.__harelServer = true; /* הדף רץ בשרת — פיצ'רים שצריכים כתובת ציבורית (חתימה דיגיטלית) נדלקים */
   var POLL_MS = 3000, POLL_HIDDEN_MS = 30000;
 
   function api(path, body) {
