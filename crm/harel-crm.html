@@ -458,7 +458,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
+const COLL = ['kaveretPool', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -513,7 +513,7 @@ const inRe = (k, x) => S[k] && S[k].has(x.id) ? 'realestate' : null;
 const DIV_OF = { clients: (x) => x.division || 'finance', leads: (x) => x.division || 'finance', transactions: (x) => x.division || inRe('reTx', x) || cDiv(x.clientId) || 'finance', expenses: (x) => x.division || inRe('reExpenses', x) || 'finance',
   planned: (x) => x.division || inRe('rePlanned', x) || cDiv(x.clientId) || 'finance', tasks: taskDiv, tickets: (x) => x.division || cDiv(x.clientId) || 'finance', files: (x) => cDiv(x.clientId || x.id) || 'finance',
   intakes: (x) => cDiv(x.clientId) || lDiv(x.id) || 'finance', approvals: (x) => cDiv(x.clientId) || 'finance', lenders: () => 'finance', campaigns: (x) => x.division || 'finance',
-  reTx: () => 'realestate', reExpenses: () => 'realestate', rePlanned: () => 'realestate' };
+  reTx: () => 'realestate', reExpenses: () => 'realestate', rePlanned: () => 'realestate', kaveretPool: () => 'realestate' };
 const restricted = () => !S._all && !!(S.allowedDivs && S.allowedDivs.length < DIVS.length);
 /* חישוב שחייב את כל הנתונים (למשל החלק של שותפי נדל״ן ברווח של פתרונות) — מחזיר רק את התוצאה, בלי השורות */
 const withAll = (fn) => { const o = S._all; S._all = true; try { return fn(); } finally { S._all = o; } };
@@ -1500,23 +1500,26 @@ const LEAD_TONE = { new: 'open', noanswer: 'open', followup: 'expected', contact
 const leadDiv = (l) => l.division || 'finance';
 /* הר-אל השקעות — הסטטוסים מכוורת (10/10). reach = כמה רחוק הליד הגיע במשפך: 1 זום נקבע · 2 הגיע לזום · 3 נקבעה פרונטלית · 4 התקיימה פרונטלית · 5 בתהליך · 6 רכש */
 const DEFAULT_SETS = { realestate: [
-  { key: 'new', label: 'ליד חדש', base: 'new', reach: 0 }, { key: 'noanswer', label: 'אין מענה', base: 'noanswer', reach: 0 },
+  { key: 'new', label: 'ליד חדש', base: 'new', reach: 0, alias: ['חדש'] }, { key: 'noanswer', label: 'אין מענה', base: 'noanswer', reach: 0 },
+  { key: 're_checking', label: 'בבדיקה', base: 'checking', reach: 0 },
   { key: 're_followup', label: 'פולו-אפ', base: 'followup', reach: 0, alias: ['פולואפ', 'פולו אפ', 'follow up'] }, { key: 're_call_next', label: 'תואמה שיחת המשך', base: 'followup', reach: 0 },
-  { key: 're_zoom_again', label: 'מוקד — תיאום זום מחדש', base: 'followup', reach: 0, alias: ['תיאום זום מחדש', 'פגישת זום - לתאם מחדש', 'פגישת זום לתאם מחדש'] }, { key: 're_feedback', label: 'משוב', base: 'thinking', reach: 0 }, { key: 're_webinar', label: 'וובינר סוכות', base: 'thinking', reach: 0 },
+  { key: 're_zoom_again', label: 'מוקד — תיאום זום מחדש', base: 'followup', reach: 0, alias: ['תיאום זום מחדש', 'פגישת זום - לתאם מחדש', 'פגישת זום לתאם מחדש', 'לתאם מחדש'] }, { key: 're_feedback', label: 'משוב', base: 'thinking', reach: 0 }, { key: 're_webinar', label: 'וובינר סוכות', base: 'thinking', reach: 0 },
   { key: 're_zoom_set', label: 'נקבעה פגישת זום', base: 'meeting', reach: 1, alias: ['תואמה פגישת זום'] }, { key: 're_zoom_came', label: 'הגיע לפגישת זום', base: 'meeting', reach: 2, alias: ['התקיימה פגישת זום'] },
-  { key: 're_zoom_yoram', label: 'התקיימה פגישת זום — פולואפ יורם', base: 'proposal', reach: 2 }, { key: 're_zoom_noprog', label: 'התקיימה פגישת זום — לא התקדם', base: 'lost', reach: 2 },
+  { key: 're_zoom_yoram', label: 'התקיימה פגישת זום — פולואפ יורם', base: 'proposal', reach: 2 }, { key: 're_zoom_noprog', label: 'התקיימה פגישת זום — לא התקדם', base: 'lost', reach: 2, alias: ['התקיימה פגישת זום ולא התקדם'] },
   { key: 're_frontal_set', label: 'נקבעה פגישה פרונטלית', base: 'meeting', reach: 3 }, { key: 're_frontal_cancel', label: 'תואמה פגישה פרונטלית — וביטל', base: 'followup', reach: 3 },
   { key: 're_frontal_yoram', label: 'התקיימה פגישה פרונטלית — פולואפ יורם', base: 'proposal', reach: 4 }, { key: 're_frontal_no', label: 'התקיימה פגישה פרונטלית — לא ממשיך', base: 'lost', reach: 4 },
   { key: 're_next_meet', label: 'תיאום פגישת המשך', base: 'proposal', reach: 5 }, { key: 're_in_process', label: 'בתהליך', base: 'proposal', reach: 5 },
-  { key: 're_bought', label: 'רכש נכס', base: 'won', reach: 6 }, { key: 're_done', label: 'סיום תהליך', base: 'won', reach: 6 },
-  { key: 'lost', label: 'לא רלוונטי', base: 'lost', reach: 0 }, { key: 'invalid', label: 'מספר לא תקין', base: 'invalid', reach: 0 }, { key: 'duplicate', label: 'ליד כפול', base: 'duplicate', reach: 0 }],
+  { key: 're_active', label: 'לקוח פעיל', base: 'proposal', reach: 5 }, { key: 're_bought', label: 'רכש נכס', base: 'won', reach: 6 }, { key: 're_done', label: 'סיום תהליך', base: 'won', reach: 6 },
+  { key: 'lost', label: 'לא רלוונטי', base: 'lost', reach: 0 }, { key: 're_notint', label: 'לא מעוניין', base: 'lost', reach: 0, alias: ['לא מעוניין לשמוע'] },
+  { key: 're_disq', label: 'ליד פסול', base: 'invalid', reach: 0 }, { key: 'invalid', label: 'מספר לא תקין', base: 'invalid', reach: 0 }, { key: 'duplicate', label: 'ליד כפול', base: 'duplicate', reach: 0 }],
   /* הר-אל פתרונות — הבסיס, ועוד "תואמה שיחת המשך" (כמו בדאשבורד "לקוחות פיננסים" בכוורת) */
   finance: LEAD_STAGES.flatMap((k) => [{ key: k, label: L.leadStage[k], base: k, ...(k === 'followup' ? { alias: ['פולואפ', 'פולו-אפ'] } : {}) }, ...(k === 'followup' ? [{ key: 'fin_call_next', label: 'תואמה שיחת המשך', base: 'followup' }] : [])]) };
 /* סטטוס מקובץ (כוורת: סטטוס כרטיס + סטטוס משני) → סטטוס של החברה. קודם המשני, אחר כך הראשי, ואם אין התאמה — לפי מילים */
-const stNorm = (s) => String(s || '').toLowerCase().replace(/[\s\-–—_"״'׳.]+/g, '');
+const stNorm = (s) => String(s || '').toLowerCase().replace(/[\s\-–—_"״'׳.\u200b-\u200f\u202a-\u202e\ufeff]+/g, '');
 function statusFromImport(div, main, second) {
   const ds = stageDefs(div);
   for (const raw of [second, main]) { const t = stNorm(raw); if (!t) continue;
+    const na = t.match(/^אין(?:מענה)(\d+)$/); if (na) return { stage: 'noanswer', sub: null, tries: Number(na[1]) };
     const d = ds.find((x) => stNorm(x.label) === t || (x.alias || []).some((a) => stNorm(a) === t)); if (d) return { stage: d.base, sub: d.key !== d.base ? d.key : null }; }
   return { stage: mapStatus(second || main), sub: null };
 }
@@ -1848,7 +1851,7 @@ function vLead(id) {
   const isRE = leadDiv(l) === 'realestate', noA = ['noanswer', 'אין מענה' + (l.stage === 'noanswer' ? ' (' + (n(l.tries) + 1) + ')' : '') + ' — מעקב מחר'];
   const quick = isRE ? [noA, ...['re_call_next', 're_zoom_set', 're_zoom_again', 're_feedback', 'lost', 'invalid', 'duplicate'].map((k) => stageDefs('realestate').find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])]
     : [noA, ['contacted', 'דיברנו'], ['checking', 'בבדיקה'], ['thinking', 'חושב על זה'], ['meeting', 'נקבעה פגישה'], ['proposal', 'נשלחה הצעה'], ['lost', 'לא רלוונטי'], ['ineligible', 'לא זכאי'], ['duplicate', 'ליד כפול'], ['credit', 'לזיכוי']];
-  const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
+  const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ['בכוורת', (() => { const k = poolOf(l.phone); return k ? 'כרטיס ' + k.kid + ' · ' + k.name + (k.ok ? ' · אישר דיוור' : '') : l.kaveretId ? 'כרטיס ' + l.kaveretId : ''; })()], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
   return '<div class="row"><button class="btn small ghost" data-tab="leads">← לידים</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) + '</div>' +
     '<section class="card"><div class="row" style="align-items:center">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">חייג ' + esc(normPhone(l.phone)) + '</a>' : '') +
       (waLink(l.phone) ? '<a class="btn" href="' + waLink(l.phone) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') + copyBtns('l:' + l.id, true) +
@@ -2586,10 +2589,31 @@ async function scanUpload(scope, key, file) {
 }
 function vMarketing() {
   const sub = S.f.mkt;
-  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ']].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = { funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport }[sub] || vFunnel;
+  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(canSeeDiv('realestate') ? [['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+  const body = { funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool }[sub] || vFunnel;
   return '<div class="row"><h1 class="grow">שיווק</h1>' + tabs + (S.canTask ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' +
     leadSheetCard() + body();
+}
+/* ── מאגר כוורת: כל אנשי הקשר שיוצאו מכוורת (11/10) — שם, טלפון, אישור דיוור. לא לידים פתוחים: מחפשים, ומעבירים לליד כשחוזרים אליו ── */
+let POOL = { key: '', rows: [], byPhone: new Map() };
+function poolIdx() {
+  const docs = live(S.kaveretPool), key = docs.map((d) => d.id + ':' + (d.rows || []).length).join('|');
+  if (key !== POOL.key) { const rows = docs.sort((a, b) => String(a.id).localeCompare(b.id)).flatMap((d) => (d.rows || []).map(([kid, name, phone, ok]) => ({ kid, name, phone, ok: !!ok })));
+    POOL = { key, rows, byPhone: new Map(rows.filter((r) => r.phone).map((r) => [r.phone, r])) }; }
+  return POOL;
+}
+const poolOf = (phone) => canSeeDiv('realestate') ? poolIdx().byPhone.get(normPhone(phone)) : null;
+function vPool() {
+  if (!canSeeDiv('realestate')) return '<p class="empty">המאגר שייך להר-אל השקעות.</p>';
+  const P = poolIdx(), q = String(S.f.poolQ || '').trim(), qd = q.replace(/\D/g, ''), leadPh = new Set(live(S.leads).map((l) => normPhone(l.phone)));
+  const hits = !q ? P.rows.slice(0, 50) : P.rows.filter((r) => String(r.name).includes(q) || (qd.length >= 3 && r.phone.includes(qd)) || String(r.kid) === q).slice(0, 100);
+  return '<div class="grid4">' + kpi('אנשי קשר במאגר', '<span class="num">' + P.rows.length.toLocaleString('he-IL') + '</span>', 'יוצא מכוורת · ' + live(S.kaveretPool).length + ' חלקים', null) +
+      kpi('אישרו דיוור', '<span class="num">' + P.rows.filter((r) => r.ok).length.toLocaleString('he-IL') + '</span>', 'מותר לשלוח להם תוכן שיווקי', null, 'actual') +
+      kpi('כבר לידים במערכת', '<span class="num">' + P.rows.filter((r) => leadPh.has(r.phone)).length.toLocaleString('he-IL') + '</span>', 'לפי מספר טלפון', null) + '</div>' +
+    '<section class="card"><header><h2>מאגר כוורת</h2><span class="grow"></span>' + (S.isOwner ? '<button class="btn small" data-act="poolCsv">ייצוא מאשרי דיוור (CSV)</button>' : '') + '</header>' +
+    '<label class="fl">חיפוש — שם, טלפון או מספר כרטיס<input class="f" type="search" id="fPoolQ" value="' + esc(q) + '" placeholder="לפחות 3 ספרות לטלפון"></label>' +
+    (hits.length ? '<div class="scroll"><table><thead><tr><th>כרטיס</th><th>שם</th><th>טלפון</th><th>דיוור</th><th></th></tr></thead><tbody>' + hits.map((r) => '<tr><td class="num">' + esc(r.kid) + '</td><td class="wide">' + esc(r.name) + '</td><td class="num" dir="ltr">' + esc(r.phone) + '</td><td>' + (r.ok ? '<span class="pill actual">כן</span>' : '<span class="pill muted">לא</span>') + '</td><td>' +
+      (leadPh.has(r.phone) ? '<span class="pill committed">ליד</span>' : S.canTask ? '<button class="btn small" data-poollead="' + esc(r.phone) + '">פתח ליד</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' + (!q ? '<p class="hint">מוצגים 50 הראשונים — חפש כדי למצוא.</p>' : '') : '<p class="empty">לא נמצא במאגר.</p>') + '</section>';
 }
 function vFunnel() {
   const leads = live(S.leads), open = leads.filter((l) => !['won', 'lost'].includes(l.stage));
@@ -2716,7 +2740,7 @@ async function doImport() {
   const p = pendingImport; if (!p) return;
   const batch = uid(); let made = 0, upd = 0;
   for (const r of p.rows) {
-    if (!r.exists) { const id = uid(), sm = statusFromImport(p.division || 'finance', r.rawMain, r.rawSub); await write('leads/' + id, { id, name: r.name, phone: r.phone, email: r.email, campaign: r.campaign, platform: r.platform || p.src || '', marketer: r.marketer, stage: sm.stage, value: r.value, division: p.division || 'finance', ...(r.note ? { note: r.note } : {}), ...(r.city ? { city: r.city } : {}), ...(r.rawStatus ? { importStatus: r.rawStatus } : {}), ...(sm.sub ? { sub: sm.sub } : {}), ...(r.resp ? { resp: r.resp, assignedAt: stamp() } : {}), ...(r.landing ? { landing: r.landing } : {}), ...(r.answers && Object.keys(r.answers).length ? { answers: r.answers } : {}), ...(p.src ? { channel: p.src } : {}), createdAt: r.date ? r.date + 'T12:00:00Z' : stamp(), importBatch: batch, by: S.me.id }); made++; }
+    if (!r.exists) { const id = uid(), sm = statusFromImport(p.division || 'finance', r.rawMain, r.rawSub); await write('leads/' + id, { id, name: r.name, phone: r.phone, email: r.email, campaign: r.campaign, platform: r.platform || p.src || '', marketer: r.marketer, stage: sm.stage, ...(sm.tries ? { tries: sm.tries } : {}), value: r.value, division: p.division || 'finance', ...(r.note ? { note: r.note } : {}), ...(r.city ? { city: r.city } : {}), ...(r.rawStatus ? { importStatus: r.rawStatus } : {}), ...(sm.sub ? { sub: sm.sub } : {}), ...(r.resp ? { resp: r.resp, assignedAt: stamp() } : {}), ...(r.landing ? { landing: r.landing } : {}), ...(r.answers && Object.keys(r.answers).length ? { answers: r.answers } : {}), ...(p.src ? { channel: p.src } : {}), createdAt: r.date ? r.date + 'T12:00:00Z' : stamp(), importBatch: batch, by: S.me.id }); made++; }
     else if (r.closes) { await write('leads/' + r.exId, { stage: 'won', updatedAt: stamp() }, 'update'); upd++; }
   }
   for (const k of ['platform']) for (const v of [...new Set(p.rows.map((r) => r[k]).filter(Boolean))]) await ensureInList('platforms', v);
@@ -3212,6 +3236,7 @@ const EXPORTS = {
   exportPnl: () => exportCsv('רווח-והפסד', ['חודש', 'הכנסות', 'קבועות מוכרות', 'ישירות', 'רווח לחלוקה', 'הכנסות (תפעולי)', 'הוצאות (תפעולי)', 'רווח תפעולי'], pnl().map((r) => [r.month, r.income, r.fixed, r.direct, r.distributable, r2(r.opIncome), r2(r.opExpense), r.operational])),
   exportMonthTx: () => { const m = S.f.bookMonth || today().slice(0, 7); return exportCsv('תנועות-' + m, ['תאריך', 'סוג', 'ספק/תיאור', 'לקוח', 'קטגוריה', 'נטו', 'מע״מ', 'ברוטו', 'מוכרת', 'חשבונית'],
     live(S.transactions).filter((t) => String(t.date).slice(0, 7) === m).sort((a, b) => String(a.date).localeCompare(b.date)).map((t) => [t.date, L.nature[t.nature], t.counterparty || t.description, cname(t.clientId), t.category, t.net, t.vat, t.gross, t.nature === 'expense' ? (t.deductible ? 'כן' : 'לא') : '', t.invoice || ''])); },
+  poolCsv: () => { const leadPh = new Set(live(S.leads).map((l) => normPhone(l.phone))); return exportCsv('מאגר-כוורת-מאשרי-דיוור', ['כרטיס', 'שם', 'טלפון', 'כבר ליד'], poolIdx().rows.filter((r) => r.ok && r.phone).map((r) => [r.kid, r.name, r.phone, leadPh.has(r.phone) ? 'כן' : ''])); },
   exportTasks: () => exportCsv('משימות', ['משימה', 'יעד', 'עדיפות', 'סטטוס', 'לקוח', 'אחראי'], live(S.tasks).map((t) => [t.title, t.due, L.priority[t.priority] || '', t.status === 'done' ? 'בוצע' : 'פתוח', cname(t.clientId), nameOf(taskUser(t))])),
   exportLeads: () => exportCsv('לידים', ['שם', 'טלפון', 'קמפיין', 'פלטפורמה', 'משווק', 'שלב', 'נוצר', 'לקוח'], live(S.leads).map((l) => [l.name, l.phone, l.campaign, l.platform, l.marketer, L.leadStage[l.stage], dayOf(l.createdAt), cname(l.clientId)])),
 };
@@ -4995,6 +5020,10 @@ document.addEventListener('click', async (e) => {
     if (d.leadst) { S.f.leadSt = d.leadst; S.f.leadReach = null; S.f.leadLim = 120; return render(); }
     if (d.leadmore != null && el.matches('[data-leadmore]')) { S.f.leadLim = (S.f.leadLim || 120) + 120; return render(); }
     if (d.leadquick) return leadQuick(d.id, d.leadquick);
+    if (d.poollead) { const r = poolIdx().byPhone.get(d.poollead); if (!r || !S.canTask) return; const id = 'kv-' + (r.kid || r.phone);
+      if (S.leads.has(id) && !S.leads.get(id).deletedAt) return go('lead', id);
+      await write('leads/' + id, { id, name: r.name || r.phone, phone: r.phone, division: 'realestate', stage: 'new', platform: 'כוורת', channel: 'מאגר כוורת', kaveretId: r.kid || null, createdAt: stamp(), by: S.me.id, log: [{ at: stamp(), by: S.me.id, who: whoAmI(), text: 'נפתח מהמאגר של כוורת (כרטיס ' + (r.kid || '—') + ')', auto: true }] });
+      toast('נפתח ליד'); return go('lead', id); }
     if (d.leadnote) { const v = ($('leadNote').value || '').trim(); if (!v) return; await leadPatch(d.leadnote, {}, v); return toast('ההערה נשמרה'); }
     if (d.client && !el.matches('select')) return go('client', d.client);
     if (d.owner) { S.f.clientOwner = d.owner; S.f.clientStatus = 'open'; return go('clients'); }
@@ -5357,7 +5386,7 @@ document.addEventListener('change', async (e) => {
 let qT;
 document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pside')) S.f.psideOpen = e.target.open; }, true);
 document.addEventListener('input', async (e) => {
-  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ' };
+  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ' };
   if (map[e.target.id]) { S.f[map[e.target.id]] = e.target.value; clearTimeout(qT); qT = setTimeout(render, 160); return; }
   if (e.target.id === 'teamSearch' && S.user) {
     const hits = await S.user.search(e.target.value.trim());
