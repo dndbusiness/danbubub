@@ -1054,9 +1054,13 @@ function teamTable(rows, compact) {
 
 /* ═════════════════════════ לקוחות ═════════════════════════ */
 function vClients() {
-  if (S.division === 'realestate' && S.isOwner && !S.f.clientQ) return rePotentialCard(false) + vClientsInner();
-  return vClientsInner();
+  const miss = S.isOwner && S.canWrite && S.mcp ? live(S.clients).filter(inDiv).filter((c) => !c.driveFolder && ['open', 'hold'].includes(c.status)).length : 0;
+  const fold = miss ? '<div class="notice info"><b>תיקיות דרייב</b><span class="grow">' + miss + ' לקוחות פעילים עוד בלי תיקייה בדרייב. כל מסמך, סריקה וקובץ מהמייל נשמר בתיקייה של הלקוח.</span><button class="btn small" data-act="mkFolders">צור תיקיות לכולם</button></div>' : '';
+  if (S.division === 'realestate' && S.isOwner && !S.f.clientQ) return fold + rePotentialCard(false) + vClientsInner();
+  return fold + vClientsInner();
 }
+async function mkFolders() { const list = live(S.clients).filter(inDiv).filter((c) => !c.driveFolder && ['open', 'hold'].includes(c.status)); let k = 0; toast('יוצר ' + list.length + ' תיקיות…');
+  for (const c of list) { if (await driveFolderFor('proc', c.id, c.name)) k++; } toast(k + ' תיקיות נוצרו בדרייב'); render(); }
 function vClientsInner() {
   const f = S.f, all = live(S.clients).filter(inDiv);
   const tags = [...new Set(all.flatMap((c) => c.tags || []))].sort();
@@ -1434,6 +1438,7 @@ async function syncLeadSheet(src, quiet, cache) {
       ad = cv('F', row); if (/^https?:/i.test(ad)) { try { ad = new URL(ad).searchParams.get('utm_content') || 'קישור ממודעה'; } catch (e) { ad = 'קישור ממודעה'; } }
       note = [cv('G', row), ...extraCols.map((c) => cv(c, row))].filter(Boolean).join(' · ');
     }
+    let noteSt = null; if (!sheetStage && note && (src.division || 'finance') === 'finance') { noteSt = noteToStatus(note); if (noteSt) { sheetStage = noteSt.stage; if (noteSt.tries && !tries) tries = noteSt.tries; } }
     /* הסטטוס בטבלה קובע רק כשהוא חדש או השתנה — עבודה במערכת (סטטוס, אחראי, מעקב, הערות) לא נדרסת */
     const untouched = cur && (cur.stage || 'new') === 'new' && !(cur.log || []).some((e) => e.who !== 'סנכרון');
     const changed = !cur || (form ? (cur.sheetStatus || '') !== rawSt : (cur.sheetColor || null) !== color) || !!(untouched && sheetStage && sheetStage !== 'new');
@@ -1441,11 +1446,11 @@ async function syncLeadSheet(src, quiet, cache) {
     const keepName = cur && cur.name && cur.name !== (cur.sheetName || cur.name);
     const client = stage === 'won' && np ? live(S.clients).find((c) => normPhone(c.phone) === np) : null;
     const sName = name || phone, body = { id, name: keepName ? cur.name : sName, sheetName: sName, ...(cur && cur.phone && normPhone(cur.phone) !== np ? {} : { phone }), ...(cur && cur.city ? {} : form ? {} : { city: cv('D', row) }),
-      platform: form ? (src.marketer || 'פייסבוק') : cv('E', row) || 'טבלת לידים', campaign: src.campaign || src.label || 'טבלת לידים', marketer: src.marketer || 'אבינועם', channel, ctype, srcKey: srcKey(src), ad: ad || (form ? '' : 'ללא מודעה'), note, stage,
-      ...(form ? { sheetStatus: rawSt, answers, ...(C.email && cv(C.email, row) && !(cur && cur.email) ? { email: cv(C.email, row) } : {}), ...(wise ? { wiseSent: wise } : {}), ...(tries && (!cur || changed) ? { tries } : {}) } : { sheetColor: color }),
+      platform: form ? (src.marketer || 'פייסבוק') : cv('E', row) || 'טבלת לידים', campaign: src.campaign || src.label || 'טבלת לידים', marketer: src.marketer || 'אבינועם', channel, ctype, srcKey: srcKey(src), ad: ad || (form ? '' : 'ללא מודעה'), note, stage, ...(noteSt && stage === noteSt.stage && (!cur || changed) ? { sub: noteSt.sub || null } : {}),
+      ...(form ? { sheetStatus: rawSt, answers, ...(C.email && cv(C.email, row) && !(cur && cur.email) ? { email: cv(C.email, row) } : {}), ...(wise ? { wiseSent: wise } : {}), ...(tries && (!cur || changed) ? { tries } : {}) } : { sheetColor: color, ...(noteSt && noteSt.tries && (!cur || changed) ? { tries: noteSt.tries } : {}) }),
       sheet: src.label || 'טבלת לידים', sheetRow: row, source: 'sheet', division: src.division || 'finance', createdAt: at,
       ...(stage === 'won' && (!cur || cur.stage !== 'won') ? { wonAt: cur ? stamp() : at } : {}), ...(cur && stage !== cur.stage ? { stageAt: stamp() } : {}), ...(client && !(cur && cur.clientId) ? { clientId: client.id } : {}) };
-    const what = form ? 'סטטוס בטבלה: ' + (rawSt || 'ריק') : 'צבע בטבלה: ' + (color ? COLOR_LABEL[color] : 'בלי צבע');
+    const what = noteSt && !rawSt && !color ? 'מההערה בטבלה' : form ? 'סטטוס בטבלה: ' + (rawSt || 'ריק') : 'צבע בטבלה: ' + (color ? COLOR_LABEL[color] : 'בלי צבע');
     const clog = cur && changed ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: what + (stage !== cur.stage ? ' — סטטוס ' + (L.leadStage[stage] || stage) : ''), auto: true }, ...(cur.log || [])].slice(0, 300)
       : !cur && form && !rawSt && sheetStage === 'lost' ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'יובא כלא רלוונטי — יותר מ-' + OLD_UNTOUCHED_DAYS + ' יום בלי סטטוס בטבלה', auto: true }] : null;
     if (!cur) { writes.push(() => write('leads/' + id, { ...body, ...(clog ? { log: clog } : {}), updatedAt: stamp() })); added++; }
@@ -1512,8 +1517,33 @@ const DEFAULT_SETS = { realestate: [
   { key: 're_active', label: 'לקוח פעיל', base: 'proposal', reach: 5 }, { key: 're_bought', label: 'רכש נכס', base: 'won', reach: 6 }, { key: 're_done', label: 'סיום תהליך', base: 'won', reach: 6 },
   { key: 'lost', label: 'לא רלוונטי', base: 'lost', reach: 0 }, { key: 're_notint', label: 'לא מעוניין', base: 'lost', reach: 0, alias: ['לא מעוניין לשמוע'] },
   { key: 're_disq', label: 'ליד פסול', base: 'invalid', reach: 0 }, { key: 'invalid', label: 'מספר לא תקין', base: 'invalid', reach: 0 }, { key: 'duplicate', label: 'ליד כפול', base: 'duplicate', reach: 0 }],
-  /* הר-אל פתרונות — הבסיס, ועוד "תואמה שיחת המשך" (כמו בדאשבורד "לקוחות פיננסים" בכוורת) */
-  finance: LEAD_STAGES.flatMap((k) => [{ key: k, label: L.leadStage[k], base: k, ...(k === 'followup' ? { alias: ['פולואפ', 'פולו-אפ'] } : {}) }, ...(k === 'followup' ? [{ key: 'fin_call_next', label: 'תואמה שיחת המשך', base: 'followup' }] : [])]) };
+  /* הר-אל פתרונות — כמו הדאשבורד בכוורת (דן, 11/10). "לזיכוי" = נספר בדוח הזיכויים מול המשווק */
+  finance: [{ key: 'new', label: 'חדש', base: 'new' }, { key: 'noanswer', label: 'אין מענה', base: 'noanswer' }, { key: 'fin_noanswer_week', label: 'אין מענה מעל שבוע', base: 'noanswer' },
+    { key: 'followup', label: 'פולו אפ', base: 'followup', alias: ['פולואפ', 'פולו-אפ'] }, { key: 'fin_waiting', label: 'ממתינה', base: 'checking', alias: ['ממתין'] },
+    { key: 'fin_later', label: 'לחזור מאוחר יותר', base: 'followup' }, { key: 'thinking', label: 'רוצה לחשוב על זה', base: 'thinking', alias: ['חושב על זה'] },
+    { key: 'fin_agreement', label: 'נשלח הסכם — טרם חתם', base: 'proposal' }, { key: 'won', label: 'נסגר וחתם', base: 'won', alias: ['נסגר / חתם', 'חתם'] },
+    { key: 'lost', label: 'לא רלוונטי', base: 'lost' }, { key: 'ineligible', label: 'לא זכאי', base: 'ineligible' },
+    { key: 'invalid', label: 'מספר לא תקין · לזיכוי', base: 'invalid', alias: ['מספר לא תקין'] }, { key: 'fin_denies', label: 'מכחיש פנייה · לזיכוי', base: 'credit', alias: ['מכחיש פניה'] },
+    { key: 'fin_arab', label: 'מגזר ערבי · לזיכוי', base: 'credit' }, { key: 'fin_noprop', label: 'אין נכס · לזיכוי', base: 'credit' }, { key: 'duplicate', label: 'ליד כפול · לזיכוי', base: 'duplicate' },
+    { key: 'credit', label: 'לזיכוי — אחר', base: 'credit', hide: true }, { key: 'contacted', label: 'נוצר קשר', base: 'contacted', hide: true }, { key: 'checking', label: 'בבדיקה', base: 'checking', hide: true },
+    { key: 'meeting', label: 'פגישה', base: 'meeting', hide: true }, { key: 'proposal', label: 'הצעה', base: 'proposal', hide: true }, { key: 'fin_call_next', label: 'תואמה שיחת המשך', base: 'followup', hide: true }] };
+/* הערה מהטבלה של המשווק (אבינועם וכו') → סטטוס, כדי שליד שכבר דיברו איתו לא יישב ב"חדש" */
+function noteToStatus(note) {
+  const t = String(note || '').trim(); if (!t) return null;
+  if (/אין מענה|לא עונה|לא ענה|לא זמין/.test(t)) { const m = t.match(/אין מענה\s*[-*]?\s*\*?\s*(\d)\b/); return { stage: 'noanswer', sub: null, tries: m ? Number(m[1]) : 1 }; }
+  if (/ליד כפול/.test(t)) return { stage: 'duplicate', sub: null };
+  if (/מכחיש|לא השאיר פרטים|לא פנה/.test(t)) return { stage: 'credit', sub: 'fin_denies' };
+  if (/מספר (לא תקין|שגוי)|מנותק|טעות במספר/.test(t)) return { stage: 'invalid', sub: null };
+  if (/מגזר ערבי/.test(t)) return { stage: 'credit', sub: 'fin_arab' };
+  if (/אין נכס|ללא נכס|אין לו נכס|אין לה נכס/.test(t)) return { stage: 'credit', sub: 'fin_noprop' };
+  if (/לא רלוונטי|כבר הסתדר|לא מעוניי[ןנת]*(?![ןנת])(?!\s*ל)/.test(t)) return { stage: 'lost', sub: null };
+  if (/לא זכאי/.test(t)) return { stage: 'ineligible', sub: null };
+  if (/נשלח הסכם|שלחתי הסכם/.test(t)) return { stage: 'proposal', sub: 'fin_agreement' };
+  if (/^ממתינ/.test(t) || /ממתינה$/.test(t)) return { stage: 'checking', sub: 'fin_waiting' };
+  if (/לחשוב|חושב על זה/.test(t)) return { stage: 'thinking', sub: null };
+  if (/לחזור|יחזור|אחרי החגים|אחרי יום|לדבר (איתו|איתה|אחרי|ב)|קבענו|סביבות|בשעה|^\d{1,2}:\d{2}$|התחיל(ה)? תהליך/.test(t)) return { stage: 'followup', sub: 'fin_later' };
+  return { stage: 'followup', sub: null }; /* יש פרטים מהשיחה (נכס, משכנתא, סכום) — כבר דיברו איתו */
+}
 /* סטטוס מקובץ (כוורת: סטטוס כרטיס + סטטוס משני) → סטטוס של החברה. קודם המשני, אחר כך הראשי, ואם אין התאמה — לפי מילים */
 const stNorm = (s) => String(s || '').toLowerCase().replace(/[\s\-–—_"״'׳.\u200b-\u200f\u202a-\u202e\ufeff]+/g, '');
 function statusFromImport(div, main, second) {
@@ -1787,6 +1817,9 @@ function vLeadBoard() {
   const zoomT = [[1, 'פגישות זום'], [2, 'הגיעו לפגישת זום'], [3, 'המשיכו לפרונטלי'], [4, 'המשיכו לפרונטלי — הגיעו בפועל']];
   const fr = ['re_frontal_set', 're_frontal_cancel', 're_frontal_yoram', 're_frontal_no'].map((k) => defs.find((x) => x.key === k)).filter(Boolean);
   const zo = ['re_zoom_set', 're_zoom_yoram', 're_zoom_noprog', 're_zoom_again'].map((k) => defs.find((x) => x.key === k)).filter(Boolean);
+  if (div !== 'realestate') return ctrl + '<section style="margin-top:16px"><div class="row"><h2 class="grow">נכנסו בתקופה — לפי סטטוס</h2>' + perSel + '</div><div class="grid4" style="margin-top:8px">' +
+    defs.filter((x) => inPer.some((l) => stKey(l) === x.key || (!l.sub && (l.stage || 'new') === x.key))).map((x) => tile(inPer.filter((l) => stKey(l) === x.key || (!l.sub && (l.stage || 'new') === x.key && x.key === x.base)).length, x.label, TONE_OF_BASE(x.base), x.key + '@per')).join('') + '</div></section>' +
+    '<p class="hint" style="margin-top:12px">לחיצה על מספר פותחת את הלידים שמרכיבים אותו. עריכת הסטטוסים: הגדרות ← סטטוסים לפי חברה.</p>';
   return ctrl +
     '<section style="margin-top:16px"><div class="row"><h2 class="grow">מעקב פגישות זום — לפי תאריך יצירה</h2>' + perSel + '</div><p class="hint">מתוך ' + inPer.length + ' לידים שנכנסו בתקופה — כמה הגיעו לכל שלב (כולל מי שהמשיך הלאה).</p><div class="grid4" style="margin-top:8px">' +
       zoomT.map(([r, t]) => tile(reachCnt(r), t, r >= 4 ? 'actual' : 'committed', 'reach:' + r)).join('') + '</div>' +
@@ -1826,7 +1859,7 @@ function vLeadsList(seg) {
       (S.division === 'realestate' ? kpi('פגישות זום החודש', '<span class="num">' + all.filter((l) => l.zoom && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + '</span>', all.filter((l) => l.zoom && l.zoom.attended && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + ' הגיעו בפועל', null, 'committed') + kpi('רכשו', '<span class="num">' + won.length + '</span>', 'מכל הלידים של הר-אל השקעות', null, 'actual') :
       kpi('חתמו', '<span class="num">' + won.length + '</span>', LEAD_TYPES.map((t) => { const b = all.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · '), null, 'actual') +
       (S.isOwner || S.isPartner ? kpi('עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'marketing') : kpi('לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', null))) + '</div>' +
-    (S.isCenter || S.division === 'realestate' ? '' : leadMonthHtml()) + (S.isOwner && w ? allocCard() : '') +
+    (S.isCenter || S.division === 'realestate' || !canConv() ? '' : '<details class="card convbox"' + (S.f.convOpen ? ' open' : '') + '><summary><b>יחס המרה — החודש מול הקודם</b> <span class="hint">לחיצה לפתיחה</span></summary>' + leadMonthHtml() + '</details>') + (S.isOwner && w ? allocCard() : '') +
     '<section class="card"><div class="seg" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end"><label class="fl grow">חיפוש<input class="f" type="search" id="fLeadQ" value="' + esc(f.leadQ || '') + '" placeholder="שם, טלפון, עיר, הערה"></label></div>' +
       '<details class="lfilt"' + (innerWidth > 700 || f.leadType || f.leadChan || f.leadAd || f.leadResp || f.leadWhen ? ' open' : '') + '><summary class="hint">סינון ומיון' + ([f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length ? ' (' + [f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length + ' פעילים)' : '') + '</summary><div class="row" style="align-items:flex-end">' +
@@ -1850,7 +1883,7 @@ function vLead(id) {
   const inp = (k, label, type = 'text', attrs = '') => '<label class="fl">' + label + '<input class="f" type="' + type + '" data-leadf="' + k + '" value="' + esc(l[k] || '') + '" ' + attrs + (w ? '' : ' disabled') + '></label>';
   const isRE = leadDiv(l) === 'realestate', noA = ['noanswer', 'אין מענה' + (l.stage === 'noanswer' ? ' (' + (n(l.tries) + 1) + ')' : '') + ' — מעקב מחר'];
   const quick = isRE ? [noA, ...['re_call_next', 're_zoom_set', 're_zoom_again', 're_feedback', 'lost', 'invalid', 'duplicate'].map((k) => stageDefs('realestate').find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])]
-    : [noA, ['contacted', 'דיברנו'], ['checking', 'בבדיקה'], ['thinking', 'חושב על זה'], ['meeting', 'נקבעה פגישה'], ['proposal', 'נשלחה הצעה'], ['lost', 'לא רלוונטי'], ['ineligible', 'לא זכאי'], ['duplicate', 'ליד כפול'], ['credit', 'לזיכוי']];
+    : [noA, ...['followup', 'fin_waiting', 'fin_later', 'thinking', 'fin_agreement', 'lost', 'ineligible', 'invalid', 'fin_denies', 'fin_arab', 'fin_noprop', 'duplicate'].map((k) => stageDefs(leadDiv(l)).find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])];
   const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ['בכוורת', (() => { const k = poolOf(l.phone); return k ? 'כרטיס ' + k.kid + ' · ' + k.name + (k.ok ? ' · אישר דיוור' : '') : l.kaveretId ? 'כרטיס ' + l.kaveretId : ''; })()], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
   return '<div class="row"><button class="btn small ghost" data-tab="leads">← לידים</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) + '</div>' +
     '<section class="card"><div class="row" style="align-items:center">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">חייג ' + esc(normPhone(l.phone)) + '</a>' : '') +
@@ -1878,7 +1911,8 @@ function vLead(id) {
 function leadSetStatus(l, key) {
   const { _label, ...sp } = stagePatch(l, key), d = stageDefs(leadDiv(l)).find((x) => x.key === key), zr = d && n(d.reach) >= 2;
   const zoom = zr && !(l.zoom && l.zoom.attended) ? { zoom: { ...(l.zoom || {}), attended: true, at: (l.zoom && l.zoom.at) || stamp().slice(0, 16), by: (l.zoom && l.zoom.by) || l.resp || S.myKey || null } } : {};
-  return leadPatch(l.id, { ...sp, ...zoom, ...(['lost', 'credit', 'invalid', 'won'].includes(sp.stage) ? { followUp: null } : {}) }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + _label + (zoom.zoom ? ' · נרשם שהגיע לזום' : ''));
+  const fu = key === 'fin_agreement' ? { followUp: addDays(today(), 2) } : key === 'fin_later' && !l.followUp ? { followUp: addDays(today(), 1) } : {};
+  return leadPatch(l.id, { ...sp, ...zoom, ...fu, ...(['lost', 'credit', 'invalid', 'won', 'ineligible', 'duplicate'].includes(sp.stage) ? { followUp: null } : {}) }, 'סטטוס: ' + leadStageLabel(l) + ' ← ' + _label + (zoom.zoom ? ' · נרשם שהגיע לזום' : '') + (fu.followUp ? ' · מעקב ' + dLabel(fu.followUp) : ''));
 }
 /* ── שיחת מכירה לפי חברה (דן, 11/10: "השיחה של הר-אל השקעות שונה, התהליך שונה") ──
    התסריט נערך בהגדרות; {שם} {אני} {קמפיין} מוחלפים. ברירת המחדל לנדל״ן היא טיוטה לפי התהליך שדן תיאר — לעדכן. */
@@ -1895,6 +1929,16 @@ function callScriptCard() {
   return '<section class="card"><header><h2>תסריט שיחת מכירה לפי חברה</h2></header><p class="hint" style="margin:-4px 0 10px">מופיע בכרטיס כל ליד של אותה חברה. {שם} = השם הפרטי של הליד · {אני} = מי שמתקשר · {קמפיין} = מאיפה הגיע.</p>' +
     divs.map((d) => '<label class="fl">' + L.division[d] + '<textarea class="f" rows="8" data-script="' + d + '"' + (w ? '' : ' disabled') + '>' + esc(callScript(d)) + '</textarea></label>').join('') +
     (w ? '<div class="row" style="margin-top:8px"><span class="grow"></span><button class="btn small primary" data-act="scriptSave">שמור</button></div>' : '') + '</section>';
+}
+/* הכר את הלקוח — נשמר בכל עדכון: בשינוי שדה, וגם תוך כדי הקלדה (אחרי שנייה בלי הקלדה) */
+let ikT = null;
+async function ikSave(el) {
+  const cid = S.view.clientId; if (!cid || !el.isConnected && !el.dataset.ik) return; const x = JSON.parse(JSON.stringify(intakeDoc(cid))); if (el.dataset.ik.startsWith('sim.') && !x.sim) x.sim = SIM_DEFAULT();
+  const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : el.value;
+  const cur = el.dataset.ik.split('.').reduce((o, k) => (o == null ? o : o[k]), x); if (cur === v || (cur == null && (v === '' || v == null))) return;
+  await write('intakes/' + cid, { ...setPath(x, el.dataset.ik, v), id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id, createdAt: x.createdAt || stamp(), createdBy: x.createdBy || S.me.id, callDays: { ...(x.callDays || {}), [today()]: (x.callDays || {})[today()] || S.me.id } });
+  if (el.dataset.ik.startsWith('contact.') && !S.clients.get(cid) && S.leads.get(cid)) await write('leads/' + cid, { [el.dataset.ik.slice(8)]: v || '', updatedAt: stamp() }, 'update');
+  const b = $('ikSaved'); if (b) b.textContent = 'נשמר ' + new Date().toTimeString().slice(0, 5);
 }
 async function leadQuick(id, k, sub = null) {
   const l = S.leads.get(id); if (!l) return;
@@ -2048,6 +2092,8 @@ function leadMonthCompare(day = today()) {
   rows.forEach((r) => { r.pa = pc(r.a); r.pb = pc(r.b); r.diff = r.pa != null && r.pb != null ? Math.round((r.pa - r.pb) * 10) / 10 : null; });
   return { cur, prev, day, rows };
 }
+/* מי רואה את טבלת יחס ההמרה (דן, 11/10: לפי משתמש) — דן והדס תמיד; ניסים כברירת מחדל; לאחרים רק אם סומן בהגדרות ← משתמשים */
+function canConv() { if (S.isDan || S.role === 'admin' || S.role === 'owner') return true; const u = S.loginAs && (S.settings.users || []).find((x) => normUser(x.username) === normUser(S.loginAs.username || '')); if (u && u.conv != null) return !!u.conv; return S.role === 'partner'; }
 function leadMonthHtml(day = today(), withCost = S.isOwner || S.isPartner, mail = false) {
   const M = leadMonthCompare(day), cell = (x, p) => x.base ? '<b>' + p + '%</b> <small>(' + x.won + '/' + x.base + ')</small>' + (x.signed && x.signed !== x.won ? '<br><small>נחתמו בחודש: ' + x.signed + '</small>' : '') : (x.in ? x.in + ' לזיכוי' : '—');
   const per = (x) => x.spend && x.won ? plain(Math.round(x.spend / x.won)) : x.spend ? plain(x.spend) + ' (אין חתומים)' : '—';
@@ -3365,7 +3411,7 @@ window.HAREL_JOBS = {
    דן (בעל הדף) עורך הכל. הצוות כותב רק משימות, תיקים מנוהלים, ימי עבודה, פניות, לידים ומיילים.
    ההרשאות נאכפות במסד (rules) — לא רק במסך. הנעילה בסיסמה היא שכבה נוספת על המכשיר:
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
-const OWNER_READ = ['transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned'];
+const OWNER_READ = ['transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool'];
 const PARTNER_WRITE = ['clients', 'transactions'];
 const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
@@ -3421,6 +3467,7 @@ function usersCard() {
     '<label class="fl">תפקיד<select class="f" id="uRole">' + grant.map((k) => '<option value="' + k + '"' + (k === r0 ? ' selected' : '') + '>' + esc(ROLES[k].label) + '</option>').join('') + '</select></label>' +
     '<div class="fl">חברות (למוקד)<div class="row" style="margin-top:4px">' + DIVS.map((dv) => '<label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" name="uDiv" value="' + dv + '"' + (d0.includes(dv) ? ' checked' : '') + (S.role === 'admin_re' && dv !== 'realestate' ? ' disabled' : '') + '><span>' + L.division[dv] + '</span></label>').join('') + '</div></div>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uFree"' + (ed && ed.freelancer ? ' checked' : '') + '><span>פרילנסר (עמלות בלבד)</span></label>' +
+    '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uConv"' + ((ed ? (ed.conv != null ? ed.conv : userRole(ed) === 'partner' || userRole(ed) === 'admin') : false) ? ' checked' : '') + '><span>רואה את טבלת יחס ההמרה</span></label>' +
     '<label class="fl">סיסמה' + (ed ? ' — ריק = בלי שינוי' : ' — אפשר להשאיר ריק ולהגדיר אחר כך') + '<input class="f" type="password" id="uPw" autocomplete="new-password" placeholder="6 תווים לפחות"></label></div>' +
     '<div class="row" style="margin-top:10px"><button class="btn small primary" type="submit">' + (ed ? 'שמור שינויים' : 'הוסף משתמש') + '</button>' + (ed ? '<button class="btn small ghost" type="button" data-edituser="">ביטול</button>' : '') + '</div>' +
     '<p class="hint">מנהל מערכת ושותף מקבלים את החברות של התפקיד. מוקד רואה רק לידים ומשימות שמשויכים אליו, בחברות שסימנת. ' + (S.role === 'admin_re' ? 'אתה יכול לפתוח משתמשים להר-אל השקעות בלבד.' : '') + '</p></form>';
@@ -3560,8 +3607,14 @@ function mailCard(c) {
       (t.url ? '<a class="btn small" href="' + esc(t.url) + '" target="_blank" rel="noopener">Gmail ↗</a>' : '') + '<button class="btn small ghost" data-mailread="' + esc(t.id) + '">קרא</button>' +
       (S.canWrite && !isLinked ? '<button class="btn small" data-maillink="' + esc(t.id) + '">תייג ושייך</button>' : '') + (S.canWrite && isLinked ? '<button class="btn small ghost" data-mailunlink="' + esc(t.id) + '" aria-label="הסר שיוך">×</button>' : '') + '</div></div>';
   const found = (st.threads || []).filter((t) => !linked.some((l) => l.id === t.id));
-  return '<section class="card"><header><h2>מיילים</h2><span class="hint">תווית ב-Gmail: תיקי לקוחות/' + esc(c.name) + '</span><span class="grow"></span>' +
+  if (linked.length) setTimeout(() => mailAutoFiles(c), 50);
+  const nFiles = (c.scans || []).filter((x) => x.key === 'מייל').length;
+  return '<section class="card"><header><h2>מיילים וקבצים</h2><span class="hint">תווית ב-Gmail: תיקי לקוחות/' + esc(c.name) + '</span><span class="grow"></span>' +
+      (c.driveFolder ? '<a class="btn small" href="' + folderUrl(c.driveFolder) + '" target="_blank" rel="noopener">תיקייה בדרייב ↗</a>' : S.mcp && S.canWrite ? '<button class="btn small" data-act="mkFolder">פתח תיקייה בדרייב</button>' : '') +
+      (S.mcp && S.canWrite && linked.length ? '<button class="btn small ghost" data-act="mailFiles" title="קבצים מצורפים מהמיילים המשויכים נשמרים בתיקיית הלקוח">שמור קבצים מהמיילים' + (nFiles ? ' (' + nFiles + ' נשמרו)' : '') + '</button>' : '') +
       (S.mcp ? '<button class="btn small" data-act="mailSearch">' + (st.loading ? 'מחפש…' : 'חפש ב-Gmail') + '</button>' : '') + '</header>' +
+    (S.canWrite ? '<div class="row" style="align-items:flex-end;margin-bottom:8px"><label class="fl grow">איך הלקוח מופיע במייל (שם / כתובת, כמה — עם פסיק)<input class="f" data-cmail="mailAlias" value="' + esc(c.mailAlias || '') + '" placeholder="למשל: yossi.k@gmail.com, יוסי כהן בע״מ"></label>' +
+      '<label class="fl grow">קישור למייל, נושא או שולח<input class="f" id="mailPaste" placeholder="הדבק קישור מ-Gmail או כתוב נושא / כתובת"></label><button class="btn small" data-act="mailPaste">מצא ושייך</button></div>' : '') +
     (!S.mcp ? '<p class="hint">חיבור Gmail לא זמין בתצוגה הזו.</p>' : '') + (st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') +
     (linked.length ? '<h3 class="sec">משויכים לתיק</h3>' + linked.map((t) => row(t, true)).join('') : '') +
     (found.length ? '<h3 class="sec">נמצאו ב-Gmail</h3>' + found.map((t) => row(t, false)).join('') : st.threads && !found.length ? '<p class="empty">לא נמצאו מיילים נוספים.</p>' : '') +
@@ -3615,6 +3668,7 @@ async function mailSearch(c) {
     if (nm) parts.push('"' + nm + '"');
     if (c.email) parts.push('from:' + c.email, 'to:' + c.email);
     if (c.phone) parts.push('"' + String(c.phone).replace(/\D/g, '') + '"');
+    String(c.mailAlias || '').split(/[,;\n]+/).map((a) => a.trim()).filter(Boolean).forEach((a) => /@/.test(a) ? parts.push('from:' + a, 'to:' + a) : parts.push('"' + a.replace(/"/g, '') + '"'));
     const p = await gmail('search_threads', { query: '{' + parts.join(' ') + '} ' + SYS_Q, pageSize: 50 });
     st.threads = ((p && p.threads) || []).map((t) => { const M = t.messages || [], m = M[0] || {}, all = M.flatMap((x) => [x.sender, ...(x.toRecipients || []), ...(x.ccRecipients || [])]).join(' ').toLowerCase();
       return { id: t.id, subject: m.subject || '', from: m.sender || '', date: (M[M.length - 1] || m).date || '', snippet: decodeHtml(m.snippet || ''), url: t.viewUrl || m.viewUrl || '', fin: all.includes(FIN_BOX) }; }).filter((t) => !isSysMail(t)).slice(0, 15);
@@ -3630,8 +3684,8 @@ async function mailRead(c, id) {
   } catch (e) { st.error = MAIL_FIX[e && e.code] || 'קריאת המייל נכשלה'; }
   render();
 }
-async function mailLink(c, id) {
-  const st = S.mailRes[c.id] || {}; const t = (st.threads || []).find((x) => x.id === id); if (!t) return;
+async function mailLink(c, id, given) {
+  const st = S.mailRes[c.id] || {}; const t = given || (st.threads || []).find((x) => x.id === id); if (!t) return;
   try {
     const name = clientLabelName(c);
     let lab = (await gLabels()).find((l) => l.name === name);
@@ -3640,8 +3694,87 @@ async function mailLink(c, id) {
     await write('clients/' + c.id, { emails: [{ id: t.id, subject: t.subject, from: t.from, date: t.date, url: t.url }, ...(c.emails || []).filter((x) => x.id !== id)].slice(0, 100), updatedAt: stamp() }, 'update');
     await logClient(c.id, 'מייל שויך לתיק: ' + t.subject);
     toast(lab ? 'תויג ב-Gmail ושויך לתיק' : 'שויך לתיק (התווית לא נוצרה)');
-  } catch (e) { toast(MAIL_FIX[e && e.code] || 'התיוג נכשל'); }
+  } catch (e) { toast(MAIL_FIX[e && e.code] || 'התיוג נכשל'); return; }
+  const k = await mailFilesToDrive(S.clients.get(c.id) || c, [id], true).catch(() => 0); if (k) toast(k + ' קבצים מהמייל נשמרו בתיקייה בדרייב');
 }
+/* ── קישור למייל שהודבק (thread-f:מספר או מזהה) — או נושא / שולח, ואז חיפוש ── */
+function gmailIdFromLink(s0) {
+  let s1 = String(s0 || '').trim(); try { s1 = decodeURIComponent(s1); } catch (e) {} let m;
+  if ((m = s1.match(/(?:thread|msg)-f:(\d+)/))) return BigInt(m[1]).toString(16);
+  if ((m = s1.match(/(?:^|[#/])([0-9a-f]{16})(?:$|[?&#/])/))) return m[1];
+  return null;
+}
+async function mailLinkPasted(c, text) {
+  const q = String(text || '').trim(); if (!q) return toast('הדבק קישור, נושא או שולח');
+  const id = gmailIdFromLink(q);
+  if (!id) { if (/mail\.google\.com/.test(q)) return toast('את הקישור הזה Gmail לא מאפשר לפענח — הדבק את נושא המייל או כתובת השולח');
+    const st = (S.mailRes[c.id] = S.mailRes[c.id] || {}); st.loading = true; render();
+    try { const p = await gmail('search_threads', { query: (/@/.test(q) ? '{from:' + q + ' to:' + q + '}' : q) + ' ' + SYS_Q, pageSize: 20 });
+      st.threads = ((p && p.threads) || []).map((t) => { const M = t.messages || [], m = M[0] || {}; return { id: t.id, subject: m.subject || '', from: m.sender || '', date: (M[M.length - 1] || m).date || '', snippet: decodeHtml(m.snippet || ''), url: t.viewUrl || m.viewUrl || '' }; }).filter((t) => !isSysMail(t));
+    } catch (e) { st.error = MAIL_FIX[e && e.code] || 'החיפוש ב-Gmail נכשל'; }
+    st.loading = false; return render(); }
+  try { const p = await gmail('get_thread', { threadId: id, messageFormat: 'MINIMAL' }); const M = (p && p.messages) || [], m = M[0] || {};
+    if (!M.length) return toast('המייל לא נמצא בתיבה המחוברת');
+    const t = { id: p.id || id, subject: m.subject || '', from: m.sender || '', date: (M[M.length - 1] || m).date || '', url: p.viewUrl || m.viewUrl || '' };
+    return mailLink(c, t.id, t);
+  } catch (e) { toast(MAIL_FIX[e && e.code] || 'לא הצלחתי לפתוח את המייל (' + ((e && e.code) || 'שגיאה') + ')'); }
+}
+/* ── קבצים שמגיעים במייל → תיקיית הלקוח בדרייב (אוטומטית כשמשייכים מייל, ובכל פתיחה של הכרטיס) ── */
+const folderUrl = (id) => 'https://drive.google.com/drive/folders/' + id;
+async function clientFolder(c) { return c.driveFolder || driveFolderFor('proc', c.id, c.name); }
+function mimeWords(v) { return String(v).replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_, cs, e, t) => { try { const bin = /b/i.test(e) ? atob(t) : t.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (x, h) => String.fromCharCode(parseInt(h, 16))); return new TextDecoder(cs).decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0))); } catch (er) { return t; } }).replace(/\?=\s+=\?/g, ''); }
+function hdrParam(H, k) {
+  const star = [...H.matchAll(new RegExp('[;\\s]' + k + '\\*(?:\\d+\\*?)?=\\s*("?)([^";\\r\\n]*)\\1', 'ig'))];
+  if (star.length) { let v = star.map((m) => m[2]).join(''); const m = v.match(/^([\w-]+)'[^']*'(.*)$/); if (m) v = m[2]; try { return decodeURIComponent(v); } catch (e) { return v; } }
+  const m = H.match(new RegExp('[;\\s]' + k + '=\\s*(?:"([^"]*)"|([^;\\r\\n]+))', 'i')); if (!m) return '';
+  const raw = (m[1] != null ? m[1] : m[2]).trim(); const u8 = Uint8Array.from(raw, (ch) => ch.charCodeAt(0) & 255);
+  let txt = raw; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) {} return mimeWords(txt);
+}
+function mimeAttachments(bin) {
+  const out = [];
+  const walk = (txt, depth) => { if (depth > 6) return;
+    const i = txt.search(/\r?\n\r?\n/); if (i < 0) return; const H = txt.slice(0, i).replace(/\r?\n[ \t]+/g, ' '), body = txt.slice(i).replace(/^\r?\n\r?\n/, '');
+    const ct = ((H.match(/^content-type:\s*([^;\r\n]+)/im) || [])[1] || 'text/plain').trim().toLowerCase(), bd = (H.match(/boundary="?([^";\r\n]+)"?/i) || [])[1];
+    if (/^multipart\//.test(ct) && bd) { body.split('--' + bd).slice(1).forEach((part) => { if (!/^--/.test(part)) walk(part.replace(/^\r?\n/, ''), depth + 1); }); return; }
+    if (ct === 'message/rfc822') return walk(body, depth + 1);
+    const fn = hdrParam(H, 'filename') || hdrParam(H, 'name'); if (!fn) return;
+    const enc = ((H.match(/^content-transfer-encoding:\s*(\S+)/im) || [])[1] || '').toLowerCase(), inline = /^content-disposition:\s*inline/im.test(H);
+    let b64 = '';
+    if (enc === 'base64') b64 = body.replace(/[^A-Za-z0-9+/=]/g, '');
+    else if (enc === 'quoted-printable') b64 = btoa(body.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (x, h) => String.fromCharCode(parseInt(h, 16))));
+    else b64 = btoa(body);
+    out.push({ name: fn, type: ct, inline, b64, size: Math.floor(b64.length * 3 / 4) }); };
+  walk(bin, 0); return out;
+}
+function rawOf(p) { const r = p && typeof p === 'object' ? p.raw || p.rawContent || p.raw_content || p.message || '' : p || ''; const s0 = String(r).replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, ''); try { return atob(s0 + '==='.slice((s0.length + 3) % 4)); } catch (e) { return /^[\x00-\x7f]*\r?\n/.test(String(r)) ? String(r) : ''; } }
+async function mailFilesToDrive(c, threadIds, quiet) {
+  if (!S.mcp || !c || !canSeeDiv(c.division)) return 0;
+  const done = { ...(c.mailFiles || {}) }, recs = []; let folder = null;
+  for (const tid of threadIds) {
+    let th = null; try { th = await gmail('get_thread', { threadId: tid, messageFormat: 'PLAIN_TEXT' }); } catch (e) { if (!quiet) toast(MAIL_FIX[e && e.code] || 'קריאת המייל נכשלה'); continue; }
+    for (const m of (th && th.messages) || []) {
+      const att = (m.attachments || []).filter((a) => a && a.filename); if (!att.length || done[m.id]) continue;
+      let raw = ''; try { raw = rawOf(await gmail('get_message', { messageId: m.id, messageFormat: 'RAW' })); } catch (e) { if (!quiet) toast(MAIL_FIX[e && e.code] || 'אין גישה לקבצים של המייל (' + ((e && e.code) || 'שגיאה') + ')'); return recs.length; }
+      const files = mimeAttachments(raw).filter((f) => !(f.inline && /^image\//.test(f.type) && f.size < 60000) && f.size > 0 && f.size < 15e6);
+      if (!files.length) { done[m.id] = []; continue; }
+      folder = folder || await clientFolder(c); if (!folder) { if (!quiet) toast('לא הצלחתי לפתוח תיקייה בדרייב'); return recs.length; }
+      const names = [];
+      for (const f of files) {
+        const r = await S.mcp.callTool('Google Drive', 'create_file', { title: f.name, base64Content: f.b64, contentMimeType: f.type || 'application/octet-stream', disableConversionToGoogleType: true, parentId: folder }, { cache: false }).catch(() => null);
+        let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+        const fid = p && (p.id || p.fileId || (p.file && p.file.id)); if (!fid) continue;
+        names.push(f.name); recs.push({ id: uid(), key: 'מייל', name: f.name, driveId: fid, url: (p && (p.viewUrl || p.webViewLink)) || 'https://drive.google.com/file/d/' + fid + '/view', at: stamp(), from: m.sender || '', msgId: m.id, by: S.me.id });
+      }
+      done[m.id] = names;
+    }
+  }
+  const fresh = S.clients.get(c.id) || c;
+  if (recs.length || Object.keys(done).length !== Object.keys(c.mailFiles || {}).length) await write('clients/' + c.id, { mailFiles: done, ...(recs.length ? { scans: [...(fresh.scans || []), ...recs] } : {}), updatedAt: stamp() }, 'update', { journal: true });
+  if (recs.length) await logClient(c.id, recs.length + ' קבצים מהמייל נשמרו בדרייב: ' + recs.map((r) => r.name).join(', ')).catch(() => {});
+  if (!quiet) toast(recs.length ? recs.length + ' קבצים נשמרו בתיקייה בדרייב' : 'אין קבצים חדשים במיילים המשויכים');
+  return recs.length;
+}
+async function mailAutoFiles(c) { S._mailAuto = S._mailAuto || {}; if (S._mailAuto[c.id] || !S.isOwner || !S.canWrite || !S.mcp) return; const ids = (c.emails || []).filter((t) => !isSysMail(t)).map((t) => t.id); if (!ids.length) return; S._mailAuto[c.id] = 1; const k = await mailFilesToDrive(c, ids, true).catch(() => 0); if (k) toast(k + ' קבצים חדשים מהמייל נשמרו בדרייב — ' + c.name); }
 
 /* ═════════════════════════ צפי תשלומים וכניסות לפי תאריכים ═════════════════════════ */
 function forecastItems(days = 120) {
@@ -4666,7 +4799,7 @@ function vIntake(cid) {
       inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + chk('request.balloon', 'בלון', R.balloon) +
       (R.balloon ? pick('request.balloonMonths', 'תקופת בלון', { 12: 'שנה', 18: 'שנה וחצי', 24: 'שנתיים' }, String(R.balloonMonths || '')) : '') + '</div></section>';
   const reqSec = '<section class="card"><header><h2>מבנה ההלוואה</h2></header><div class="row">' + inp('request.years', 'תקופה (שנים)', R.years, 'number', 'style="width:80px" placeholder="5"') + inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + pick('track', 'מסלול', IK.track, x.track || 'nonbank') + '</div><p class="hint" style="margin:0">הסכום — מ"פרטי העסק". יש נכס לשעבוד? סמן שם, ויופיעו שווי הנכס והגופים החוץ-בנקאיים.</p></section>';
-  const form =
+  const form = (w ? '<p class="hint" style="margin:0 0 6px">נשמר אוטומטית בכל שינוי — גם תוך כדי הקלדה · <span id="ikSaved">' + (x.updatedAt ? 'עודכן ' + dLabel(dayOf(x.updatedAt)) + ' ' + String(x.updatedAt).slice(11, 16) : '') + '</span></p>' : '') +
     '<div class="seg" role="group" aria-label="סוג התיק" style="margin-bottom:10px">' + Object.entries(INTAKE_KIND).map(([k, t]) => '<button data-ikind="' + k + '" aria-pressed="' + (KD === k) + '"' + (w ? '' : ' disabled') + '>' + t + '</button>').join('') + '</div>' +
     '<section class="card"><header><h2>פרטי קשר</h2></header><div class="row">' + inp('contact.phone', 'טלפון', K.phone, 'tel', 'inputmode="tel"') + inp('contact.email', 'מייל', K.email, 'email') + inp('contact.source', 'מאיפה הגיע', K.source, 'text') + '</div></section>' +
     '<section class="card"><header><h2>הלווים וההכנסות</h2><span class="grow"></span>' + scanBtn('intake', 'borrowers', 'סריקת ת״ז / תלושים') + '</header>' + scanList(x, 'borrowers') + bor(0, 'לווה ראשי') + bor(1, 'בן/בת זוג') +
@@ -4947,8 +5080,10 @@ function render() {
   if (hideT.includes(S.view.tab)) S.view.tab = 'day';
   const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLenders, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
+  const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
   $('main').innerHTML = partnerHint() + (S.canTask ? '' : '<div class="notice warn"><b>קריאה בלבד</b><span>בתצוגה הזו אין הרשאת עריכה. בעל הדף יכול לתת גישה מתפריט השיתוף.</span></div>') + (V[S.view.tab] || vDay)();
   if (active && $(active) && $(active).matches('input[type=search]')) { $(active).focus(); try { $(active).setSelectionRange(pos, pos); } catch (e) {} }
+  if (ikA) { const el = document.querySelector('[data-ik="' + ikA + '"]'); if (el) { if (el.type !== 'checkbox' && ikV != null && el.value !== ikV) el.value = ikV; el.focus(); try { if (ikP != null) el.setSelectionRange(ikP, ikP); } catch (e) {} } }
   const me = S.me.id, t0 = today();
   const mine = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due <= t0 && isMyTask(t, me)).length;
   document.querySelector('#tabs [data-tab="day"]').innerHTML = 'היום שלי' + (mine ? '<span class="badge">' + mine + '</span>' : '');
@@ -5139,6 +5274,7 @@ document.addEventListener('click', async (e) => {
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('נוסף — בחר "מתנהג כמו" ושמור'); }
         case 'stSave': { const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); if (rows.some((r) => !r.label)) return toast('חסר שם');
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('הסטטוסים של ' + L.division[div] + ' נשמרו'); }
+        case 'mkFolders': return mkFolders();
         case 'scriptSave': { const o = { ...(S.settings.callScripts || {}) }; document.querySelectorAll('[data-script]').forEach((t) => { o[t.dataset.script] = t.value; }); await write('settings/main', { callScripts: o }, 'update'); return toast('התסריט נשמר'); }
         case 'stReset': { const div = $('stTable').dataset.div; const o = { ...(S.settings.statusSets || {}) }; delete o[div]; await write('settings/main', { statusSets: o }, 'update'); return toast('חזרה לברירת המחדל'); }
         case 'simAdd': case 'simPreset': { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))); x.sim = { ...SIM_DEFAULT(), ...(x.sim || {}) };
@@ -5181,6 +5317,9 @@ document.addEventListener('click', async (e) => {
         case 'addInst': { const amt = r2($('instAmt').value), due = $('instDue').value || null, note = $('instNote').value.trim(), vat = ($('instVat') || {}).value || 'plus'; if (!(amt > 0)) return toast('חסר סכום');
           await write('clients/' + c.id, { installments: [...(c.installments || []), { id: uid(), amount: amt, vat, due, paid: false, note }], updatedAt: stamp() }, 'update'); await logClient(c.id, 'נוספה פעימה: ' + plain(amt) + (due ? ' ל-' + dLabel(due) : '')); return toast('הפעימה נוספה'); }
         case 'mailSearch': return mailSearch(c);
+        case 'mailPaste': { const v = ($('mailPaste') || {}).value || ''; return mailLinkPasted(c, v); }
+        case 'mailFiles': return mailFilesToDrive(c, (c.emails || []).filter((t) => !isSysMail(t)).map((t) => t.id), false);
+        case 'mkFolder': { toast('פותח תיקייה בדרייב…'); const f = await clientFolder(c); toast(f ? 'נפתחה תיקייה בדרייב' : 'לא הצלחתי לפתוח תיקייה בדרייב'); return render(); }
         case 'holdReason': return drawer('סיבת השהייה — ' + c.name, ft('reason', 'למה בהשהייה? (למשל: עד שיהיה ערב)', c.holdReason || ''), async (d) => { const v = String(d.reason || '').trim(); await write('clients/' + c.id, { holdReason: v, updatedAt: stamp() }, 'update'); await logClient(c.id, 'בהשהייה: ' + v); });
         case 'newDeal': {
           return drawer('עסקה חדשה — ' + c.name, '<p style="margin:0">לסגור את העסקה הנוכחית להיסטוריה ולפתוח עסקה חדשה באותו כרטיס?</p>', async () => {
@@ -5294,11 +5433,7 @@ document.addEventListener('change', async (e) => {
     if (el.id === 'fStmt') { S.f.stmtPeriod = el.value; return render(); }
     if (el.dataset.finreserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [el.dataset.finreserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) + ' לחודש הבא' : 'השריון בוטל'); }
     if (el.dataset.empct) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empct ? { ...e, employerPct: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('עלות מעביד נשמרה'); }
-    if (el.dataset.ik) { const cid = S.view.clientId; if (!cid) return; const x = JSON.parse(JSON.stringify(intakeDoc(cid))); if (el.dataset.ik.startsWith('sim.') && !x.sim) x.sim = SIM_DEFAULT();
-      const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : el.value;
-      await write('intakes/' + cid, { ...setPath(x, el.dataset.ik, v), id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id, createdAt: x.createdAt || stamp(), createdBy: x.createdBy || S.me.id, callDays: { ...(x.callDays || {}), [today()]: (x.callDays || {})[today()] || S.me.id } });
-      if (el.dataset.ik.startsWith('contact.') && !S.clients.get(cid) && S.leads.get(cid)) await write('leads/' + cid, { [el.dataset.ik.slice(8)]: v || '', updatedAt: stamp() }, 'update');
-      return; }
+    if (el.dataset.ik) { clearTimeout(ikT); return ikSave(el); }
     if (el.id === 'fPayMonth') { S.f.payMonth = el.value; return render(); }
     if (el.id === 'fReMonth') { S.f.reMonth = el.value; return render(); }
     if (el.dataset.linklead && el.value) { const l = S.leads.get(el.dataset.linklead), c = S.clients.get(el.value); await write('leads/' + l.id, { clientId: c.id, updatedAt: stamp() }, 'update');
@@ -5361,6 +5496,7 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.leadstage && stagePatch(S.leads.get(el.dataset.leadstage) || {}, el.value).stage === 'noanswer') return leadQuick(el.dataset.leadstage, 'noanswer', stagePatch(S.leads.get(el.dataset.leadstage), el.value).sub);
     if (el.id === 'fLeadDay') { S.f.leadDay = el.value || today(); return render(); }
     if (el.dataset.leadstage) { const l = S.leads.get(el.dataset.leadstage); if (!l || el.dataset.leadstage === 'x') return; return leadSetStatus(l, el.value); }
+    if (el.dataset.cmail && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; const v = el.value.trim(); if ((c.mailAlias || '') === v) return; await write('clients/' + c.id, { mailAlias: v, updatedAt: stamp() }, 'update'); return logClient(c.id, 'איך הלקוח מופיע במייל: ' + (v || '—')); }
     if (el.dataset.leadq) { const l = S.leads.get(el.dataset.id), k = el.dataset.leadq, v = el.value.trim(); if (!l || leadQ(l, k) === v) return;
       return leadPatch(l.id, { q: { ...(l.q || {}), [k]: v } }, (RE_LEAD_Q.find((x) => x[0] === k) || [])[1] + ': ' + v, true); }
     if (el.dataset.lzoom) { const l = S.leads.get(el.dataset.id); if (!l) return; const k = el.dataset.lzoom, v = el.type === 'checkbox' ? el.checked : el.value || null;
@@ -5384,8 +5520,9 @@ document.addEventListener('change', async (e) => {
   } catch (err) { /* write() כבר הציג הודעה */ }
 });
 let qT;
-document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pside')) S.f.psideOpen = e.target.open; }, true);
+document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pside')) S.f.psideOpen = e.target.open; if (e.target.matches && e.target.matches('details.convbox')) S.f.convOpen = e.target.open; }, true);
 document.addEventListener('input', async (e) => {
+  if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
   const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ' };
   if (map[e.target.id]) { S.f[map[e.target.id]] = e.target.value; clearTimeout(qT); qT = setTimeout(render, 160); return; }
   if (e.target.id === 'teamSearch' && S.user) {
@@ -5420,7 +5557,7 @@ document.addEventListener('submit', async (e) => {
     if (role === 'center' && !divs.length) return toast('סמן לפחות חברה אחת');
     if (S.role === 'admin_re' && role === 'center' && divs.some((d) => d !== 'realestate')) return toast('אפשר לתת רק הר-אל השקעות');
     const resp = old && old.resp ? old.resp : role === 'partner' && !us.some((x) => x.resp === 'nissim' && x !== old) ? 'nissim' : name;
-    const rec = { ...(old || {}), username: name, resp, role, label: label || (old && old.label) || L.resp[resp] || name, divs: role === 'center' ? divs : ROLES[role].divs, freelancer: !!($('uFree') && $('uFree').checked), setAt: stamp(), setBy: S.myKey || null };
+    const rec = { ...(old || {}), username: name, resp, role, label: label || (old && old.label) || L.resp[resp] || name, divs: role === 'center' ? divs : ROLES[role].divs, freelancer: !!($('uFree') && $('uFree').checked), conv: !!($('uConv') && $('uConv').checked), setAt: stamp(), setBy: S.myKey || null };
     if (pw) { const salt = hex(crypto.getRandomValues(new Uint8Array(16))), iter = 210000; Object.assign(rec, { salt, iter, hash: await pwHash(pw, salt, iter) }); }
     try { await write('settings/main', { users: [...us.filter((x) => normUser(x.username) !== name), rec] }, 'update'); S.f.userEdit = null;
       toast(pw && pw === name ? 'נשמר — הסיסמה זהה לשם המשתמש, כדאי להחליף' : pw ? 'המשתמש נשמר' : old ? 'השינויים נשמרו' : 'המשתמש נוסף — ממתין לסיסמה'); render(); } catch (err) {}
