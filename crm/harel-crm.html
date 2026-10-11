@@ -1862,7 +1862,7 @@ const TONE_OF_BASE = (b) => b === 'won' ? 'actual' : ['meeting', 'proposal'].inc
 function vLeadBoard() {
   const myDivs = DIVS.filter(canSeeDiv), div = S.division !== 'all' ? S.division : myDivs.includes(S.f.boardDiv) ? S.f.boardDiv : myDivs[0];
   const divSel = S.division === 'all' && myDivs.length > 1 ? '<div class="seg" role="group" aria-label="חברה" style="margin:0 0 12px">' + myDivs.map((d) => '<button data-boarddiv="' + d + '" aria-pressed="' + (d === div) + '">' + L.division[d] + '</button>').join('') + '</div>' : '';
-  return divSel + vLeadBoardDiv(div);
+  return (S.isOwner && S.canTask ? allocCard() : '') + divSel + vLeadBoardDiv(div);
 }
 function vLeadBoardDiv(div) {
   const per = S.f.boardPer || 'month', t0 = today(), defs = stageDefs(div).filter((x) => !x.hide);
