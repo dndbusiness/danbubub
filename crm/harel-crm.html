@@ -1574,11 +1574,12 @@ async function syncLeadSheet(src, quiet, cache) {
   if (!quiet) toast((src.label || 'טבלה') + ': ' + seen + ' לידים · ' + added + ' חדשים · ' + updated + ' עודכנו');
   return run;
 }
-async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); }
+async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); dedupeAuto(); }
 const lastRun = (s) => [S.runs.get('leadsync-' + srcKey(s)), lsRun(s)].filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
 async function autoLeadSync() {
   if (!S.mcp || navigator.webdriver) return; const cache = {};
   for (const src of leadSources()) { if (!S.claudeOwner && !lsRun(src)) continue; const last = lastRun(src); if (last && Date.now() - new Date(last.at).getTime() < 30 * 60e3) continue; await syncLeadSheet(src, true, cache).catch(() => null); }
+  dedupeAuto();
 }
 /* עלות, המרה והיקף עסקאות לפי מודעה — 150 ₪ לליד, לידים כחולים/אדומים לזיכוי ולא נספרים בעלות */
 function sheetLeadStats() {
@@ -1634,7 +1635,7 @@ const DEFAULT_SETS = { realestate: [
     { key: 'followup', label: 'פולו אפ', base: 'followup', alias: ['פולואפ', 'פולו-אפ'] }, { key: 'fin_waiting', label: 'ממתינה', base: 'checking', alias: ['ממתין'] },
     { key: 'fin_later', label: 'לחזור מאוחר יותר', base: 'followup' }, { key: 'thinking', label: 'רוצה לחשוב על זה', base: 'thinking', alias: ['חושב על זה'] },
     { key: 'fin_agreement', label: 'נשלח הסכם — טרם חתם', base: 'proposal' }, { key: 'won', label: 'נסגר וחתם', base: 'won', alias: ['נסגר / חתם', 'חתם'] },
-    { key: 'lost', label: 'לא רלוונטי', base: 'lost' }, { key: 'ineligible', label: 'לא זכאי', base: 'ineligible' },
+    { key: 'lost', label: 'לא רלוונטי', base: 'lost' }, { key: 'fin_fee_high', label: 'שכר טרחה גבוה', base: 'lost', alias: ['שכ"ט גבוה', 'שכט גבוה', 'שכ״ט גבוה'] }, { key: 'ineligible', label: 'לא זכאי', base: 'ineligible' },
     { key: 'invalid', label: 'מספר לא תקין · לזיכוי', base: 'invalid', alias: ['מספר לא תקין'] }, { key: 'fin_denies', label: 'מכחיש פנייה · לזיכוי', base: 'credit', alias: ['מכחיש פניה'] },
     { key: 'fin_arab', label: 'מגזר ערבי · לזיכוי', base: 'credit' }, { key: 'fin_noprop', label: 'אין נכס · לזיכוי', base: 'credit' }, { key: 'duplicate', label: 'ליד כפול · לזיכוי', base: 'duplicate' },
     { key: 'credit', label: 'לזיכוי — אחר', base: 'credit', hide: true }, { key: 'contacted', label: 'נוצר קשר', base: 'contacted', hide: true }, { key: 'checking', label: 'בבדיקה', base: 'checking', hide: true },
@@ -1648,6 +1649,7 @@ function noteToStatus(note) {
   if (/מספר (לא תקין|שגוי)|מנותק|טעות במספר/.test(t)) return { stage: 'invalid', sub: null };
   if (/מגזר ערבי/.test(t)) return { stage: 'credit', sub: 'fin_arab' };
   if (/אין נכס|ללא נכס|אין לו נכס|אין לה נכס/.test(t)) return { stage: 'credit', sub: 'fin_noprop' };
+  if (/שכ["״]?ט\s*(גבוה|יקר)|שכר\s*(ה)?טרחה\s*(גבוה|יקר)|יקר\s*(לו|לה|להם)\s*(ה)?(שכ["״]?ט|שכר\s*(ה)?טרחה)/.test(t)) return { stage: 'lost', sub: 'fin_fee_high' };
   if (/לא רלוונטי|כבר הסתדר|לא מעוניי[ןנת]*(?![ןנת])(?!\s*ל)/.test(t)) return { stage: 'lost', sub: null };
   if (/לא זכאי/.test(t)) return { stage: 'ineligible', sub: null };
   if (/נשלח הסכם|שלחתי הסכם/.test(t)) return { stage: 'proposal', sub: 'fin_agreement' };
@@ -1693,6 +1695,46 @@ async function leadPatch(id, patch, text, auto = false) {
   if (patch.stage && patch.stage !== l.stage) { patch = { ...patch, stageAt: stamp(), ...(patch.stage === 'won' ? { wonAt: stamp() } : {}), ...(LEAD_CLOSED.includes(patch.stage) ? { followUp: null } : {}) }; }
   const log = text ? [{ at: stamp(), by: S.me.id, who: whoAmI(), text, auto }, ...(l.log || [])].slice(0, 300) : undefined;
   await write('leads/' + id, { ...patch, ...(log ? { log } : {}), updatedAt: stamp() }, 'update');
+}
+/* ליד כפול (הר-אל פתרונות): אותו טלפון באותה חברה.
+   ליד "חדש" שאף אחד עוד לא נגע בו, ויש לו ליד קודם מ-90 הימים האחרונים → "ליד כפול · לזיכוי", עם קישור לליד הקיים ושורה ביומן של שניהם.
+   הליד הקיים = זה שכבר מטופל (לא "חדש"), ואם כולם חדשים — הראשון שנכנס. ליד קודם ישן מ-90 יום → נשאר חדש עם "פנה בעבר".
+   לא נוגע בליד שמישהו כבר עבד עליו (הערה או פעולה ידנית — הקצאה אוטומטית לא נחשבת), ו"זה לא כפול" מחזיר אותו לחדש ולא מסמן אותו שוב. */
+const DUP_DAYS = 90, DUP_DIVS = ['finance'];
+const dupPhone = (l) => { const p = normPhone(l.phone); return p.length >= 9 && !/^0+$/.test(p) ? p : ''; };
+const leadTwins = (l) => { const p = dupPhone(l); return p ? live(S.leads).filter((x) => x.id !== l.id && leadDiv(x) === leadDiv(l) && dupPhone(x) === p).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''))) : []; };
+const isNewLead = (l) => (l.stage || 'new') === 'new';
+const dupPrimary = (ls) => { const c = ls.filter((l) => l.stage !== 'duplicate'), pool = c.length ? c : ls;
+  return pool.slice().sort((a, b) => (isNewLead(a) - isNewLead(b)) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || String(a.id).localeCompare(String(b.id)))[0]; };
+const dupDesc = (p) => (p.campaign || leadChannel(p) || 'ליד') + ' · ' + dLabel(dayOf(p.createdAt)) + ' · ' + leadStageLabel(p);
+let DEDUPE_BUSY = false;
+async function dedupeLeads() {
+  if (!S.canTask || DEDUPE_BUSY) return 0; DEDUPE_BUSY = true; let k = 0;
+  try {
+    const g = {}; for (const l of live(S.leads)) { const p = dupPhone(l), dv = leadDiv(l); if (p && DUP_DIVS.includes(dv)) (g[dv + '|' + p] = g[dv + '|' + p] || []).push(l); }
+    for (const ls of Object.values(g)) { if (ls.length < 2) continue; const p = dupPrimary(ls);
+      for (const l0 of ls) { const l = S.leads.get(l0.id) || l0;
+        if (l.id === p.id || !isNewLead(l) || l.dupOf || l.dupSeen || l.notDup || (l.log || []).some((e) => !e.auto && e.who !== 'סנכרון')) continue; /* הקצאה / סנכרון לא נחשבים טיפול */
+        if (String(l.createdAt || '') < String(p.createdAt || '') && isNewLead(p)) continue;
+        const gap = Math.abs(Date.parse(dayOf(l.createdAt) || 0) - Date.parse(dayOf(p.createdAt) || 0)) / 864e5;
+        const lg = (x, text) => [{ at: stamp(), by: S.me.id, who: 'בדיקת כפילות', text, auto: true }, ...(x.log || [])].slice(0, 300);
+        if (gap > DUP_DAYS) { await write('leads/' + l.id, { dupSeen: p.id, log: lg(l, 'פנה בעבר — ' + dupDesc(p)), updatedAt: stamp() }, 'update'); k++; continue; }
+        await write('leads/' + l.id, { stage: 'duplicate', sub: null, dupOf: p.id, stageAt: stamp(), followUp: null, log: lg(l, 'ליד כפול — כבר קיים: ' + dupDesc(p)), updatedAt: stamp() }, 'update');
+        const pp = S.leads.get(p.id) || p;
+        await write('leads/' + p.id, { returns: [...(pp.returns || []).filter((r) => r.id !== l.id), { id: l.id, at: l.createdAt || stamp(), campaign: l.campaign || leadChannel(l) || '' }],
+          log: lg(pp, 'נכנס שוב: ' + (l.campaign || leadChannel(l) || 'ליד') + ' · ' + dLabel(dayOf(l.createdAt)) + ' — סומן כליד כפול'), updatedAt: stamp() }, 'update');
+        k++; } }
+  } finally { DEDUPE_BUSY = false; }
+  return k;
+}
+const dedupeAuto = () => { if (!navigator.webdriver || window.__dedupeTest) dedupeLeads().then((k) => { if (k) toast(k + ' לידים כפולים סומנו'); }).catch(() => {}); };
+function leadDupCard(l, w) {
+  const tw = leadTwins(l); if (!tw.length) return '';
+  const orig = l.dupOf && S.leads.get(l.dupOf);
+  return '<section class="card" style="border-inline-start:4px solid var(--open)"><header><h2>' + (orig ? 'ליד כפול' : 'אותו טלפון — ' + tw.length + ' לידים נוספים') + '</h2><span class="grow"></span>' +
+      (w && l.dupOf && l.stage === 'duplicate' ? '<button class="btn small ghost" data-notdup="' + esc(l.id) + '">זה לא כפול — החזר לחדש</button>' : '') + '</header>' +
+    (orig ? '<p class="hint">הליד הזה כבר קיים במערכת. מטפלים בליד המקורי, והליד הזה נשאר לזיכוי מול המשווק.</p>' : '') +
+    '<ul class="log">' + tw.map((x) => '<li><time>' + dLabel(dayOf(x.createdAt)) + '</time><span><a href="#" data-leadopen="' + esc(x.id) + '"><b>' + esc(x.name || '—') + '</b></a> · ' + esc(x.campaign || leadChannel(x) || '') + ' · ' + leadPill(x) + (x.id === l.dupOf ? ' <span class="pill committed">המקורי</span>' : '') + (x.resp ? ' <span class="hint">' + esc(L.resp[x.resp] || x.resp) + '</span>' : '') + '</span></li>').join('') + '</ul></section>';
 }
 function leadsFiltered() {
   const f = S.f, q = String(f.leadQ || '').trim(), qd = q.replace(/\D/g, ''), t0 = today();
@@ -2442,7 +2484,7 @@ function vLeadsList(seg) {
       (canAlloc && rows.length ? allocBar(rows) : '') +
       (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
         shown.map((l) => '<tr class="clickable" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
-          '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
+          '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + ((l.returns || []).length ? '<div><span class="pill open" title="אותו טלפון נכנס שוב כליד">נכנס שוב ×' + l.returns.length + '</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
           '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m">' + respSel(l) + '</td>' +
           '<td class="hide-m">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
           '<td class="hide-m"><span class="hint">' + linkify(leadLast(l), 70) + '</span></td></tr>').join('') + '</tbody></table></div>' +
@@ -2456,7 +2498,7 @@ function vLead(id) {
   const inp = (k, label, type = 'text', attrs = '') => '<label class="fl">' + label + '<input class="f" type="' + type + '" data-leadf="' + k + '" value="' + esc(l[k] || '') + '" ' + attrs + (w ? '' : ' disabled') + '></label>';
   const isRE = leadDiv(l) === 'realestate', noA = ['noanswer', 'אין מענה' + (l.stage === 'noanswer' ? ' (' + (n(l.tries) + 1) + ')' : '') + ' — מעקב מחר'];
   const quick = isRE ? [noA, ...['re_call_next', 're_zoom_set', 're_zoom_again', 're_feedback', 'lost', 'invalid', 'duplicate'].map((k) => stageDefs('realestate').find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])]
-    : [noA, ...['followup', 'fin_waiting', 'fin_later', 'thinking', 'fin_agreement', 'lost', 'ineligible', 'invalid', 'fin_denies', 'fin_arab', 'fin_noprop', 'duplicate'].map((k) => stageDefs(leadDiv(l)).find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])];
+    : [noA, ...['followup', 'fin_waiting', 'fin_later', 'thinking', 'fin_agreement', 'lost', 'fin_fee_high', 'ineligible', 'invalid', 'fin_denies', 'fin_arab', 'fin_noprop', 'duplicate'].map((k) => stageDefs(leadDiv(l)).find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])];
   const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ['בכוורת', (() => { const k = poolOf(l.phone); return k ? 'כרטיס ' + k.kid + ' · ' + k.name + (k.ok ? ' · אישר דיוור' : '') : l.kaveretId ? 'כרטיס ' + l.kaveretId : ''; })()], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
   return '<div class="row"><button class="btn small ghost" data-tab="leads">← לידים</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) + '</div>' +
     '<section class="card"><div class="row" style="align-items:center">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">חייג ' + esc(normPhone(l.phone)) + '</a>' : '') +
@@ -2473,7 +2515,7 @@ function vLead(id) {
         (!isRE && creditable(l) ? '<span class="pill ' + CREDIT_TONE[creditOf(l)] + '">זיכוי: ' + CREDIT_ST[creditOf(l)] + '</span>' : '') + '</div>' +
       (w ? '<div class="seg" style="margin-top:10px" role="group" aria-label="פעולה מהירה">' + quick.map(([k, v]) => '<button data-leadquick="' + k + '" data-id="' + esc(l.id) + '">' + v + '</button>').join('') + '</div>' : '') +
       (!c && S.canClient && l.stage === 'won' ? '<div class="row" style="margin-top:10px"><select class="f" data-linklead="' + esc(l.id) + '" aria-label="קשר ללקוח" style="max-width:240px"><option value="">או קשר ללקוח קיים…</option>' + live(S.clients).filter((k) => k.status !== 'cancelled').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he')).map((k) => '<option value="' + esc(k.id) + '">' + esc(k.name) + '</option>').join('') + '</select></div>' : '') + '</section>' +
-    leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
+    leadDupCard(l, w) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
       ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(hm(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
@@ -5929,6 +5971,9 @@ document.addEventListener('click', async (e) => {
           await write('attendance/' + a.id, { in: { ...(a.in || {}), at: tin }, ...(tout ? { out: { ...(a.out || { place: 'unknown' }), at: tout } } : {}), lastActive: tout || a.lastActive || tin,
             fixes: [...(a.fixes || []), { by: S.myKey || null, at: stamp(), was: { in: a.in ? a.in.at : null, out: a.out ? a.out.at : null }, why: String(x.why || '').trim() }] }, 'update', { noAtt: true });
           toast('השעות תוקנו'); }, '', 'שמור תיקון'); }
+    if (d.notdup) { const l = S.leads.get(d.notdup); if (!l || !S.canTask) return; const o = l.dupOf && S.leads.get(l.dupOf);
+      if (o) await write('leads/' + o.id, { returns: (o.returns || []).filter((r) => r.id !== l.id), updatedAt: stamp() }, 'update');
+      await leadPatch(l.id, { stage: 'new', sub: null, dupOf: null, notDup: true }, 'סומן: לא ליד כפול — חזר לחדש'); return toast('הליד חזר לחדש'); }
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
@@ -6527,7 +6572,7 @@ async function boot() {
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;
-  const arrived = () => { if (--pending === 0) { S.ready = true; conn('live', 'מחובר · נשמר אוטומטית'); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
+  const arrived = () => { if (--pending === 0) { S.ready = true; conn('live', 'מחובר · נשמר אוטומטית'); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
   const fail = (e) => { conn('err', e && e.code === 'revoked' ? 'הגישה בוטלה' : 'תקלה בחיבור'); if (e && e.code === 'revoked') S.canWrite = false; soon(); };
   for (const name of colls) {
     let first = true;
