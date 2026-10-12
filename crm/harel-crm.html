@@ -567,7 +567,10 @@ const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 const addDays = (d, k) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + k); return x.toISOString().slice(0, 10); };
 const weekStart = (d) => { const x = new Date(d + 'T12:00:00Z'); return addDays(d, -x.getUTCDay()); }; // שבוע מתחיל ביום א׳
 const stamp = () => new Date().toISOString();
-const dayOf = (iso) => iso ? String(iso).slice(0, 10) : null;
+/* זמן שנשמר ב-UTC (מסתיים ב-Z או באופסט) → שעון מקומי. תאריך בלבד / datetime-local נשארים כמו שהם */
+const locIso = (iso) => { const t = String(iso || ''); if (!/T\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:?\d\d)$/.test(t)) return t; const d = new Date(t); return isNaN(d) ? t : new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 19); };
+const dayOf = (iso) => iso ? locIso(iso).slice(0, 10) : null;
+const hm = (iso) => locIso(iso).slice(11, 16);
 
 let toastT;
 const prioVar = (t) => 'var(--p-' + (['urgent', 'high', 'normal', 'low'].includes(t.priority) ? t.priority : 'normal') + ')';
@@ -1591,7 +1594,7 @@ function sheetLeadStats() {
 function leadSheetCard() {
   const srcs = leadSources(); if (!srcs.length) return '';
   const { rows, tot } = sheetLeadStats(), conv = tot.conv ? Math.round(tot.won / tot.conv * 1000) / 10 : 0;
-  const runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || 'טבלה') + (r ? ' · סונכרן ' + dLabel(dayOf(r.at)) + ' ' + String(r.at).slice(11, 16) : ' · עוד לא סונכרן'); }).join(' | ');
+  const runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || 'טבלה') + (r ? ' · סונכרן ' + dLabel(dayOf(r.at)) + ' ' + hm(r.at) : ' · עוד לא סונכרן'); }).join(' | ');
   return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' : '') + '</header>' +
     '<div class="grid4">' + kpi('לידים', '<span class="num">' + tot.leads + '</span>', tot.credit + ' לזיכוי · ' + tot.billable + ' לחיוב', null) +
       kpi('שילמתי על לידים', money(tot.spend, { tone: 'open' }), tot.billable + ' × ' + plain(n((srcs[0] || {}).costPerLead || 150)) + ' · ' + tot.credit + ' לזיכוי לא נספרים', null) +
@@ -1684,7 +1687,7 @@ const whoAmI = () => (S.loginAs && S.loginAs.label) || (S.isOwner ? 'דן' : nam
 const waLink = (p) => { const d = normPhone(p); return d.length >= 9 ? 'https://wa.me/972' + d.replace(/^0/, '') : ''; };
 const leadLast = (l) => { const e = (l.log || []).find((x) => !x.auto) || (l.log || [])[0]; return e ? e.text : (l.note || ''); };
 const leadAt = (l) => String(l.createdAt || '');
-const leadTime = (l) => { const t = leadAt(l).slice(11, 16); return t && t !== '00:00' ? t : ''; };
+const leadTime = (l) => { const t = hm(leadAt(l)); return t && t !== '00:00' ? t : ''; };
 async function leadPatch(id, patch, text, auto = false) {
   const l = S.leads.get(id); if (!l) return;
   if (patch.stage && patch.stage !== l.stage) { patch = { ...patch, stageAt: stamp(), ...(patch.stage === 'won' ? { wonAt: stamp() } : {}), ...(LEAD_CLOSED.includes(patch.stage) ? { followUp: null } : {}) }; }
@@ -1742,14 +1745,14 @@ async function attIn() {
   toast('בודק מיקום…'); const pos = await getPos(), pl = placeOf(pos), at = stamp(), key = S.myKey, pd = PERSON_DIVS(key);
   const save = async (place, note) => { await write('attendance/' + attId(key), { id: attId(key), key, label: whoAmI(), date: today(), div: pd && pd.length === 1 ? pd[0] : (S.division !== 'all' ? S.division : 'finance'),
       in: { at, ...(pos ? { pos } : {}), place, ...(pl.dist != null ? { dist: pl.dist } : {}) }, ...(place === 'home' ? { home: { status: 'pending', note: note || '' } } : {}), ...(note && place !== 'home' ? { note } : {}), lastActive: at, gaps: [], by: S.me.id }, 'set', { noAtt: true });
-    toast('נרשמה כניסה ' + at.slice(11, 16) + ' · ' + PLACE[place]); };
+    toast('נרשמה כניסה ' + hm(at) + ' · ' + PLACE[place]); };
   if (pl.place === 'office') return save('office');
   drawer('כניסה למשמרת', '<p class="full hint">' + (pos ? (pl.dist != null ? 'נראה שאתה במרחק ' + Number(pl.dist).toLocaleString('he-IL') + ' מ׳ מהמשרד.' : 'מיקום המשרד עוד לא הוגדר בהגדרות.') : 'לא התקבל מיקום מהדפדפן (אולי חסום בתצוגה הזו).') + ' איפה אתה עובד היום?</p>' +
     fs('place', 'איפה', [['office', 'במשרד'], ['home', 'מהבית — באישור מנהל'], ['field', 'בחוץ — פגישה / שטח']], pos && pl.dist != null ? 'home' : 'office') + ft('note', 'הערה (לא חובה)', ''),
     async (d) => save(d.place, d.note.trim()), '', 'כניסה');
 }
 async function attOut() { const a = attDoc(); if (!a || !a.in) return; if (a.out) return toast('כבר נרשמה יציאה'); const pos = await getPos(), pl = placeOf(pos), at = stamp();
-  await write('attendance/' + a.id, { out: { at, ...(pos ? { pos } : {}), place: pl.place === 'away' ? 'away' : pl.place }, lastActive: at }, 'update', { noAtt: true }); toast('נרשמה יציאה ' + at.slice(11, 16) + ' · ' + attHours(S.attendance.get(a.id) || { ...a, out: { at } }).toFixed(1) + ' שעות'); }
+  await write('attendance/' + a.id, { out: { at, ...(pos ? { pos } : {}), place: pl.place === 'away' ? 'away' : pl.place }, lastActive: at }, 'update', { noAtt: true }); toast('נרשמה יציאה ' + hm(at) + ' · ' + attHours(S.attendance.get(a.id) || { ...a, out: { at } }).toFixed(1) + ' שעות'); }
 let ATT_UI = Date.now(), ATT_PING = 0;
 ['click', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => { ATT_UI = Date.now(); if (S._idle) { S._idle = false; render(); } attPing().catch(() => {}); }, true));
 async function attPing() {
@@ -1768,9 +1771,9 @@ function attActs(key, d) { const p = staff().find((x) => x.key === key), lbl = p
 function attRow(a, d) { const h = attHours(a), c = hourlyOf(a.key), cost = r2(h * c.rate * (1 + c.emp / 100)), gaps = (a.gaps || []), idle = attIdleNow(a);
   return { a, h, cost, rate: c.rate, gapsN: gaps.length + (idle >= 40 ? 1 : 0), gapsMin: gaps.reduce((x, g) => x + n(g.min), 0) + (idle >= 40 ? idle : 0), idle, acts: attActs(a.key, d) }; }
 function attCard() {
-  if (!S.myKey || !S.canTask) return ''; const a = attDoc(), t = a && a.in ? a.in.at.slice(11, 16) : '';
+  if (!S.myKey || !S.canTask) return ''; const a = attDoc(), t = a && a.in ? hm(a.in.at) : '';
   return '<section class="card attcard" style="border-inline-start:4px solid var(--' + (a && a.in && !a.out ? 'actual' : 'open') + ')"><div class="row" style="align-items:center">' +
-    '<div class="grow"><b>' + (a && a.out ? 'סיימת היום · ' + t + '–' + a.out.at.slice(11, 16) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
+    '<div class="grow"><b>' + (a && a.out ? 'סיימת היום · ' + t + '–' + hm(a.out.at) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
       (isSales(S.myKey) ? '<div class="hint">40 דקות בלי פעילות במערכת — מופיע אצלך ואצל המנהל</div>' : '') + '</div>' +
     (!a || !a.in ? '<button class="btn primary" data-act="attIn">כניסה למשמרת</button>' : !a.out ? '<button class="btn" data-act="attOut">יציאה</button>' : '') + '</div></section>';
 }
@@ -1780,7 +1783,7 @@ function attLive() { if (!S.isOwner) return ''; const d = today(), rows = live(S
   return '<section class="card"><header><h2>הצוות עכשיו</h2><span class="hint">' + rows.filter((r) => !r.a.out).length + ' במשמרת</span><span class="grow"></span><button class="btn small ghost" data-go="reports:att">דוח נוכחות</button></header>' +
     (idle.length ? '<div class="notice bad" style="margin-bottom:8px"><b>בלי פעילות</b><span>' + idle.map((r) => esc(r.a.label) + ' — ' + r.idle + ' דק׳').join(' · ') + '</span></div>' : '') +
     (pend.length ? pend.map((a) => '<div class="row" style="margin-bottom:6px"><span class="grow">' + esc(a.label) + ' — עבודה מהבית ' + dLabel(a.date) + (a.home.note ? ' · ' + esc(a.home.note) : '') + '</span><button class="btn small primary" data-atthome="' + esc(a.id) + '|approved">אשר</button><button class="btn small ghost" data-atthome="' + esc(a.id) + '|rejected">לא</button></div>').join('') : '') +
-    '<div class="row" style="flex-wrap:wrap;gap:6px">' + rows.map((r) => '<span class="pill ' + (r.a.out ? 'muted' : r.idle >= 40 ? 'open' : 'actual') + '">' + esc(r.a.label) + ' ' + r.a.in.at.slice(11, 16) + (r.a.out ? '–' + r.a.out.at.slice(11, 16) : '') + ' · ' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + '</span>').join('') + '</div></section>';
+    '<div class="row" style="flex-wrap:wrap;gap:6px">' + rows.map((r) => '<span class="pill ' + (r.a.out ? 'muted' : r.idle >= 40 ? 'open' : 'actual') + '">' + esc(r.a.label) + ' ' + hm(r.a.in.at) + (r.a.out ? '–' + hm(r.a.out.at) : '') + ' · ' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + '</span>').join('') + '</div></section>';
 }
 function vAtt() {
   const d = S.f.attDay || today(), m = d.slice(0, 7), w = S.isOwner && S.canWrite;
@@ -1793,9 +1796,9 @@ function vAtt() {
     '<div class="grid4">' + kpi('במשמרת', '<span class="num">' + rows.filter((r) => !r.a.out).length + '</span>', rows.length + ' נכנסו · ' + missing.length + ' לא נכנסו', null) + kpi('שעות', '<span class="num">' + rows.reduce((x, r) => x + r.h, 0).toFixed(1) + '</span>', 'סך כל הצוות', null) +
       kpi('עלות היום', money(rows.reduce((x, r) => x + r.cost, 0), { tone: 'muted' }), 'שעות × תעריף + עלות מעביד', null) + kpi('חוסרי פעילות', '<span class="num">' + rows.reduce((x, r) => x + r.gapsN, 0) + '</span>', '40+ דקות, אצל מכירות / טלפנות', null, rows.some((r) => r.gapsN) ? 'open' : '') + '</div>' +
     '<section class="card"><header><h2>' + dLabel(d) + '</h2></header>' + (rows.length ? '<div class="scroll"><table><thead><tr><th>עובד</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>איפה</th><th>פעולות במערכת</th><th>בלי פעילות</th><th>עלות</th></tr></thead><tbody>' +
-      rows.map((r) => '<tr><td class="wide"><b>' + esc(r.a.label) + '</b>' + (r.a.note ? '<div class="hint">' + esc(r.a.note) + '</div>' : '') + '</td><td class="num">' + r.a.in.at.slice(11, 16) + '</td><td class="num">' + (r.a.out ? r.a.out.at.slice(11, 16) : r.a.date === today() ? '<span class="pill actual">במשמרת</span>' : '<span class="pill open">לא נרשמה</span>') + '</td>' +
+      rows.map((r) => '<tr><td class="wide"><b>' + esc(r.a.label) + '</b>' + (r.a.note ? '<div class="hint">' + esc(r.a.note) + '</div>' : '') + '</td><td class="num">' + hm(r.a.in.at) + '</td><td class="num">' + (r.a.out ? hm(r.a.out.at) : r.a.date === today() ? '<span class="pill actual">במשמרת</span>' : '<span class="pill open">לא נרשמה</span>') + ((r.a.fixes || []).length ? ' <span class="pill muted" title="' + esc(r.a.fixes.map((f) => 'תוקן ' + dLabel(dayOf(f.at)) + ' ' + hm(f.at) + (f.why ? ' · ' + f.why : '')).join('\n')) + '">תוקן</span>' : '') + (w ? ' <button class="btn small ghost" data-attfix="' + esc(r.a.id) + '">תקן שעות</button>' : '') + '</td>' +
         '<td class="num">' + r.h.toFixed(1) + '</td><td>' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.in.dist != null ? ' <span class="hint">' + Number(r.a.in.dist).toLocaleString('he-IL') + ' מ׳</span>' : '') + (r.a.home ? ' <span class="pill ' + (r.a.home.status === 'approved' ? 'actual' : r.a.home.status === 'rejected' ? 'open' : 'expected') + '">' + ({ pending: 'ממתין לאישור', approved: 'אושר', rejected: 'לא אושר' }[r.a.home.status] || '') + '</span>' + (w && r.a.home.status === 'pending' ? ' <button class="btn small" data-atthome="' + esc(r.a.id) + '|approved">אשר</button>' : '') : '') + '</td>' +
-        '<td class="num">' + r.acts + '</td><td>' + (r.gapsN ? '<details><summary><span class="pill open">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</span></summary><div class="hint">' + (r.a.gaps || []).map((g) => g.from.slice(11, 16) + '–' + g.to.slice(11, 16) + ' (' + g.min + ')').join('<br>') + (r.idle >= 40 ? '<br>עכשיו: ' + r.idle + ' דק׳' : '') + '</div></details>' : '<span class="hint">—</span>') + '</td>' +
+        '<td class="num">' + r.acts + '</td><td>' + (r.gapsN ? '<details><summary><span class="pill open">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</span></summary><div class="hint">' + (r.a.gaps || []).map((g) => hm(g.from) + '–' + hm(g.to) + ' (' + g.min + ')').join('<br>') + (r.idle >= 40 ? '<br>עכשיו: ' + r.idle + ' דק׳' : '') + '</div></details>' : '<span class="hint">—</span>') + '</td>' +
         '<td>' + (r.rate ? money(r.cost, { tone: 'muted' }) : '<span class="hint">אין תעריף</span>') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">אף אחד לא נרשם ביום הזה.</p>') +
       (missing.length && d === today() ? '<p class="hint">לא נכנסו: ' + missing.map((p) => esc(p.label)).join(', ') + '</p>' : '') + '</section>' +
     '<section class="card"><header><h2>' + mLabel(m) + ' — לפי עובד</h2></header>' + (Object.keys(mon).length ? '<div class="scroll"><table><thead><tr><th>עובד</th><th>ימים</th><th>מהבית</th><th>שעות</th><th>חוסרי פעילות</th><th>עלות</th></tr></thead><tbody>' +
@@ -1803,7 +1806,7 @@ function vAtt() {
     '<p class="hint">תעריף לשעה: הגדרות ← משתמשים (או מהשכר). התראת 40 דקות — רק למי שמסומן "מכירות / טלפנות". המיקום נלקח מהדפדפן ברגע הכניסה והיציאה בלבד — לא במעקב רציף.</p>';
 }
 function attMailHtml(d) { const rows = live(S.attendance).filter((a) => a.date === d).map((a) => attRow(a, d)); if (!rows.length) return '<p><b>נוכחות:</b> אף אחד לא נרשם היום.</p>';
-  return '<h3 style="margin:14px 0 4px">נוכחות</h3>' + mailTable(['עובד', 'כניסה', 'יציאה', 'שעות', 'איפה', 'פעולות', 'בלי פעילות', 'עלות'], rows.map((r) => [esc(r.a.label), r.a.in.at.slice(11, 16), r.a.out ? r.a.out.at.slice(11, 16) : '<b style="color:#DC2626">לא נרשמה</b>', r.h.toFixed(1), PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.home ? ' (' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'לא אושר' }[r.a.home.status] || '') + ')' : ''), String(r.acts), r.gapsN ? '<b style="color:#DC2626">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</b>' : '0', r.rate ? plain(r.cost) : '—'])) +
+  return '<h3 style="margin:14px 0 4px">נוכחות</h3>' + mailTable(['עובד', 'כניסה', 'יציאה', 'שעות', 'איפה', 'פעולות', 'בלי פעילות', 'עלות'], rows.map((r) => [esc(r.a.label), hm(r.a.in.at), r.a.out ? hm(r.a.out.at) : '<b style="color:#DC2626">לא נרשמה</b>', r.h.toFixed(1), PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.home ? ' (' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'לא אושר' }[r.a.home.status] || '') + ')' : ''), String(r.acts), r.gapsN ? '<b style="color:#DC2626">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</b>' : '0', r.rate ? plain(r.cost) : '—'])) +
     '<p>עלות הצוות היום: <b>' + plain(rows.reduce((x, r) => x + r.cost, 0)) + '</b></p>'; }
 /* ═════════════ יומן גוגל: זום / פגישות → יומן דרך תיבת היוצא (מפתח ייחודי, בלי כפילויות) · פגישות היום מקושרות לכרטיסי לקוחות ═════════════ */
 const addMinLocal = (s0, k) => { const d = new Date(String(s0).slice(0, 16)); d.setMinutes(d.getMinutes() + k); const z = (x) => String(x).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':00'; };
@@ -1832,12 +1835,12 @@ async function calTodayLoad(force) { if (!S.mcp || !S.isOwner) return; const d =
   render(); }
 function calTodayCard() { if (!S.isOwner || !S.mcp) return ''; if (!S._calDay || S._calDay.d !== today()) { setTimeout(() => calTodayLoad(), 50); return ''; } const C = S._calDay; if (C.loading) return '';
   return '<section class="card"><header><h2>היום ביומן</h2><span class="pill muted">' + C.ev.length + '</span><span class="grow"></span><button class="btn small ghost" data-act="calReload">רענן</button></header>' + (C.error ? '<p class="hint">' + esc(C.error) + '</p>' : '') +
-    (C.ev.length ? C.ev.map((e) => { const cs = clientsInText([e.summary, e.description, e.location].join(' ')); return '<div class="row" style="margin-bottom:6px;align-items:center"><span class="num" style="min-width:48px">' + (evStart(e).slice(11, 16) || 'כל היום') + '</span><span class="grow">' + esc(e.summary || '(ללא כותרת)') + '</span>' +
+    (C.ev.length ? C.ev.map((e) => { const cs = clientsInText([e.summary, e.description, e.location].join(' ')); return '<div class="row" style="margin-bottom:6px;align-items:center"><span class="num" style="min-width:48px">' + (hm(evStart(e)) || 'כל היום') + '</span><span class="grow">' + esc(e.summary || '(ללא כותרת)') + '</span>' +
       cs.map((c) => '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>').join('') + (e.htmlLink ? '<a class="btn small ghost" href="' + esc(e.htmlLink) + '" target="_blank" rel="noopener">יומן ↗</a>' : '') + '</div>'; }).join('') : C.error ? '' : '<p class="empty">אין פגישות היום.</p>') + '</section>'; }
 function calCard(c) { if (!S.isOwner) return ''; const st = (S.calRes = S.calRes || {})[c.id] || {}, mine = [...(c.meetings || [])], crm = calOfRef({ client: c.id, lead: c.leadId });
-  const row = (e, linked) => '<div class="row" style="margin-bottom:6px;align-items:center"><span class="num">' + dLabel(dayOf(evStart(e))) + ' ' + evStart(e).slice(11, 16) + '</span><span class="grow">' + esc(e.summary || '') + '</span>' + (e.htmlLink || e.link ? '<a class="btn small ghost" href="' + esc(e.htmlLink || e.link) + '" target="_blank" rel="noopener">יומן ↗</a>' : '') + (!linked && S.canWrite ? '<button class="btn small" data-callink="' + esc(e.id) + '">שייך</button>' : '') + '</div>';
+  const row = (e, linked) => '<div class="row" style="margin-bottom:6px;align-items:center"><span class="num">' + dLabel(dayOf(evStart(e))) + ' ' + hm(evStart(e)) + '</span><span class="grow">' + esc(e.summary || '') + '</span>' + (e.htmlLink || e.link ? '<a class="btn small ghost" href="' + esc(e.htmlLink || e.link) + '" target="_blank" rel="noopener">יומן ↗</a>' : '') + (!linked && S.canWrite ? '<button class="btn small" data-callink="' + esc(e.id) + '">שייך</button>' : '') + '</div>';
   return '<section class="card"><header><h2>פגישות ביומן</h2><span class="grow"></span>' + (S.mcp ? '<button class="btn small" data-act="calSearch">' + (st.loading ? 'מחפש…' : 'חפש ביומן') + '</button>' : '') + '</header>' + (st.error ? '<p class="hint">' + esc(st.error) + '</p>' : '') +
-    (crm.length ? '<h3 class="sec">נקבעו מהמערכת</h3>' + crm.map((o) => '<div class="row" style="margin-bottom:6px"><span class="num">' + dLabel(dayOf(o.payload.startTime)) + ' ' + o.payload.startTime.slice(11, 16) + '</span><span class="grow">' + esc(o.subject) + '</span><span class="pill ' + (o.status === 'sent' ? 'actual' : o.status === 'failed' ? 'open' : 'expected') + '">' + ({ sent: 'ביומן', pending: 'ממתין', sending: 'נשלח…', failed: 'נכשל' }[o.status] || o.status) + '</span>' + (o.link ? '<a class="btn small ghost" href="' + esc(o.link) + '" target="_blank" rel="noopener">יומן ↗</a>' : '') + '</div>').join('') : '') +
+    (crm.length ? '<h3 class="sec">נקבעו מהמערכת</h3>' + crm.map((o) => '<div class="row" style="margin-bottom:6px"><span class="num">' + dLabel(dayOf(o.payload.startTime)) + ' ' + hm(o.payload.startTime) + '</span><span class="grow">' + esc(o.subject) + '</span><span class="pill ' + (o.status === 'sent' ? 'actual' : o.status === 'failed' ? 'open' : 'expected') + '">' + ({ sent: 'ביומן', pending: 'ממתין', sending: 'נשלח…', failed: 'נכשל' }[o.status] || o.status) + '</span>' + (o.link ? '<a class="btn small ghost" href="' + esc(o.link) + '" target="_blank" rel="noopener">יומן ↗</a>' : '') + '</div>').join('') : '') +
     (mine.length ? '<h3 class="sec">משויכות</h3>' + mine.map((e) => row(e, true)).join('') : '') +
     ((st.ev || []).filter((e) => !mine.some((x) => x.id === e.id)).length ? '<h3 class="sec">נמצאו ביומן</h3>' + st.ev.filter((e) => !mine.some((x) => x.id === e.id)).map((e) => row(e, false)).join('') : st.ev ? '<p class="empty">לא נמצאו פגישות נוספות.</p>' : '') +
     (!crm.length && !mine.length && !st.ev ? '<p class="hint">חיפוש לפי שם הלקוח ביומן גוגל. פגישות זום ופגישות בנדל״ן שנקבעות במערכת נכנסות ליומן לבד.</p>' : '') + '</section>'; }
@@ -2409,7 +2412,7 @@ function vLeadsList(seg) {
   const all = live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey)), t0 = today(), w = S.canTask, f = S.f, st = f.leadSt || 'todo';
   const open = all.filter(isLeadOpen), fresh = all.filter((l) => (l.stage || 'new') === 'new'), due = all.filter((l) => leadDue(l, t0)), won = all.filter((l) => l.stage === 'won'), cr = all.filter(isCredit);
   const billable = all.filter(billableLead).length, spendAll = all.filter(billableLead).reduce((a, l) => a + leadCostOf(l), 0), cost = leadCost(), mk = leadMarketer(), cr2 = all.filter(creditable);
-  const srcs = leadSources(), runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || '') + ' ' + (r ? 'סונכרן ' + dLabel(dayOf(r.at)) + ' ' + String(r.at).slice(11, 16) : 'עוד לא סונכרן'); }).join(' · ');
+  const srcs = leadSources(), runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || '') + ' ' + (r ? 'סונכרן ' + dLabel(dayOf(r.at)) + ' ' + hm(r.at) : 'עוד לא סונכרן'); }).join(' · ');
   const cnt = (k) => k === 'todo' ? open.length : k === 'due' ? due.length : k === 'all' ? all.length : k === 'credit' ? cr.length : all.filter((l) => stKey(l) === k || (!l.sub && (l.stage || 'new') === k) || (!ownSetOf(S.division) && (l.stage || 'new') === k)).length;
   const ownSet = ownSetOf(S.division);
   const chips = [['todo', 'לטיפול'], ['due', 'מעקב להיום'], ['new', 'חדש'], ['noanswer', 'אין מענה'], ['followup', 'פולו אפ'], ['checking', 'בבדיקה'], ['thinking', 'חושב על זה'], ['contacted', 'נוצר קשר'], ['meeting', 'פגישה'], ['proposal', 'הצעה'], ['won', 'חתם'], ['lost', 'לא רלוונטי'], ['ineligible', 'לא זכאי'], ['credit', 'לזיכוי'], ['all', 'הכל']].filter(([k]) => !['contacted', 'meeting', 'proposal'].includes(k) || st === k || cnt(k));
@@ -2473,7 +2476,7 @@ function vLead(id) {
     leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
-      ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(String(e.at || '').slice(11, 16)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
+      ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(hm(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
       (l.note ? '<h3 class="sec">הערות מהטבלה</h3><p style="white-space:pre-wrap">' + esc(l.note) + '</p>' : '') + '</section>' +
     '<section class="card"><header><h2>פרטים</h2></header><div class="row">' + inp('name', 'שם') + inp('phone', 'טלפון', 'tel', 'dir="ltr" inputmode="tel"') + inp('email', 'מייל', 'email', 'dir="ltr"') + inp('city', 'עיר') + '</div>' +
       '<table class="kv" style="margin-top:8px"><tbody>' + D.map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v) + '</td></tr>').join('') + '</tbody></table></section></div>';
@@ -3701,7 +3704,7 @@ function vOutbox() {
   const rows = live(S.outbox).sort((a, b) => String(b.at).localeCompare(a.at)).slice(0, 100);
   const K = { day: 'סיכום יום', alert: 'התראה', weekly: 'דוח שבועי', monthly: 'דוח חודשי', morning: 'תקציר בוקר', team: 'סיכום צוות', backup: 'גיבוי', calendar: 'יומן' };
   return '<p class="hint">כל מייל שהמערכת ניסתה לשלוח — מה, למי, ואם הצליח. (הנחיה 16: שום יציאה החוצה לא נעלמת בשקט.)</p><section class="card">' +
-    (rows.length ? '<div class="scroll"><table><thead><tr><th>מתי</th><th>סוג</th><th>נושא</th><th>נשלח ע״י</th><th>מצב</th></tr></thead><tbody>' + rows.map((o) => '<tr><td class="num">' + dLabel(dayOf(o.at)) + ' ' + String(o.at).slice(11, 16) + '</td><td>' + (K[o.kind] || o.kind) + '</td><td class="wide">' + esc(o.subject) + '</td><td>' + (o.by === 'routine' ? '<span class="pill committed">אוטומטי</span>' : esc(nameOf(o.by))) + '</td>' +
+    (rows.length ? '<div class="scroll"><table><thead><tr><th>מתי</th><th>סוג</th><th>נושא</th><th>נשלח ע״י</th><th>מצב</th></tr></thead><tbody>' + rows.map((o) => '<tr><td class="num">' + dLabel(dayOf(o.at)) + ' ' + hm(o.at) + '</td><td>' + (K[o.kind] || o.kind) + '</td><td class="wide">' + esc(o.subject) + '</td><td>' + (o.by === 'routine' ? '<span class="pill committed">אוטומטי</span>' : esc(nameOf(o.by))) + '</td>' +
       '<td><span class="pill ' + (o.status === 'sent' ? 'actual' : o.status === 'skipped' ? 'muted' : 'open') + '">' + ({ sent: 'נשלח', failed: 'נכשל', skipped: 'דולג' }[o.status] || o.status) + '</span>' + (o.error ? '<div class="hint">' + esc(o.error) + '</div>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">עוד לא נשלחו מיילים.</p>') + '</section>';
 }
 
@@ -5608,7 +5611,7 @@ function vIntake(cid) {
       inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + chk('request.balloon', 'בלון', R.balloon) +
       (R.balloon ? pick('request.balloonMonths', 'תקופת בלון', { 12: 'שנה', 18: 'שנה וחצי', 24: 'שנתיים' }, String(R.balloonMonths || '')) : '') + '</div></section>';
   const reqSec = '<section class="card"><header><h2>מבנה ההלוואה</h2></header><div class="row">' + inp('request.years', 'תקופה (שנים)', R.years, 'number', 'style="width:80px" placeholder="5"') + inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + pick('track', 'מסלול', IK.track, x.track || 'nonbank') + '</div><p class="hint" style="margin:0">הסכום — מ"פרטי העסק". יש נכס לשעבוד? סמן שם, ויופיעו שווי הנכס והגופים החוץ-בנקאיים.</p></section>';
-  const form = (w ? '<p class="hint" style="margin:0 0 6px">נשמר אוטומטית בכל שינוי — גם תוך כדי הקלדה · <span id="ikSaved">' + (x.updatedAt ? 'עודכן ' + dLabel(dayOf(x.updatedAt)) + ' ' + String(x.updatedAt).slice(11, 16) : '') + '</span></p>' : '') +
+  const form = (w ? '<p class="hint" style="margin:0 0 6px">נשמר אוטומטית בכל שינוי — גם תוך כדי הקלדה · <span id="ikSaved">' + (x.updatedAt ? 'עודכן ' + dLabel(dayOf(x.updatedAt)) + ' ' + hm(x.updatedAt) : '') + '</span></p>' : '') +
     '<div class="seg" role="group" aria-label="סוג התיק" style="margin-bottom:10px">' + Object.entries(INTAKE_KIND).map(([k, t]) => '<button data-ikind="' + k + '" aria-pressed="' + (KD === k) + '"' + (w ? '' : ' disabled') + '>' + t + '</button>').join('') + '</div>' +
     '<section class="card"><header><h2>פרטי קשר</h2></header><div class="row">' + inp('contact.phone', 'טלפון', K.phone, 'tel', 'inputmode="tel"') + inp('contact.email', 'מייל', K.email, 'email') + inp('contact.source', 'מאיפה הגיע', K.source, 'text') + '</div></section>' +
     '<section class="card"><header><h2>הלווים וההכנסות</h2><span class="grow"></span>' + scanBtn('intake', 'borrowers', 'סריקת ת״ז / תלושים') + '</header>' + scanList(x, 'borrowers') + bor(0, 'לווה ראשי') + bor(1, 'בן/בת זוג') +
@@ -5919,6 +5922,13 @@ document.addEventListener('click', async (e) => {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
     if (d.d) { if (d.d !== 'all' && !(S.allowedDivs || DIVS).includes(d.d)) return; S.division = d.d; return render(); }
     if (d.go) { if (d.rep) S.f.rep = d.rep; const [tab, sub] = d.go.split(':'); if (sub && tab === 'tasks') { S.f.taskView = 'bucket'; S.f.taskBucket = sub; } else if (sub) S.f.money = sub; return go(tab); }
+    if (d.attfix) { const a = S.attendance.get(d.attfix); if (!a || !S.isOwner) return; const loc = (iso) => iso ? locIso(iso).slice(0, 16) : '';
+      return drawer('תיקון שעות — ' + a.label + ' · ' + dLabel(a.date), '<p class="full hint">השעות לפי שעון ישראל. התיקון נשמר עם השעות הקודמות והסיבה.</p>' + fi('tin', 'כניסה', loc(a.in && a.in.at), 'datetime-local') + fi('tout', 'יציאה', loc(a.out && a.out.at), 'datetime-local') + ft('why', 'סיבת התיקון (למשל: שכח לצאת)', ''),
+        async (x) => { const iso = (v) => { if (!v) return null; const t = new Date(v); return isNaN(t) ? null : t.toISOString(); }, tin = iso(x.tin), tout = iso(x.tout);
+          if (!tin) return 'צריך שעת כניסה'; if (tout && tout <= tin) return 'היציאה לפני הכניסה'; if (tout && Date.parse(tout) - Date.parse(tin) > 20 * 3600e3) return 'יותר מ-20 שעות במשמרת אחת — לבדוק';
+          await write('attendance/' + a.id, { in: { ...(a.in || {}), at: tin }, ...(tout ? { out: { ...(a.out || { place: 'unknown' }), at: tout } } : {}), lastActive: tout || a.lastActive || tin,
+            fixes: [...(a.fixes || []), { by: S.myKey || null, at: stamp(), was: { in: a.in ? a.in.at : null, out: a.out ? a.out.at : null }, why: String(x.why || '').trim() }] }, 'update', { noAtt: true });
+          toast('השעות תוקנו'); }, '', 'שמור תיקון'); }
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
