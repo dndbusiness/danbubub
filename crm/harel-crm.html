@@ -1240,7 +1240,7 @@ function vClient(id) {
         (w ? sel('cResp', 'אחראי', [['', 'בלי אחראי'], ...(() => { const es = respEntries(c.division || 'finance'); return c.resp && !es.some(([k]) => k === c.resp) ? [...es, [c.resp, L.resp[c.resp] || c.resp]] : es; })()], c.resp || '') + sel('cApproval', 'אישור', Object.entries(L.approval), c.approval || 'pending') + sel('cStage', 'שלב', STAGE_ORDER.map((k) => [k, L.stage[k]]), c.stage) +
         sel('cStatus', 'סטטוס', Object.entries(L.status), c.status) + '<button class="btn" data-act="editClient">עריכה</button><button class="btn primary" data-intake="' + esc(c.id) + '">הכר את הלקוח</button>' + (S.isOwner && ['won', 'lost', 'cancelled'].includes(c.status) ? '<button class="btn" data-act="newDeal">+ עסקה חדשה ללקוח</button>' : '') : respChip(c.resp) + approvalPill(c) + '<span class="pill committed">' + (L.stage[c.stage] || '') + '</span>') + '</div>' +
       (c.status === 'hold' ? '<div class="notice warn" style="margin-top:8px"><b>בהשהייה</b><span>' + esc(c.holdReason || 'לא נכתבה סיבה') + (w ? ' <button class="xlink" data-act="holdReason">עדכן סיבה</button>' : '') + '</span></div>' : '') +
-      ((c.history || []).length ? '<div class="hint" style="margin-top:6px">עסקה ' + (c.caseNo || 1) + ' של הלקוח · קודמות: ' + c.history.map((h) => 'עסקה ' + h.no + ' — ' + esc(L.status[h.status] || h.status) + (h.closedAt ? ' ' + dLabel(h.closedAt) : '') + (S.isOwner ? ' · נגבה ' + plain(h.collected) : '')).join(' | ') + '</div>' : '') +
+      clientPins(c) + ((c.history || []).length ? '<div class="hint" style="margin-top:6px">עסקה ' + (c.caseNo || 1) + ' של הלקוח · קודמות: ' + c.history.map((h) => 'עסקה ' + h.no + ' — ' + esc(L.status[h.status] || h.status) + (h.closedAt ? ' ' + dLabel(h.closedAt) : '') + (S.isOwner ? ' · נגבה ' + plain(h.collected) : '')).join(' | ') + '</div>' : '') +
     '</div>' + fundCard(c, w) + procCard(c) +
     (!S.isOwner ? '' : '<div class="moneystrip">' +
       '<div><span>שכר טרחה</span><b>' + money(m.fee) + '</b></div><div><span>נגבה</span><b>' + money(m.collected, { tone: 'actual' }) + '</b></div>' +
@@ -1272,7 +1272,7 @@ function vClient(id) {
             : '<p class="empty">לא הוגש לאף גוף</p>') + '</section>') +
         detailsCard(c) + (lead ? '<p class="hint">הגיע מליד: ' + esc(lead.name) + ' · ' + esc([lead.campaign, lead.platform, lead.marketer].filter(Boolean).join(' · ')) + '</p>' : '') + privCard(c) +
       '</div>' +
-      '<div style="display:flex;flex-direction:column;gap:16px">' +
+      '<div style="display:flex;flex-direction:column;gap:16px">' + clientNotesCard(c) +
         (!S.isOwner ? '' : '<section class="card"><header><h2>תנועות</h2>' + (w ? '<button class="btn small" data-act="payIn">+ תקבול</button><button class="btn small" data-act="payOut">+ הוצאה ישירה</button>' : '') + '</header>' +
           (m.txs.length ? '<div class="scroll"><table><tbody>' + m.txs.sort((a, b) => String(b.date).localeCompare(a.date)).map((t) =>
             '<tr><td class="num">' + dLabel(t.date) + '</td><td><span class="pill ' + (t.nature === 'income' ? 'actual' : 'muted') + '">' + L.nature[t.nature] + '</span></td><td class="wide">' + esc(t.description || t.category || '') + '</td><td>' + money(t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' }) + '</td></tr>').join('') + '</tbody></table></div>'
@@ -1286,6 +1286,18 @@ function vClient(id) {
       '</div>' +
     '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + signCard(c) + planCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
+/* כרטיס לקוח — "דגשים והערות" בצד: הערות כלליות על הלקוח, ודגשים חשובים (★) שמופיעים גם בראש הכרטיס */
+function clientNotesCard(c) {
+  const w = S.canTask, notes = (c.cnotes || []).filter((x) => !x.deletedAt), list = [...notes.filter((x) => x.pin), ...notes.filter((x) => !x.pin)];
+  const item = (x) => '<li style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;' + (x.pin ? 'background:var(--expected-bg);border-color:var(--expected)' : '') + '"><div class="row" style="gap:6px;align-items:flex-start;flex-wrap:nowrap"><span class="grow" style="white-space:pre-wrap">' + linkify(x.text) + '</span>' +
+    (w ? '<button class="btn small ghost" data-cnotepin="' + esc(x.id) + '" title="' + (x.pin ? 'בטל דגש' : 'סמן כדגש חשוב') + '" aria-label="' + (x.pin ? 'בטל דגש' : 'סמן כדגש חשוב') + '">' + (x.pin ? '★' : '☆') + '</button>' + (x.by === S.me.id || S.isOwner ? '<button class="btn small ghost" data-cnotedel="' + esc(x.id) + '" aria-label="מחק הערה">×</button>' : '') : '') + '</div>' +
+    '<div class="hint" style="margin-top:2px">' + dLabel(dayOf(x.at)) + ' ' + hm(x.at) + ' · ' + esc(x.who || nameOf(x.by)) + '</div></li>';
+  return '<section class="card" id="cnotes" style="border-inline-start:4px solid var(--expected)"><header><h2>דגשים והערות</h2>' + (notes.some((x) => x.pin) ? '<span class="pill expected">★ ' + notes.filter((x) => x.pin).length + '</span>' : '') + '</header>' +
+    (w ? '<textarea class="f" id="cnoteText" rows="3" style="width:100%" placeholder="הערה כללית או דגש חשוב על הלקוח…" aria-label="הערה על הלקוח"></textarea>' +
+      '<div class="row" style="margin:6px 0 10px;align-items:center"><label class="check" style="margin:0;border:0"><input type="checkbox" class="cb" id="cnotePin"><span>★ דגש חשוב — יופיע בראש הכרטיס</span></label><span class="grow"></span><button class="btn small primary" data-act="cnoteAdd">הוסף</button></div>' : '') +
+    (list.length ? '<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px">' + list.map(item).join('') + '</ul>' : '<p class="empty">אין עדיין הערות על הלקוח.</p>') + '</section>';
+}
+const clientPins = (c) => { const p = (c.cnotes || []).filter((x) => x.pin && !x.deletedAt); return p.length ? '<div class="notice warn" style="margin-top:8px"><b>★ דגשים</b><span>' + p.map((x) => esc(String(x.text).split('\n')[0].slice(0, 160))).join(' · ') + ' <button class="xlink" data-act="toNotes">לכל ההערות ↓</button></span></div>' : ''; };
 const goalsRows = (c) => { const g = c.goals; if (!g) return ''; const pr = Object.keys(g.prefs || {}).filter((k) => g.prefs[k]).map((k) => IK.prefs[k]);
   const exp = [n(g.rateMax) ? 'ריבית ' + (n(g.rateMin) ? n(g.rateMin) + '–' : 'עד ') + n(g.rateMax) + '%' : '', n(g.payment) ? 'החזר כולל עד ' + plain(g.payment) : '', ...pr].filter(Boolean).join(' · ');
   return detail('מטרות הלקוח', esc([g.text, exp].filter(Boolean).join(' — ') || '—') + ' <button class="xlink" data-intake="' + esc(c.id) + '">הכר את הלקוח ↗</button>') + (g.conditions ? detail('התניות לעסקה', '<b>' + esc(g.conditions) + '</b>') : ''); };
@@ -1349,7 +1361,7 @@ function tasksHead(all) {
   return '<div class="row"><div class="grow"><h1>משימות</h1><p class="hint">לוח אחד לכל הצוות' + (S.division === 'all' ? '' : ' של ' + L.division[S.division]) + ' — מה שמסומן כאן מופיע בסיכום היומי. משימה שנשארת פתוחה נגררת למחר.</p></div>' + '<button class="btn" data-act="tasksPdf">PDF לעובד</button>' + (S.canTask ? '<button class="btn primary" data-act="newTask">+ משימה</button>' : '') + '<button class="btn" data-act="exportTasks">ייצוא ל-CSV</button></div>' +
     '<div class="row"><div class="seg" role="group" aria-label="תצוגה">' +
       [['lanes', 'לוח יומי'], ['mine', 'שלי'], ['all', 'כל הצוות'], ['overdue', 'באיחור'], ['week', 'השבוע'], ['done', 'בוצעו']].map(([k, v]) => '<button data-tv="' + k + '" aria-pressed="' + (S.f.taskView === k) + '">' + v + ' <span class="num">(' + all.filter(views[k]).length + ')</span></button>').join('') +
-    '</div>' + (S.f.taskView === 'lanes' ? '<label class="row hint" style="gap:6px"><input type="checkbox" class="cb" id="laneDone"' + (S.f.laneDone ? ' checked' : '') + '> הצג גם מה שבוצע היום</label>' : '') + '</div>';
+    '</div>' + (S.f.taskView === 'lanes' ? '<label class="row hint" style="gap:6px"><input type="checkbox" class="cb" id="laneDone"' + (S.f.laneDone ? ' checked' : '') + '> הצג גם מה שבוצע היום</label><button class="btn small' + (S.f.laneAhead ? ' primary' : '') + '" data-act="laneAhead" aria-pressed="' + !!S.f.laneAhead + '">הימים הבאים</button>' : '') + '</div>';
 }
 
 /* ═════════════════════════ כספים ═════════════════════════ */
@@ -3977,7 +3989,7 @@ function formTx(t, preset = {}) {
 function nextTaskDrawer(prev) {
   const c = S.clients.get(prev.clientId); if (!c) return;
   drawer('המשימה הבאה — ' + c.name, '<p class="hint" style="margin:0 0 8px">בוצע: <b>' + esc(prev.title) + '</b>. מה הצעד הבא בתיק ולמי?</p>' +
-    fi('title', 'המשימה הבאה *', '', 'text', 'required placeholder="למשל: לשלוח מסמכים לפמה"', true) + fs('resp', 'למי', Object.entries(L.resp), taskResp(prev) || 'dan') + fi('due', 'עד מתי', addDays(today(), 2), 'date') +
+    fi('title', 'המשימה הבאה *', '', 'text', 'required placeholder="למשל: לשלוח מסמכים לפמה"', true) + fs('resp', 'למי', Object.entries(L.resp), taskResp(prev) || 'dan') + fi('due', 'עד מתי', today(), 'date') +
     fs('priority', 'עדיפות', Object.entries(L.priority), 'normal') + ft('notes', 'הערות', ''), async (d) => {
     const title = String(d.title || '').trim(); if (!title) return 'מה המשימה הבאה?';
     const id = uid(), au = userOfResp(d.resp);
@@ -4399,6 +4411,19 @@ function dailyReminders(filterFn = () => true, day = today()) {
 }
 
 /* ═════════════════════════ לוח יומי (במקום "סדר יום") ═════════════════════════ */
+/* הלוח היומי — "הימים הבאים": המשימות של השבועיים הקרובים לפי יום, מתחת למשימות של היום */
+const dayHead = (d, t0) => (d === addDays(t0, 1) ? 'מחר · ' : '') + new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(new Date(d + 'T12:00:00')) + ' ' + dLabel(d).slice(0, 5);
+function laneAhead(all, t0, w) {
+  const lim = addDays(t0, 14), fut = all.filter((t) => t.status !== 'done' && t.due && t.due > t0).sort((a, b) => String(a.due).localeCompare(String(b.due)) || String(a.time || '99').localeCompare(String(b.time || '99')) || taskCmp(t0)(a, b));
+  const near = fut.filter((t) => t.due <= lim), far = fut.length - near.length, g = {}; near.forEach((t) => (g[t.due] = g[t.due] || []).push(t));
+  return '<div class="ahead" style="border-top:1px dashed var(--border);margin-top:6px;padding-top:4px"><div class="row" style="padding:4px 14px"><b class="grow" style="font-size:13px">הימים הבאים</b><button class="xlink hint" data-act="laneAhead">הסתר</button></div>' +
+    (near.length ? Object.keys(g).map((d) => '<div class="hint" style="padding:6px 14px 2px;font-weight:600">' + esc(dayHead(d, t0)) + '</div><ul class="blocks">' + g[d].map((t) => { const c = t.clientId && S.clients.get(t.clientId);
+      return '<li class="block" data-atid="' + esc(t.id) + '" style="border-inline-start:4px solid ' + prioVar(t) + ';opacity:.92"><span class="time num">' + esc(t.time || '') + '</span><div class="body"><span class="txt">' + linkify(t.title) + '</span>' +
+        (w ? '<button class="btn small ghost" data-tasktoday="' + esc(t.id) + '">להיום</button><button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>' +
+        (c || t.clientName || t.priority === 'high' || t.priority === 'urgent' ? '<div class="meta">' + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') + (t.priority === 'high' || t.priority === 'urgent' ? '<span class="chip age">' + L.priority[t.priority] + '</span>' : '') + '</div>' : '') + '</li>'; }).join('') + '</ul>').join('')
+      : '<p class="empty">אין משימות בשבועיים הקרובים</p>') +
+    (far ? '<p class="hint" style="padding:0 14px 8px">ועוד ' + far + ' אחרי ' + dLabel(lim).slice(0, 5) + '</p>' : '') + '</div>';
+}
 function vLanes() {
   const t0 = today(), w = S.canTask;
   const lane = (r) => {
@@ -4416,7 +4441,7 @@ function vLanes() {
           ((c || t.clientName || k > 0 || t.priority === 'high' || t.priority === 'urgent') ? '<div class="meta">' + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
             (k > 0 ? '<span class="chip age">נגרר ' + k + ' ימים</span>' : '') + (t.priority === 'high' || t.priority === 'urgent' ? '<span class="chip age">' + L.priority[t.priority] + '</span>' : '') + '</div>' : '') + '</li>'; }).join('') + '</ul>'
         : '<p class="empty">אין משימות פתוחות</p>') +
-      (later ? '<p class="hint" style="padding:0 14px 8px">ועוד ' + later + ' לימים הבאים</p>' : '') +
+      (S.f.laneAhead ? laneAhead(all, t0, w) : later ? '<p style="padding:0 14px 8px"><button class="xlink hint" data-act="laneAhead">ועוד ' + later + ' לימים הבאים — הצג</button></p>' : '') +
       (w ? '<div class="laneadd"><input class="f" data-laneadd="' + r + '" placeholder="+ משימה ל' + L.resp[r] + ' (Enter)" aria-label="משימה חדשה ל' + L.resp[r] + '"></div>' : '') + '</section>';
   };
   const files = live(S.clients).filter(inDiv).filter((c) => (c.resp || fileOf(c.id)) && (c.status === 'open' || c.status === 'hold' || (c.status === 'won' && ((c.installments || []).some((i) => !i.paid) || (c.fundDue && !c.fundDue.done)))))
@@ -6083,6 +6108,10 @@ document.addEventListener('click', async (e) => {
     if (d.costdrill) { const [key, k, b] = d.costdrill.split('|'); S.f.leadView = 'list'; S.f.leadSt = 'all'; S.f.leadCost = { key, k, b }; if (S.division === 'all') S.division = screenDiv('mktDiv'); S.f.leadReach = null; S.f.leadWhen = ''; S.f.leadResp = ''; return go('leads'); }
     if (d.taskbucket) { S.f.taskView = 'bucket'; S.f.taskBucket = d.taskbucket; return render(); }
     if (d.taskwho != null && el.matches('[data-taskwho]')) { S.f.taskWho = d.taskwho; return render(); }
+    if (d.tasktoday) { const t = S.tasks.get(d.tasktoday); if (!t || !S.canTask) return; await write('tasks/' + t.id, { due: today(), updatedAt: stamp() }, 'update'); return toast('הועבר להיום'); }
+    if (d.cnotepin || d.cnotedel) { const c = S.clients.get(S.view.clientId); if (!c || !S.canTask) return; const id = d.cnotepin || d.cnotedel;
+      const cnotes = (c.cnotes || []).map((x) => x.id !== id ? x : d.cnotepin ? { ...x, pin: !x.pin } : { ...x, deletedAt: stamp(), deletedBy: S.me.id });
+      await write('clients/' + c.id, { cnotes, updatedAt: stamp(), updatedBy: S.me.id }, 'update', { journal: true }); return toast(d.cnotepin ? 'עודכן' : 'ההערה נמחקה'); }
     if (d.taskmorrow) { const t = S.tasks.get(d.taskmorrow); if (!t || !S.canTask) return; await write('tasks/' + t.id, { due: addDays(today(), 1), updatedAt: stamp() }, 'update'); return toast('נדחה למחר'); }
     if (d.clboard) { const [k, who] = d.clboard.split('|'); S.f.clientResp = who || ''; if (k === 'dan') { S.f.clientView = 'dan'; } else if (k === 'stuck') { S.f.clientView = 'stuck'; } else if (k === 'notok') { S.f.clientView = 'notok'; } else if (k === 'owe' || k === 'paid') { S.f.clientView = 'done'; } else if (k === 'hold') { S.f.clientView = 'table'; S.f.clientStage = ''; S.f.clientStatus = 'hold'; } else if (!k) { S.f.clientView = 'table'; S.f.clientStage = ''; S.f.clientStatus = 'open'; } else { S.f.clientView = 'table'; S.f.clientStage = k; S.f.clientStatus = 'open'; } return render(); }
     if (d.clwho != null && el.matches('[data-clwho]')) { S.f.clientBoardWho = d.clwho; return render(); }
@@ -6341,6 +6370,8 @@ document.addEventListener('click', async (e) => {
         case 'bankBalance': if (!S.bank || S.bank.lastBalance == null) return; await write('settings/main', { openingBalance: { amount: r2(S.bank.lastBalance), date: S.bank.lastDate, by: S.me.id, source: 'bank-file' } }, 'update'); return toast('יתרת הפתיחה לתזרים עודכנה');
         case 'saveNext': { const text = $('naText').value.trim(), date = $('naDate').value || null;
           await write('clients/' + c.id, { nextAction: { text, date }, updatedAt: stamp() }, 'update'); if (text) await logClient(c.id, 'הצעד הבא: ' + text + (date ? ' (' + dLabel(date) + ')' : '')); return toast('נשמר'); }
+        case 'cnoteAdd': { const t = $('cnoteText').value.trim(); if (!t) return; const pin = !!($('cnotePin') || {}).checked, cur = S.clients.get(c.id) || c;
+          await write('clients/' + c.id, { cnotes: [{ id: uid(), at: stamp(), by: S.me.id, who: whoAmI(), text: t.slice(0, 4000), pin }, ...(cur.cnotes || [])].slice(0, 200), updatedAt: stamp(), updatedBy: S.me.id }, 'update', { journal: true }); return toast(pin ? 'נוסף דגש חשוב' : 'ההערה נוספה'); }
         case 'addNote': { const t = $('noteText').value.trim(); if (!t) return; await logClient(c.id, t, false); return toast('נוסף ליומן'); }
         case 'addChk': { const t = $('chkNew').value.trim(); if (!t) return; await write('clients/' + c.id, { checklist: [...(c.checklist || []), { label: t, status: 'pending' }], updatedAt: stamp() }, 'update'); return; }
         case 'archiveClient': if (!S.isOwner) return requestDelete('clients', c.id, 'לקוח: ' + c.name);
@@ -6387,6 +6418,8 @@ document.addEventListener('click', async (e) => {
           async (d) => { await clientsPdf(d.who ?? 'all', d.hold === '1'); }, '', 'הורד PDF');
         case 'tasksPdf': return drawer('משימות להדפסה', fs('who', 'למי', [['all', 'כל הצוות — עמוד לכל עובד'], ...Object.entries(L.resp)], 'all', true) + '<p class="hint">כל המשימות הפתוחות: באיחור, היום, השבוע, בהמשך ובלי תאריך — עם תיבת סימון לכל משימה.</p>', async (d) => { await tasksPdf(d.who || 'all'); }, '', 'הורד PDF');
         case 'intakeAI': return intakeAI(S.view.clientId);
+        case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
+        case 'toNotes': { const el = $('cnotes'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'ikExtract': return ikExtract(S.view.clientId);
         case 'ikApply': return ikApply(S.view.clientId);
         case 'ikSugAll': if (S.ikSug) S.ikSug.rows.forEach((r) => { r.on = true; }); return render();
