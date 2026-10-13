@@ -4814,7 +4814,7 @@ const instCash = (i) => r2(instVat(i) === 'plus' ? n(i.amount) * (1 + VATR()) : 
 const instNet = (i) => r2(instVat(i) === 'incl' ? n(i.amount) / (1 + VATR()) : n(i.amount));
 const VAT_LBL = { plus: '+ מע״מ', incl: 'כולל מע״מ', none: 'בלי מע״מ' };
 const isConfirmed = (t) => t.confirmed === true;
-const PLAN_KIND = { advance: 'מקדמה לניסים', card: 'חיוב כרטיס אשראי', loan: 'הלוואה', clearing: 'סליקת אשראי', other: 'אחר' };
+const PLAN_KIND = { advance: 'מקדמה לניסים', card: 'חיוב כרטיס אשראי', loan: 'הלוואה', debt: 'התחייבות', clearing: 'סליקת אשראי', other: 'אחר' };
 
 /* ── התחשבנות עם ניסים: מה נכנס → פחות קבועות → פחות ישירות (1–30 לפי חודש התשלום) → רווח → חלקו → פחות מקדמות ── */
 function settleData(m) {
@@ -6021,12 +6021,15 @@ function marketingCard(m) {
 }
 function liabilitiesCard() {
   const s = S.settings, acc = accountState(), loans = s.loans || [];
-  const plan = live(S.planned).filter((p) => p.direction === 'out' && ['card', 'advance', 'loan'].includes(p.kind)).sort((a, b) => String(a.date).localeCompare(b.date));
+  const plan = live(S.planned).filter((p) => p.direction === 'out' && ['card', 'advance', 'loan', 'debt'].includes(p.kind)).sort((a, b) => String(a.date).localeCompare(b.date));
+  const t0 = today(), due = (p) => String(p.date || '') >= t0; /* מה שעבר מועדו כנראה שולם — לא נספר בסה״כ עד שמאשרים */
+  const tot = r2(plan.filter(due).reduce((a, p) => a + n(p.amount), 0) + loans.filter((l) => !l.date || l.date >= t0).reduce((a, l) => a + (n(l.balance) || n(l.amount)), 0));
   return '<section class="card"><header><h2>חשבון והתחייבויות</h2><span class="grow"></span>' + (S.canWrite ? '<button class="btn small" data-act="setOpening">עדכן יתרה ומסגרת</button>' : '') + '</header>' +
     '<div class="scroll"><table><tbody>' +
     (acc ? '<tr><td class="wide">יתרה בעו״ש <span class="hint">נכון ל-' + dLabel(acc.date) + '</span></td><td>' + money(acc.amount, { tone: 'actual' }) + '</td></tr><tr><td class="wide">מסגרת אשראי</td><td>' + money(acc.credit, { tone: 'muted' }) + '</td></tr><tr><td class="wide"><b>זמין כולל מסגרת</b></td><td><b>' + money(acc.available, { tone: 'committed' }) + '</b></td></tr>' : '<tr><td class="wide">לא הוזנה יתרה</td><td></td></tr>') +
-    plan.map((p) => '<tr><td class="wide">' + esc(p.label) + ' <span class="hint">' + (PLAN_KIND[p.kind] || '') + ' · ' + dLabel(p.date) + '</span></td><td>' + money(-n(p.amount)) + '</td></tr>').join('') +
-    loans.map((l) => '<tr><td class="wide">' + esc(l.name) + '<div class="hint">' + [l.balance ? 'יתרה ' + plain(l.balance) + (l.original ? ' מתוך ' + plain(l.original) : '') : '', l.rate || '', l.monthly ? plain(l.monthly) + ' ב-' + (l.day || '') + ' לחודש' : '', l.date ? 'תשלום ' + dLabel(l.date) : ''].filter(Boolean).join(' · ') + '</div></td><td>' + money(-(n(l.balance) || n(l.amount)), { tone: 'muted' }) + '</td></tr>').join('') +
+    plan.map((p) => '<tr><td class="wide">' + esc(p.label) + ' <span class="hint">' + (PLAN_KIND[p.kind] || '') + ' · ' + (p.dateAssumed ? 'בערך ' : '') + dLabel(p.date) + '</span>' + (due(p) ? '' : ' <span class="pill open">עבר המועד — שולם?</span>') + (p.note ? '<div class="hint">' + esc(p.note) + '</div>' : '') + '</td><td>' + money(-n(p.amount)) + '</td></tr>').join('') +
+    loans.map((l) => '<tr><td class="wide">' + esc(l.name) + '<div class="hint">' + [l.balance ? 'יתרה ' + plain(l.balance) + (l.original ? ' מתוך ' + plain(l.original) : '') : '', l.rate || '', l.monthly ? plain(l.monthly) + ' ב-' + (l.day || '') + ' לחודש' : '', l.date ? 'תשלום ' + dLabel(l.date) : '', l.asOf ? 'נכון ל-' + dLabel(l.asOf) : '', l.note || ''].filter(Boolean).join(' · ') + '</div></td><td>' + money(-(n(l.balance) || n(l.amount)), { tone: 'muted' }) + '</td></tr>').join('') +
+    (plan.length + loans.length ? '<tr class="tot"><td class="wide"><b>סה״כ התחייבויות</b>' + (plan.some((p) => !due(p)) ? '<div class="hint">בלי מה שעבר מועדו</div>' : '') + '</td><td><b>' + money(-tot) + '</b></td></tr>' : '') +
     '</tbody></table></div></section>';
 }
 
