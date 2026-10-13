@@ -1704,6 +1704,8 @@ const leadAt = (l) => String(l.createdAt || '');
 const leadTime = (l) => { const t = hm(leadAt(l)); return t && t !== '00:00' ? t : ''; };
 async function leadPatch(id, patch, text, auto = false) {
   const l = S.leads.get(id); if (!l) return;
+  { const k0 = stKey(l), k1 = (('sub' in patch) ? patch.sub : l.sub) || (('stage' in patch) ? patch.stage : l.stage) || 'new'; /* היסטוריית סטטוסים — מאיפה, לאן, מתי ומי */
+    if (('stage' in patch || 'sub' in patch) && k1 !== k0) patch = { ...patch, stAt: stamp(), stHist: [...(l.stHist || []), { from: k0, to: k1, at: stamp(), by: whoAmI() }].slice(-100) }; }
   if (patch.stage && patch.stage !== l.stage) { patch = { ...patch, stageAt: stamp(), ...(patch.stage === 'won' ? { wonAt: stamp() } : {}), ...(LEAD_CLOSED.includes(patch.stage) ? { followUp: null } : {}) }; }
   const log = text ? [{ at: stamp(), by: S.me.id, who: whoAmI(), text, auto }, ...(l.log || [])].slice(0, 300) : undefined;
   await write('leads/' + id, { ...patch, ...(log ? { log } : {}), updatedAt: stamp() }, 'update');
@@ -2218,7 +2220,7 @@ async function fundSend(c) {
     if (!bad.length && !queue.length) { S.docSel = new Set(); toast('נשלח ל' + bank + ' — ' + att.length + ' קבצים' + (sent > 1 ? ' ב-' + sent + ' מיילים' : '')); } else S.docSel = new Set(bad.map((nm) => (st.files.find((f) => f.title === nm || f.title.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg' === nm) || {}).id).filter(Boolean));
   } finally { S._fundBusy = false; render(); } }
 function dayExtras() {
-  const t0 = today(); let h = reDayCard();
+  const t0 = today(); let h = viewHomeCard() + reDayCard();
   if (S.isCenter) { const mine = live(S.leads).filter((l) => l.resp === S.myKey), due = mine.filter((l) => leadDue(l, t0) || (l.stage || 'new') === 'new'), m = t0.slice(0, 7), cm = commRows().filter((x) => x.who === S.myKey && x.month === m);
     h += '<div class="grid2">' + kpi('הלידים שלי לטיפול', '<span class="num">' + due.length + '</span>', mine.length + ' לידים משויכים אליך', 'leads', due.length ? 'open' : '') +
       kpi('העמלות שלי — ' + mLabel(m), money(cm.reduce((a, x) => a + x.amount, 0), { tone: 'committed' }), cm.filter((x) => x.event === 'meeting').length + ' פגישות שהתקיימו · ' + cm.filter((x) => x.event === 'close').length + ' סגירות', null) + '</div>'; }
@@ -2442,6 +2444,34 @@ function vLeadBoardDiv(div) {
       fr.map((x) => tile(inPer.filter((l) => stKey(l) === x.key).length, x.label, TONE_OF_BASE(x.base), x.key + '@per')).join('') + '</div></section>' : '') +
     '<p class="hint" style="margin-top:12px">לחיצה על מספר פותחת את הלידים שמרכיבים אותו. הסטטוסים נלקחו מכוורת — עריכה: הגדרות ← סטטוסים לפי חברה.</p>';
 }
+const stLabelOf = (key, div) => { const d = stageDefs(div).find((x) => x.key === key); return d ? d.label : L.leadStage[key] || key || '—'; };
+const stSince = (l) => l.stAt || l.stageAt || l.createdAt || null;
+const daysIn = (l) => { const s0 = stSince(l); return s0 ? Math.max(0, Math.round((Date.parse(today() + 'T12:00:00') - Date.parse(dayOf(s0) + 'T12:00:00')) / 864e5)) : null; };
+function leadHistCard(l) {
+  const h = l.stHist || []; if (!h.length) return '';
+  return '<section class="card"><header><h2>היסטוריית סטטוסים</h2><span class="pill muted">' + h.length + '</span><span class="grow"></span><span class="hint">בסטטוס הנוכחי ' + (daysIn(l) ?? 0) + ' ימים</span></header><div class="scroll"><table><tbody>' +
+    [...h].reverse().map((x) => '<tr><td class="num">' + dLabel(dayOf(x.at)) + ' ' + hm(x.at) + '</td><td class="wide">' + esc(stLabelOf(x.from, leadDiv(l))) + ' ← <b>' + esc(stLabelOf(x.to, leadDiv(l))) + '</b></td><td class="hint">' + esc(x.by || '') + '</td></tr>').join('') + '</tbody></table></div></section>';
+}
+/* תצוגות שמורות (כמו "פילוחים שמורים" בכוורת): שומרים סינון של רשימת הלידים בשם, עם ספירה חיה; אפשר להציג כאריח ב"היום שלי" */
+const VIEW_KEYS = ['leadSt', 'leadType', 'leadChan', 'leadAd', 'leadResp', 'leadWhen', 'leadQ', 'leadReach', 'leadSort'];
+const viewDivOk = (v) => !v.div || v.div === 'all' || canSeeDiv(v.div);
+const savedViews = () => (S.settings.savedViews || []).filter((v) => v && v.id && viewDivOk(v) && (!v.div || v.div === 'all' || S.division === 'all' || v.div === S.division));
+function viewRun(v, fn) { const keep = { f: {}, div: S.division }; VIEW_KEYS.forEach((k) => { keep.f[k] = S.f[k]; S.f[k] = (v.f || {})[k] ?? (k === 'leadSt' ? 'todo' : ''); }); const kc = S.f.leadCost; S.f.leadCost = null;
+  if (v.div && viewDivOk(v)) S.division = v.div; try { return fn(); } finally { VIEW_KEYS.forEach((k) => { S.f[k] = keep.f[k]; }); S.f.leadCost = kc; S.division = keep.div; } }
+const viewCount = (v) => viewRun(v, () => leadsFiltered().length);
+function viewChips() {
+  const vs = savedViews(), cur = JSON.stringify(VIEW_KEYS.map((k) => S.f[k] || ''));
+  if (!vs.length && !S.canWrite) return '';
+  return '<div class="row" style="flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px"><span class="hint">תצוגות שמורות:</span>' +
+    vs.map((v) => { const on = JSON.stringify(VIEW_KEYS.map((k) => (v.f || {})[k] || '')) === cur && (!v.div || v.div === S.division);
+      return '<span class="tag" style="gap:4px' + (on ? ';outline:2px solid var(--committed)' : '') + '"><button class="xlink" data-viewgo="' + esc(v.id) + '">' + esc(v.name) + ' <b class="num">' + viewCount(v) + '</b></button>' + (v.home ? ' <span class="hint" title="מוצג ב״היום שלי״">⌂</span>' : '') + (S.canWrite ? '<button aria-label="מחק תצוגה" data-viewdel="' + esc(v.id) + '">×</button>' : '') + '</span>'; }).join('') +
+    (S.canWrite ? '<button class="btn small ghost" data-act="viewSave">+ שמור את הסינון הנוכחי</button>' : '') + '</div>';
+}
+function viewHomeCard() {
+  const vs = savedViews().filter((v) => v.home); if (!vs.length) return '';
+  return '<section class="card"><header><h2>תצוגות שמורות</h2><span class="grow"></span><button class="btn small ghost" data-tab="leads">ללידים</button></header><div class="grid4">' +
+    vs.map((v) => { const k = viewCount(v); return '<button class="card kpi click" data-viewgo="' + esc(v.id) + '" style="text-align:start"><span class="lbl">' + esc(v.name) + '</span><b class="num">' + k + '</b><span class="hint">' + esc(v.div && v.div !== 'all' ? L.division[v.div] : 'כל החברות') + '</span></button>'; }).join('') + '</div></section>';
+}
 function vLeads() {
   const fin = S.division !== 'realestate' && canSeeDiv('finance'), v0 = S.isCenter ? (S.f.leadView === 'list' ? 'list' : 'board') : S.f.leadView || 'board', v = v0 === 'credit' && !fin ? 'list' : v0;
   const nc = fin ? live(S.leads).filter((l) => leadDiv(l) === 'finance' && creditable(l) && creditOf(l) === 'pending').length : 0;
@@ -2486,7 +2516,7 @@ function vLeadsList(seg) {
       kpi('חתמו', '<span class="num">' + won.length + '</span>', LEAD_TYPES.map((t) => { const b = all.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · '), null, 'actual') +
       (S.isOwner || S.isPartner ? kpi('עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'marketing') : kpi('לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', null))) + '</div>' +
     (S.isCenter || S.division === 'realestate' || !canConv() ? '' : '<details class="card convbox"' + (S.f.convOpen ? ' open' : '') + '><summary><b>יחס המרה — החודש מול הקודם</b> <span class="hint">לחיצה לפתיחה</span></summary>' + leadMonthHtml() + '</details>') + (S.isOwner && w ? allocCard() : '') +
-    '<section class="card"><div class="seg" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
+    viewChips() + '<section class="card"><div class="seg" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end"><label class="fl grow">חיפוש<input class="f" type="search" id="fLeadQ" value="' + esc(f.leadQ || '') + '" placeholder="שם, טלפון, עיר, הערה"></label></div>' +
       '<details class="lfilt"' + (innerWidth > 700 || f.leadType || f.leadChan || f.leadAd || f.leadResp || f.leadWhen ? ' open' : '') + '><summary class="hint">סינון ומיון' + ([f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length ? ' (' + [f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length + ' פעילים)' : '') + '</summary><div class="row" style="align-items:flex-end">' +
         (S.division === 'realestate' ? '' : sel('fLeadType', 'סוג', [['', 'כל הסוגים'], ...LEAD_TYPES.map((c) => [c, c + ' (' + all.filter((l) => leadType(l) === c).length + ')'])], f.leadType)) + sel('fLeadChan', 'מקור / משווק', [['', 'כל המקורות'], ...chans.map((c) => [c, c + ' (' + all.filter((l) => leadChannel(l) === c).length + ')'])], f.leadChan) + sel('fLeadAd', 'מודעה', [['', 'כל המודעות'], ...ads.map((c) => [c, c])], f.leadAd) +
@@ -2494,10 +2524,10 @@ function vLeadsList(seg) {
         sel('fLeadSort', 'מיון', [['new', 'החדש ראשון'], ['old', 'הישן ראשון'], ['follow', 'לפי מעקב']], f.leadSort) + '</div></details></section>' +
     '<section class="card"><header><h2>' + (f.leadCost ? esc(f.leadCost.k) + ' · ' + ({ all: 'כל הלידים', rel: 'רלוונטיים', signed: 'נחתמו', exec: 'בוצעו' }[f.leadCost.b]) + '</h2><button class="btn small ghost" data-act="costClear">✕ נקה</button><h2 hidden>' : '') + esc(f.leadReach ? ({ 1: 'פגישות זום', 2: 'הגיעו לפגישת זום', 3: 'המשיכו לפרונטלי', 4: 'המשיכו לפרונטלי — הגיעו בפועל' })[f.leadReach] || '' : (chips.find((c) => c[0] === st) || [])[1] || '') + '</h2>' + (f.leadReach ? '<button class="btn small ghost" data-leadst="todo">✕ נקה</button>' : '') + '<span class="pill muted">' + rows.length + '</span></header>' +
       (canAlloc && rows.length ? allocBar(rows) : '') +
-      (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
+      (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">בסטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
         shown.map((l) => '<tr class="clickable" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
           '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + ((l.returns || []).length ? '<div><span class="pill open" title="אותו טלפון נכנס שוב כליד">נכנס שוב ×' + l.returns.length + '</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
-          '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m">' + respSel(l) + '</td>' +
+          '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m num">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m">' + respSel(l) + '</td>' +
           '<td class="hide-m">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
           '<td class="hide-m"><span class="hint">' + linkify(leadLast(l), 70) + '</span></td></tr>').join('') + '</tbody></table></div>' +
         (rows.length > lim ? '<p style="text-align:center"><button class="btn small" data-leadmore>הצג עוד ' + Math.min(120, rows.length - lim) + ' (מתוך ' + rows.length + ')</button></p>' : '')
@@ -2527,7 +2557,7 @@ function vLead(id) {
         (!isRE && creditable(l) ? '<span class="pill ' + CREDIT_TONE[creditOf(l)] + '">זיכוי: ' + CREDIT_ST[creditOf(l)] + '</span>' : '') + '</div>' +
       (w ? '<div class="seg" style="margin-top:10px" role="group" aria-label="פעולה מהירה">' + quick.map(([k, v]) => '<button data-leadquick="' + k + '" data-id="' + esc(l.id) + '">' + v + '</button>').join('') + '</div>' : '') +
       (!c && S.canClient && l.stage === 'won' ? '<div class="row" style="margin-top:10px"><select class="f" data-linklead="' + esc(l.id) + '" aria-label="קשר ללקוח" style="max-width:240px"><option value="">או קשר ללקוח קיים…</option>' + live(S.clients).filter((k) => k.status !== 'cancelled').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he')).map((k) => '<option value="' + esc(k.id) + '">' + esc(k.name) + '</option>').join('') + '</select></div>' : '') + '</section>' +
-    leadDupCard(l, w) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
+    leadDupCard(l, w) + leadHistCard(l) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
       ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(hm(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
@@ -3570,9 +3600,37 @@ function formDev(l, name) {
       await write('lenders/' + id, { ...l, id, kind: 'developer', division: 'realestate', name: d.name.trim(), contact: d.contact.trim(), phone: d.phone.trim(), email: d.email.trim(), commission: d.commission === '' ? null : Number(d.commission), terms: d.terms.trim(), projects: d.projects.trim(), notes: d.notes, updatedAt: stamp(), ...(isNew ? { createdAt: stamp(), createdBy: S.me.id } : {}) });
       toast('נשמר'); });
 }
-function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : 'bodies';
-  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px"><button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
+/* סטטוס בקשות (כמו ב-WISE): כל ההגשות של כל הלקוחות במקום אחד — הועבר / אושר ובביצוע / הוגש / בהכנה / נדחה, עם סה״כ לכל קבוצה ולכל גוף */
+const SUB_GROUPS = [['executed', 'הכסף הועבר', 'actual'], ['approved', 'אושר — בתהליך ביצוע', 'committed'], ['submitted', 'הוגש — ממתין לתשובה', 'expected'], ['prep', 'בהכנה', 'muted'], ['declined', 'נדחה', 'open']];
+const subGroupOf = (st) => st === 'executed' ? 'executed' : st === 'approved' ? 'approved' : ['submitted', 'review'].includes(st) ? 'submitted' : st === 'prep' ? 'prep' : st === 'declined' ? 'declined' : 'submitted';
+function subsAll() {
+  const out = [];
+  for (const c of live(S.clients)) { if (!canSeeDiv(c.division || 'finance') || !inDiv(c) || ['cancelled', 'lost'].includes(c.status)) continue;
+    (c.submissions || []).forEach((x, i) => { if (!x || !x.bank) return; out.push({ c, i, s: x, g: subGroupOf(x.status), amount: n(x.amount), date: x.transferredAt || x.approvedAt || x.submittedAt || null }); }); }
+  return out;
+}
+function vSubsStatus() {
+  const all = subsAll(), q = String(S.f.subQ || '').trim(), L2 = q ? all.filter((r) => (r.c.name + ' ' + r.s.bank).includes(q)) : all;
+  const by = (g) => L2.filter((r) => r.g === g).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.c.name).localeCompare(String(b.c.name), 'he'));
+  const tot = (rs) => r2(rs.reduce((a, r) => a + r.amount, 0)), cnt = (g) => by(g).length;
+  const tiles = '<div class="grid4" style="margin-bottom:14px">' + SUB_GROUPS.filter(([g]) => g !== 'prep').map(([g, t, tone]) => '<button class="card kpi click" data-subgo="' + g + '" style="text-align:start;border-inline-start:4px solid var(--' + (tone === 'muted' ? 'border' : tone) + ')"><span class="lbl">' + t + '</span><b class="num">' + cnt(g) + '</b><span class="hint">' + (tot(by(g)) ? plain(tot(by(g))) : '—') + '</span></button>').join('') + '</div>';
+  const lenders = [...new Set(L2.map((r) => r.s.bank))].map((b) => { const rs = L2.filter((r) => r.s.bank === b); return { b, ex: rs.filter((r) => r.g === 'executed'), ap: rs.filter((r) => r.g === 'approved'), sb: rs.filter((r) => r.g === 'submitted'), dc: rs.filter((r) => r.g === 'declined') }; })
+    .sort((a, b) => (tot(b.ex) + tot(b.ap)) - (tot(a.ex) + tot(a.ap)) || a.b.localeCompare(b.b, 'he'));
+  const byLender = lenders.length ? '<section class="card"><header><h2>לפי גוף</h2><span class="hint">' + lenders.length + ' גופים</span></header><div class="scroll"><table><thead><tr><th>גוף</th><th>הועבר</th><th>אושר ובביצוע</th><th>הוגש</th><th>נדחה</th></tr></thead><tbody>' +
+    lenders.map((x) => '<tr><td class="wide"><b>' + esc(x.b) + '</b></td><td>' + (x.ex.length ? x.ex.length + (tot(x.ex) ? ' · ' + money(tot(x.ex), { tone: 'actual' }) : '') : '<span class="hint">—</span>') + '</td><td>' + (x.ap.length ? x.ap.length + (tot(x.ap) ? ' · ' + money(tot(x.ap), { tone: 'committed' }) : '') : '<span class="hint">—</span>') + '</td><td class="num">' + (x.sb.length || '<span class="hint">—</span>') + '</td><td class="num">' + (x.dc.length || '<span class="hint">—</span>') + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
+  const group = ([g, t, tone]) => { const rs = by(g); if (!rs.length) return '';
+    return '<section class="card" id="subg-' + g + '" style="border-inline-start:4px solid var(--' + (tone === 'muted' ? 'border' : tone) + ')"><header><h2>' + t + '</h2><span class="pill ' + tone + '">' + rs.length + '</span>' + (tot(rs) ? '<span class="grow"></span><b>' + money(tot(rs), { tone: tone === 'open' || tone === 'muted' ? 'muted' : tone }) + '</b>' : '') + '</header>' +
+      '<div class="scroll"><table><thead><tr><th>לקוח</th><th>גוף</th><th>סכום</th><th>' + (g === 'executed' ? 'הועבר' : g === 'approved' ? 'אושר' : 'הוגש') + '</th><th>שלב התיק</th><th>אחראי</th></tr></thead><tbody>' +
+      rs.map((r) => '<tr><td class="wide"><button class="xlink" data-client="' + esc(r.c.id) + '"><b>' + esc(r.c.name) + '</b></button></td><td>' + esc(r.s.bank) + '</td><td>' + (r.amount ? money(r.amount, { tone: 'muted' }) : '<span class="hint">—</span>') + '</td>' +
+        '<td class="num">' + (r.date ? dLabel(r.date) : '<span class="hint">—</span>') + '</td><td><span class="pill muted">' + esc(L.stage[r.c.stage] || '') + '</span></td><td>' + (r.c.resp ? respChip(r.c.resp) : '<span class="hint">—</span>') + '</td></tr>').join('') + '</tbody></table></div></section>'; };
+  return '<div class="row" style="margin-bottom:10px;align-items:flex-end"><label class="fl grow">חיפוש לקוח או גוף<input class="f search" type="search" id="fSubQ" value="' + esc(S.f.subQ || '') + '" placeholder="שם לקוח / גוף"></label></div>' + tiles +
+    (L2.length ? SUB_GROUPS.map(group).join('') + byLender : '<p class="empty">' + (q ? 'אין הגשות שמתאימות לחיפוש.' : 'אין עדיין הגשות לגופים.') + '</p>') +
+    '<p class="hint">תיקים מבוטלים ואבודים לא מוצגים. הסטטוס של כל הגשה מתעדכן בכרטיס הלקוח ← "גופי מימון".</p>';
+}
+function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : 'bodies';
+  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
   if (v === 'contacts') return seg + vContacts();
+  if (v === 'subs' && d !== 'realestate') { S._divOnly = d; try { return seg + divSeg('lendDiv', d) + vSubsStatus(); } finally { S._divOnly = null; } }
   S._divOnly = d; try { return seg + divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
 /* ═════════════ אנשי קשר — לשליחת מיילים לפי סיווג (ייבוא מאנשי הקשר של גוגל) ═════════════ */
 const CONTACT_CATS = [['bank', 'בנקים'], ['fund', 'גופי מימון וקרנות'], ['lawyer', 'עורכי דין'], ['appraiser', 'שמאים'], ['cpa', 'רו״ח והנהלת חשבונות'], ['developer', 'יזמים, קבלנים ומתווכים'], ['credit', 'נתוני אשראי'],
@@ -6102,7 +6160,12 @@ document.addEventListener('click', async (e) => {
     if (d.mktgo) { S.f.mkt = d.mktgo; S.f.mktDiv = 'realestate'; return go('marketing'); }
     if ((d.signfin || d.signcancel) && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; el.disabled = true;
       try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel), { action: d.signfin ? 'finalize' : 'cancel' }); toast(d.signfin ? (r.ok ? 'ה-PDF נשמר בדרייב' : 'נכשל: ' + (r.error || '')) : (r.ok ? 'בוטל' : 'לא בוטל')); } catch (e) { toast('נכשל: ' + e.message); } return signLoad(c); }
+    if (d.viewgo) { const v = (S.settings.savedViews || []).find((x) => x.id === d.viewgo); if (!v) return; VIEW_KEYS.forEach((k) => { S.f[k] = (v.f || {})[k] ?? (k === 'leadSt' ? 'todo' : ''); }); S.f.leadCost = null; S.f.leadView = 'list';
+      if (v.div && viewDivOk(v)) S.division = v.div; return go('leads'); }
+    if (d.viewdel) { if (!S.canWrite) return; const v = (S.settings.savedViews || []).find((x) => x.id === d.viewdel); if (!v || !confirm('למחוק את התצוגה "' + v.name + '"?')) return;
+      await write('settings/main', { savedViews: (S.settings.savedViews || []).filter((x) => x.id !== d.viewdel) }, 'update'); return toast('התצוגה נמחקה'); }
     if (d.lendview) { S.f.lendView = d.lendview; return render(); }
+    if (d.subgo) { const el = $('subg-' + d.subgo); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (d.ctcat) { S.f.ctCat = d.ctcat; return render(); }
     if (d.ctedit) { const c = S.contacts.get(d.ctedit); if (c && S.canWrite) return formContact(c); return; }
     if (d.doclink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), f = (S.rootIdx || []).find((x) => x.id === d.doclink); if (!c || !f || !S.canWrite) return; return linkFolder(c, { id: f.id, title: f.title + ' (' + f.root + ')' }); }
@@ -6421,6 +6484,11 @@ document.addEventListener('click', async (e) => {
           async (d) => { await clientsPdf(d.who ?? 'all', d.hold === '1'); }, '', 'הורד PDF');
         case 'tasksPdf': return drawer('משימות להדפסה', fs('who', 'למי', [['all', 'כל הצוות — עמוד לכל עובד'], ...Object.entries(L.resp)], 'all', true) + '<p class="hint">כל המשימות הפתוחות: באיחור, היום, השבוע, בהמשך ובלי תאריך — עם תיבת סימון לכל משימה.</p>', async (d) => { await tasksPdf(d.who || 'all'); }, '', 'הורד PDF');
         case 'intakeAI': return intakeAI(S.view.clientId);
+        case 'viewSave': { if (!S.canWrite) return; const f0 = {}; VIEW_KEYS.forEach((k) => { if (S.f[k]) f0[k] = S.f[k]; });
+          return drawer('שמירת תצוגה', '<p class="full hint">הסינון הנוכחי של רשימת הלידים' + (S.division !== 'all' ? ' ב' + L.division[S.division] : '') + ' יישמר בשם, עם ספירה חיה. כל הצוות רואה את התצוגות.</p>' + fi('name', 'שם התצוגה *', '', 'text', 'required placeholder="למשל: אין מענה מעל שבוע"', true) +
+            '<label class="check full"><input type="checkbox" class="cb" name="home" value="1"><span>להציג כאריח ב״היום שלי״</span></label>',
+            async (x) => { const name = String(x.name || '').trim(); if (!name) return 'חסר שם';
+              await write('settings/main', { savedViews: [...(S.settings.savedViews || []), { id: uid(), name: name.slice(0, 60), div: S.division, f: f0, home: !!x.home, by: S.me.id, at: stamp() }] }, 'update'); toast('התצוגה נשמרה'); }, '', 'שמור'); }
         case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
         case 'toNotes': { const el = $('cnotes'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'ikExtract': return ikExtract(S.view.clientId);
@@ -6625,7 +6693,7 @@ document.addEventListener('input', async (e) => {
     if (e.target.dataset.signf) f[e.target.dataset.signf] = e.target.value; else f[{ signTitle: 'title', signEmail: 'email', signPhone: 'phone' }[e.target.id]] = e.target.value; return; }
   if (e.target.dataset && e.target.dataset.plannotes && S.canWrite) { const el = e.target, id = el.dataset.plannotes; clearTimeout(S._planT);
     S._planT = setTimeout(() => write('clients/' + id, { planNotes: el.value, updatedAt: stamp() }, 'update').catch(() => {}), 900); return; }
-  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ', fCtQ: 'ctQ' };
+  const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ', fCtQ: 'ctQ', fSubQ: 'subQ' };
   if (map[e.target.id]) { S.f[map[e.target.id]] = e.target.value; clearTimeout(qT); qT = setTimeout(render, 160); return; }
   if (e.target.id === 'teamSearch' && S.user) {
     const hits = await S.user.search(e.target.value.trim());
