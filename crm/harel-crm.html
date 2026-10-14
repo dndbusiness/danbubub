@@ -1561,7 +1561,7 @@ async function syncLeadSheet(src, quiet, cache) {
   const C = form ? { date: colOf('תאריך') || 'A', name: colOf('שם') || 'B', phone: colOf('טלפון') || 'C', email: colOf('מייל'), status: colOf('סטטוס'), notes: colOf('הערות'), wise: colOf('נשלח ל-WISE') } : { date: 'A', name: 'B', phone: 'C' };
   const qCols = form ? Object.keys(H).filter((c) => !Object.values(C).includes(c)) : [];
   const extraCols = ['H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'], oldCut = addDays(today(), -OLD_UNTOUCHED_DAYS), channel = srcChannel(src), ctype = src.ctype || 'נכסים';
-  let added = 0, updated = 0, seen = 0, byPhone = null; const writes = [];
+  let added = 0, updated = 0, seen = 0, byPhone = null; const writes = [], usedIds = new Set();
   for (let row = head + 1; row <= rng.e.r + 1; row++) {
     const pc = ws[C.phone + row], name = cv(C.name, row); let phone = pc && pc.t === 'n' ? String(Math.round(pc.v)) : cv(C.phone, row); if (!name && !phone) continue;
     if (form && SHEET_TEST_ROW.test(name)) continue; /* שורת בדיקה של האוטומציה — לא ליד */ seen++;
@@ -1571,6 +1571,8 @@ async function syncLeadSheet(src, quiet, cache) {
     /* הליד כבר נקלט (ידנית / ממקור אחר) — אותו טלפון ואותה שעת פנייה (±3 דק׳): מעדכנים אותו ולא יוצרים כפיל */
     if (form && !S.leads.get(id) && np && at0) { const t0 = Date.parse(at0), same = (byPhone || (byPhone = leadsByPhone())).get(np) || [];
       const hit = same.find((l) => !l.deletedAt && Math.abs(Date.parse(l.createdAt || 0) - t0) <= 3 * 60e3); if (hit) id = hit.id; }
+    /* שתי שורות בטבלה עם אותו טלפון ואותו תאריך בלי שעה → אותו מזהה. השנייה מקבלת את מספר השורה, אחרת הן דורסות זו את זו בכל סנכרון */
+    if (usedIds.has(id)) id += '-r' + row; usedIds.add(id);
     const at = at0 || (S.leads.get(id) && S.leads.get(id).createdAt) || stamp(), cur = S.leads.get(id);
     let ad = '', note = '', color = null, rawSt = '', sheetStage = null, tries = 0, answers = null, wise = '', screenFail = [];
     if (form) {
