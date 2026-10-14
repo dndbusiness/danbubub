@@ -10,6 +10,7 @@
     --committed: #2563EB; --committed-bg: #EFF6FF;
     --expected: #F59E0B;  --expected-bg: #FFFBEB;
     --open: #DC2626;      --open-bg: #FEF2F2;
+    --lc-y: #FFF6BF; --lc-y-bar: #EAB308; --lc-o: #FBE3CC; --lc-o-bar: #D9822B; --lc-g: #DDF5D8; --lc-g-bar: #22A33A; --lc-b: #DCE8FF; --lc-b-bar: #3B6FE0; --lc-r: #FFDCDC; --lc-r-bar: #DC2626; --lc-p: #EEE3FF; --lc-p-bar: #8B5CF6; --lc-c: #D9F4F6; --lc-c-bar: #0E9AA7;
     --p-urgent: #DC2626; --p-high: #F97316; --p-normal: #EAB308; --p-low: #16A34A; /* קו בצד המשימה לפי עדיפות (דן, 11/10) */
     --locked: #6B7280;    --locked-bg: #F3F4F6;
     --finance: #7C3AED; --finance-bg: #F5F3FF;
@@ -28,6 +29,7 @@
       --committed: #60A5FA; --committed-bg: #0C1E3A;
       --expected: #FBBF24;  --expected-bg: #2E1F05;
       --open: #F87171;      --open-bg: #3B0A0A;
+    --lc-y: #3A3205; --lc-y-bar: #FACC15; --lc-o: #3B2410; --lc-o-bar: #F0A050; --lc-g: #0F2E14; --lc-g-bar: #4ADE80; --lc-b: #102345; --lc-b-bar: #7AA2F7; --lc-r: #3B0F0F; --lc-r-bar: #F87171; --lc-p: #261A45; --lc-p-bar: #B79CFB; --lc-c: #0B2F33; --lc-c-bar: #2DD4DF;
       --p-urgent: #F87171; --p-high: #FB923C; --p-normal: #FACC15; --p-low: #4ADE80;
       --locked: #9CA3AF;    --locked-bg: #1F2937;
       --finance: #A78BFA; --finance-bg: #1E1636;
@@ -45,6 +47,7 @@
     --committed: #60A5FA; --committed-bg: #0C1E3A;
     --expected: #FBBF24;  --expected-bg: #2E1F05;
     --open: #F87171;      --open-bg: #3B0A0A;
+    --lc-y: #3A3205; --lc-y-bar: #FACC15; --lc-o: #3B2410; --lc-o-bar: #F0A050; --lc-g: #0F2E14; --lc-g-bar: #4ADE80; --lc-b: #102345; --lc-b-bar: #7AA2F7; --lc-r: #3B0F0F; --lc-r-bar: #F87171; --lc-p: #261A45; --lc-p-bar: #B79CFB; --lc-c: #0B2F33; --lc-c-bar: #2DD4DF;
     --p-urgent: #F87171; --p-high: #FB923C; --p-normal: #FACC15; --p-low: #4ADE80;
     --locked: #9CA3AF;    --locked-bg: #1F2937;
     --finance: #A78BFA; --finance-bg: #1E1636;
@@ -307,6 +310,12 @@
 /* ══ עיצוב v2 — רפרנס WISE (UIUX §3): תפריט צד במחשב, ניווט תחתון בנייד, מספר אחד גדול לכרטיס ══ */
 :root { --nav-w: 236px; --nav-wc: 72px; --top-h: 60px; --bnav-h: 64px; --ink: #111827; --nav-act: #EEF0F4; --radius-card: 14px; --radius-btn: 10px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink: #F3F4F6; --nav-act: #1F2937; } }
+/* צבעי שורות בטבלת הלידים — אותם צבעים כמו בטבלה בגוגל (צהוב פולו אפ, חום לא רלוונטי, ירוק חתם, כחול לזיכוי, אדום מספר לא תקין) */
+table.leads tr[class*="lc-"] > td { background: var(--lc); } table.leads tr[class*="lc-"] > td:first-child { box-shadow: inset -4px 0 0 var(--lc-bar); }
+tr.lc-y { --lc: var(--lc-y); --lc-bar: var(--lc-y-bar); } tr.lc-o { --lc: var(--lc-o); --lc-bar: var(--lc-o-bar); } tr.lc-g { --lc: var(--lc-g); --lc-bar: var(--lc-g-bar); }
+tr.lc-b { --lc: var(--lc-b); --lc-bar: var(--lc-b-bar); } tr.lc-r { --lc: var(--lc-r); --lc-bar: var(--lc-r-bar); } tr.lc-p { --lc: var(--lc-p); --lc-bar: var(--lc-p-bar); } tr.lc-c { --lc: var(--lc-c); --lc-bar: var(--lc-c-bar); }
+.lcdot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-inline-end: 4px; background: var(--lc); box-shadow: inset 0 0 0 1px var(--lc-bar); }
+.lclegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-3); margin: 0 0 8px; }
 :root[data-theme="dark"] { --ink: #F3F4F6; --nav-act: #1F2937; }
 body { font-size: 14.5px; -webkit-font-smoothing: antialiased; }
 h1 { font-size: 24px; letter-spacing: -.02em; }
@@ -1663,7 +1672,7 @@ const DEFAULT_SETS = { realestate: [
   { key: 're_disq', label: 'ליד פסול', base: 'invalid', reach: 0 }, { key: 'invalid', label: 'מספר לא תקין', base: 'invalid', reach: 0 }, { key: 'duplicate', label: 'ליד כפול', base: 'duplicate', reach: 0 }],
   /* הר-אל פתרונות — כמו הדאשבורד בכוורת (דן, 11/10). "לזיכוי" = נספר בדוח הזיכויים מול המשווק */
   finance: [{ key: 'new', label: 'חדש', base: 'new' }, { key: 'noanswer', label: 'אין מענה', base: 'noanswer' }, { key: 'fin_noanswer_week', label: 'אין מענה מעל שבוע', base: 'noanswer' },
-    { key: 'followup', label: 'פולו אפ', base: 'followup', alias: ['פולואפ', 'פולו-אפ'] }, { key: 'fin_waiting', label: 'ממתינה', base: 'checking', alias: ['ממתין'] },
+    { key: 'followup', label: 'פולו אפ', base: 'followup', alias: ['פולואפ', 'פולו-אפ'] }, { key: 'checking', label: 'בבדיקה', base: 'checking', alias: ['עבר לבדיקה', 'בבדיקה'] }, { key: 'fin_waiting', label: 'ממתינה', base: 'checking', alias: ['ממתין'] },
     { key: 'fin_later', label: 'לחזור מאוחר יותר', base: 'followup' }, { key: 'thinking', label: 'רוצה לחשוב על זה', base: 'thinking', alias: ['חושב על זה'] },
     { key: 'fin_agreement', label: 'נשלח הסכם — טרם חתם', base: 'proposal' }, { key: 'won', label: 'נסגר וחתם', base: 'won', alias: ['נסגר / חתם', 'חתם'] },
     { key: 'lost', label: 'לא רלוונטי', base: 'lost' }, { key: 'fin_fee_high', label: 'שכר טרחה גבוה', base: 'lost', alias: ['שכ"ט גבוה', 'שכט גבוה', 'שכ״ט גבוה'] }, { key: 'ineligible', label: 'לא זכאי', base: 'ineligible' },
@@ -1702,6 +1711,10 @@ const BASE_REACH = { meeting: 1, proposal: 4, won: 6 };
 const stageDefs = (div) => { const cfg = ((S.settings.statusSets || {})[div] || []).filter((x) => x && x.key && L.leadStage[x.base]);
   return cfg.length ? cfg : DEFAULT_SETS[div] || LEAD_STAGES.map((k) => ({ key: k, label: L.leadStage[k], base: k })); };
 const stKey = (l) => l.sub || l.stage || 'new';
+/* צבע השורה לפי הסטטוס — כמו הצבעים בטבלה בגוגל */
+const LEAD_ROW_TONE = { followup: 'y', thinking: 'y', checking: 'p', contacted: 'c', meeting: 'g', proposal: 'g', won: 'g', lost: 'o', ineligible: 'o', credit: 'b', duplicate: 'b', invalid: 'r' };
+const LEAD_ROW_LEGEND = [['y', 'פולו אפ / חושב'], ['p', 'בבדיקה'], ['c', 'נוצר קשר / בטיפול'], ['g', 'הסכם / חתם'], ['o', 'לא רלוונטי / לא זכאי'], ['b', 'לזיכוי / ליד כפול'], ['r', 'מספר לא תקין']];
+const leadRowTone = (l) => LEAD_ROW_TONE[l.stage || 'new'] || '';
 const ownSetOf = (div) => div !== 'all' && !!(((S.settings.statusSets || {})[div] || []).length || DEFAULT_SETS[div]);
 /* כמה רחוק הליד הגיע: לפי הסטטוס, ולפחות לפי הזום שנרשם */
 const leadReach = (l) => { const d = stageDef(l); let r = d && d.reach != null ? n(d.reach) : BASE_REACH[l.stage] || 0; if (l.zoom && l.zoom.at) r = Math.max(r, 1); if (l.zoom && l.zoom.attended) r = Math.max(r, 2); return r; };
@@ -2549,8 +2562,9 @@ function vLeadsList(seg) {
         sel('fLeadSort', 'מיון', [['new', 'החדש ראשון'], ['old', 'הישן ראשון'], ['follow', 'לפי מעקב']], f.leadSort) + '</div></details></section>' +
     '<section class="card"><header><h2>' + (f.leadCost ? esc(f.leadCost.k) + ' · ' + ({ all: 'כל הלידים', rel: 'רלוונטיים', signed: 'נחתמו', exec: 'בוצעו' }[f.leadCost.b]) + '</h2><button class="btn small ghost" data-act="costClear">✕ נקה</button><h2 hidden>' : '') + esc(f.leadReach ? ({ 1: 'פגישות זום', 2: 'הגיעו לפגישת זום', 3: 'המשיכו לפרונטלי', 4: 'המשיכו לפרונטלי — הגיעו בפועל' })[f.leadReach] || '' : (chips.find((c) => c[0] === st) || [])[1] || '') + '</h2>' + (f.leadReach ? '<button class="btn small ghost" data-leadst="todo">✕ נקה</button>' : '') + '<span class="pill muted">' + rows.length + '</span></header>' +
       (canAlloc && rows.length ? allocBar(rows) : '') +
+      (rows.length ? '<div class="lclegend" aria-label="מקרא צבעים">' + LEAD_ROW_LEGEND.map(([k, v]) => '<span class="lc-' + k + '" style="display:inline-flex;align-items:center"><span class="lcdot"></span>' + v + '</span>').join('') + '<span>לבן — חדש / אין מענה</span></div>' : '') +
       (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">בסטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
-        shown.map((l) => '<tr class="clickable" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
+        shown.map((l) => '<tr class="clickable' + (leadRowTone(l) ? ' lc-' + leadRowTone(l) : '') + '" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
           '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + ((l.returns || []).length ? '<div><span class="pill open" title="אותו טלפון נכנס שוב כליד">נכנס שוב ×' + l.returns.length + '</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
           '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m num">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m">' + respSel(l) + '</td>' +
           '<td class="hide-m">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
