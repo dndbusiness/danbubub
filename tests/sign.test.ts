@@ -68,3 +68,41 @@ describe('חתימה — טופס הלקוח', () => {
     expect(validateSubmission({ name: 'דנה', idNumber: '123456782', signature: 'javascript:alert(1)', agree: true })).toEqual(['נא לחתום במסגרת'])
   })
 })
+
+describe('מערכת חתימות — כמה חותמים, קוד אימות', async () => {
+  const { validateSigners, maskEmail, otpState, canResendOtp, groupByDocument, OTP_MAX_ATTEMPTS } = await import('@/lib/rules/sign.js')
+  it('חותמים: מייל או טלפון לכל אחד, מייל תקין, בלי כפילות, קוד אימות דורש מייל', () => {
+    expect(validateSigners([{ label: 'לווה 1', email: 'a@b.co' }, { label: 'לווה 2', phone: '0501234567' }])).toEqual([])
+    expect(validateSigners([])).toEqual(['אין חותמים'])
+    expect(validateSigners([{ label: 'לווה 1' }])).toEqual(['לווה 1: חסר מייל או טלפון'])
+    expect(validateSigners([{ label: 'א', email: 'x' }])).toContain('א: מייל לא תקין')
+    expect(validateSigners([{ label: 'א', email: 'a@b.co' }, { label: 'ב', email: 'A@b.co' }])).toContain('ב: אותו מייל לשני חותמים')
+    expect(validateSigners([{ label: 'א', phone: '050', requireOtp: true }])).toContain('א: קוד אימות נשלח במייל — חסר מייל')
+    expect(validateSigners(Array.from({ length: 7 }, (_, i) => ({ label: 'ח' + i, phone: '05' + i })))).toContain('עד 6 חותמים במסמך')
+  })
+  it('מייל מוסתר בדף החתימה', () => {
+    expect(maskEmail('dana@gmail.com')).toBe('da***@gmail.com')
+    expect(maskEmail('a@x.co')).toBe('a***@x.co')
+    expect(maskEmail(null)).toBe('')
+  })
+  it('מצב הקוד: לא נדרש / צריך לשלוח / נשלח / ננעל / אומת', () => {
+    const now = new Date('2026-10-14T10:00:00Z'), later = '2026-10-14T10:05:00Z', past = '2026-10-14T09:55:00Z'
+    const base = { require_otp: true, otp_verified_at: null, otp_hash: 'h', otp_expires_at: later, otp_attempts: 0 }
+    expect(otpState({ ...base, require_otp: false }, now)).toBe('not_required')
+    expect(otpState({ ...base, otp_hash: null }, now)).toBe('need_send')
+    expect(otpState({ ...base, otp_expires_at: past }, now)).toBe('need_send')
+    expect(otpState(base, now)).toBe('sent')
+    expect(otpState({ ...base, otp_attempts: OTP_MAX_ATTEMPTS }, now)).toBe('locked')
+    expect(otpState({ ...base, otp_verified_at: past }, now)).toBe('verified')
+  })
+  it('קוד חדש — פעם בדקה', () => {
+    const now = new Date('2026-10-14T10:00:00Z')
+    expect(canResendOtp(null, now)).toBe(true)
+    expect(canResendOtp('2026-10-14T09:59:30Z', now)).toBe(false)
+    expect(canResendOtp('2026-10-14T09:58:59Z', now)).toBe(true)
+  })
+  it('PDF משותף: חותמים עם אותו נוסח יחד, נוסח נפרד לחותם — קבוצה משלו, לפי סדר החותמים', () => {
+    const g = groupByDocument([{ doc_hash: 'b', signer_order: 3 }, { doc_hash: 'a', signer_order: 1 }, { doc_hash: 'a', signer_order: 2 }])
+    expect(g.map((x) => [x.doc_hash, x.rows.map((r) => r.signer_order)])).toEqual([['a', [1, 2]], ['b', [3]]])
+  })
+})

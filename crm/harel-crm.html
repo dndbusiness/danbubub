@@ -2064,31 +2064,86 @@ function signDefaults(c) {
   return { company: re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', date: d, client_name: c.name || '', client_id: c.idNumber || '', client_address: c.address || '', client_phone: c.phone || '', client_email: c.email || '',
     spouse_name: c.spouseName || '', spouse_id: c.spouseId || '', service: L.product[c.product] || c.service || '', amount: c.baseAmount ? plain(c.baseAmount) : '', fee: c.fee ? plain(c.fee) + ' + מע״מ' : '' };
 }
+const SIGN_CAT = { agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי' };
+const SIGN_STATE = { sent: ['נשלח', 'expected'], opened: ['נפתח', 'committed'], partial: ['חלק חתמו', 'committed'], completed: ['נחתם', 'actual'], expired: ['פג תוקף', 'open'], cancelled: ['בוטל', 'muted'] };
 const SIGN_ST = { sent: ['נשלח', 'expected'], opened: ['נפתח', 'committed'], signed: ['נחתם', 'actual'], cancelled: ['בוטל', 'muted'] };
-async function signApi(path, body) { const r = await fetch(path, body === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.message || r.statusText), { code: j.code, missing: j.missing }); return j; }
-async function signLoad(c) { S.signRes = S.signRes || {}; try { S.signRes[c.id] = (await signApi('/api/sign?client=' + encodeURIComponent(c.id))).requests || []; } catch (e) { S.signRes[c.id] = { error: e.message }; } render(); }
+const SIGNERS_MODE = { client: 'הלקוח בלבד', client_spouse: 'הלקוח ובן/בת הזוג' };
+/* ספריית התבניות: הסכם ההתקשרות של כל חברה (הנוסח הקיים בהגדרות) + תבניות לפי גוף וסוג (settings.signLibrary) */
+function signLibrary(div) {
+  const base = DIVS.filter((d) => !div || d === div).map((d) => ({ key: 'agreement:' + d, title: 'הסכם התקשרות', category: 'agreement', division: d, signers: 'client', perSigner: false, requireOtp: false, body: SIGN_TPL(d), builtin: true }));
+  return [...base, ...(S.settings.signLibrary || []).filter((t) => !t.deletedAt && (!div || !t.division || t.division === div))];
+}
+const signTplOf = (c, key) => signLibrary(c.division || 'finance').find((t) => t.key === key) || signLibrary(c.division || 'finance')[0];
+async function signApi(path, body) { const r = await fetch(path, body === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.message || j.error || r.statusText), { code: j.code, missing: j.missing }); return j; }
+async function signLoad(c) { S.signRes = S.signRes || {}; try { S.signRes[c.id] = (await signApi('/api/sign?client=' + encodeURIComponent(c.id))).envelopes || []; } catch (e) { S.signRes[c.id] = { error: e.message }; } render(); }
+/* החותמים שמוצעים מהכרטיס: הלקוח, בן/בת הזוג, ועוד שורה ריקה לערב / חותם נוסף */
+function signSignerDefaults(c, mode) {
+  const ik = intakeDoc ? intakeDoc(c.id) || {} : {}, B = ik.borrowers || [], b1 = B[1] || {};
+  const rows = [{ on: true, label: 'הלקוח', name: c.name || '', email: c.email || '', phone: c.phone || '' }];
+  const spName = c.spouseName || b1.name || '';
+  rows.push({ on: mode === 'client_spouse' && !!spName, label: 'בן/בת זוג', name: spName, email: c.spouseEmail || b1.email || '', phone: c.spousePhone || b1.phone || '' });
+  rows.push({ on: false, label: 'חותם נוסף', name: '', email: '', phone: '' });
+  return rows;
+}
 function signCard(c) {
   if (!S.isOwner && !S.canTask) return ''; const server = !!window.__harelServer, w = S.canWrite || S.canTask;
-  const head = '<section class="card sign"><header><h2>הסכם התקשרות — חתימה דיגיטלית</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
+  const head = '<section class="card sign"><header><h2>מסמכים לחתימה</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
     (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') + '</header>';
-  if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: הלקוח מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב ב"הסכמי התקשרות". בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
+  if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: כל חותם מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב. בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
   S.signRes = S.signRes || {}; const list = S.signRes[c.id]; if (list === undefined) { S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
-  const tpl = SIGN_TPL(c.division || 'finance'), draft = isSignDraft(tpl), defs = signDefaults(c), st = (S.signForm = S.signForm || {})[c.id] || {};
-  const flds = signTplFields(tpl), last = S.signLast && S.signLast.client === c.id ? S.signLast : null;
-  return head +
-    (Array.isArray(list) && list.length ? '<div class="scroll" style="margin-bottom:10px"><table><tbody>' + list.map((r) => '<tr><td class="wide"><b>' + esc(r.title) + '</b><div class="hint">' + dLabel(dayOf(r.created_at)) + (r.send_email ? ' · ' + esc(r.send_email) : '') + (r.signer_name ? ' · נחתם ע״י ' + esc(r.signer_name) : '') + (r.finalize_error ? ' · <span style="color:var(--open)">' + esc(r.finalize_error) + '</span>' : '') + '</div></td>' +
-      '<td><span class="pill ' + ((SIGN_ST[r.status] || [])[1] || 'muted') + '">' + ((SIGN_ST[r.status] || [])[0] || r.status) + '</span></td><td>' + (r.drive_url ? '<a class="btn small ghost" href="' + esc(r.drive_url) + '" target="_blank" rel="noopener">PDF ↗</a>' : '') +
-      (w && r.status === 'signed' && !r.drive_url ? '<button class="btn small" data-signfin="' + esc(r.id) + '">צור PDF שוב</button>' : '') + (w && ['sent', 'opened'].includes(r.status) ? '<button class="btn small ghost danger" data-signcancel="' + esc(r.id) + '">בטל</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : (list && list.error ? '<p class="hint" style="color:var(--open)">' + esc(list.error) + '</p>' : '')) +
-    (last ? '<div class="notice ok" style="margin-bottom:10px"><b>הקישור מוכן</b><span class="grow" dir="ltr" style="word-break:break-all">' + esc(last.url) + '</span><button class="btn small" data-act="signCopy">העתק</button>' +
-      (c.phone ? '<a class="btn small" target="_blank" rel="noopener" href="https://wa.me/' + esc(String(c.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('שלום ' + String(c.name || '').split(' ')[0] + ', מצורף קישור לקריאה וחתימה על הסכם ההתקשרות: ' + last.url) + '">וואטסאפ ↗</a>' : '') + (last.emailQueued ? '<span class="hint">· נשלח גם במייל</span>' : '') + '</div>' : '') +
-    (w ? '<details' + (st.open ? ' open' : '') + ' data-signdet="' + esc(c.id) + '"><summary><b>שלח הסכם לחתימה</b> <span class="hint">' + (draft ? 'הנוסח עדיין טיוטה — לעדכן בהגדרות' : flds.length + ' שדות') + '</span></summary>' +
-      (draft ? '<p class="hint" style="color:var(--open)">הנוסח בהגדרות ← "נוסח הסכם לחתימה" עדיין טיוטה. אי אפשר לשלוח ללקוח עד שמחליפים אותו בנוסח שלך.</p>' : '') +
-      '<label class="fl full">כותרת<input class="f" id="signTitle" value="' + esc(st.title || ('הסכם התקשרות — ' + defs.company)) + '"></label>' +
-      '<div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (!(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' +
-      '<div class="grid2" style="gap:8px;margin-top:6px"><label class="fl">מייל ללקוח (קישור + עותק חתום)<input class="f" id="signEmail" dir="ltr" value="' + esc(st.email !== undefined ? st.email : (c.email || '')) + '"></label><label class="fl">טלפון לוואטסאפ<input class="f" id="signPhone" dir="ltr" value="' + esc(st.phone !== undefined ? st.phone : (c.phone || '')) + '"></label></div>' +
-      '<div class="row" style="margin-top:8px"><span class="hint grow">הלקוח רואה בדיוק את הנוסח שנשלח (נשמר עם טביעה). הקישור בתוקף 14 יום.</span><button class="btn primary" data-act="signSend"' + (draft ? ' disabled' : '') + '>צור קישור לחתימה</button></div></details>' : '') + '</section>';
+  const st = (S.signForm = S.signForm || {})[c.id] || {}, tpl = signTplOf(c, st.tpl), draft = isSignDraft(tpl.body), defs = signDefaults(c);
+  const flds = signTplFields(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k)), last = S.signLast && S.signLast.client === c.id ? S.signLast : null;
+  const signers = st.signers || signSignerDefaults(c, tpl.signers), otp = st.otp !== undefined ? st.otp : !!tpl.requireOtp;
+  const pdfUrl = (e) => e.drive_url || (e.pdf_file_id ? '/api/files/' + e.pdf_file_id : '');
+  const person = (p, e) => '<span class="chip" style="gap:4px">' + esc(p.label || '') + (p.signer ? ' · ' + esc(p.signer) : '') + ' <span class="pill ' + (p.status === 'signed' ? 'actual' : p.expired ? 'open' : p.status === 'opened' ? 'committed' : p.status === 'cancelled' ? 'muted' : 'expected') + '">' +
+    (p.status === 'signed' ? 'חתם' : p.expired ? 'פג' : p.status === 'opened' ? 'פתח' : p.status === 'cancelled' ? 'בוטל' : 'ממתין') + '</span>' + (p.require_otp ? '<span class="hint" title="קוד אימות במייל">' + (p.otp_ok ? '✓קוד' : 'קוד') + '</span>' : '') +
+    (w && e.state !== 'cancelled' && ['sent', 'opened'].includes(p.status) ? '<button class="btn small ghost" data-signremind="' + esc(p.id) + '" title="קישור חדש — הקודם מפסיק לעבוד">תזכורת' + (p.reminders ? ' (' + p.reminders + ')' : '') + '</button>' : '') + '</span>';
+  const rows = Array.isArray(list) && list.length ? '<div class="scroll" style="margin-bottom:10px"><table><tbody>' + list.map((e) => '<tr><td class="wide"><b>' + esc(e.title) + '</b> <span class="hint">' + esc(SIGN_CAT[e.category] || '') + (e.lender ? ' · ' + esc(e.lender) : '') + ' · ' + dLabel(dayOf(e.created_at)) + '</span>' +
+      '<div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">' + (e.people || []).map((p) => person(p, e)).join('') + '</div>' + (e.finalize_error ? '<div class="hint" style="color:var(--open)">' + esc(e.finalize_error) + '</div>' : '') + '</td>' +
+      '<td><span class="pill ' + ((SIGN_STATE[e.state] || [])[1] || 'muted') + '">' + ((SIGN_STATE[e.state] || [])[0] || e.state) + (e.signers > 1 ? ' ' + e.signed + '/' + e.signers : '') + '</span></td><td>' + (pdfUrl(e) ? '<a class="btn small ghost" href="' + esc(pdfUrl(e)) + '" target="_blank" rel="noopener">PDF ↗</a>' : '') +
+      (w && e.state === 'completed' && !e.drive_url ? '<button class="btn small" data-signfin="' + esc(e.id) + '">צור PDF שוב</button>' : '') + (w && !['completed', 'cancelled'].includes(e.state) ? '<button class="btn small ghost danger" data-signcancel="' + esc(e.id) + '">בטל</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
+    : (list && list.error ? '<p class="hint" style="color:var(--open)">' + esc(list.error) + '</p>' : '');
+  const wa = (l) => l.phone ? '<a class="btn small" target="_blank" rel="noopener" href="https://wa.me/' + esc(String(l.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('שלום ' + String(l.name || c.name || '').split(' ')[0] + ', מצורף קישור אישי לקריאה וחתימה על "' + (last.title || '') + '": ' + l.url) + '">וואטסאפ ↗</a>' : '';
+  const links = last ? '<div class="notice ok" style="margin-bottom:10px;display:block"><b>' + (last.reminder ? 'קישור חדש מוכן' : 'הקישורים מוכנים') + '</b>' + last.links.map((l, i) => '<div class="row" style="align-items:center;margin-top:6px"><span>' + esc(l.label) + (l.email ? ' · <span dir="ltr">' + esc(l.email) + '</span>' : '') + '</span><span class="grow hint" dir="ltr" style="word-break:break-all">' + esc(l.url) + '</span>' +
+    '<button class="btn small" data-signcopy="' + i + '">העתק</button>' + wa(l) + (l.emailQueued ? '<span class="hint">· נשלח במייל</span>' : '') + '</div>').join('') + '</div>' : '';
+  const lib = signLibrary(c.division || 'finance');
+  const form = w ? '<details' + (st.open ? ' open' : '') + ' data-signdet="' + esc(c.id) + '"><summary><b>שלח מסמך לחתימה</b> <span class="hint">' + lib.length + ' תבניות</span></summary>' +
+    '<div class="grid2" style="gap:8px"><label class="fl">תבנית<select class="f" id="signTpl">' + lib.map((t) => '<option value="' + esc(t.key) + '"' + (t.key === tpl.key ? ' selected' : '') + '>' + esc((SIGN_CAT[t.category] || '') + ' — ' + t.title + (t.lender ? ' · ' + t.lender : '')) + (isSignDraft(t.body) ? ' (טיוטה)' : '') + '</option>').join('') + '</select></label>' +
+    '<label class="fl">כותרת<input class="f" id="signTitle" value="' + esc(st.title || (tpl.title + (tpl.category === 'agreement' ? ' — ' + defs.company : tpl.lender ? ' — ' + tpl.lender : ''))) + '"></label></div>' +
+    (draft ? '<p class="hint" style="color:var(--open)">התבנית עדיין טיוטה (מופיע בה הסימון [טיוטה). אי אפשר לשלוח עד שמעדכנים אותה בהגדרות ← "ספריית תבניות לחתימה".</p>' : '') +
+    '<h3 class="sec">חותמים' + (tpl.perSigner ? ' <span class="hint">· נוסח נפרד לכל חותם</span>' : '') + '</h3>' + signers.map((s, i) => '<div class="row" style="gap:6px;align-items:flex-end;margin-bottom:4px"><label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" data-signs="' + i + ':on"' + (s.on ? ' checked' : '') + '></label>' +
+      '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + i + ':label" value="' + esc(s.label) + '"></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + i + ':name" value="' + esc(s.name) + '"></label>' +
+      '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + i + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + i + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
+    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות במייל לפני חתימה <span class="hint">(מומלץ לטפסי בנק וייפוי כוח)</span></span></label>' +
+    (flds.length ? '<h3 class="sec">שדות בנוסח</h3><div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (!(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' : '') +
+    '<div class="row" style="margin-top:8px"><span class="hint grow">כל חותם מקבל קישור אישי. הנוסח נשמר עם טביעה, והקישורים בתוקף 14 יום. כשכולם חותמים — PDF אחד לדרייב ועותק לכל חותם.</span><button class="btn primary" data-act="signSend"' + (draft ? ' disabled' : '') + '>שלח לחתימה</button></div></details>' : '';
+  return head + rows + links + form + '</section>';
 }
 function signFormRead(c) { const f = {}; document.querySelectorAll('[data-signf]').forEach((el) => { f[el.dataset.signf] = el.value.trim(); }); return f; }
+/* ═════ "מסמכים לחתימה" — כל המסמכים שנשלחו, בכל הלקוחות, עם מונים לפי מצב (v_sign_overview) ═════ */
+async function signDocsLoad(force) { if (S._sdLoading || (S.signDocs && !force)) return; S._sdLoading = true;
+  try { const d = S.f.signDiv && S.f.signDiv !== 'all' ? '&division=' + S.f.signDiv : ''; const r = await signApi('/api/sign?all=1' + d); S.signDocs = { rows: r.envelopes || [], counts: r.counts || {}, at: Date.now() }; } catch (e) { S.signDocs = { error: e.message, rows: [], counts: {} }; }
+  S._sdLoading = false; render(); }
+function vSignDocs() {
+  if (!window.__harelServer) return '<p class="hint">מסמכים לחתימה עובדים במערכת בשרת — בדף ב-Claude אין כתובת שחותם מבחוץ יכול לפתוח.</p>';
+  if (!S.signDocs) { setTimeout(() => signDocsLoad(), 20); return '<p class="hint">טוען…</p>'; }
+  const D = S.signDocs, cur = S.f.signState || 'open', w = S.canWrite || S.canTask, cnt = D.counts || {}, n = (k) => cnt[k] || 0;
+  const open = n('sent') + n('opened') + n('partial');
+  const tiles = [['open', 'ממתינים לחתימה', open, 'expected'], ['sent', 'לא נפתחו', n('sent'), 'expected'], ['opened', 'נפתחו, לא נחתמו', n('opened'), 'committed'], ['partial', 'חלק חתמו', n('partial'), 'committed'], ['completed', 'נחתמו', n('completed'), 'actual'], ['expired', 'פג תוקף', n('expired'), 'open'], ['cancelled', 'בוטלו', n('cancelled'), 'muted']];
+  const rows = D.rows.filter((e) => canSeeDiv(e.division) && (cur === 'all' || (cur === 'open' ? ['sent', 'opened', 'partial'].includes(e.state) : e.state === cur)));
+  const pdfUrl = (e) => e.drive_url || (e.pdf_file_id ? '/api/files/' + e.pdf_file_id : '');
+  return '<div class="grid4" style="margin-bottom:12px">' + tiles.map(([k, t, v, tone]) => '<button class="card kpi click" data-signstate="' + k + '" aria-pressed="' + (cur === k) + '" style="text-align:start;border-inline-start:4px solid var(--' + (tone === 'muted' ? 'border' : tone) + ')"><span class="hint">' + t + '</span><b class="num" style="font-size:22px">' + v + '</b></button>').join('') + '</div>' +
+    '<div class="row" style="margin-bottom:8px;align-items:center"><span class="hint grow">' + (D.error ? '<span style="color:var(--open)">' + esc(D.error) + '</span>' : rows.length + ' מסמכים') + '</span><button class="btn small ghost" data-signstate="all">הכל</button><button class="btn small ghost" data-act="signDocsReload">' + (S._sdLoading ? 'טוען…' : 'רענן') + '</button></div>' +
+    (rows.length ? '<section class="card"><div class="scroll"><table><thead><tr><th>לקוח</th><th>מסמך</th><th>חותמים</th><th>מצב</th><th>נשלח</th><th>פעילות אחרונה</th><th></th></tr></thead><tbody>' + rows.map((e) => '<tr><td class="wide"><button class="xlink" data-client="' + esc(e.client_doc) + '"><b>' + esc(e.client_name) + '</b></button></td>' +
+      '<td>' + esc(e.title) + '<div class="hint">' + esc(SIGN_CAT[e.category] || '') + (e.lender ? ' · ' + esc(e.lender) : '') + '</div></td>' +
+      '<td>' + (e.people || []).map((p) => '<div style="white-space:nowrap">' + esc(p.label || '') + ' <span class="pill ' + (p.status === 'signed' ? 'actual' : p.expired ? 'open' : p.status === 'opened' ? 'committed' : p.status === 'cancelled' ? 'muted' : 'expected') + '">' + (p.status === 'signed' ? 'חתם' : p.expired ? 'פג' : p.status === 'opened' ? 'פתח' : p.status === 'cancelled' ? 'בוטל' : 'ממתין') + '</span>' +
+        (w && !['completed', 'cancelled'].includes(e.state) && ['sent', 'opened'].includes(p.status) ? ' <button class="btn small ghost" data-signremind="' + esc(p.id) + '" data-signclient="' + esc(e.client_doc) + '">תזכורת</button>' : '') + '</div>').join('') + '</td>' +
+      '<td><span class="pill ' + ((SIGN_STATE[e.state] || [])[1] || 'muted') + '">' + ((SIGN_STATE[e.state] || [])[0] || e.state) + (e.signers > 1 ? ' ' + e.signed + '/' + e.signers : '') + '</span></td>' +
+      '<td class="num">' + dLabel(dayOf(e.created_at)) + '</td><td class="num">' + (e.last_activity ? dLabel(dayOf(e.last_activity)) : '—') + '</td>' +
+      '<td>' + (pdfUrl(e) ? '<a class="btn small ghost" href="' + esc(pdfUrl(e)) + '" target="_blank" rel="noopener">PDF ↗</a>' : '') + (w && !['completed', 'cancelled'].includes(e.state) ? '<button class="btn small ghost danger" data-signcancel="' + esc(e.id) + '" data-signclient="' + esc(e.client_doc) + '">בטל</button>' : '') + '</td></tr>').join('') + '</tbody></table></div></section>'
+      : '<p class="empty">' + (D.rows.length ? 'אין מסמכים במצב הזה.' : 'עוד לא נשלחו מסמכים לחתימה. שולחים מכרטיס הלקוח ← "מסמכים לחתימה".') + '</p>') +
+    '<p class="hint">תזכורת שולחת לחותם קישור חדש (הקודם מפסיק לעבוד) ומאריכה את התוקף ל-7 ימים לפחות.</p>';
+}
 /* ═════ בניית תוכנית לקרן (ערבות מדינה) — בקרה על הנתונים והמסמכים, ואז הודעה מוכנה לשיחה של דן עם ה-skill.
    הדף לא יכול לכתוב לתוך שיחה קיימת — מעתיקים את ההודעה ופותחים את השיחה; שם Claude קורא את המסמכים מהדרייב ושומר את הפלט לתיקיית הלקוח. ═════ */
 const PLAN_DOCS = [['רווח והפסד / דוחות כספיים', /רווח|הפסד|דו["״]?ח כספי|דוחות כספיים|מאזן|P&L/i], ['שומות / דוח שנתי למס', /שומ|דו["״]?ח שנתי|1301|1214/i], ['מע״מ (ESNA)', /מע["״]?מ|esna|874/i],
@@ -2188,10 +2243,32 @@ async function linkFolder(c, folder) {
   await write('clients/' + c.id, { ...patch, updatedAt: stamp() }, 'update', { journal: true }); await logClient(c.id, 'שויכה תיקיית דרייב קיימת: ' + (folder.title || folder.id)).catch(() => {});
   if (S.docRes) delete S.docRes[c.id]; toast('התיקייה שויכה'); render(); }
 function signTplCard() {
-  if (!S.isOwner || !S.canWrite) return ''; const t = S.settings.signTemplates || {};
-  return '<section class="card"><header><h2>נוסח הסכם לחתימה</h2></header><p class="hint" style="margin:-4px 0 10px">שורה שמתחילה ב-"# " = כותרת · "- " = סעיף · {{שדה}} = ממולא מהכרטיס: ' + Object.entries(SIGN_LABELS).map(([k, v]) => '<code dir="ltr">{{' + k + '}}</code> ' + v).join(' · ') + '. נוסח עם המילה "טיוטה" לא נשלח ללקוח.</p>' +
-    DIVS.filter(canSeeDiv).map((d) => '<label class="fl full">' + L.division[d] + '<textarea class="f" rows="10" id="signTpl_' + d + '" dir="rtl">' + esc(t[d] || SIGN_DRAFT) + '</textarea></label>').join('') +
+  if (!S.isOwner || !S.canWrite) return ''; const t = S.settings.signTemplates || {}, lib = (S.settings.signLibrary || []).filter((x) => !x.deletedAt);
+  return '<section class="card"><header><h2>ספריית תבניות לחתימה</h2><span class="grow"></span><button class="btn small" data-act="signLibAdd">+ תבנית</button></header>' +
+    '<p class="hint" style="margin:-4px 0 10px">שורה שמתחילה ב-"# " = כותרת · "- " = סעיף · {{שדה}} = ממולא מהכרטיס: ' + Object.entries(SIGN_LABELS).map(([k, v]) => '<code dir="ltr">{{' + k + '}}</code> ' + v).join(' · ') + ' · <code dir="ltr">{{signer_name}}</code> שם החותם (בנוסח נפרד לכל חותם). תבנית שמופיע בה הסימון [טיוטה לא נשלחת.</p>' +
+    (lib.length ? '<div class="scroll" style="margin-bottom:12px"><table><thead><tr><th>תבנית</th><th>סוג</th><th>גוף</th><th>חברה</th><th>חותמים</th><th></th></tr></thead><tbody>' + lib.map((x) => '<tr><td class="wide"><b>' + esc(x.title) + '</b>' + (isSignDraft(x.body) ? ' <span class="pill open">טיוטה</span>' : '') + '</td><td>' + esc(SIGN_CAT[x.category] || '') + '</td><td>' + esc(x.lender || '—') + '</td><td>' + esc(x.division ? L.division[x.division] : 'שתיהן') + '</td>' +
+      '<td>' + esc(SIGNERS_MODE[x.signers] || '') + (x.perSigner ? ' · נוסח לכל חותם' : '') + (x.requireOtp ? ' · קוד' : '') + '</td><td><button class="btn small ghost" data-signlibedit="' + esc(x.key) + '">ערוך</button><button class="btn small ghost danger" data-signlibdel="' + esc(x.key) + '">מחק</button></td></tr>').join('') + '</tbody></table></div>'
+      : '<p class="hint">עוד אין תבניות לפי גוף. "+ תבנית" — טופס בנק, ייפוי כוח, טופס קרן, הסכם נדל״ן.</p>') +
+    '<h3 class="sec">הסכם התקשרות — לכל חברה</h3>' +
+    DIVS.filter(canSeeDiv).map((d) => '<label class="fl full">' + L.division[d] + '<textarea class="f" rows="8" id="signTpl_' + d + '" dir="rtl">' + esc(t[d] || SIGN_DRAFT) + '</textarea></label>').join('') +
     '<div class="row"><button class="btn" data-act="signTplSave">שמור נוסחים</button></div></section>';
+}
+function signLibForm(x) {
+  x = x || { key: 'tpl-' + uid(), title: '', category: 'bank', lender: '', division: '', signers: 'client_spouse', perSigner: false, requireOtp: true, body: '[טיוטה]\n\n# ' };
+  drawer(x.title ? 'עריכת תבנית' : 'תבנית חדשה לחתימה',
+    fi('title', 'שם התבנית', x.title, 'text', 'required', true) +
+    fs('category', 'סוג', Object.entries(SIGN_CAT), x.category) + fi('lender', 'גוף (בנק / קרן) — לא חובה', x.lender || '') +
+    fs('division', 'חברה', [['', 'שתיהן'], ...DIVS.filter(canSeeDiv).map((d) => [d, L.division[d]])], x.division || '') +
+    fs('signers', 'חותמים כברירת מחדל', Object.entries(SIGNERS_MODE), x.signers) +
+    fs('perSigner', 'נוסח', [['0', 'נוסח אחד — כל החותמים על אותו מסמך'], ['1', 'נוסח נפרד לכל חותם (גרסה לכל לווה)']], x.perSigner ? '1' : '0') +
+    fs('requireOtp', 'קוד אימות במייל', [['1', 'כן — לפני החתימה'], ['0', 'לא']], x.requireOtp ? '1' : '0') +
+    '<label class="fl full">הנוסח<textarea class="f" name="body" id="d_body" rows="14" dir="rtl">' + esc(x.body || '') + '</textarea></label>',
+    async (d) => {
+      if (!String(d.title || '').trim()) return 'חסר שם'; if (String(d.body || '').trim().length < 20) return 'הנוסח קצר מדי';
+      const item = { key: x.key, title: d.title.trim(), category: d.category, lender: String(d.lender || '').trim(), division: d.division || '', signers: d.signers, perSigner: d.perSigner === '1', requireOtp: d.requireOtp === '1', body: d.body, updatedAt: stamp(), by: S.me.id };
+      const all = (S.settings.signLibrary || []).filter((t) => t.key !== x.key);
+      await write('settings/main', { signLibrary: [...all, item] }, 'update'); toast('התבנית נשמרה'); render();
+    }, '', 'שמור תבנית');
 }
 function driveRootsCard() {
   if (!S.isOwner || S.role === 'admin_re' && !S.isDan) return ''; const roots = S.settings.driveRoots || [], w = S.canWrite, R = S.rootMatch;
@@ -3904,9 +3981,10 @@ function vSubsStatus() {
     (L2.length ? SUB_GROUPS.map(group).join('') + byLender : '<p class="empty">' + (q ? 'אין הגשות שמתאימות לחיפוש.' : 'אין עדיין הגשות לגופים.') + '</p>') +
     '<p class="hint">תיקים מבוטלים, אבודים ו"לא אושר" לא מוצגים. הסטטוס של כל הגשה מתעדכן בכרטיס הלקוח ← "גופי מימון".</p>';
 }
-function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : 'bodies';
-  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
+function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : S.f.lendView === 'signs' ? 'signs' : 'bodies';
+  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="signs" aria-pressed="' + (v === 'signs') + '">מסמכים לחתימה</button>' + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
   if (v === 'contacts') return seg + vContacts();
+  if (v === 'signs') return seg + vSignDocs();
   if (v === 'subs' && d !== 'realestate') { S._divOnly = d; try { return seg + divSeg('lendDiv', d) + vSubsStatus(); } finally { S._divOnly = null; } }
   S._divOnly = d; try { return seg + divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
 /* ═════════════ אנשי קשר — לשליחת מיילים לפי סיווג (ייבוא מאנשי הקשר של גוגל) ═════════════ */
@@ -6448,8 +6526,23 @@ document.addEventListener('click', async (e) => {
     if (d.rewho !== undefined && el.matches('[data-rewho]')) { S.f.reWho = d.rewho; S.reDrillOpen = null; return render(); }
     if (d.redrill !== undefined && el.matches('[data-redrill]')) { S.reDrillOpen = d.redrill || null; render(); if (d.redrill) setTimeout(() => { const x = document.querySelectorAll('main section.card'); x[x.length - 1].scrollIntoView({ behavior: 'smooth' }); }, 30); return; }
     if (d.mktgo) { S.f.mkt = d.mktgo; S.f.mktDiv = 'realestate'; return go('marketing'); }
-    if ((d.signfin || d.signcancel) && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; el.disabled = true;
-      try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel), { action: d.signfin ? 'finalize' : 'cancel' }); toast(d.signfin ? (r.ok ? 'ה-PDF נשמר בדרייב' : 'נכשל: ' + (r.error || '')) : (r.ok ? 'בוטל' : 'לא בוטל')); } catch (e) { toast('נכשל: ' + e.message); } return signLoad(c); }
+    if (d.signfin || d.signcancel || d.signremind) { const c = S.clients.get(d.signclient || S.view.clientId); el.disabled = true;
+      if (d.signcancel && !confirm('לבטל את המסמך? הקישורים של כל החותמים יפסיקו לעבוד.')) { el.disabled = false; return; }
+      try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel || d.signremind), { action: d.signfin ? 'finalize' : d.signcancel ? 'cancel' : 'remind' });
+        if (d.signremind) { const pool = [...(c && Array.isArray((S.signRes || {})[c.id]) ? S.signRes[c.id] : []), ...((S.signDocs && S.signDocs.rows) || [])];
+          const e2 = pool.find((x) => (x.people || []).some((p) => p.id === d.signremind)), p = e2 && e2.people.find((x) => x.id === d.signremind);
+          S.signLast = { client: c ? c.id : null, title: e2 ? e2.title : '', reminder: true, links: [{ label: p ? p.label : 'חותם', name: p ? p.signer : '', email: p ? p.email : null, phone: p ? p.phone : null, url: r.url, emailQueued: r.emailQueued }] };
+          toast(r.emailQueued ? 'נשלחה תזכורת במייל — וקישור חדש מוכן' : 'קישור חדש מוכן'); }
+        else toast(d.signfin ? (r.ok ? 'ה-PDF נשמר בדרייב' : 'נכשל: ' + (r.error || '')) : (r.ok ? 'בוטל' : 'לא בוטל'));
+      } catch (e) { toast('נכשל: ' + e.message); }
+      S.signDocs = null;
+      if (c && (S.view.tab === 'client' || (d.signremind && S.signLast && S.signLast.reminder))) { if (S.view.tab !== 'client') S.view = { tab: 'client', clientId: c.id }; return signLoad(c); }
+      return render(); }
+    if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; return l ? copyText(l.url, 'הקישור הועתק') : null; }
+    if (d.signstate) { S.f.signState = d.signstate; return render(); }
+    if (d.signlibedit) { const x = (S.settings.signLibrary || []).find((t) => t.key === d.signlibedit); return x ? signLibForm(x) : null; }
+    if (d.signlibdel) { if (!S.canWrite) return; const x = (S.settings.signLibrary || []).find((t) => t.key === d.signlibdel); if (!x || !confirm('למחוק את התבנית "' + x.title + '"? מסמכים שכבר נשלחו לא מושפעים.')) return;
+      await write('settings/main', { signLibrary: (S.settings.signLibrary || []).map((t) => t.key === x.key ? { ...t, deletedAt: stamp() } : t) }, 'update'); toast('נמחקה'); return render(); }
     if (d.viewgo) { const v = (S.settings.savedViews || []).find((x) => x.id === d.viewgo); if (!v) return; VIEW_KEYS.forEach((k) => { S.f[k] = (v.f || {})[k] ?? (k === 'leadSt' ? 'todo' : ''); }); S.f.leadCost = null; S.f.leadView = 'list';
       if (v.div && viewDivOk(v)) S.division = v.div; return go('leads'); }
     if (d.viewdel) { if (!S.canWrite) return; const v = (S.settings.savedViews || []).find((x) => x.id === d.viewdel); if (!v || !confirm('למחוק את התצוגה "' + v.name + '"?')) return;
@@ -6819,14 +6912,18 @@ document.addEventListener('click', async (e) => {
         case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
         case 'newContact': return formContact(null);
         case 'reTargetSave': { const v = (k) => Math.max(0, Math.round(n(($('reT_' + k) || {}).value))); await write('settings/main', { reZoomTarget: { day: v('day'), week: v('week'), month: v('month'), basis: ($('reT_basis') || {}).value === 'set' ? 'set' : 'held' } }, 'update'); return toast('היעד נשמר'); }
-        case 'signSend': { if (!c) return; const tpl = SIGN_TPL(c.division || 'finance'); if (isSignDraft(tpl)) return toast('הנוסח עדיין טיוטה — לעדכן בהגדרות');
-          const fields = signFormRead(c), title = (($('signTitle') || {}).value || '').trim(), email = (($('signEmail') || {}).value || '').trim(), phone = (($('signPhone') || {}).value || '').trim();
-          const miss = signTplFields(tpl).filter((k) => !fields[k]); if (miss.length) return toast('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
-          el.disabled = true; el.textContent = 'יוצר קישור…';
-          try { const r = await signApi('/api/sign', { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', title, template: tpl, fields, email: email || null, phone: phone || null });
-            S.signLast = { client: c.id, url: r.url, emailQueued: r.emailQueued }; (S.signForm || {})[c.id] = {}; toast('הקישור לחתימה מוכן'); return signLoad(c); }
-          catch (e) { el.disabled = false; el.textContent = 'צור קישור לחתימה'; return toast('לא נוצר: ' + e.message); } }
-        case 'signCopy': return S.signLast ? copyText(S.signLast.url, 'הקישור הועתק') : null;
+        case 'signSend': { if (!c) return; const st = (S.signForm = S.signForm || {})[c.id] || {}, tpl = signTplOf(c, ($('signTpl') || {}).value || st.tpl); if (isSignDraft(tpl.body)) return toast('התבנית עדיין טיוטה — לעדכן בהגדרות');
+          const fields = signFormRead(c), title = (($('signTitle') || {}).value || '').trim(), otp = !!($('signOtp') || {}).checked;
+          const miss = signTplFields(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !fields[k]); if (miss.length) return toast('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
+          const signers = (st.signers || signSignerDefaults(c, tpl.signers)).filter((x) => x.on).map((x) => ({ label: String(x.label || '').trim() || 'חותם', name: String(x.name || '').trim() || null, email: String(x.email || '').trim() || null, phone: String(x.phone || '').trim() || null, requireOtp: otp && !!String(x.email || '').trim() }));
+          if (!signers.length) return toast('לא נבחר אף חותם'); const bad = signers.find((x) => !x.email && !x.phone); if (bad) return toast(bad.label + ': חסר מייל או טלפון');
+          if (otp && signers.some((x) => !x.email)) toast('שים לב: מי שאין לו מייל יחתום בלי קוד אימות');
+          el.disabled = true; el.textContent = 'שולח…';
+          try { const r = await signApi('/api/sign', { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', title, template: tpl.body, category: tpl.category, templateKey: tpl.key, lender: tpl.lender || null, perSigner: !!tpl.perSigner, fields, signers });
+            S.signLast = { client: c.id, title, links: r.links.map((l, i) => ({ ...l, name: signers[i].name })) }; S.signForm[c.id] = {}; S.signDocs = null; toast(r.links.length > 1 ? 'נשלח ל-' + r.links.length + ' חותמים' : 'הקישור לחתימה מוכן'); return signLoad(c); }
+          catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
+        case 'signLibAdd': return signLibForm(null);
+        case 'signDocsReload': return signDocsLoad(true);
         case 'signTplSave': { const t = { ...(S.settings.signTemplates || {}) }; DIVS.filter(canSeeDiv).forEach((d) => { const el2 = $('signTpl_' + d); if (el2) t[d] = el2.value; }); await write('settings/main', { signTemplates: t }, 'update'); return toast('הנוסחים נשמרו'); }
         case 'planCopy': if (!c) return; await copyText(planPrompt(c), 'ההודעה הועתקה — הדבק בשיחה'); return planMarkSent(c);
         case 'planSettings': { const url = String(($('planChatUrl') || {}).value || '').trim(); if (url && !/^https:\/\/claude\.ai\//.test(url)) return toast('הקישור צריך להתחיל ב-https://claude.ai/');
@@ -6850,6 +6947,7 @@ document.addEventListener('click', async (e) => {
 });
 
 document.addEventListener('change', async (e) => {
+  if (e.target && e.target.id === 'signTpl' && S.view.tab === 'client') { S.signForm = S.signForm || {}; S.signForm[S.view.clientId] = { open: true, tpl: e.target.value }; return render(); }
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
@@ -6982,8 +7080,10 @@ document.addEventListener('change', (e) => { const el = e.target && e.target.clo
   const b = $('ikApplyBtn'); if (b) b.textContent = 'החל את המסומנים (' + S.ikSug.rows.filter((q) => q.on).length + ')'; });
 document.addEventListener('input', async (e) => {
   if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
-  if (e.target.dataset && (e.target.dataset.signf || ['signTitle', 'signEmail', 'signPhone'].includes(e.target.id)) && S.view.tab === 'client') { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
-    if (e.target.dataset.signf) f[e.target.dataset.signf] = e.target.value; else f[{ signTitle: 'title', signEmail: 'email', signPhone: 'phone' }[e.target.id]] = e.target.value; return; }
+  if (e.target.dataset && (e.target.dataset.signf || e.target.dataset.signs || ['signTitle', 'signOtp'].includes(e.target.id)) && S.view.tab === 'client') { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
+    if (e.target.dataset.signs) { const c = S.clients.get(S.view.clientId), [i, k] = e.target.dataset.signs.split(':'); f.signers = f.signers || signSignerDefaults(c, signTplOf(c, f.tpl).signers); const row = f.signers[Number(i)]; if (row) row[k] = k === 'on' ? e.target.checked : e.target.value; return; }
+    if (e.target.id === 'signOtp') { f.otp = e.target.checked; return; }
+    if (e.target.dataset.signf) f[e.target.dataset.signf] = e.target.value; else f.title = e.target.value; return; }
   if (e.target.dataset && e.target.dataset.plannotes && S.canWrite) { const el = e.target, id = el.dataset.plannotes; clearTimeout(S._planT);
     S._planT = setTimeout(() => write('clients/' + id, { planNotes: el.value, updatedAt: stamp() }, 'update').catch(() => {}), 900); return; }
   const map = { fClientQ: 'clientQ', fTxQ: 'txQ', fLeadQ: 'leadQ', fPoolQ: 'poolQ', fCtQ: 'ctQ', fSubQ: 'subQ' };

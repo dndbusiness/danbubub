@@ -96,3 +96,67 @@ export function expiryFrom(now: Date, days: number | null | undefined): Date {
   const d = Math.min(60, Math.max(1, Math.round(Number(days) || 14)))
   return new Date(now.getTime() + d * 86_400_000)
 }
+
+/* ── מערכת חתימות: כמה חותמים, קוד אימות, ספריית תבניות (018) ───────────────── */
+
+export const SIGN_CATEGORIES = {
+  agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי',
+} as const
+export type SignCategory = keyof typeof SIGN_CATEGORIES
+
+export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; fields?: Record<string, FieldValue> }
+
+export const MAX_SIGNERS = 6
+
+/** בדיקת רשימת החותמים לפני שליחה. מחזיר שגיאות בעברית (ריקה = תקין). */
+export function validateSigners(signers: SignerInput[]): string[] {
+  const errors: string[] = []
+  if (!signers.length) errors.push('אין חותמים')
+  if (signers.length > MAX_SIGNERS) errors.push(`עד ${MAX_SIGNERS} חותמים במסמך`)
+  const seen = new Set<string>()
+  signers.forEach((s, i) => {
+    const who = s.label?.trim() || `חותם ${i + 1}`
+    const email = String(s.email ?? '').trim().toLowerCase(), phone = String(s.phone ?? '').replace(/\D/g, '')
+    if (!email && !phone) errors.push(`${who}: חסר מייל או טלפון`)
+    if (email && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email)) errors.push(`${who}: מייל לא תקין`)
+    if (s.requireOtp && !email) errors.push(`${who}: קוד אימות נשלח במייל — חסר מייל`)
+    if (email) { if (seen.has(email)) errors.push(`${who}: אותו מייל לשני חותמים`); seen.add(email) }
+  })
+  return errors
+}
+
+/** "dana@gmail.com" → "da***@gmail.com" — להצגה בדף החתימה בלי לחשוף את הכתובת המלאה. */
+export function maskEmail(email: string | null | undefined): string {
+  const [u = '', d = ''] = String(email ?? '').split('@')
+  if (!d) return ''
+  return `${u.slice(0, Math.min(2, u.length))}***@${d}`
+}
+
+export const OTP_TTL_MS = 10 * 60 * 1000
+export const OTP_MAX_ATTEMPTS = 5
+export const OTP_RESEND_MS = 60 * 1000
+
+export type OtpState = 'not_required' | 'verified' | 'need_send' | 'sent' | 'locked'
+
+/** איפה החותם עומד בקוד האימות. */
+export function otpState(r: { require_otp: boolean; otp_verified_at: string | Date | null; otp_hash: string | null; otp_expires_at: string | Date | null; otp_attempts: number }, now: Date): OtpState {
+  if (!r.require_otp) return 'not_required'
+  if (r.otp_verified_at) return 'verified'
+  if (!r.otp_hash || !r.otp_expires_at || new Date(r.otp_expires_at).getTime() <= now.getTime()) return 'need_send'
+  return r.otp_attempts >= OTP_MAX_ATTEMPTS ? 'locked' : 'sent'
+}
+
+/** אפשר לשלוח קוד חדש? (פעם בדקה — שלא יציפו את המייל של החותם) */
+export function canResendOtp(sentAt: string | Date | null | undefined, now: Date): boolean {
+  return !sentAt || now.getTime() - new Date(sentAt).getTime() >= OTP_RESEND_MS
+}
+
+/** ה-PDF המשותף: נוסח אחד לכל טביעה (חותמים עם אותו נוסח — חתימות זה לצד זה). */
+export function groupByDocument<T extends { doc_hash: string; signer_order: number }>(rows: T[]): { doc_hash: string; rows: T[] }[] {
+  const out: { doc_hash: string; rows: T[] }[] = []
+  for (const r of [...rows].sort((a, b) => a.signer_order - b.signer_order)) {
+    const g = out.find((x) => x.doc_hash === r.doc_hash)
+    if (g) g.rows.push(r); else out.push({ doc_hash: r.doc_hash, rows: [r] })
+  }
+  return out
+}

@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server'
-import { cancelRequest, finalize } from '@/lib/sign/store'
+import { cancelEnvelope, finalizeEnvelope, remind } from '@/lib/sign/store'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-/** פעולות הצוות על בקשה: ביטול (לפני חתימה) / יצירת ה-PDF ושמירה בדרייב מחדש (אחרי חתימה). */
+/**
+ * פעולות הצוות: ביטול מסמך (לפני שכולם חתמו) · יצירת ה-PDF ושמירה בדרייב מחדש ·
+ * תזכורת לחותם (מזהה חותם — קישור חדש, הישן מפסיק לעבוד).
+ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const body = (await req.json().catch(() => ({}))) as { action?: string }
-  if (body.action === 'cancel') return NextResponse.json({ ok: await cancelRequest(id, new Date()) })
-  if (body.action === 'finalize') return NextResponse.json(await finalize(id, new Date()))
+  const now = new Date()
+  if (body.action === 'cancel') return NextResponse.json({ ok: await cancelEnvelope(id, now) })
+  if (body.action === 'finalize') return NextResponse.json(await finalizeEnvelope(id, now))
+  if (body.action === 'remind') { const r = await remind(id, now, new URL(req.url).origin); return NextResponse.json(r, { status: r.ok ? 200 : 422 }) }
   return NextResponse.json({ code: 'invalid_argument', message: 'פעולה לא מוכרת' }, { status: 400 })
 }

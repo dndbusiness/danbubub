@@ -1,6 +1,6 @@
 -- ══════════════════════════════════════════════════════════════════════════
 -- מערכת הכספים של הר-אל — סכימה מלאה בקובץ אחד.
--- נוצר אוטומטית מ-26 קבצים ע"י scripts/build-sql-bundle.mjs. אין לערוך כאן.
+-- נוצר אוטומטית מ-28 קבצים ע"י scripts/build-sql-bundle.mjs. אין לערוך כאן.
 -- להדביק ב-SQL editor של בסיס הנתונים ולהריץ פעם אחת, על מסד ריק (או מהדפדפן: /crm → "הקמת מסד הנתונים").
 -- ריצה שנייה נכשלת על טיפוסים וטבלאות שכבר קיימים — שינויי סכימה אחר כך: migration עם גיבוי (הנחיה 10).
 -- ══════════════════════════════════════════════════════════════════════════
@@ -1947,6 +1947,94 @@ select install_standard_triggers('settings');
 alter table vat_rates add column updated_at timestamptz not null default now();
 select install_standard_triggers('vat_rates');
 
+-- ─── db/schema/018_sign_envelopes.sql ──────────────────────────────────
+-- ════════════════════════════════════════════════════════════════════════════
+-- 018 — מערכת חתימות: מסמך אחד, כמה חותמים, קוד אימות במייל, תזכורות.
+--
+-- "מעטפה" (sign_envelopes) = מסמך אחד שנשלח לחתימה. לכל חותם שורה ב-sign_requests
+-- (016) עם קישור אישי משלו — הלווה, בן/בת הזוג, ערב. כשכל החותמים חתמו המעטפה
+-- "הושלמה" ונוצר PDF אחד עם כל החתימות ועמוד תיעוד לכל חותם.
+--
+-- קוד אימות (OTP): כשנדרש, החותם מקבל קוד חד-פעמי במייל לפני החתימה. נשמר רק
+-- ה-hash, תוקף 10 דקות, עד 5 ניסיונות. חתימה בלי אימות נדחית ב-DB (אילוץ).
+--
+-- תזכורת = קישור חדש (הטוקן מתחלף, הישן מפסיק לעבוד): הטוקן עצמו לא נשמר, רק ה-hash,
+-- ולכן אי אפשר לשלוח שוב את אותו קישור.
+-- ════════════════════════════════════════════════════════════════════════════
+
+create table sign_envelopes (
+  id              uuid primary key default gen_random_uuid(),
+  client_doc      text not null check (length(client_doc) between 1 and 200),
+  client_name     text not null,
+  division        text not null check (division in ('finance', 'realestate')),
+  title           text not null,
+  -- סוג המסמך — ספריית התבניות מסודרת לפי סוג וגוף
+  category        text not null default 'agreement'
+                    check (category in ('agreement', 'bank', 'fund', 'insurance', 'poa', 'general')),
+  template_key    text,
+  lender          text,
+  status          text not null default 'sent' check (status in ('sent', 'completed', 'cancelled')),
+  completed_at    timestamptz,
+  pdf_file_id     uuid references stored_files(id),
+  drive_file_id   text,
+  drive_url       text,
+  finalize_error  text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  created_by      uuid references users(id),
+  deleted_at      timestamptz,
+  constraint sign_envelope_completed check ((status = 'completed') = (completed_at is not null))
+);
+create index sign_envelopes_client_idx on sign_envelopes (client_doc, created_at desc) where deleted_at is null;
+create index sign_envelopes_status_idx on sign_envelopes (status, created_at desc) where deleted_at is null;
+select install_standard_triggers('sign_envelopes');
+
+-- מעטפה שהושלמה לא חוזרת אחורה ולא מבוטלת
+create or replace function sign_envelopes_lock() returns trigger
+language plpgsql as $$
+begin
+  if old.status = 'completed' and (new.status is distinct from old.status or new.completed_at is distinct from old.completed_at
+     or new.title is distinct from old.title or new.client_doc is distinct from old.client_doc) then
+    raise exception 'מסמך שכל החותמים חתמו עליו נעול (%).', old.id;
+  end if;
+  return new;
+end;
+$$;
+create trigger t_sign_envelopes_lock before update on sign_envelopes for each row execute function sign_envelopes_lock();
+
+alter table sign_requests
+  add column envelope_id      uuid references sign_envelopes(id),
+  add column signer_label     text,
+  add column signer_order     int not null default 1 check (signer_order between 1 and 20),
+  add column require_otp      boolean not null default false,
+  add column otp_hash         text check (otp_hash is null or otp_hash ~ '^[0-9a-f]{64}$'),
+  add column otp_expires_at   timestamptz,
+  add column otp_attempts     int not null default 0 check (otp_attempts >= 0),
+  add column otp_sent_at      timestamptz,
+  add column otp_verified_at  timestamptz,
+  add column reminders_sent   int not null default 0 check (reminders_sent >= 0),
+  add column last_reminder_at timestamptz,
+  -- דרש קוד → חתום רק אחרי אימות
+  add constraint sign_otp_before_sign check (not (require_otp and status = 'signed' and otp_verified_at is null));
+
+create index sign_requests_envelope_idx on sign_requests (envelope_id, signer_order) where deleted_at is null;
+
+-- הבקשות הקיימות (חותם יחיד) — כל אחת במעטפה משלה
+do $$
+declare r record; eid uuid;
+begin
+  for r in select * from sign_requests where envelope_id is null loop
+    insert into sign_envelopes (client_doc, client_name, division, title, category, status, completed_at, drive_file_id, drive_url, finalize_error, created_at, deleted_at)
+    values (r.client_doc, r.client_name, r.division, r.title, 'agreement',
+            case when r.status = 'signed' then 'completed' when r.status = 'cancelled' then 'cancelled' else 'sent' end,
+            case when r.status = 'signed' then r.signed_at end, r.drive_file_id, r.drive_url, r.finalize_error, r.created_at, r.deleted_at)
+    returning id into eid;
+    update sign_requests set envelope_id = eid, signer_label = 'הלקוח' where id = r.id;
+  end loop;
+end $$;
+
+comment on table sign_envelopes is 'מסמך לחתימה: חותם אחד או יותר (sign_requests). הושלם = כל החותמים חתמו → PDF אחד עם כל החתימות.';
+
 -- ─── db/views/001_base.sql ─────────────────────────────────────────────
 -- ════════════════════════════════════════════════════════════════════════════
 -- Views — שכבת בסיס
@@ -3048,6 +3136,60 @@ group by status;
 
 comment on view v_private_income is
   'SPEC §2.1, מסך 9 — הכנסות פרייבט. לא מצטרף לשום שאילתה עסקית.';
+
+-- ─── db/views/007_sign.sql ─────────────────────────────────────────────
+-- ════════════════════════════════════════════════════════════════════════════
+-- "מסמכים לחתימה" — שורה לכל מסמך שנשלח, עם מצב החותמים. המסך ב-CRM והכרטיס
+-- של הלקוח קוראים מכאן (אין נוסחת מצב בקוד ה-UI).
+--
+-- מצב:  completed  — כל החותמים חתמו
+--       cancelled  — בוטל
+--       partial    — חלק חתמו
+--       opened     — מישהו פתח, אף אחד עוד לא חתם
+--       expired    — כל הקישורים הפתוחים פגו
+--       sent       — נשלח, לא נפתח
+-- ════════════════════════════════════════════════════════════════════════════
+
+create or replace view v_sign_overview as
+with s as (
+  select r.envelope_id,
+         count(*) filter (where r.status <> 'cancelled')                                         as signers,
+         count(*) filter (where r.status = 'signed')                                             as signed,
+         count(*) filter (where r.status in ('sent', 'opened') and r.expires_at > now())          as waiting,
+         count(*) filter (where r.status in ('sent', 'opened') and r.expires_at <= now())         as expired,
+         count(*) filter (where r.opened_at is not null)                                         as opened,
+         max(greatest(r.created_at, r.opened_at, r.signed_at, r.last_reminder_at))              as last_activity,
+         min(r.expires_at) filter (where r.status in ('sent', 'opened'))                         as next_expiry,
+         jsonb_agg(jsonb_build_object(
+           'id', r.id, 'label', r.signer_label, 'order', r.signer_order, 'status', r.status,
+           'expired', r.status in ('sent', 'opened') and r.expires_at <= now(),
+           'email', r.send_email, 'phone', r.send_phone, 'signer', r.signer_name,
+           'opened_at', r.opened_at, 'signed_at', r.signed_at, 'expires_at', r.expires_at,
+           'require_otp', r.require_otp, 'otp_ok', r.otp_verified_at is not null,
+           'reminders', r.reminders_sent, 'last_reminder_at', r.last_reminder_at
+         ) order by r.signer_order, r.created_at)                                               as people
+  from sign_requests r
+  where r.deleted_at is null and r.envelope_id is not null
+  group by r.envelope_id
+)
+select e.id, e.client_doc, e.client_name, e.division, e.title, e.category, e.template_key, e.lender,
+       e.created_at, e.completed_at, e.drive_url, e.pdf_file_id, e.finalize_error,
+       coalesce(s.signers, 0) as signers, coalesce(s.signed, 0) as signed, coalesce(s.waiting, 0) as waiting,
+       coalesce(s.expired, 0) as expired, coalesce(s.opened, 0) as opened, s.last_activity, s.next_expiry,
+       coalesce(s.people, '[]'::jsonb) as people,
+       case
+         when e.status = 'cancelled' then 'cancelled'
+         when e.status = 'completed' then 'completed'
+         when coalesce(s.signed, 0) > 0 then 'partial'
+         when coalesce(s.waiting, 0) = 0 and coalesce(s.expired, 0) > 0 then 'expired'
+         when coalesce(s.opened, 0) > 0 then 'opened'
+         else 'sent'
+       end as state
+from sign_envelopes e
+left join s on s.envelope_id = e.id
+where e.deleted_at is null;
+
+comment on view v_sign_overview is 'מסמכים לחתימה: מצב לכל מסמך וחותמים (completed/cancelled/partial/opened/expired/sent).';
 
 -- ─── db/seed/000_bootstrap.sql ─────────────────────────────────────────
 -- ════════════════════════════════════════════════════════════════════════════
