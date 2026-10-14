@@ -1105,26 +1105,28 @@ function vClients() {
 }
 async function mkFolders() { const list = live(S.clients).filter(inDiv).filter((c) => !c.driveFolder && ['open', 'hold'].includes(c.status)); let k = 0; toast('יוצר ' + list.length + ' תיקיות…');
   for (const c of list) { if (await driveFolderFor('proc', c.id, c.name)) k++; } toast(k + ' תיקיות נוצרו בדרייב'); render(); }
-/* "לא אושר" (דן, 14/10): לא מופיע בשום מקום — רק כשמחפשים "לא אושר" או בוחרים בסינון האישור "לא אושר" */
-const isRejected = (c) => !!c && c.approval === 'rejected';
-const REJ_Q = /לא\s*אושר[וה]?/g;
-const wantRejected = () => S.f.clientAppr === 'rejected' || /לא\s*אושר/.test(String(S.f.clientQ || ''));
+/* "לא אושר" ו"בוטל" (דן, 14/10): לא מופיעים בשום מקום — רק כשמחפשים "לא אושר" / "בוטל", או בוחרים אותם בסינון */
+const hideKind = (c) => !c ? null : c.approval === 'rejected' ? 'rej' : (c.approval === 'cancelled' || c.status === 'cancelled') ? 'cxl' : null;
+const isRejected = (c) => !!hideKind(c); /* מוסתר מכל הרשימות */
+const REJ_Q = /לא\s*אושר[וה]?/g, CXL_Q = /מ?בוטל[הו]?/g;
 function vClientsInner() {
-  const f = S.f, showRej = wantRejected(), qRej = /לא\s*אושר/.test(String(f.clientQ || '')), qText = String(f.clientQ || '').replace(REJ_Q, '').trim();
-  const all = live(S.clients).filter(inDiv).filter((c) => showRej || !isRejected(c));
+  const f = S.f, q0 = String(f.clientQ || ''), qRej = /לא\s*אושר/.test(q0), qCxl = /בוטל/.test(q0), qText = q0.replace(REJ_Q, '').replace(CXL_Q, '').trim();
+  const showRej = qRej || f.clientAppr === 'rejected', showCxl = qCxl || f.clientAppr === 'cancelled' || f.clientStatus === 'cancelled';
+  const all = live(S.clients).filter(inDiv).filter((c) => { const k = hideKind(c); return !k || (k === 'rej' && showRej) || (k === 'cxl' && showCxl); });
   const tags = [...new Set(all.flatMap((c) => c.tags || []))].sort();
   const notOk = (c) => ['pending', 'waiting_guarantor', 'rejected'].includes(c.approval);
   const match = (c, anyStatus) =>
-    (!qRej || isRejected(c)) && (!qText || [c.name, c.phone, c.email, c.notes, c.source, c.docsNote, c.sheetNote, c.service, ...(c.tags || [])].some((v) => String(v || '').includes(qText))) &&
+    (!(qRej || qCxl) || (qRej && hideKind(c) === 'rej') || (qCxl && hideKind(c) === 'cxl')) && (!qText || [c.name, c.phone, c.email, c.notes, c.source, c.docsNote, c.sheetNote, c.service, ...(c.tags || [])].some((v) => String(v || '').includes(qText))) &&
     (anyStatus || !f.clientStatus || c.status === f.clientStatus) && (!f.clientTag || (c.tags || []).includes(f.clientTag)) &&
     (!f.clientStage || c.stage === f.clientStage) && (!f.clientOwner || caseUser(c) === f.clientOwner) &&
     (!f.clientResp || (c.resp || '') === f.clientResp) && (!f.clientAppr || (f.clientAppr === 'not_ok' ? notOk(c) : c.approval === f.clientAppr));
   const byOpen = (a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he');
   /* סינון הסטטוס (ברירת מחדל "פתוח") חל רק על הטבלה — לפי סטטוס / הסתיימו / לא אושרו מציגים את כולם. חיפוש "לא אושר" — מכל הסטטוסים */
-  const rows = all.filter((c) => match(c, f.clientView !== 'table' || qRej)).sort((a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he'));
+  const rows = all.filter((c) => match(c, f.clientView !== 'table' || qRej || qCxl)).sort((a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he'));
   const views = [['board', 'לוח מעקב'], ['table', 'לפי שלב'], ['status', 'לפי סטטוס'], ['notok', 'לא אושרו (' + all.filter((c) => notOk(c) && c.status !== 'cancelled').length + ')'], ['done', 'הסתיימו (' + all.filter((c) => c.status === 'won').length + ')'], ['interest', 'מתעניינים (' + live(S.leads).filter(isLeadOpen).length + ')']];
   let body;
-  if (qRej && f.clientView === 'board') body = '<section class="card"><header><h2>לא אושר</h2><span class="pill open">' + rows.length + '</span><span class="hint">מוצגים רק כשמחפשים "לא אושר"</span></header>' + (rows.length ? clientTable(rows, false) : '<p class="empty">אין לקוחות שלא אושרו</p>') + '</section>';
+  if ((qRej || qCxl) && f.clientView === 'board') { const t = [qRej ? 'לא אושר' : '', qCxl ? 'בוטל' : ''].filter(Boolean).join(' / ');
+    body = '<section class="card"><header><h2>' + t + '</h2><span class="pill open">' + rows.length + '</span><span class="hint">מוצגים רק כשמחפשים "' + t + '"</span></header>' + (rows.length ? clientTable(rows, false) : '<p class="empty">אין לקוחות כאלה</p>') + '</section>'; }
   else if (f.clientView === 'board') body = vClientBoard(all);
   else if (f.clientView === 'dan' || f.clientView === 'stuck') {
     const g = (f.clientView === 'dan' ? all.filter((c) => ['open', 'hold'].includes(c.status) && (fileOf(c.id) || {}).needsDan) : stuckFiles()).filter((c) => !f.clientResp || (c.resp || '') === f.clientResp);
