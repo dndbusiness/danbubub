@@ -3023,20 +3023,166 @@ const extraInc = (b) => Object.entries((b && b.incomes) || {}).filter(([k]) => (
 /* ── דוח אשראי: חילוץ (הצעה של Claude) → אימות אנושי → סיכום, העברה להתחייבויות, איחוד ── */
 const BANKS_RX = /פועלים|לאומי|דיסקונט|מזרחי|טפחות|הבינלאומי|יהב|מרכנתיל|ירושלים|אוצר החייל|מסד|פאגי|איגוד|וואן זירו|one zero/i;
 const isBankLender = (s) => BANKS_RX.test(String(s || ''));
-const REP_PROMPT = 'זה דוח אשראי ישראלי (דוח BDI / דוח נתוני אשראי / תמצית WISE). חלץ את הנתונים בדיוק כפי שהם מופיעים — בלי להמציא ובלי לחשב מה שלא כתוב. מספרים כמספרים בלבד (בלי ₪ ובלי פסיקים), תאריכים DD/MM/YYYY, null כשאין.\n' +
-  'החזר JSON בלבד במבנה:\n{"reportDate":"","name":"","score":null,"scoreLabel":"","accounts":[{"bank":"","status":"פעיל / סגור","overdraftLimit":null,"overdraftUsed":null,"returned":null}],' +
-  '"cards":[{"issuer":"","limit":null,"used":null,"monthly":null}],"loans":[{"lender":"","kind":"","original":null,"balance":null,"monthly":null,"rate":null,"track":"","start":"","end":"","status":""}],' +
-  '"mortgages":[{"lender":"","original":null,"balance":null,"monthly":null,"rate":null,"track":"","end":""}],"negatives":[{"kind":"","bank":"","detail":""}],"inquiries":[{"date":"","by":"","kind":""}],"notes":"עד 2 שורות: מה חשוב בדוח"}\n' +
-  'כל הלוואה בנפרד (גם כשיש כמה הלוואות אצל אותו גוף). "returned" = מספר חזרות צ׳קים / הוראות קבע. negatives = הגבלות, חזרות, עיקולים, פיגורים, הוצל״פ.';
 const repArr = (d, k) => Array.isArray(d && d[k]) ? d[k] : [];
+/* דוח אשראי מלא (עד עשרות עמודים): כל עמוד = תמונה (או טקסט), נקרא במנות עם עמוד חפיפה, ומאוחד */
+async function docPages(file, say) {
+  if (/^image\//.test(file.type)) return { n: 1, kind: 'img', pages: [file] };
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise, N = pdf.numPages, texts = [];
+  for (let i = 1; i <= N; i++) { const pg = await pdf.getPage(i), tc = await pg.getTextContent(); texts.push(tc.items.map((t) => t.str).join(' ')); }
+  if (texts.join('').replace(/[\s\-0-9]/g, '').length >= 100 * N) return { n: N, kind: 'text', pages: texts };
+  const imgs = [];
+  for (let i = 1; i <= N; i++) { if (say) say('מכין עמוד ' + i + ' מתוך ' + N + '…');
+    const pg = await pdf.getPage(i), vp = pg.getViewport({ scale: 1.6 }), cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+    await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise; imgs.push(await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.82))); cv.width = 0; }
+  return { n: N, kind: 'img', pages: imgs };
+}
+const REP_TEXT_BYTES = 40000, utf8Len = (s) => new TextEncoder().encode(String(s || '')).length;
+/* מנות של עמודים: per עמודים בכל מנה, עמוד אחרון של מנה = עמוד ראשון של הבאה (עסקה שנחתכת בין עמודים נקראת שלמה) */
+function repChunks(P, per) {
+  const out = [];
+  if (P.kind === 'img') { for (let s = 0; s < P.n; s += Math.max(1, per - 1)) { const e = Math.min(P.n, s + per); out.push({ from: s + 1, to: e, images: P.pages.slice(s, e) }); if (e >= P.n) break; } return out; }
+  const pg = P.pages.map((t, i) => '--- עמוד ' + (i + 1) + ' ---\n' + String(t || '').slice(0, 18000));
+  for (let s = 0; s < P.n;) { let e = s, b = 0; while (e < P.n && (e === s || b + utf8Len(pg[e]) < REP_TEXT_BYTES)) { b += utf8Len(pg[e]); e++; }
+    out.push({ from: s + 1, to: e, text: pg.slice(s, e).join('\n') }); if (e >= P.n) break; s = e - 1 > s ? e - 1 : e; }
+  return out;
+}
+const REP_SCHEMA = '{"reportDate":"DD/MM/YYYY","client":{"name":"","definition":"","since":"","related":[{"name":"","number":""}]},"score":null,"scoreLabel":"",' +
+  '"summary":[{"role":"borrower","kind":"loan","source":"","dealId":"","count":null,"limit":null,"original":null,"balance":null,"unpaid":null}],' +
+  '"deals":[{"role":"borrower","active":true,"kind":"loan","source":"","dealId":"","branch":"","purpose":"","status":"","currency":"","updated":"","start":"","plannedEnd":"","actualEnd":"","borrowers":null,"guarantors":null,' +
+  '"original":null,"limit":null,"balance":null,"monthly":null,"frequency":"","paymentType":"","paid":null,"lastPayment":"","balloon":null,"unpaid":null,"collateral":[{"type":"","value":null}],' +
+  '"tracks":[{"kind":"","linkage":"","anchor":"","margin":null,"nominal":null,"effective":null,"balance":null}],"checks":null,"checksReturned":null,"debits":null,"debitsReturned":null,"returnsByMonth":[{"month":"MM/YYYY","checks":0,"debits":0}]}],' +
+  '"negatives":[{"kind":"","source":"","detail":"","date":""}],"inquiries":[{"date":"","by":"","kind":"","amount":null}],"notes":""}';
+const repChunkPrompt = (ch, N) => 'אלה עמודים ' + ch.from + '–' + ch.to + ' מתוך ' + N + ' של דוח אשראי ישראלי (בדרך כלל "דוח ריכוז נתונים" של מערכת נתוני אשראי של בנק ישראל; יכול להיות גם דוח BDI או תמצית אחרת). ' +
+  'חלץ רק מה שמופיע בעמודים האלה, בדיוק כפי שכתוב — בלי להמציא ובלי לחשב. מספרים כמספרים בלבד (בלי ₪ ובלי פסיקים; אחוז כמספר, 7.95), תאריכים DD/MM/YYYY.\n' +
+  '- deals: כל עסקה מפורטת בנפרד, גם כמה עסקאות אצל אותו מקור. kind: account=חשבון עו״ש, loan=הלוואה, mortgage=משכנתא, creditLine=מסגרת אשראי מתחדשת, card=כרטיס אשראי, other=אחר. ' +
+  'role: borrower כשהלקוח חייב, guarantor בפרק "עסקאות בהן הלקוח ערב". active=false לעסקאות מהפרק של עסקאות לא פעילות / שהסתיימו.\n' +
+  '- source = "שם מקור המידע המדווח". dealId = "מזהה עסקה" כפי שכתוב. limit = גובה מסגרת. balance = יתרת חוב. unpaid = יתרה שלא שולמה במועד. monthly = סכום התשלום הצפוי (החזר חודשי). purpose = מטרת האשראי. status = סטטוס / מהות העסקה. ' +
+  'collateral = בטוחות (סוג ושווי). tracks = טבלת "מסלולי ריבית": kind=סוג ריבית, linkage=הצמדה, anchor=עוגן, margin=מרווח, nominal=ריבית נומינלית, effective=ריבית מתואמת, balance=סכום הניצול / היתרה במסלול.\n' +
+  '- חשבון עו״ש: checks / checksReturned = סה״כ שיקים שהוצגו / שחזרו מסיבת אין כיסוי ב-12 החודשים האחרונים; debits / debitsReturned = אותו דבר להוראות חיוב; returnsByMonth רק לחודשים שהיו בהם חזרות.\n' +
+  '- summary = טבלאות התמצית ("ריכוז עסקאות פעילות"): שורה לכל שורת מקור בכל סוג עסקה, בלי שורות סה״כ. count = מספר עסקאות, original = סכום הלוואות מקורי, limit = גובה מסגרת. role=guarantor בטבלאות "בהן הלקוח ערב".\n' +
+  '- client: שם, "הגדרת הלקוח", ממתי נאספים הנתונים (since), related = תאגיד קשור. בלי מספרי זהות.\n' +
+  '- inquiries = בירורים / פניות לקבלת נתונים. negatives = רק הגבלות, עיקולים, הוצל״פ, חשבון מוגבל או הערה שלילית שכתובה במפורש (פיגורים וחזרות מחושבים לבד מהשדות).\n' +
+  (ch.from > 1 ? '- אם העמוד הראשון כאן מתחיל באמצע עסקה (בלי "שם מקור המידע" ו"מזהה עסקה") — דלג על השארית הזו, היא נקראה במנה הקודמת. ' : '- ') + 'עסקה שנחתכת בסוף העמודים — כלול מה שיש. עמודי מילון, הסברים ופעולות מנהליות — בלי עסקאות.\n' +
+  'החזר JSON בלבד במבנה הזה, והשמט מפתחות ריקים:\n' + REP_SCHEMA;
+const REP_FATAL = ['not_granted', 'cancelled', 'session_expired', 'images_unavailable', 'unavailable'];
+async function askReport(file, say, signal, only) {
+  const sample = await claude.use('sample').catch(() => null); if (!sample) throw Object.assign(new Error('no'), { code: 'unavailable' });
+  say('קורא את הקובץ…');
+  const lim = await sample.limits().catch(() => null), P = await docPages(file, say);
+  if (P.kind === 'img' && (!lim || !lim.images)) throw Object.assign(new Error('img'), { code: 'images_unavailable' });
+  const per = P.kind === 'img' ? Math.max(2, Math.min(6, lim.images.maxCount || 5)) : 0;
+  let chunks = repChunks(P, per); if (only && only.length) chunks = chunks.filter((c) => only.some(([f, t]) => c.from === f && c.to === t));
+  const parts = [], missing = []; let done = 0, next = 0, stop = null;
+  const tick = () => say('Claude קורא את הדוח — ' + done + '/' + chunks.length + ' מנות · ' + P.n + ' עמודים' + (missing.length ? ' · ' + missing.length + ' לא נקראו' : '') + '…');
+  const run = async (ch) => {
+    if (stop) { missing.push([ch.from, ch.to]); return; }
+    try { const r = await sample.json(repChunkPrompt(ch, P.n) + (ch.text ? '\n\nתוכן העמודים:\n' + ch.text : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, signal, ...(ch.images ? { images: ch.images } : {}) });
+      if (r && typeof r === 'object') parts.push(r); else missing.push([ch.from, ch.to]); }
+    catch (e) { if (REP_FATAL.includes(e && e.code)) { stop = e; throw e; } if (e && e.code === 'rate_limited') stop = e; missing.push([ch.from, ch.to]); }
+    done++; tick(); };
+  tick();
+  const worker = async () => { while (next < chunks.length) await run(chunks[next++]); };
+  await Promise.all([worker(), worker()]);
+  missing.sort((a, b) => a[0] - b[0]);
+  return { parts, pages: P.n, chunks: chunks.length, missing, limited: stop && stop.code === 'rate_limited' };
+}
+/* איחוד המנות: עסקה שמופיעה בשתי מנות (עמוד החפיפה) — ממזגים כשאין סתירה בשדות המזהים */
+const REP_KINDS = { account: 'חשבון עו״ש', loan: 'הלוואה', mortgage: 'משכנתא', creditLine: 'מסגרת אשראי מתחדשת', card: 'כרטיס אשראי', other: 'אחר' };
+const repNorm = (s) => String(s || '').replace(/בע["״'׳]?מ|[\s"״'׳.,()\-]/g, '');
+const repBlank = (v) => v == null || v === '' || (Array.isArray(v) && !v.length);
+function repFill(a, b) {
+  Object.entries(b || {}).forEach(([k, v]) => { if (repBlank(v)) return;
+    if (Array.isArray(v)) { if (!Array.isArray(a[k]) || v.length > a[k].length) a[k] = v; }
+    else if (typeof v === 'object') { a[k] = a[k] && typeof a[k] === 'object' && !Array.isArray(a[k]) ? a[k] : {}; repFill(a[k], v); }
+    else if (repBlank(a[k])) a[k] = v; });
+  return a;
+}
+const REP_KEYF = ['dealId', 'start', 'original', 'limit', 'plannedEnd', 'branch'];
+const repSameDeal = (a, b) => a.role === b.role && a.active === b.active && a.kind === b.kind && repNorm(a.source) === repNorm(b.source) &&
+  REP_KEYF.every((k) => repBlank(a[k]) || repBlank(b[k]) || String(a[k]).replace(/\s/g, '') === String(b[k]).replace(/\s/g, ''));
+/* תשובה במבנה הישן (חשבונות / כרטיסים / הלוואות / משכנתאות בלי deals) — הופכים לעסקאות */
+const repLegacy = (p) => {
+  const tr0 = (l) => !repBlank(l.rate) || l.track ? [{ kind: l.track || '', effective: repBlank(l.rate) ? null : l.rate }] : [];
+  const ln = (k) => (l) => ({ role: 'borrower', active: !/סגור|הסתיים/.test(l.status || ''), kind: k, source: l.lender || '', purpose: l.kind || '', status: l.status || '', original: l.original ?? null, balance: l.balance ?? null, monthly: l.monthly ?? null, start: l.start || '', plannedEnd: l.end || '', tracks: tr0(l) });
+  return [...repArr(p, 'loans').map(ln('loan')), ...repArr(p, 'mortgages').map(ln('mortgage')),
+    ...repArr(p, 'accounts').map((a) => ({ role: 'borrower', active: !/סגור/.test(a.status || ''), kind: 'account', source: a.bank || '', status: a.status || '', limit: a.overdraftLimit ?? null, balance: a.overdraftUsed ?? null, checksReturned: a.returned ?? null })),
+    ...repArr(p, 'cards').map((c2) => ({ role: 'borrower', active: true, kind: 'card', source: c2.issuer || '', limit: c2.limit ?? null, balance: c2.used ?? null, monthly: c2.monthly ?? null }))].filter((d) => d.source);
+};
+function repMerge(parts) {
+  const out = { client: {}, summary: [], deals: [], negatives: [], inquiries: [] }, notes = [], seen = new Set();
+  const once = (k) => seen.has(k) ? false : (seen.add(k), true);
+  for (const p of parts) { if (!p || typeof p !== 'object') continue;
+    ['reportDate', 'score', 'scoreLabel'].forEach((k) => { if (repBlank(out[k]) && !repBlank(p[k])) out[k] = p[k]; });
+    repFill(out.client, p.client || (p.name ? { name: p.name } : {}));
+    repArr(p, 'summary').forEach((s) => { if (!s || !s.source) return; const role = s.role === 'guarantor' ? 'guarantor' : 'borrower', kind = REP_KINDS[s.kind] ? s.kind : 'other';
+      if (once('s|' + [role, kind, repNorm(s.source), s.dealId, s.count, s.limit, s.original, s.balance].join('|'))) out.summary.push({ ...s, role, kind }); });
+    (repArr(p, 'deals').length ? repArr(p, 'deals') : repLegacy(p)).forEach((d0) => { if (!d0 || !(d0.source || d0.dealId)) return;
+      const d = { ...d0, role: d0.role === 'guarantor' ? 'guarantor' : 'borrower', active: d0.active !== false, kind: REP_KINDS[d0.kind] ? d0.kind : 'other' };
+      const m = out.deals.find((q) => repSameDeal(q, d)); if (m) repFill(m, d); else out.deals.push(d); });
+    repArr(p, 'negatives').forEach((g) => { if (g && !g.auto && once('n|' + [g.kind, repNorm(g.source || g.bank), g.detail].join('|'))) out.negatives.push({ kind: g.kind, source: g.source || g.bank, detail: g.detail, date: g.date }); });
+    repArr(p, 'inquiries').forEach((q) => { if (q && once('q|' + [q.date, repNorm(q.by), q.kind, q.amount].join('|'))) out.inquiries.push(q); });
+    if (p.notes) notes.push(String(p.notes));
+  }
+  out.notes = [...new Set(notes)].join(' · ').slice(0, 400);
+  return out;
+}
+/* מסלול עיקרי = היתרה הגדולה; ריבית = מתואמת, ואם אין — נומינלית */
+const repMainTrack = (l) => { const T = repArr(l, 'tracks'); return T.length ? [...T].sort((a, b) => n(b.balance) - n(a.balance))[0] : null; };
+const repTrackTxt = (tr) => !tr ? '' : [tr.kind, tr.linkage, tr.anchor ? tr.anchor + (tr.margin != null && tr.margin !== '' ? (n(tr.margin) < 0 ? ' − ' : ' + ') + Math.abs(n(tr.margin)) + '%' : '') : ''].filter(Boolean).join(' · ');
+const repRateOf = (tr) => !tr ? null : !repBlank(tr.effective) ? Number(tr.effective) : !repBlank(tr.nominal) ? Number(tr.nominal) : null;
+/* מהמאוחד למבנה שהחישובים והאימות עובדים עליו (חשבונות / כרטיסים / הלוואות / משכנתאות), בלי לאבד פרטים */
+function repBuild(m) {
+  const D = m.deals || [], act = D.filter((d) => d.role === 'borrower' && d.active);
+  const base = (d) => ({ dk: d.kind, dealId: d.dealId || '', branch: d.branch || '', status: d.status || '', start: d.start || '', end: d.plannedEnd || d.actualEnd || '', updated: d.updated || '', original: d.original ?? null, balance: d.balance ?? null,
+    monthly: d.monthly ?? null, unpaid: d.unpaid ?? null, purpose: d.purpose || '', collateral: repArr(d, 'collateral'), tracks: repArr(d, 'tracks'), paid: d.paid ?? null, lastPayment: d.lastPayment || '', balloon: d.balloon ?? null, frequency: d.frequency || '', currency: d.currency || '' });
+  const loanOf = (d) => { const mt = repMainTrack(d); return { ...base(d), lender: d.source || '', kind: d.purpose || REP_KINDS[d.kind], rate: repRateOf(mt), track: repTrackTxt(mt) }; };
+  const accOf = (d, on) => ({ bank: d.source || '', status: on ? (d.status || 'פעיל') : 'סגור', closed: !on, overdraftLimit: on ? d.limit ?? null : null, overdraftUsed: on ? d.balance ?? null : null,
+    returned: (n(d.checksReturned) + n(d.debitsReturned)) || null, checks: d.checks ?? null, checksReturned: d.checksReturned ?? null, debits: d.debits ?? null, debitsReturned: d.debitsReturned ?? null,
+    returnsByMonth: repArr(d, 'returnsByMonth').filter((q) => n(q.checks) || n(q.debits)), dealId: d.dealId || '', branch: d.branch || '', start: d.start || '', updated: d.updated || '', end: d.actualEnd || '', tracks: repArr(d, 'tracks'), unpaid: on ? d.unpaid ?? null : null });
+  const accounts = act.filter((d) => d.kind === 'account').map((d) => accOf(d, true)).concat(D.filter((d) => d.role === 'borrower' && !d.active && d.kind === 'account').map((d) => accOf(d, false)));
+  const cards = act.filter((d) => d.kind === 'creditLine' || d.kind === 'card').map((d) => ({ ...base(d), issuer: d.source || '', kind: REP_KINDS[d.kind], limit: d.limit ?? null, used: d.balance ?? null }));
+  const auto = [];
+  act.forEach((d) => { if (n(d.unpaid) > 0) auto.push({ kind: 'פיגור בתשלום', bank: d.source, detail: REP_KINDS[d.kind] + (d.dealId ? ' ' + d.dealId : '') + ' · יתרה שלא שולמה במועד ' + plain(d.unpaid), auto: true }); });
+  accounts.forEach((a) => { if (n(a.returned) > 0) auto.push({ kind: 'חזרות', bank: a.bank, detail: [n(a.checksReturned) ? n(a.checksReturned) + ' צ׳קים' : '', n(a.debitsReturned) ? n(a.debitsReturned) + ' הוראות חיוב' : ''].filter(Boolean).join(' + ') + ' חזרו מסיבת אין כיסוי (12 חודשים)', auto: true }); });
+  return { reportDate: m.reportDate || '', name: (m.client || {}).name || '', client: m.client || {}, score: m.score ?? null, scoreLabel: m.scoreLabel || '', summary: m.summary || [], deals: D,
+    accounts, cards, loans: act.filter((d) => d.kind === 'loan' || d.kind === 'other').map(loanOf), mortgages: act.filter((d) => d.kind === 'mortgage').map(loanOf),
+    guarantees: D.filter((d) => d.role === 'guarantor' && d.active).map((d) => ({ ...loanOf(d), limit: d.limit ?? null })), closed: D.filter((d) => d.role === 'borrower' && !d.active && d.kind !== 'account').map(loanOf),
+    negatives: [...(m.negatives || []).map((g) => ({ kind: g.kind || '', bank: g.source || '', detail: g.detail || '', date: g.date || '' })), ...auto], inquiries: m.inquiries || [], notes: m.notes || '' };
+}
+/* בדיקה מול טבלאות התמצית של הדוח: מספר עסקאות ויתרה לכל סוג */
+function repCheck(d) {
+  const S2 = repArr(d, 'summary').filter((s) => s.role !== 'guarantor'); if (!S2.length) return null;
+  const sum = (a, f) => r2(a.reduce((s, x) => s + n(f(x)), 0));
+  const mine = { account: repArr(d, 'accounts').filter((a) => !a.closed).map((a) => [a.overdraftUsed, a.overdraftLimit]), loan: repArr(d, 'loans').filter((l) => l.dk !== 'other').map((l) => [l.balance, l.original]),
+    other: repArr(d, 'loans').filter((l) => l.dk === 'other').map((l) => [l.balance, l.original]), mortgage: repArr(d, 'mortgages').map((l) => [l.balance, l.original]),
+    creditLine: repArr(d, 'cards').filter((c) => c.dk === 'creditLine').map((c) => [c.used, c.limit]), card: repArr(d, 'cards').filter((c) => c.dk === 'card').map((c) => [c.used, c.limit]) };
+  return Object.keys(REP_KINDS).map((k) => { const rows = S2.filter((s) => s.kind === k), it = mine[k] || []; if (!rows.length && !it.length) return null;
+    const lim = k === 'account' || k === 'creditLine' || k === 'card';
+    const rep = { count: rows.reduce((a, s) => a + (repBlank(s.count) ? 1 : n(s.count)), 0), bal: sum(rows, (s) => s.balance), amt: sum(rows, (s) => lim ? s.limit : s.original) };
+    const got = { count: it.length, bal: sum(it, (x) => x[0]), amt: sum(it, (x) => x[1]) };
+    const ok = rows.length > 0 && rep.count === got.count && Math.abs(rep.bal - got.bal) <= Math.max(5, rep.bal * 0.005);
+    return { k, label: REP_KINDS[k], lim, rep, got, ok, noSum: !rows.length }; }).filter(Boolean);
+}
+const repRanges = (M) => (M || []).map(([f, t]) => f === t ? String(f) : f + '–' + t).join(', ');
+const repDate = (s) => { const t = String(s || ''); let m = t.match(/^(\d{4})-(\d\d)-(\d\d)/); if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  m = t.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/); if (m) return Date.UTC(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1]); return null; };
+const repLeft = (end, asOf) => { const e = repDate(end), a = repDate(asOf); if (e == null || a == null) return '';
+  const E = new Date(e), A = new Date(a), mo = (E.getUTCFullYear() - A.getUTCFullYear()) * 12 + E.getUTCMonth() - A.getUTCMonth(); if (mo <= 0) return 'הסתיים';
+  const y = Math.floor(mo / 12), mm = mo % 12; return (y ? (y === 1 ? 'שנה' : y + ' שנים') : '') + (y && mm ? ' ו-' : '') + (mm ? (mm === 1 ? 'חודש' : mm + ' חודשים') : ''); };
 function repTotals(d) {
   const L2 = repArr(d, 'loans'), M2 = repArr(d, 'mortgages'), C2 = repArr(d, 'cards'), A2 = repArr(d, 'accounts'), sum = (a, k) => r2(a.reduce((s, x) => s + n(x[k]), 0));
-  const bank = L2.filter((l) => isBankLender(l.lender)), nb = L2.filter((l) => !isBankLender(l.lender));
+  const bank = L2.filter((l) => isBankLender(l.lender)), nb = L2.filter((l) => !isBankLender(l.lender)), G2 = repArr(d, 'guarantees');
   const t = { mortBal: sum(M2, 'balance'), mortMon: sum(M2, 'monthly'), bankBal: sum(bank, 'balance'), bankMon: sum(bank, 'monthly'), nbBal: sum(nb, 'balance'), nbMon: sum(nb, 'monthly'),
     cardsLimit: sum(C2, 'limit'), cardsUsed: sum(C2, 'used'), cardsMon: sum(C2, 'monthly'), overdraft: sum(A2, 'overdraftUsed'), odLimit: sum(A2, 'overdraftLimit'), returned: A2.reduce((s, a) => s + n(a.returned), 0) };
   t.loanBal = r2(t.bankBal + t.nbBal); t.loanMon = r2(t.bankMon + t.nbMon); t.debt = r2(t.mortBal + t.loanBal + t.overdraft + t.cardsUsed); t.monthly = r2(t.mortMon + t.loanMon);
   t.util = t.cardsLimit ? t.cardsUsed / t.cardsLimit : null; t.loans = L2.length; t.mortgages = M2.length; t.inquiries = repArr(d, 'inquiries').length; t.negatives = repArr(d, 'negatives').length;
-  t.activeAcc = A2.filter((a) => !/סגור/.test(a.status || '')).length; t.accounts = A2.length; t.cards = C2.length;
+  t.activeAcc = A2.filter((a) => !a.closed && !/סגור/.test(a.status || '')).length; t.accounts = A2.length; t.cards = C2.length;
+  t.limits = r2(t.odLimit + t.cardsLimit); t.limUtil = t.limits ? (t.overdraft + t.cardsUsed) / t.limits : null;
+  t.loanOrig = sum(L2, 'original'); t.mortOrig = sum(M2, 'original');
+  t.unpaid = r2(sum(L2, 'unpaid') + sum(M2, 'unpaid') + sum(C2, 'unpaid') + sum(A2, 'unpaid'));
+  t.guar = G2.length; t.guarBal = sum(G2, 'balance'); t.closed = repArr(d, 'closed').length + A2.filter((a) => a.closed).length;
   return t;
 }
 const repsOf = (x) => x.reports || [];
@@ -3098,65 +3244,141 @@ function repCard(x, w) {
   const R2 = repsOf(x), B1 = (x.borrowers || [])[1] || {};
   const T = repsOk(x).map((r) => ({ who: repWho(x, r), t: repTotals(r.data) }));
   const kv = (k, v) => '<div><span class="hint">' + k + '</span><b class="num">' + v + '</b></div>';
+  const busy = S.repBusy && S.repBusy.cid === x.id;
   return '<section class="card"><header><h2>דוחות אשראי — פיצול לפי לווה</h2><span class="pill committed">' + R2.length + '</span></header>' +
-    '<p class="hint" style="margin:-4px 0 8px">מעלים דוח BDI / נתוני אשראי / תמצית WISE (PDF או תמונה). Claude מחלץ את הנתונים כהצעה — הם נכנסים לחישובים רק אחרי "אשר נתונים".</p>' +
-    (w ? '<div class="row" style="align-items:flex-end"><label class="fl">של מי הדוח<select class="f" id="repWho"><option value="0">' + esc(whoOf(x, 0)) + '</option><option value="1">' + esc(B1.name || 'בן/בת זוג') + '</option></select></label>' +
-      '<label class="btn small primary">העלה דוח אשראי<input type="file" id="repFile" accept="application/pdf,image/*" hidden></label><span class="hint" id="repSt"></span></div>' : '') +
+    '<p class="hint" style="margin:-4px 0 8px">מעלים את הדוח המלא (דוח ריכוז נתונים של בנק ישראל / BDI / תמצית — PDF או תמונה, גם 50 עמודים). Claude קורא את כל העמודים במנות ומחלץ הצעה — היא נכנסת לחישובים רק אחרי "אשר נתונים".</p>' +
+    (w ? '<div class="row" style="align-items:flex-end"><label class="fl">של מי הדוח<select class="f" id="repWho"' + (busy ? ' disabled' : '') + '><option value="0">' + esc(whoOf(x, 0)) + '</option><option value="1">' + esc(B1.name || 'בן/בת זוג') + '</option></select></label>' +
+      (busy ? '<button class="btn small" data-act="repStop">עצור קריאה</button>' : '<label class="btn small primary">העלה דוח אשראי<input type="file" id="repFile" accept="application/pdf,image/*" hidden></label>') +
+      '<span class="hint" id="repSt" role="status">' + esc(S.repMsg && S.repMsg.cid === x.id ? S.repMsg.text : '') + '</span></div>' : '') +
     (T.length > 1 ? '<div class="scroll" style="margin-top:8px"><table><thead><tr><th>לווה</th><th>סה״כ חוב</th><th>החזר חודשי</th><th>הלוואות</th><th>אזהרות</th></tr></thead><tbody>' + T.map((r) => '<tr><td>' + esc(r.who) + '</td><td class="num">' + plain(r.t.debt) + '</td><td class="num">' + plain(r.t.monthly) + '</td><td class="num">' + r.t.loans + '</td><td class="num">' + r.t.negatives + '</td></tr>').join('') +
       '<tr class="tot"><td>יחד</td><td class="num">' + plain(T.reduce((a, r) => a + r.t.debt, 0)) + '</td><td class="num">' + plain(T.reduce((a, r) => a + r.t.monthly, 0)) + '</td><td class="num">' + T.reduce((a, r) => a + r.t.loans, 0) + '</td><td class="num">' + T.reduce((a, r) => a + r.t.negatives, 0) + '</td></tr></tbody></table></div>' : '') +
-    R2.map((r, ri) => { const d = r.data || {}, t = repTotals(d), ok = r.status === 'verified';
-      const editRow = (k, l, li) => '<tr><td class="wide">' + esc(l.lender || '') + '<div class="hint">' + esc([l.kind, l.track].filter(Boolean).join(' · ')) + '</div></td>' + ['balance', 'monthly', 'rate'].map((f) => '<td><input class="f num" type="number" step="' + (f === 'rate' ? '0.01' : '1') + '" data-rk="' + ri + '|' + k + '.' + li + '.' + f + '" value="' + esc(l[f] ?? '') + '" style="width:' + (f === 'rate' ? 64 : 92) + 'px"' + (w ? '' : ' disabled') + '></td>').join('') + '<td class="num">' + esc(l.end || '') + '</td></tr>';
-      return '<div class="qa" style="margin-top:10px"><div class="row" style="align-items:center"><b>' + esc(repWho(x, r)) + '</b><span class="hint">' + esc(d.reportDate || '') + ' · ' + esc(r.file || '') + '</span><span class="grow"></span>' +
+    R2.map((r, ri) => { const d = r.data || {}, t = repTotals(d), ok = r.status === 'verified', cl = d.client || {}, chk = repCheck(d), miss = (r.read && r.read.missing) || [];
+      const inp = (k, li, f, v, step) => '<td><input class="f num" type="number" step="' + (step || 1) + '" data-rk="' + ri + '|' + k + '.' + li + '.' + f + '" value="' + esc(v ?? '') + '" style="width:' + (step ? 64 : 92) + 'px"' + (w ? '' : ' disabled') + '></td>';
+      const editRow = (k, l, li) => '<tr><td class="wide">' + esc(l.lender || '') + '<div class="hint">' + esc([l.kind, l.track].filter(Boolean).join(' · ')) + '</div></td>' + inp(k, li, 'balance', l.balance) + inp(k, li, 'monthly', l.monthly) + inp(k, li, 'rate', l.rate, '0.01') + '<td class="num">' + esc(l.end || '') + '</td></tr>';
+      const limRow = (k, l, li, nm, a, b) => '<tr><td class="wide">' + esc(nm) + '<div class="hint">' + esc([l.kind || '', l.status || '', l.dealId || ''].filter(Boolean).join(' · ')) + '</div></td>' + inp(k, li, a, l[a]) + inp(k, li, b, l[b]) + '</tr>';
+      return '<div class="qa" style="margin-top:10px"><div class="row" style="align-items:center"><b>' + esc(repWho(x, r)) + '</b><span class="hint">' + esc(d.reportDate || '') + ' · ' + esc(r.file || '') + (r.read ? ' · ' + r.read.pages + ' עמודים' : '') + '</span><span class="grow"></span>' +
           (ok ? '<span class="pill actual">אומת · ' + esc(r.verifiedByName || '') + '</span>' : '<span class="pill expected">הצעה של Claude — לבדוק</span>') + '</div>' +
-        '<div class="kvs">' + kv('סה״כ חוב', plain(t.debt)) + kv('החזר חודשי', plain(t.monthly)) + kv('ניקוד', d.score != null ? esc(d.score) + (d.scoreLabel ? ' · ' + esc(d.scoreLabel) : '') : '—') + kv('בירורים', t.inquiries) + kv('ניצול מסגרות', pctTxt(t.util)) + kv('אזהרות', t.negatives + (t.returned ? ' · ' + t.returned + ' חזרות' : '')) + '</div>' +
+        (miss.length ? '<div class="notice warn" style="display:block;margin:6px 0">לא נקראו עמודים ' + esc(repRanges(miss)) + ' — הנתונים חלקיים.' + (w ? ' <label class="btn small">השלם עמודים חסרים<input type="file" id="repMore" data-ri="' + ri + '" accept="application/pdf" hidden></label>' : '') + '</div>' : '') +
+        (cl.definition || cl.since || repArr(cl, 'related').length ? '<p class="hint" style="margin:2px 0">מצב לקוח: ' + esc([cl.definition, cl.since ? 'נתונים מאז ' + cl.since : '', repArr(cl, 'related').map((q) => 'תאגיד קשור: ' + (q.name || '') + (q.number ? ' (' + q.number + ')' : '')).join(', ')].filter(Boolean).join(' · ')) + '</p>' : '') +
+        '<div class="kvs">' + kv('סה״כ חוב', plain(t.debt)) + kv('החזר חודשי', plain(t.monthly)) + kv('מסגרות', plain(t.limits) + ' · ניצול ' + pctTxt(t.limUtil)) + kv('פיגורים', t.unpaid ? plain(t.unpaid) : 'אין') + kv('בירורים', t.inquiries) + kv('אזהרות', t.negatives + (t.returned ? ' · ' + t.returned + ' חזרות' : '')) + '</div>' +
+        (chk ? '<div class="scroll"><table><thead><tr><th>בדיקה מול תמצית הדוח</th><th>עסקאות בדוח / חולצו</th><th>יתרה בדוח</th><th>חולץ</th><th></th></tr></thead><tbody>' +
+          chk.map((q) => '<tr><td>' + esc(q.label) + '</td><td class="num">' + (q.noSum ? '—' : q.rep.count) + ' / ' + q.got.count + '</td><td class="num">' + (q.noSum ? '—' : plain(q.rep.bal)) + '</td><td class="num">' + plain(q.got.bal) + '</td><td>' +
+            (q.ok ? '<span class="pill actual">תואם</span>' : '<span class="pill open">' + (q.noSum ? 'לא בתמצית' : 'פער ' + plain(q.rep.bal - q.got.bal)) + '</span>') + '</td></tr>').join('') + '</tbody></table></div>' : '') +
         (d.notes ? '<p class="hint" style="margin:0">' + esc(d.notes) + '</p>' : '') +
-        '<details' + (ok ? '' : ' open') + '><summary class="hint">פירוט ועריכה (' + t.loans + ' הלוואות, ' + t.mortgages + ' משכנתאות, ' + t.cards + ' כרטיסים)</summary>' +
-          ((t.loans + t.mortgages) ? '<div class="scroll"><table><thead><tr><th>גוף</th><th>יתרה</th><th>החזר</th><th>ריבית</th><th>סיום</th></tr></thead><tbody>' + repArr(d, 'mortgages').map((l, li) => editRow('mortgages', { ...l, kind: 'משכנתא ' + (l.kind || '') }, li)).join('') + repArr(d, 'loans').map((l, li) => editRow('loans', l, li)).join('') + '</tbody></table></div>' : '') +
-          (t.cards ? '<p class="hint" style="margin:6px 0 2px">כרטיסים: ' + repArr(d, 'cards').map((c2) => esc(c2.issuer || '') + ' ' + plain(c2.used) + '/' + plain(c2.limit)).join(' · ') + '</p>' : '') +
+        '<details' + (ok ? '' : ' open') + '><summary class="hint">פירוט ועריכה (' + t.accounts + ' חשבונות, ' + t.cards + ' מסגרות וכרטיסים, ' + t.loans + ' הלוואות, ' + t.mortgages + ' משכנתאות' + (t.guar ? ', ' + t.guar + ' ערבויות' : '') + ')</summary>' +
+          ((t.loans + t.mortgages) ? '<div class="scroll"><table><thead><tr><th>הלוואות ומשכנתאות</th><th>יתרה</th><th>החזר</th><th>ריבית</th><th>סיום</th></tr></thead><tbody>' + repArr(d, 'mortgages').map((l, li) => editRow('mortgages', { ...l, kind: 'משכנתא ' + (l.kind && l.kind !== 'משכנתא' ? l.kind : '') }, li)).join('') + repArr(d, 'loans').map((l, li) => editRow('loans', l, li)).join('') + '</tbody></table></div>' : '') +
+          (t.accounts ? '<div class="scroll"><table><thead><tr><th>חשבונות עו״ש</th><th>מסגרת</th><th>ניצול</th></tr></thead><tbody>' + repArr(d, 'accounts').map((a, li) => limRow('accounts', a, li, a.bank || '', 'overdraftLimit', 'overdraftUsed')).join('') + '</tbody></table></div>' : '') +
+          (t.cards ? '<div class="scroll"><table><thead><tr><th>מסגרות וכרטיסים</th><th>מסגרת</th><th>ניצול</th></tr></thead><tbody>' + repArr(d, 'cards').map((c2, li) => limRow('cards', c2, li, c2.issuer || '', 'limit', 'used')).join('') + '</tbody></table></div>' : '') +
           (repArr(d, 'negatives').length ? '<p class="hint" style="margin:2px 0;color:var(--open)">' + repArr(d, 'negatives').map((g) => esc([g.kind, g.bank, g.detail].filter(Boolean).join(' — '))).join(' · ') + '</p>' : '') + '</details>' +
-        (w ? '<div class="row">' + (ok ? '' : '<button class="btn small primary" data-repact="verify:' + ri + '">אשר נתונים</button>') + '<button class="btn small" data-repact="pdf:' + ri + '">תמצית PDF</button>' + (ok ? '<button class="btn small" data-repact="obl:' + ri + '">העבר להתחייבויות</button>' : '') + '<button class="btn small ghost danger" data-repact="del:' + ri + '">מחק</button></div>' : '') + '</div>'; }).join('') + '</section>';
+        (w ? '<div class="row">' + (ok ? '' : '<button class="btn small primary" data-repact="verify:' + ri + '">אשר נתונים</button>') + '<button class="btn small" data-repact="view:' + ri + '">תמונת מצב</button><button class="btn small" data-repact="pdf:' + ri + '">תמצית PDF</button>' + (ok ? '<button class="btn small" data-repact="obl:' + ri + '">העבר להתחייבויות</button>' : '') + '<button class="btn small ghost danger" data-repact="del:' + ri + '">מחק</button></div>' : '') + '</div>'; }).join('') + '</section>';
 }
-async function repUpload(cid, file, who) {
-  const st = $('repSt');
+async function repUpload(cid, file, who, ri) {
+  if (S.repBusy) return toast('כבר קורא דוח — חכה או עצור');
+  const ctl = new AbortController(); S.repBusy = { cid, ctl };
+  const say = (text) => { S.repMsg = { cid, text }; const st = $('repSt'); if (st) st.textContent = text; };
+  render();
   try {
-    const d = await askDoc(file, REP_PROMPT, st);
-    const x = JSON.parse(JSON.stringify(intakeDoc(cid)));
-    x.reports = [...(x.reports || []), { id: uid(), who: Number(who) || 0, file: file.name, at: stamp(), by: S.me.id, status: 'proposal', data: d && typeof d === 'object' ? d : {} }];
+    const prev = ri != null ? repsOf(intakeDoc(cid))[ri] : null, only = prev && prev.read && prev.read.missing && prev.read.missing.length ? prev.read.missing : null;
+    const res = await askReport(file, say, ctl.signal, only);
+    const x = JSON.parse(JSON.stringify(intakeDoc(cid))), r0 = prev ? x.reports[ri] : null;
+    if (r0 && res.pages === (r0.read || {}).pages) {
+      r0.data = repBuild(repMerge([r0.data || {}, ...res.parts])); r0.read = { pages: res.pages, chunks: r0.read.chunks, missing: res.missing, at: stamp() };
+      if (r0.status === 'verified') { r0.status = 'proposal'; r0.editedAfterVerify = stamp(); }
+    } else if (r0) { r0.data = repBuild(repMerge(res.parts)); r0.file = file.name; r0.read = { pages: res.pages, chunks: res.chunks, missing: res.missing, at: stamp() }; r0.status = 'proposal'; }
+    else x.reports = [...(x.reports || []), { id: uid(), who: Number(who) || 0, file: file.name, at: stamp(), by: S.me.id, status: 'proposal', data: repBuild(repMerge(res.parts)), read: { pages: res.pages, chunks: res.chunks, missing: res.missing, at: stamp() } }];
     await write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id });
-    if (st) st.textContent = 'נקרא — בדוק את הנתונים ולחץ "אשר נתונים"';
-  } catch (e) { if (st) st.textContent = e.code === 'not_granted' ? 'לא אושרה גישה ל-Claude' : e.code === 'images_unavailable' ? 'הקובץ סרוק והתצוגה הזו לא שולחת תמונות — נסה PDF עם טקסט' : e.code === 'unavailable' ? 'Claude לא זמין בתצוגה הזו' : 'לא הצלחתי לקרוא את הדוח: ' + (e.message || e.code || ''); }
+    say(res.missing.length ? 'נקרא חלקית — לא נקראו עמודים ' + repRanges(res.missing) + (res.limited ? ' (הגעת למגבלת השימוש — נסה שוב מאוחר יותר)' : '') + '. אפשר "השלם עמודים חסרים".' : 'נקראו כל ' + res.pages + ' העמודים — בדוק מול התמצית ולחץ "אשר נתונים"');
+  } catch (e) { say(e.code === 'cancelled' ? 'הקריאה נעצרה' : e.code === 'not_granted' ? 'לא אושרה גישה ל-Claude' : e.code === 'images_unavailable' ? 'הקובץ סרוק והתצוגה הזו לא שולחת תמונות — נסה PDF עם טקסט' : e.code === 'unavailable' ? 'Claude לא זמין בתצוגה הזו' : 'לא הצלחתי לקרוא את הדוח: ' + (e.message || e.code || '')); }
+  finally { S.repBusy = null; render(); }
 }
-/* תמצית PDF — באותו מבנה של תמונת המצב האשראית */
+/* תמונת מצב אשראית — באותו מבנה של WISE: התפלגות, אריחים, חשבונות, מסגרות, הלוואות לפי גוף, משכנתאות, ערבויות, אינדיקציות, בירורים */
 function creditSummaryHtml(x, r, name) {
-  const d = r.data || {}, t = repTotals(d), C = intakeCalc(x);
-  const wrap = (body) => '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:24px 30px;background:#fff">' + body + '</div>';
-  const box = (k, v, sub) => '<div style="border:1px solid #EAECF0;border-radius:10px;padding:8px 10px;background:#FCFCFD"><div style="font-size:11px;color:#667085">' + k + '</div><div style="font-size:17px;font-weight:700">' + v + '</div>' + (sub ? '<div style="font-size:10.5px;color:#667085">' + sub + '</div>' : '') + '</div>';
-  const grid = (cells) => '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0">' + cells.join('') + '</div>';
-  const th = (cells) => '<tr>' + cells.map((v) => '<th style="text-align:right;padding:5px 6px;border-bottom:2px solid #D0D5DD;color:#475467;font-weight:600;font-size:11.5px">' + v + '</th>').join('') + '</tr>';
-  const tr = (cells, b) => '<tr' + (b ? ' style="font-weight:700;background:#F2F4F7"' : '') + '>' + cells.map((v) => '<td style="padding:5px 6px;border-bottom:1px solid #EAECF0;font-size:12px">' + v + '</td>').join('') + '</tr>';
-  const tbl = (head, rows) => rows.length ? '<table style="width:100%;border-collapse:collapse;margin:4px 0 10px">' + th(head) + rows.join('') + '</table>' : '<div style="font-size:12px;color:#667085;margin:4px 0 10px">לא זוהו</div>';
-  const h = (s2, sub) => '<h3 style="font-size:16px;margin:14px 0 2px">' + s2 + '</h3>' + (sub ? '<div style="font-size:11px;color:#667085">' + sub + '</div>' : '');
-  const bar = (label, v) => { const p = t.debt ? v / t.debt : 0; return '<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><span>' + label + '</span><b>' + plain(v) + ' · ' + Math.round(p * 100) + '%</b></div><div style="height:7px;border-radius:9px;background:#EAECF0"><div style="height:7px;border-radius:9px;width:' + Math.round(p * 100) + '%;background:#1570EF"></div></div></div>'; };
+  const d = r.data || {}, t = repTotals(d), C = intakeCalc(x), cl = d.client || {}, asOf = d.reportDate || today(), chk = repCheck(d), miss = (r.read && r.read.missing) || [];
+  const K = { mute: '#667085', line: '#EAECF0', soft: '#F9FAFB', red: '#B42318', redBg: '#FEF3F2', redLine: '#FECDCA', green: '#067647', greenBg: '#ECFDF3', blue: '#1570EF' };
+  const money = (v) => repBlank(v) ? '—' : plain(v), pc = (v) => repBlank(v) ? '—' : esc(v) + '%';
+  const wrap = (body) => '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:22px 30px;background:#fff">' + body + '</div>';
+  const tile = (k, v, o = {}) => '<div style="border:1px solid ' + K.line + ';border-radius:10px;padding:7px 10px;background:' + (o.bg || K.soft) + '"><div style="font-size:10.5px;color:' + K.mute + '">' + k + '</div><div style="font-size:' + (o.small ? 12.5 : 16) + 'px;font-weight:700;line-height:1.35' + (o.red ? ';color:' + K.red : '') + '">' + v + '</div>' + (o.sub ? '<div style="font-size:10px;color:' + K.mute + '">' + o.sub + '</div>' : '') + '</div>';
+  const tiles = (cells, cols) => '<div style="display:grid;grid-template-columns:repeat(' + (cols || 4) + ',1fr);gap:7px;margin:8px 0">' + cells.join('') + '</div>';
+  const pill = (txt, red, mute) => '<span style="font-size:10.5px;padding:2px 9px;border-radius:99px;background:' + (mute ? K.line : red ? K.redBg : K.greenBg) + ';color:' + (mute ? K.mute : red ? K.red : K.green) + ';font-weight:700;white-space:nowrap">' + txt + '</span>';
+  const sec = (title, sub) => '<div data-pk="h" style="margin:20px 0 6px;border-bottom:2px solid #101828;padding-bottom:4px"><b style="font-size:18px">' + title + '</b>' + (sub ? '<div style="font-size:11px;color:' + K.mute + '">' + sub + '</div>' : '') + '</div>';
+  const redLine = (txt) => '<div style="border:1px solid ' + K.redLine + ';background:' + K.redBg + ';color:' + K.red + ';border-radius:8px;padding:5px 10px;font-size:11.5px;margin-top:6px;font-weight:600">' + txt + '</div>';
+  const th = (cells) => '<tr>' + cells.map((v) => '<th style="text-align:right;padding:4px 6px;border-bottom:2px solid #D0D5DD;color:#475467;font-weight:600;font-size:10.5px">' + v + '</th>').join('') + '</tr>';
+  const tr = (cells, b) => '<tr' + (b ? ' style="font-weight:700;background:#F2F4F7"' : '') + '>' + cells.map((v) => '<td style="padding:4px 6px;border-bottom:1px solid ' + K.line + ';font-size:11.5px">' + v + '</td>').join('') + '</tr>';
+  const tbl = (head, rows, empty) => rows.length ? '<table style="width:100%;border-collapse:collapse;margin:4px 0 8px">' + th(head) + rows.join('') + '</table>' : (empty === false ? '' : '<div style="font-size:12px;color:' + K.mute + ';margin:4px 0 10px">' + (empty || 'לא זוהו') + '</div>');
+  const tracks = (l) => { const T2 = repArr(l, 'tracks'); if (!T2.length) return '';
+    return '<div style="font-size:10.5px;color:' + K.mute + ';margin-top:4px">מסלולי ריבית</div>' + tbl(['מסלול', 'הצמדה', 'עוגן', 'מרווח', 'נומינלית', 'מתואמת', 'יתרה / ניצול'], T2.map((q) => tr([esc(q.kind || '—'), esc(q.linkage || '—'), esc(q.anchor || '—'), pc(q.margin), pc(q.nominal), pc(q.effective), money(q.balance)]))); };
+  const dates = (l) => [l.status ? 'סטטוס: ' + esc(l.status) : '', l.start ? 'פתיחה: ' + esc(l.start) : '', l.end ? 'סיום: ' + esc(l.end) + (repLeft(l.end, asOf) ? ' (' + repLeft(l.end, asOf) + ')' : '') : '', l.updated ? 'עודכן: ' + esc(l.updated) : '', l.branch ? 'סניף ' + esc(l.branch) : '', l.dealId ? 'מזהה ' + esc(l.dealId) : ''].filter(Boolean).join(' · ');
+  const head = (title, badge, sub) => '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:13.5px">' + title + '</b>' + badge + '</div>' + (sub ? '<div style="font-size:10.5px;color:' + K.mute + ';margin:2px 0 2px">' + sub + '</div>' : '');
+  const box = (body, red) => '<div data-pk="1" style="border:1px solid ' + (red ? K.redLine : K.line) + ';border-radius:12px;padding:10px 12px;margin:8px 0;background:#fff">' + body + '</div>';
+  const group = (title, badge, sub, body) => '<div style="border:1px solid ' + K.line + ';border-radius:14px;padding:10px 12px;margin:10px 0;background:' + K.soft + '">' + head(title, badge, sub) + body + '</div>';
+  const coll = (l) => repArr(l, 'collateral').map((q) => [q.type, repBlank(q.value) ? '' : plain(q.value)].filter(Boolean).join(' · ')).join(' / ') || '—';
+  const rateTxt = (l) => { const mt = repMainTrack(l); return mt ? esc(repTrackTxt(mt) || '—') + (repRateOf(mt) != null ? ' · ' + repRateOf(mt) + '%' : '') : (repBlank(l.rate) ? '—' : esc(l.rate) + '%' + (l.track ? ' · ' + esc(l.track) : '')); };
+  /* ── עמוד 1: תמונה כוללת ── */
+  const bar = (label, v, cnt) => { const p = t.debt ? v / t.debt : 0; return '<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><span>' + label + (cnt != null ? ' (' + cnt + ')' : '') + '</span><b>' + plain(v) + ' · ' + Math.round(p * 100) + '%</b></div><div style="height:7px;border-radius:9px;background:' + K.line + '"><div style="height:7px;border-radius:9px;width:' + Math.round(p * 100) + '%;background:' + K.blue + '"></div></div></div>'; };
   const sc = n(d.score), ang = Math.max(0, Math.min(1, (sc - 300) / 700)), gx = 70 - 55 * Math.cos(Math.PI * ang), gy = 70 - 55 * Math.sin(Math.PI * ang);
-  const gauge = d.score != null ? '<svg width="150" height="90" viewBox="0 0 140 85"><path d="M15 70 A55 55 0 0 1 125 70" fill="none" stroke="#EAECF0" stroke-width="12"/><path d="M15 70 A55 55 0 0 1 125 70" fill="none" stroke="url(#g)" stroke-width="12"/><defs><linearGradient id="g"><stop offset="0" stop-color="#D92D20"/><stop offset=".5" stop-color="#FDB022"/><stop offset="1" stop-color="#12B76A"/></linearGradient></defs><line x1="70" y1="70" x2="' + gx.toFixed(1) + '" y2="' + gy.toFixed(1) + '" stroke="#101828" stroke-width="3"/><circle cx="70" cy="70" r="5" fill="#101828"/><text x="70" y="52" text-anchor="middle" font-size="20" font-weight="700" fill="#101828">' + esc(d.score) + '</text></svg>' : '';
+  const gauge = d.score != null && d.score !== '' ? '<svg width="150" height="90" viewBox="0 0 140 85"><path d="M15 70 A55 55 0 0 1 125 70" fill="none" stroke="#EAECF0" stroke-width="12"/><path d="M15 70 A55 55 0 0 1 125 70" fill="none" stroke="url(#g)" stroke-width="12"/><defs><linearGradient id="g"><stop offset="0" stop-color="#D92D20"/><stop offset=".5" stop-color="#FDB022"/><stop offset="1" stop-color="#12B76A"/></linearGradient></defs><line x1="70" y1="70" x2="' + gx.toFixed(1) + '" y2="' + gy.toFixed(1) + '" stroke="#101828" stroke-width="3"/><circle cx="70" cy="70" r="5" fill="#101828"/><text x="70" y="52" text-anchor="middle" font-size="20" font-weight="700" fill="#101828">' + esc(d.score) + '</text></svg>' : '';
+  const related = repArr(cl, 'related').map((q) => esc(q.name || '') + (q.number ? ' (' + esc(q.number) + ')' : '')).join(', ');
+  const status = '<div style="border:1px solid ' + K.line + ';border-radius:12px;padding:10px 12px"><b style="font-size:14px">מצב לקוח</b>' +
+    (gauge ? '<div style="text-align:center">' + gauge + (d.scoreLabel ? '<div style="font-size:12px;font-weight:600">' + esc(d.scoreLabel) + '</div>' : '') + '</div>' : '') +
+    [['הגדרה', cl.definition], ['נתונים נאספים מאז', cl.since], ['תאגיד קשור', related], ['עסקאות פעילות', String(t.activeAcc + t.cards + t.loans + t.mortgages)], ['ערב ל', t.guar ? t.guar + ' עסקאות · ' + plain(t.guarBal) : 'אין'], ['נסגרו (3 שנים)', String(t.closed)],
+      ['פיגורים', t.unpaid ? '<span style="color:' + K.red + '">' + plain(t.unpaid) + '</span>' : '<span style="color:' + K.green + '">אין</span>']].filter(([, v]) => !repBlank(v))
+      .map(([k, v]) => '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:3px 0;border-bottom:1px solid ' + K.line + '"><span style="color:' + K.mute + '">' + k + '</span><b style="text-align:left">' + v + '</b></div>').join('') + '</div>';
+  const flags = repArr(d, 'negatives');
+  const banner = flags.length || t.unpaid ? '<div style="border:1px solid ' + K.redLine + ';background:' + K.redBg + ';border-radius:10px;padding:8px 12px;font-size:12px;color:' + K.red + ';margin-top:8px"><b>שים לב:</b> ' + flags.slice(0, 4).map((g) => esc([g.kind, g.bank].filter(Boolean).join(' — '))).join(' · ') + (flags.length > 4 ? ' ועוד ' + (flags.length - 4) : '') + '</div>'
+    : '<div style="border:1px solid #ABEFC6;background:' + K.greenBg + ';border-radius:10px;padding:8px 12px;font-size:12px;color:' + K.green + ';margin-top:8px">לא נמצאו בדוח פיגורים, חזרות או הגבלות.</div>';
   const ptiNow = C.inc ? t.monthly / C.inc : null;
-  const p1 = '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:11px;color:#667085">דוח אשראי ליועץ · ' + esc(name) + (r.who === 1 ? ' (בן/בת זוג)' : '') + '</div><div style="font-size:22px;font-weight:800">תמונת מצב אשראית</div><div style="font-size:12px;color:#475467">תאריך דוח: ' + esc(d.reportDate || '—') + ' · הר-אל פתרונות מימון</div></div><div style="font-size:11px;color:#667085;text-align:left">' + (r.status === 'verified' ? 'נתונים מאומתים · ' + esc(r.verifiedByName || '') : 'טיוטה — נתונים לא אומתו') + '<br>הופק ' + dLabel(today()) + '</div></div>' +
-    '<div style="display:grid;grid-template-columns:1fr 210px;gap:14px;margin-top:12px"><div style="border:1px solid #EAECF0;border-radius:12px;padding:10px 14px"><div style="display:flex;justify-content:space-between"><b style="font-size:15px">התפלגות ההתחייבויות</b><b style="font-size:20px">' + plain(t.debt) + '</b></div>' +
-      bar('משכנתאות', t.mortBal) + bar('הלוואות', t.loanBal) + bar('אוברדרפט בחשבונות', t.overdraft) + bar('כרטיסי אשראי / מסגרות', t.cardsUsed) + '</div>' +
-      '<div style="border:1px solid #EAECF0;border-radius:12px;padding:10px;text-align:center"><div style="font-size:12px;color:#667085">ניקוד אשראי</div>' + (gauge || '<div style="font-size:14px;color:#667085;margin:20px 0">לא מופיע בדוח</div>') + (d.scoreLabel ? '<div style="font-size:13px;font-weight:600">' + esc(d.scoreLabel) + '</div>' : '') + '</div></div>' +
-    grid([box('סה״כ חוב', plain(t.debt)), box('סה״כ החזר חודשי', plain(t.monthly)), box('החזר משכנתאות (' + t.mortgages + ')', plain(t.mortMon)), box('החזר הלוואות (' + t.loans + ')', plain(t.loanMon)), box('בירורים', t.inquiries),
-      box('חשבונות בנק', t.accounts + (t.accounts - t.activeAcc ? ' (' + (t.accounts - t.activeAcc) + ' לא פעילים)' : '')), box('כרטיסי אשראי', t.cards), box('ניצול מסגרות', pctTxt(t.util)), box('דגלים אדומים', t.negatives), box('צ׳קים / הוראות קבע חוזרים', t.returned)]) +
-    (C.inc ? '<div style="border:1px solid #FEC84B;background:#FFFAEB;border-radius:10px;padding:8px 12px;font-size:12.5px">יחס החזר לפי הדוח: <b>' + pctTxt(ptiNow) + '</b> (החזר ' + plain(t.monthly) + ' מול הכנסה ' + plain(C.inc) + ')' + (d.notes ? ' · ' + esc(d.notes) : '') + '</div>' : (d.notes ? '<div style="border:1px solid #FEC84B;background:#FFFAEB;border-radius:10px;padding:8px 12px;font-size:12.5px">' + esc(d.notes) + '</div>' : '')) +
-    h('חשבונות בנק', 'מסגרות, יתרות וחזרות') + tbl(['בנק', 'סטטוס', 'מסגרת', 'ניצול', 'חזרות'], repArr(d, 'accounts').map((a) => tr([esc(a.bank || ''), esc(a.status || ''), plain(a.overdraftLimit), plain(a.overdraftUsed), esc(a.returned ?? '—')]))) +
-    h('כרטיסי אשראי', 'מסגרות, ניצול וחיוב חודשי') + tbl(['מנפיק', 'מסגרת', 'ניצול', '%', 'חיוב חודשי'], repArr(d, 'cards').map((c2) => tr([esc(c2.issuer || ''), plain(c2.limit), plain(c2.used), n(c2.limit) ? Math.round(n(c2.used) / n(c2.limit) * 100) + '%' : '—', plain(c2.monthly)])).concat(t.cards ? [tr(['סה״כ', plain(t.cardsLimit), plain(t.cardsUsed), pctTxt(t.util), plain(t.cardsMon)], true)] : []));
-  const loanRows = (arr) => arr.map((l) => tr([esc(l.lender || ''), esc([l.kind, l.track].filter(Boolean).join(' · ')), plain(l.original), plain(l.balance), plain(l.monthly), l.rate != null && l.rate !== '' ? esc(l.rate) + '%' : '—', esc(l.end || '')]));
-  const p2 = h('הלוואות', t.loans + ' הלוואות · יתרה ' + plain(t.loanBal) + ' · החזר ' + plain(t.loanMon) + ' (בנקאי ' + plain(t.bankMon) + ', חוץ-בנקאי ' + plain(t.nbMon) + ')') +
-      tbl(['גוף', 'סוג / מסלול', 'סכום מקורי', 'יתרה', 'החזר', 'ריבית', 'סיום'], loanRows(repArr(d, 'loans')).concat(t.loans ? [tr(['סה״כ', '', '', plain(t.loanBal), plain(t.loanMon), '', ''], true)] : [])) +
-    h('משכנתאות', t.mortgages ? '' : 'לא זוהו משכנתאות פעילות') + (t.mortgages ? tbl(['גוף', 'מסלול', 'סכום מקורי', 'יתרה', 'החזר', 'ריבית', 'סיום'], loanRows(repArr(d, 'mortgages'))) : '') +
-    h('אינדיקציות שליליות', 'הגבלות, חזרות, עיקולים, פיגורים') + tbl(['סוג', 'בנק', 'פירוט'], repArr(d, 'negatives').map((g) => tr([esc(g.kind || ''), esc(g.bank || ''), esc(g.detail || '')]))) +
-    h('בירורי אשראי', t.inquiries + ' בירורים') + tbl(['תאריך', 'גורם מבקש', 'סוג בקשה'], repArr(d, 'inquiries').map((q) => tr([esc(q.date || ''), esc(q.by || ''), esc(q.kind || '')])));
-  const sel = consolItems(x).filter((i) => i.on), p3 = sel.length ? h('הצעת איחוד — הר-אל', 'מההלוואות שסומנו לאיחוד') + tbl(['גוף', 'יתרה', 'החזר'], sel.map((i) => tr([esc(i.lender || ''), plain(i.balance), plain(i.monthly)])).concat([tr(['סה״כ', plain(sel.reduce((a, i) => a + i.balance, 0)), plain(sel.reduce((a, i) => a + i.monthly, 0))], true)])) : '';
-  return [wrap(p1), wrap(p2 + p3 + '<div style="font-size:10.5px;color:#667085;margin-top:10px">הנתונים חולצו מהדוח ' + (r.status === 'verified' ? 'ואומתו ידנית' : 'וטרם אומתו') + '. מסמך עבודה פנימי — לא ייעוץ ולא התחייבות.</div>')];
+  const p1 = '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:11px;color:' + K.mute + '">דוח אשראי ליועץ · ' + esc(name) + (r.who === 1 ? ' (בן/בת זוג)' : '') + '</div><div style="font-size:24px;font-weight:800">תמונת מצב אשראית</div><div style="font-size:12px;color:#475467">תאריך דוח: ' + esc(d.reportDate || '—') + (r.read ? ' · ' + r.read.pages + ' עמודים נקראו' + (miss.length ? ' (חסרים ' + esc(repRanges(miss)) + ')' : '') : '') + ' · הר-אל פתרונות מימון</div></div><div style="font-size:11px;color:' + K.mute + ';text-align:left">' + (r.status === 'verified' ? 'נתונים מאומתים · ' + esc(r.verifiedByName || '') : 'טיוטה — נתונים לא אומתו') + '<br>הופק ' + dLabel(today()) + '</div></div>' +
+    '<div style="display:grid;grid-template-columns:1fr 240px;gap:14px;margin-top:12px"><div style="border:1px solid ' + K.line + ';border-radius:12px;padding:10px 14px"><div style="display:flex;justify-content:space-between"><b style="font-size:15px">התפלגות ההתחייבויות</b><b style="font-size:20px">' + plain(t.debt) + '</b></div>' +
+      bar('משכנתאות', t.mortBal, t.mortgages) + bar('הלוואות', t.loanBal, t.loans) + bar('אוברדרפט בחשבונות', t.overdraft, t.activeAcc) + bar('מסגרות וכרטיסי אשראי', t.cardsUsed, t.cards) + '</div>' + status + '</div>' +
+    tiles([tile('סה״כ חוב', plain(t.debt)), tile('סה״כ החזר חודשי', plain(t.monthly)), tile('החזר משכנתאות (' + t.mortgages + ')', plain(t.mortMon)), tile('החזר הלוואות (' + t.loans + ')', plain(t.loanMon)), tile('בירורים', t.inquiries),
+      tile('חשבונות בנק', t.activeAcc + (t.accounts - t.activeAcc ? ' <span style="font-size:11px;color:' + K.mute + '">+' + (t.accounts - t.activeAcc) + ' סגורים</span>' : '')), tile('מסגרות וכרטיסים', t.cards), tile('ניצול מסגרות', pctTxt(t.limUtil), { sub: plain(t.overdraft + t.cardsUsed) + ' מתוך ' + plain(t.limits) }), tile('דגלים אדומים', t.negatives, { red: t.negatives > 0 }), tile('צ׳קים / הוראות קבע חוזרים', t.returned, { red: t.returned > 0 })], 5) +
+    banner + (C.inc ? '<div style="border:1px solid #FEC84B;background:#FFFAEB;border-radius:10px;padding:8px 12px;font-size:12px;margin-top:8px">יחס החזר לפי הדוח: <b>' + pctTxt(ptiNow) + '</b> (החזר ' + plain(t.monthly) + ' מול הכנסה ' + plain(C.inc) + ')</div>' : '') +
+    (d.notes ? '<div style="font-size:11.5px;color:#475467;margin-top:8px">' + esc(d.notes) + '</div>' : '') +
+    (chk ? sec('בדיקה מול תמצית הדוח', 'מספר העסקאות והיתרות שחולצו מול טבלאות "ריכוז עסקאות פעילות" בדוח המקור') +
+      tbl(['סוג עסקה', 'עסקאות בדוח', 'חולצו', 'יתרה בדוח', 'יתרה שחולצה', 'סכום מקורי / מסגרת', ''], chk.map((q) => tr([esc(q.label), q.noSum ? '—' : String(q.rep.count), String(q.got.count), q.noSum ? '—' : plain(q.rep.bal), plain(q.got.bal), q.noSum ? plain(q.got.amt) : plain(q.rep.amt), q.ok ? pill('תואם') : pill(q.noSum ? 'לא בתמצית' : 'פער', true)])).concat([tr(['סה״כ', '', '', plain(chk.reduce((a, q) => a + q.rep.bal, 0)), plain(chk.reduce((a, q) => a + q.got.bal, 0)), '', ''], true)])) : '');
+  /* ── חשבונות בנק ומסגרות ── */
+  const A2 = repArr(d, 'accounts'), C2 = repArr(d, 'cards');
+  const accBox = (a) => { const util = n(a.overdraftLimit) ? n(a.overdraftUsed) / n(a.overdraftLimit) : null, red = n(a.returned) > 0 || n(a.unpaid) > 0, M = repArr(a, 'returnsByMonth');
+    return box(head(esc(a.bank || '—'), a.closed ? pill('סגור', false, true) : red ? pill((n(a.returned) ? a.returned + ' חזרות' : 'פיגור'), true) : pill('פעיל'), dates(a)) +
+      (a.closed ? '' : tiles([tile('מסגרת אשראי', money(a.overdraftLimit)), tile('יתרה / ניצול', money(a.overdraftUsed)), tile('ניצול', pctTxt(util), { red: util > 0.9 })], 3)) + tracks(a) +
+      (!repBlank(a.checks) || !repBlank(a.debits) ? '<div style="font-size:11px;color:#475467;margin-top:4px">12 חודשים אחרונים: ' + [!repBlank(a.checks) ? a.checks + ' צ׳קים הוצגו · ' + n(a.checksReturned) + ' חזרו' : '', !repBlank(a.debits) ? a.debits + ' הוראות חיוב · ' + n(a.debitsReturned) + ' חזרו' : ''].filter(Boolean).join(' | ') + '</div>' : '') +
+      (M.length ? tbl(['חודש', 'צ׳קים שחזרו', 'הוראות קבע שחזרו'], M.map((q) => tr([esc(q.month || ''), String(n(q.checks)), String(n(q.debits))]))) : '') + (n(a.unpaid) > 0 ? redLine('יתרה שלא שולמה במועד: ' + plain(a.unpaid)) : ''), red); };
+  const cardBox = (c2) => { const util = n(c2.limit) ? n(c2.used) / n(c2.limit) : null, red = n(c2.unpaid) > 0;
+    return box(head(esc(c2.issuer || '—') + ' · ' + esc(c2.kind || 'מסגרת'), red ? pill('פיגור', true) : pill('תקין'), dates(c2)) + tiles([tile('מסגרת', money(c2.limit)), tile('יתרה', money(c2.used)), tile('חיוב חודשי', money(c2.monthly)), tile('ניצול', pctTxt(util), { red: util > 0.9 })]) + tracks(c2) + (red ? redLine('יתרה שלא שולמה במועד: ' + plain(c2.unpaid)) : ''), red); };
+  const p2 = sec('חשבונות בנק', 'מסגרות, ניצול, ריביות וחזרות') + tiles([tile('פעילים', t.activeAcc), tile('סגורים', t.accounts - t.activeAcc), tile('מסגרות בחשבונות', plain(t.odLimit)), tile('חזרות', t.returned, { red: t.returned > 0 })]) + (A2.length ? A2.map(accBox).join('') : tbl([], [])) +
+    sec('כרטיסי אשראי ומסגרות', 'מסגרות אשראי מתחדשות וכרטיסים') + tiles([tile('מסגרות / כרטיסים', t.cards), tile('סה״כ מסגרות', plain(t.cardsLimit)), tile('ניצול', plain(t.cardsUsed) + ' · ' + pctTxt(t.util)), tile('חיוב חודשי', plain(t.cardsMon))]) + (C2.length ? C2.map(cardBox).join('') : tbl([], []));
+  /* ── הלוואות ומשכנתאות לפי גוף ── */
+  const loanBox = (l, i, label) => { const red = n(l.unpaid) > 0, left = repLeft(l.end, asOf);
+    return box(head(label + ' ' + (i + 1) + (l.purpose ? ' · ' + esc(l.purpose) : ''), red ? pill('פיגור', true) : pill('תקין'), dates({ ...l, end: '' })) +
+      tiles([tile('מטרה', esc(l.purpose || l.kind || '—'), { small: true }), tile('בטוחה', esc(coll(l)), { small: true }), tile('החזר חודשי', money(l.monthly), { sub: l.frequency ? esc(l.frequency) : '' }), tile('ריבית / מסלול', rateTxt(l), { small: true }),
+        tile('יתרה בפועל', money(l.balance)), tile('סכום מקורי', money(l.original)), tile('תאריך סיום', esc(l.end || '—'), { small: true }), tile('תקופה שנותרה', left || '—', { small: true })]) +
+      (repArr(l, 'tracks').length > 1 ? tracks(l) : '') + (!repBlank(l.balloon) && n(l.balloon) ? '<div style="font-size:11px;color:#475467">בלון: ' + plain(l.balloon) + '</div>' : '') + (red ? redLine('פיגור בתשלום — יתרה שלא שולמה במועד: ' + plain(l.unpaid)) : ''), red); };
+  const byLender = (arr, label) => { const g = new Map(); arr.forEach((l) => { const k = l.lender || '—'; if (!g.has(k)) g.set(k, []); g.get(k).push(l); });
+    return [...g].map(([k, ls]) => { const late = ls.filter((l) => n(l.unpaid) > 0).length, sm = (f) => ls.reduce((a, l) => a + n(l[f]), 0);
+      return group(esc(k), late ? pill(late + ' בפיגור', true) : pill('תקין'), ls.length + ' ' + (label === 'משכנתא' ? 'משכנתאות' : 'הלוואות') + ' פעילות',
+        tiles([tile('יתרה כוללת', plain(sm('balance'))), tile('החזר חודשי', plain(sm('monthly'))), tile('סכום מקורי', plain(sm('original'))), tile(label === 'משכנתא' ? 'משכנתאות' : 'הלוואות', ls.length)]) + ls.map((l, i) => loanBox(l, i, label)).join('')); }).join(''); };
+  const L2 = repArr(d, 'loans'), M2 = repArr(d, 'mortgages');
+  const p3 = sec('הלוואות', 'מקובץ לפי בנק או גוף מלווה') + tiles([tile('הלוואות', t.loans), tile('יתרה', plain(t.loanBal)), tile('החזר חודשי', plain(t.loanMon), { sub: 'בנקאי ' + plain(t.bankMon) + ' · חוץ-בנקאי ' + plain(t.nbMon) }), tile('סכום מקורי', plain(t.loanOrig))]) + (L2.length ? byLender(L2, 'הלוואה') : tbl([], [], 'לא זוהו הלוואות פעילות'));
+  const p4 = sec('משכנתאות', 'כל חלק / מסלול שמדווח כעסקה נפרדת') + (M2.length ? tiles([tile('משכנתאות', t.mortgages), tile('יתרה', plain(t.mortBal)), tile('החזר חודשי', plain(t.mortMon)), tile('סכום מקורי', plain(t.mortOrig))]) + byLender(M2, 'משכנתא') : tbl([], [], 'לא זוהו משכנתאות פעילות'));
+  /* ── ערבויות, עסקאות שנסגרו, אינדיקציות, בירורים ── */
+  const G2 = repArr(d, 'guarantees'), X2 = repArr(d, 'closed'), Q2 = repArr(d, 'inquiries');
+  const negBoxes = flags.length ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0">' + flags.map((g) => '<div style="border:1px solid ' + K.redLine + ';background:' + K.redBg + ';border-radius:10px;padding:8px 10px"><b style="font-size:12.5px;color:' + K.red + '">' + esc(g.kind || 'אינדיקציה') + '</b><div style="font-size:11.5px">' + esc(g.bank || '') + '</div><div style="font-size:11px;color:#475467">' + esc([g.detail, g.date].filter(Boolean).join(' · ')) + '</div></div>').join('') + '</div>' : tbl([], [], 'לא נמצאו אינדיקציות שליליות');
+  const retByBank = A2.filter((a) => n(a.returned) > 0);
+  const p5 = (G2.length ? sec('עסקאות בהן הלקוח ערב', G2.length + ' עסקאות · יתרה ' + plain(t.guarBal)) + tbl(['גוף', 'סוג', 'סכום / מסגרת', 'יתרה', 'פיגור', 'סיום'], G2.map((g) => tr([esc(g.lender || ''), esc(REP_KINDS[g.dk] || g.kind || ''), money(repBlank(g.original) ? g.limit : g.original), money(g.balance), n(g.unpaid) ? '<b style="color:' + K.red + '">' + plain(g.unpaid) + '</b>' : '—', esc(g.end || '')]))) : '') +
+    sec('אינדיקציות שליליות', 'הגבלות, עיקולים, פיגורים וחזרות') + negBoxes +
+    (retByBank.length ? '<div style="font-size:12px;font-weight:700;margin-top:6px">שיקים והוראות קבע לפי בנק</div>' + tbl(['בנק', 'צ׳קים שהוצגו', 'צ׳קים שחזרו', 'הוראות חיוב', 'הוראות שחזרו'], retByBank.map((a) => tr([esc(a.bank || ''), esc(a.checks ?? '—'), String(n(a.checksReturned)), esc(a.debits ?? '—'), String(n(a.debitsReturned))]))) : '') +
+    sec('בירורי אשראי', Q2.length + ' בירורים') + tbl(['תאריך', 'גורם מבקש', 'סוג בקשה', 'סכום'], Q2.map((q) => tr([esc(q.date || ''), esc(q.by || ''), esc(q.kind || ''), money(q.amount)]))) +
+    (X2.length ? sec('עסקאות שהסתיימו', 'ב-3 השנים של הדוח') + tbl(['גוף', 'סוג', 'סכום מקורי', 'פתיחה', 'סיום'], X2.map((l) => tr([esc(l.lender || ''), esc(REP_KINDS[l.dk] || l.kind || ''), money(l.original), esc(l.start || ''), esc(l.end || '')]))) : '');
+  const sel = consolItems(x).filter((i) => i.on), p6 = sel.length ? sec('הצעת איחוד — הר-אל', 'מההלוואות שסומנו לאיחוד') + tbl(['גוף', 'יתרה', 'החזר'], sel.map((i) => tr([esc(i.lender || ''), plain(i.balance), plain(i.monthly)])).concat([tr(['סה״כ', plain(sel.reduce((a, i) => a + i.balance, 0)), plain(sel.reduce((a, i) => a + i.monthly, 0))], true)])) : '';
+  const foot = '<div style="font-size:10.5px;color:' + K.mute + ';margin-top:12px">הנתונים חולצו מהדוח ' + (r.status === 'verified' ? 'ואומתו ידנית' : 'וטרם אומתו') + '. מסמך עבודה פנימי — לא ייעוץ ולא התחייבות.</div>';
+  return [wrap(p1), wrap(p2), wrap(p3), wrap(p4 + p5 + p6 + foot)];
+}
+function repView(cid, ri) {
+  const x = intakeDoc(cid), r = repsOf(x)[ri], { c } = intakeWho(cid); if (!r || !c) return;
+  $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="תמונת מצב אשראית" style="width:min(840px,100%)"><header><h2 class="grow">תמונת מצב אשראית</h2><button class="btn small" data-repact="pdf:' + ri + '">הורד PDF</button><button class="btn small ghost" data-close aria-label="סגור">✕</button></header>' +
+    '<div id="repViewBox" style="overflow-x:auto;background:#fff"><div id="repViewDoc">' + creditSummaryHtml(x, r, repWho(x, r) || c.name).join('') + '</div></div></div></div>';
+  const bx = $('repViewBox'), z = Math.min(1, (bx.clientWidth - 4) / 820); if (z < 1) $('repViewDoc').style.zoom = z.toFixed(3); /* מסך צר: מקטינים את המסמך במקום גלילה לצדדים */
+  $('scrim').addEventListener('click', (e) => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) $('layer').innerHTML = ''; });
 }
 async function repPdf(cid, ri) {
   const x = intakeDoc(cid), r = repsOf(x)[ri], { c } = intakeWho(cid); if (!r || !c) return;
@@ -3279,7 +3501,7 @@ async function driveFolderFor(scope, id, name) {
   else { const x = JSON.parse(JSON.stringify(intakeDoc(id))); await write('intakes/' + id, { ...x, id, clientId: id, driveFolder: fid, updatedAt: stamp() }).catch(() => {}); }
   return fid;
 }
-const SCAN_ROOT = '__CRM_SCAN_FOLDER__'; /* "הר-אל CRM — סריקות לקוחות" בדרייב של דן */
+const SCAN_ROOT = '1smk0GUKWz5eFAyrOe7e2sxAHphemmPoU'; /* "הר-אל CRM — סריקות לקוחות" בדרייב של דן */
 const b64Of = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 async function scanUpload(scope, key, file) {
   const id = S.view.clientId, who = scope === 'intake' ? intakeWho(id).c : S.clients.get(id); if (!who) return;
@@ -3839,7 +4061,7 @@ const JOBS = [
 ];
 /* ── גיבוי יומי לגוגל דרייב: רץ מהדפדפן של דן (בעל הדף), פעם ביום בכניסה הראשונה, עם ההרשאה שלו לדרייב.
    עותק מחוץ ל-Claude. אותה פונקציה (backupDump) כמו הגיבוי הלילי והייצוא לאקסל — כלל 20. ── */
-const DRIVE_FOLDER = '__CRM_BACKUP_FOLDER__';
+const DRIVE_FOLDER = '13EbDCc3he3RQiqUBpeZffz-5XTy4ltFN';
 let driveBusy = false;
 async function gzipB64(text) {
   if (typeof CompressionStream === 'undefined') return null;
@@ -5363,15 +5585,24 @@ async function pdfFromHtml(html) {
   for (const part of Array.isArray(html) ? html : [html]) {
     const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-10000px;top:0;background:#fff'; host.innerHTML = part; document.body.appendChild(host);
     try {
+      /* data-pk: לא לחתוך בתוך הבלוק (כרטיס); data-pk="h": כותרת — לא להשאיר אותה לבד בתחתית עמוד */
+      const top0 = host.firstChild.getBoundingClientRect().top, keep = [...host.querySelectorAll('[data-pk]')].map((e) => { const r = e.getBoundingClientRect(); return [(r.top - top0) * 2, (r.bottom - top0 + (e.dataset.pk === 'h' ? 90 : 0)) * 2]; });
       const canvas = await window.html2canvas(host.firstChild, { scale: 2, backgroundColor: '#ffffff' });
-      const pxPerPage = Math.floor(canvas.width * ph / pw);
-      const cx = canvas.getContext('2d'), white = (yy) => { const d = cx.getImageData(0, yy, canvas.width, 1).data; for (let k = 0; k < d.length; k += 16) if (d[k] < 245 || d[k + 1] < 245 || d[k + 2] < 245) return false; return true; };
+      const pxPerPage = Math.floor(canvas.width * ph / pw), free = (yy) => !keep.some(([a, b]) => b - a < pxPerPage * 0.6 && yy > a + 2 && yy < b - 2);
+      /* חיתוך עמוד: עדיף שורה לבנה לגמרי (בין כרטיסים), ואם אין — שורה בלי דיו (בין שורות טקסט בתוך כרטיס) */
+      const cx = canvas.getContext('2d'), row = (yy, lim, step) => { const d = cx.getImageData(0, yy, canvas.width, 1).data; for (let k = 0; k < d.length; k += step) if (d[k] < lim || d[k + 1] < lim || d[k + 2] < lim) return false; return true; };
+      const white = (yy) => row(yy, 245, 16), noInk = (yy) => row(yy, 200, 4);
       for (let y = 0, hh; y < canvas.height; y += hh) {
-        hh = Math.min(pxPerPage, canvas.height - y);
-        if (y + hh < canvas.height) for (let k = 0; k < pxPerPage * 0.15; k += 2) if (white(y + hh - k)) { hh -= k; break; }
+        const mt = y ? Math.round(canvas.width * 22 / pw) : 0; /* עמוד המשך: שוליים עליונים קטנים */
+        hh = Math.min(pxPerPage - mt, canvas.height - y);
+        if (y + hh < canvas.height) { let cut = -1; const at = (k) => y + hh - k;
+          for (let k = 0; k < pxPerPage * 0.15 && cut < 0; k += 2) if (free(at(k)) && white(at(k))) cut = k;
+          for (let k = 0; k < pxPerPage * 0.35 && cut < 0; k += 2) if (free(at(k)) && white(at(k))) cut = k;
+          for (let k = 0; k < pxPerPage * 0.25 && cut < 0; k += 2) if (noInk(at(k)) && noInk(at(k) - 1) && noInk(at(k) - 2)) cut = k;
+          if (cut > 0) hh -= cut; }
         const c = document.createElement('canvas'); c.width = canvas.width; c.height = hh;
         c.getContext('2d').drawImage(canvas, 0, y, canvas.width, c.height, 0, 0, canvas.width, c.height);
-        if (page++) pdf.addPage(); pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pw, c.height * pw / canvas.width);
+        if (page++) pdf.addPage(); pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, mt * pw / canvas.width, pw, c.height * pw / canvas.width);
       }
     } finally { host.remove(); }
   }
@@ -6214,6 +6445,7 @@ document.addEventListener('click', async (e) => {
       if (a === 'verify') { r.status = 'verified'; r.verifiedAt = stamp(); r.verifiedBy = S.me.id; r.verifiedByName = whoAmI(); return save('הנתונים אומתו'); }
       if (a === 'del') { x.reports.splice(ri, 1); return save('הדוח הוסר'); }
       if (a === 'pdf') return repPdf(cid, ri);
+      if (a === 'view') return repView(cid, ri);
       if (a === 'obl') { const T = repsOk(x).map((q) => repTotals(q.data)), sm = (k) => r2(T.reduce((s2, t) => s2 + t[k], 0));
         Object.assign(x, { oblMortgage: sm('mortMon'), balMortgage: sm('mortBal'), oblLoans: sm('bankMon'), balLoans: sm('bankBal'), oblNonbank: sm('nbMon'), balNonbank: sm('nbBal'), balOverdraft: r2(sm('overdraft') + sm('cardsUsed')) });
         return save('ההתחייבויות עודכנו מכל הדוחות המאומתים'); }
@@ -6500,6 +6732,7 @@ document.addEventListener('click', async (e) => {
         case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
         case 'toNotes': { const el = $('cnotes'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'ikExtract': return ikExtract(S.view.clientId);
+        case 'repStop': if (S.repBusy) S.repBusy.ctl.abort(); return;
         case 'ikApply': return ikApply(S.view.clientId);
         case 'ikSugAll': if (S.ikSug) S.ikSug.rows.forEach((r) => { r.on = true; }); return render();
         case 'ikSugClose': S.ikSug = null; return render();
@@ -6655,6 +6888,7 @@ document.addEventListener('change', async (e) => {
       return procSave(c2, P, el.checked ? 'התקבלה אסמכתא לפעימה ' + (Number(el.dataset.trproof) + 1) : null); }
     if (el.dataset.proctype != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); S.f.procView = null; return procSave(c2, { type: el.value, step: null }, 'סוג תהליך: ' + PROC[el.value].label); }
     if (el.id === 'repFile' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], ($('repWho') || {}).value);
+    if (el.id === 'repMore' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], null, Number(el.dataset.ri));
     if (el.dataset.rk && S.view.tab === 'intake') { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))), [ri, path] = el.dataset.rk.split('|'), r = x.reports[Number(ri)];
       const v = el.type === 'checkbox' ? el.checked : el.value === '' ? null : Number(el.value); setPath(r.data, path, v);
       if (!/consolidate$/.test(path) && r.status === 'verified') { r.status = 'proposal'; r.editedAfterVerify = stamp(); }
