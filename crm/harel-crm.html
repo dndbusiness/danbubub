@@ -1534,6 +1534,11 @@ async function sheetBook(fileId, cache) {
   const bin = atob(b64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
   const wb = XLSX.read(buf, { type: 'array', cellStyles: true }); if (cache) cache[fileId] = wb; return wb;
 }
+/* טופס לידים עם שאלות סינון (src.screen): תשובה שפוסלת → "לא זכאי" עם הסיבה ביומן. סטטוס שנכתב בטבלה גובר. */
+const leadsByPhone = () => { const m = new Map(); for (const l of live(S.leads)) { const p = normPhone(l.phone); if (p) (m.get(p) || m.set(p, []).get(p)).push(l); } return m; };
+const SHEET_TEST_ROW = /^\s*(בדיקה|בדיקת|test)(\s|$)/i;
+const SCREEN_RULES = [[/רכב בשנתון/, /^לא/, 'אין רכב בשנתון המתאים'], [/עיקול|הגבלה|הוצאה לפועל|הוצל/, /^כן/, 'יש עיקולים / הגבלה / הוצל״פ']];
+const screenFails = (ans) => SCREEN_RULES.filter(([q, bad]) => Object.entries(ans || {}).some(([h, v]) => q.test(h) && bad.test(String(v).trim()))).map((r) => r[2]);
 async function syncLeadSheet(src, quiet, cache) {
   if (!S.mcp) { if (!quiet) toast('אין חיבור לגוגל דרייב בתצוגה הזו'); return null; }
   let wb; try { wb = await sheetBook(src.fileId, cache); }
@@ -1547,14 +1552,18 @@ async function syncLeadSheet(src, quiet, cache) {
   const C = form ? { date: colOf('תאריך') || 'A', name: colOf('שם') || 'B', phone: colOf('טלפון') || 'C', email: colOf('מייל'), status: colOf('סטטוס'), notes: colOf('הערות'), wise: colOf('נשלח ל-WISE') } : { date: 'A', name: 'B', phone: 'C' };
   const qCols = form ? Object.keys(H).filter((c) => !Object.values(C).includes(c)) : [];
   const extraCols = ['H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'], oldCut = addDays(today(), -OLD_UNTOUCHED_DAYS), channel = srcChannel(src), ctype = src.ctype || 'נכסים';
-  let added = 0, updated = 0, seen = 0; const writes = [];
+  let added = 0, updated = 0, seen = 0, byPhone = null; const writes = [];
   for (let row = head + 1; row <= rng.e.r + 1; row++) {
-    const pc = ws[C.phone + row], name = cv(C.name, row); let phone = pc && pc.t === 'n' ? String(Math.round(pc.v)) : cv(C.phone, row); if (!name && !phone) continue; seen++;
+    const pc = ws[C.phone + row], name = cv(C.name, row); let phone = pc && pc.t === 'n' ? String(Math.round(pc.v)) : cv(C.phone, row); if (!name && !phone) continue;
+    if (form && SHEET_TEST_ROW.test(name)) continue; /* שורת בדיקה של האוטומציה — לא ליד */ seen++;
     let np = normPhone(phone); if (form && /^5\d{8}$/.test(np)) { np = '0' + np; } if (form && np) phone = np;
     const at0 = form ? (xlsxDate(ws[C.date + row]) || parseSheetDate(ws[C.date + row])) : parseSheetDate(ws['A' + row]);
-    const id = form ? 'sh-' + src.key + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row) : 'sh-' + src.fileId.slice(0, 6) + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row);
+    let id = form ? 'sh-' + src.key + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row) : 'sh-' + src.fileId.slice(0, 6) + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row);
+    /* הליד כבר נקלט (ידנית / ממקור אחר) — אותו טלפון ואותה שעת פנייה (±3 דק׳): מעדכנים אותו ולא יוצרים כפיל */
+    if (form && !S.leads.get(id) && np && at0) { const t0 = Date.parse(at0), same = (byPhone || (byPhone = leadsByPhone())).get(np) || [];
+      const hit = same.find((l) => !l.deletedAt && Math.abs(Date.parse(l.createdAt || 0) - t0) <= 3 * 60e3); if (hit) id = hit.id; }
     const at = at0 || (S.leads.get(id) && S.leads.get(id).createdAt) || stamp(), cur = S.leads.get(id);
-    let ad = '', note = '', color = null, rawSt = '', sheetStage = null, tries = 0, answers = null, wise = '';
+    let ad = '', note = '', color = null, rawSt = '', sheetStage = null, tries = 0, answers = null, wise = '', screenFail = [];
     if (form) {
       rawSt = C.status ? cv(C.status, row) : ''; if (rawSt === 'סטטוס') rawSt = '';
       note = C.notes ? cv(C.notes, row) : ''; wise = C.wise ? cv(C.wise, row) : '';
@@ -1564,6 +1573,7 @@ async function syncLeadSheet(src, quiet, cache) {
       const m = note.match(/אין מענה\s*-?\s*(\d)/); if (m) tries = Number(m[1]);
       if (sheetStage === 'noanswer' && !tries) tries = 1;
       if (!rawSt && !sheetStage && dayOf(at) < oldCut) sheetStage = 'lost'; /* ליד ישן שאף אחד לא סימן — לא נכנס ל"לטיפול" */
+      if (src.screen && !rawSt && !sheetStage) { screenFail = screenFails(answers); if (screenFail.length) sheetStage = 'ineligible'; }
     } else {
       const fill = ws['B' + row] && ws['B' + row].s && ws['B' + row].s.fgColor && ws['B' + row].s.fgColor.rgb;
       color = SHEET_COLOR[String(fill || '').toUpperCase().slice(-6)] || null; sheetStage = color;
@@ -1584,7 +1594,8 @@ async function syncLeadSheet(src, quiet, cache) {
       ...(stage === 'won' && (!cur || cur.stage !== 'won') ? { wonAt: cur ? stamp() : at } : {}), ...(cur && stage !== cur.stage ? { stageAt: stamp() } : {}), ...(client && !(cur && cur.clientId) ? { clientId: client.id } : {}) };
     const what = noteSt && !rawSt && !color ? 'מההערה בטבלה' : form ? 'סטטוס בטבלה: ' + (rawSt || 'ריק') : 'צבע בטבלה: ' + (color ? COLOR_LABEL[color] : 'בלי צבע');
     const clog = cur && changed ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: what + (stage !== cur.stage ? ' — סטטוס ' + (L.leadStage[stage] || stage) : ''), auto: true }, ...(cur.log || [])].slice(0, 300)
-      : !cur && form && !rawSt && sheetStage === 'lost' ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'יובא כלא רלוונטי — יותר מ-' + OLD_UNTOUCHED_DAYS + ' יום בלי סטטוס בטבלה', auto: true }] : null;
+      : !cur && form && !rawSt && sheetStage === 'lost' ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'יובא כלא רלוונטי — יותר מ-' + OLD_UNTOUCHED_DAYS + ' יום בלי סטטוס בטבלה', auto: true }]
+      : !cur && screenFail.length ? [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'לא עבר את שאלות הסינון: ' + screenFail.join(' · ') + ' — לא זכאי', auto: true }] : null;
     if (!cur) { writes.push(() => write('leads/' + id, { ...body, ...(clog ? { log: clog } : {}), updatedAt: stamp() })); added++; }
     else if (changed || cur.stage !== body.stage || cur.note !== body.note || cur.name !== body.name || cur.sheetName !== body.sheetName || cur.campaign !== body.campaign || cur.marketer !== body.marketer || cur.channel !== body.channel || cur.ctype !== body.ctype || cur.ad !== body.ad || (form && (cur.wiseSent || '') !== wise) || (body.clientId && !cur.clientId)) { writes.push(() => write('leads/' + id, { ...body, ...(clog ? { log: clog } : {}), updatedAt: stamp() }, 'update')); updated++; }
   }
@@ -3731,7 +3742,7 @@ function mapStatus(s) {
   if (/קשר|contacted|שיחה|call/.test(s)) return 'contacted';
   return 'new';
 }
-const normPhone = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.startsWith('972')) d = '0' + d.slice(3); return d; };
+const normPhone = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.startsWith('972')) d = '0' + d.slice(3); if (/^00\d{9}$/.test(d)) d = d.slice(1); /* +972 0 5x… */ return d; };
 const isoOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const phoneOf = (x) => { const t = String(Math.round(x)); return /^5\d{8}$/.test(t) ? '0' + t : t; };
 function dateOf(v) { // YYYY-MM-DD או DD/MM/YYYY (סדר ישראלי) → YYYY-MM-DD
