@@ -1720,12 +1720,15 @@ async function leadPatch(id, patch, text, auto = false) {
 }
 /* ליד כפול (הר-אל פתרונות): אותו טלפון באותה חברה.
    ליד "חדש" שאף אחד עוד לא נגע בו, ויש לו ליד קודם מ-90 הימים האחרונים → "ליד כפול · לזיכוי", עם קישור לליד הקיים ושורה ביומן של שניהם.
-   הליד הקיים = זה שכבר מטופל (לא "חדש"), ואם כולם חדשים — הראשון שנכנס. ליד קודם ישן מ-90 יום → נשאר חדש עם "פנה בעבר".
+   הליד הקיים = זה שכבר מטופל (לא "חדש"), ואם כולם חדשים — הראשון שנכנס. ליד קודם ישן מ-90 יום → נשאר חדש עם "פנה בעבר",
+   אלא אם סוכם מולו משהו (פולו אפ, בבדיקה, חושב, פגישה, הסכם, חתם) — אז ליד כפול שמחובר לליד שבו סוכם (דן, 14/10).
    לא נוגע בליד שמישהו כבר עבד עליו (הערה או פעולה ידנית — הקצאה אוטומטית לא נחשבת), ו"זה לא כפול" מחזיר אותו לחדש ולא מסמן אותו שוב. */
 const DUP_DAYS = 90, DUP_DIVS = ['finance'];
 const dupPhone = (l) => { const p = normPhone(l.phone); return p.length >= 9 && !/^0+$/.test(p) ? p : ''; };
 const leadTwins = (l) => { const p = dupPhone(l); return p ? live(S.leads).filter((x) => x.id !== l.id && leadDiv(x) === leadDiv(l) && dupPhone(x) === p).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''))) : []; };
 const isNewLead = (l) => (l.stage || 'new') === 'new';
+/* "סוכם מולו משהו": בטיפול פעיל (פולו אפ, נוצר קשר, בבדיקה, חושב, פגישה, הצעה / הסכם) או חתם */
+const dupAgreed = (l) => l.stage === 'won' || ['followup', 'contacted', 'checking', 'thinking', 'meeting', 'proposal'].includes(l.stage);
 const dupPrimary = (ls) => { const c = ls.filter((l) => l.stage !== 'duplicate'), pool = c.length ? c : ls;
   return pool.slice().sort((a, b) => (isNewLead(a) - isNewLead(b)) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || String(a.id).localeCompare(String(b.id)))[0]; };
 const dupDesc = (p) => (p.campaign || leadChannel(p) || 'ליד') + ' · ' + dLabel(dayOf(p.createdAt)) + ' · ' + leadStageLabel(p);
@@ -1740,10 +1743,13 @@ async function dedupeLeads() {
         if (String(l.createdAt || '') < String(p.createdAt || '') && isNewLead(p)) continue;
         const gap = Math.abs(Date.parse(dayOf(l.createdAt) || 0) - Date.parse(dayOf(p.createdAt) || 0)) / 864e5;
         const lg = (x, text) => [{ at: stamp(), by: S.me.id, who: 'בדיקת כפילות', text, auto: true }, ...(x.log || [])].slice(0, 300);
-        if (gap > DUP_DAYS) { await write('leads/' + l.id, { dupSeen: p.id, log: lg(l, 'פנה בעבר — ' + dupDesc(p)), updatedAt: stamp() }, 'update'); k++; continue; }
-        await write('leads/' + l.id, { stage: 'duplicate', sub: null, dupOf: p.id, stageAt: stamp(), followUp: null, log: lg(l, 'ליד כפול — כבר קיים: ' + dupDesc(p)), updatedAt: stamp() }, 'update');
-        const pp = S.leads.get(p.id) || p;
-        await write('leads/' + p.id, { returns: [...(pp.returns || []).filter((r) => r.id !== l.id), { id: l.id, at: l.createdAt || stamp(), campaign: l.campaign || leadChannel(l) || '' }],
+        let tgt = p, why = 'ליד כפול — כבר קיים: ';
+        if (gap > DUP_DAYS) { const ag = ls.map((x) => S.leads.get(x.id) || x).filter((x) => x.id !== l.id && dupAgreed(x) && String(x.createdAt || '') <= String(l.createdAt || '')).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+          if (!ag) { await write('leads/' + l.id, { dupSeen: p.id, log: lg(l, 'פנה בעבר — ' + dupDesc(p) + ' · לא סוכם מולו דבר, נשאר חדש'), updatedAt: stamp() }, 'update'); k++; continue; }
+          tgt = ag; why = 'ליד כפול — כבר סוכם מולו: '; }
+        await write('leads/' + l.id, { stage: 'duplicate', sub: null, dupOf: tgt.id, stageAt: stamp(), followUp: null, log: lg(l, why + dupDesc(tgt)), updatedAt: stamp() }, 'update');
+        const pp = S.leads.get(tgt.id) || tgt;
+        await write('leads/' + tgt.id, { returns: [...(pp.returns || []).filter((r) => r.id !== l.id), { id: l.id, at: l.createdAt || stamp(), campaign: l.campaign || leadChannel(l) || '' }],
           log: lg(pp, 'נכנס שוב: ' + (l.campaign || leadChannel(l) || 'ליד') + ' · ' + dLabel(dayOf(l.createdAt)) + ' — סומן כליד כפול'), updatedAt: stamp() }, 'update');
         k++; } }
   } finally { DEDUPE_BUSY = false; }
