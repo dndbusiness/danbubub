@@ -431,6 +431,22 @@ body.add-open #qadd { display: grid; position: fixed; inset-inline: 0; bottom: 0
 @media (min-width: 768px) and (max-width: 1023px) { nav.tabs #tabAdd { order: -1; background: var(--ink); color: var(--surface); margin-bottom: 8px; } }
 body.locked nav.tabs, body.locked .navx { display: none !important; }
 body.locked { padding-inline-start: 0; }
+.gsbtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.gsbtn:hover { color: var(--text); }
+@media (max-width: 560px) { .gsbtn span { display: none; } }
+body.locked .gsbtn { display: none; }
+.scrim.gs { justify-content: center; align-items: flex-start; padding: 8vh 12px 0; }
+.drawer.gsbox { height: auto; max-height: 80vh; border-radius: var(--radius-card); width: min(640px, 100%); }
+.gsres h3 { font-size: 12px; color: var(--text-2); margin: 10px 0 2px; font-weight: 600; }
+.gsres button { display: flex; width: 100%; align-items: center; gap: 10px; text-align: start; padding: 8px 10px; border: 0; border-radius: 10px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+.gsres button:hover, .gsres button[aria-selected="true"] { background: var(--sunk); }
+.gsres button .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.leads.no-src .c-src { display: none; }
+table.leads.no-st .c-st { display: none; }
+table.leads.no-days .c-days { display: none; }
+table.leads.no-resp .c-resp { display: none; }
+table.leads.no-fu .c-fu { display: none; }
+table.leads.no-last .c-last { display: none; }
 </style>
 
 <header class="top">
@@ -442,6 +458,7 @@ body.locked { padding-inline-start: 0; }
       <button type="button" data-d="realestate" aria-pressed="false">הר-אל השקעות</button>
     </div>
     <span class="push"></span>
+    <button type="button" class="gsbtn" id="gsBtn" aria-label="חיפוש (מקש /)" title="חיפוש — מקש /">⌕ <span>חיפוש</span></button>
     <span class="who" id="who"></span>
     <div class="status" id="conn"><i></i><span>מתחבר…</span></div>
   </div>
@@ -476,6 +493,12 @@ body.locked { padding-inline-start: 0; }
    מיילים יוצאים דרך Gmail של מי שפועל, וכל שליחה נרשמת ב-outbox (הנחיה 16).
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const DEAL_TYPE = { new: 'משכנתא / הלוואה חדשה', refinance: 'מחזור', additional: 'מימון נוסף', bridge: 'הלוואת גישור', other: 'אחר' };
+/* גיל מתאריך לידה (YYYY-MM-DD) ביחס ליום נתון */
+const ageOf = (bd, ref) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(bd || ''))) return null; const r = ref || today(); let a = Number(r.slice(0, 4)) - Number(bd.slice(0, 4)); if (r.slice(5) < bd.slice(5)) a--; return a >= 0 && a < 130 ? a : null; };
+/* "שם, ת״ז, טלפון, מייל" בשורה לכל לווה נוסף */
+const parseMoreBorrowers = (txt) => String(txt || '').split(/\n+/).map((l) => l.split(/[,،]/).map((x) => x.trim())).filter((a) => a[0]).map(([name, idNumber, phone, email]) => ({ name, idNumber: idNumber || '', phone: phone || '', email: email || '' })).slice(0, 6);
+const listOf = (txt) => String(txt || '').split(/[,،\n]/).map((x) => x.trim()).filter(Boolean);
 const L = {
   product: { nonbank_mortgage: 'משכנתא חוץ-בנקאית', refinance: 'מיחזור', new_mortgage: 'משכנתא חדשה', deal_escort: 'ליווי עסקה', business_nonbank: 'הלוואה עסקית חוץ-בנקאית', state_guarantee: 'הלוואה בערבות המדינה', car_loan: 'הלוואת רכב', renovation_loan: 'הלוואת שיפוץ בנקאית', mortgage_declined: 'משכנתא (מסורבים)', business_credit: 'אשראי עסקי', vehicle_lien: 'שעבוד רכב', other: 'אחר', presale: 'פריסייל', secondhand: 'יד שנייה', new_mortgage: 'משכנתא חדשה', refinance: 'מיחזור' },
   stage: { prospect: 'לקוח פוטנציאלי', signed_collecting_docs: 'חתם / איסוף מסמכים', submitted: 'הוגש לגוף מממן', approved_in_principle: 'אישור עקרוני', appraisal: 'שמאות', lawyer_signing: 'חתימה אצל עו״ד', execution: 'ביצוע', post_execution: 'השלמות לאחר ביצוע', completed: 'הושלמה העסקה' },
@@ -805,6 +828,17 @@ function partnerHint() {
   if (!S.loginAs || S.loginAs.resp !== 'nissim' || ['owner', 'admin'].includes(S.level)) return '';
   return '<div class="notice bad" style="margin-bottom:12px"><b>נכנסת כניסים, אבל הדשבורד והכספים לא נפתחים</b><span>ההרשאה שלך בדף היא ' + LEVEL[S.level] + '. דן צריך לשתף את הדף עם המייל שלך בהרשאת עריכה (Can edit) — ואז לרענן.</span></div>';
 }
+/* ימי הולדת בשבוע הקרוב — לקוחות ובני זוג בתיקים פתוחים שאני רואה */
+function birthdaysCard() {
+  const t0 = today(), soon = [];
+  for (const c of live(S.clients)) { if (!canSeeDiv(c.division || 'finance') || ['cancelled', 'lost'].includes(c.status)) continue;
+    for (const [who, bd] of [[c.name, c.birthDate], [c.spouseName, c.spouseBirthDate]]) { if (!who || !/^\d{4}-\d{2}-\d{2}$/.test(String(bd || ''))) continue;
+      for (let k = 0; k < 7; k++) { const d = addDays(t0, k); if (d.slice(5) === bd.slice(5)) { soon.push({ c, who, d, k, age: ageOf(bd, d) }); break; } } } }
+  if (!soon.length) return '';
+  soon.sort((a, b) => a.k - b.k);
+  return '<section class="card"><header><h2>ימי הולדת השבוע</h2><span class="pill muted">' + soon.length + '</span></header>' + soon.map((x) => '<div class="row" style="align-items:center;margin-bottom:4px"><span class="num" style="min-width:64px">' + (x.k === 0 ? 'היום' : x.k === 1 ? 'מחר' : dLabel(x.d)) + '</span><span class="grow">' + esc(x.who) + (x.age != null ? ' <span class="hint">· ' + x.age + '</span>' : '') + '</span><button class="chip client" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + ' ↗</button>' +
+    (x.c.phone ? '<a class="btn small ghost" target="_blank" rel="noopener" href="https://wa.me/' + esc(String(x.who === x.c.name ? x.c.phone : x.c.spousePhone || x.c.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('מזל טוב ' + String(x.who).split(' ')[0] + '! מאחלים שנה נפלאה — הר-אל') + '">ברכה ↗</a>' : '') + '</div>').join('') + '</section>';
+}
 function vDay() {
   const me = S.me.id, t0 = today();
   const d = S.days.get(dayId()) || null;
@@ -846,7 +880,7 @@ function vDay() {
     '</div>' +
     (S.isOwner ? '<div class="grid2">' + kpi('נכנס היום', money(dm.income, { tone: dm.income ? 'actual' : 'muted' }), dm.incomeRows.length ? dm.incomeRows.map((t) => esc(cname(t.clientId) || t.counterparty || '')).join(' · ') : 'עוד לא נכנס כסף היום', null) +
       kpi('פוטנציאל שנחתם היום', money(dm.potential, { tone: dm.potential ? 'expected' : 'muted' }), dm.signed.length ? dm.signed.map((c) => esc(c.name)).join(' · ') : 'אין החתמות היום — תאריך חתימה נקבע בכרטיס', null) + '</div>' : '') +
-    attCard() + attLive() + calTodayCard() + dayExtras() +
+    attCard() + attLive() + calTodayCard() + birthdaysCard() + dayExtras() +
     (rem.length ? '<section class="card"><header><h2>תזכורות יומיות</h2><span class="pill open">' + rem.length + '</span><span class="hint">חוזרות כל יום עד שמסמנים בכרטיס</span></header>' +
       rem.map((x) => '<div class="check"><span class="grow"><button class="xlink" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + '</button> — ' + esc(x.text) + '</span><span class="pill ' + (x.kind === 'fund' ? 'open' : 'expected') + '">' + (x.kind === 'fund' ? 'קרן' : 'פעימה') + '</span></div>').join('') + '</section>' : '') +
     '<div class="grid2">' +
@@ -1352,6 +1386,7 @@ function taskCard(t, t0) {
       '<div class="grow"><b' + (t.status === 'done' ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + linkify(t.title) + '</b>' + (t.notes ? '<p class="hint" style="margin:4px 0 0">' + linkify(t.notes, 220) + '</p>' : '') + '</div>' +
       (w ? '<select class="f small" data-taskprio="' + esc(t.id) + '" aria-label="דחיפות">' + Object.entries(L.priority).map(([k, v]) => '<option value="' + k + '"' + ((t.priority || 'normal') === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>' : '<span class="pill ' + tone + '">' + (L.priority[t.priority] || 'רגילה') + '</span>') + '</div>' +
     '<div class="row" style="margin-top:8px">' + respChip(taskResp(t)) + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
+      (!c && t.leadId && S.leads.has(t.leadId) ? '<a class="chip" href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + ' ↗</a>' : '') +
       (t.due ? '<span class="pill ' + (late ? 'open' : t.due === t0 ? 'committed' : 'muted') + '">' + (late ? 'באיחור · ' : '') + dLabel(t.due) + (t.time ? ' ' + esc(t.time) : '') + '</span>' : '<span class="hint">בלי תאריך</span>') +
       (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + '<span class="grow"></span>' +
       (w && t.status !== 'done' ? '<button class="btn small ghost" data-taskmorrow="' + esc(t.id) + '">למחר</button>' : '') + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div></article>';
@@ -1367,14 +1402,14 @@ function vTasks() {
     return tasksHead(all) + taskTiles(all) + '<div class="row"><h2 class="grow">' + TASK_BUCKET[k] + (S.f.taskWho ? ' · ' + esc(L.resp[S.f.taskWho] || S.f.taskWho) : '') + '</h2><span class="hint">לפי סדר דחיפות · גוררים ⋮⋮ כדי לשנות את סדר הביצוע · הקו בצד: אדום דחוף · כתום גבוה · צהוב רגיל · ירוק נמוכה</span></div>' +
       (rows.length ? '<div class="tcards">' + rows.map((t) => taskCard(t, t0)).join('') + '</div>' : '<p class="empty">אין משימות כאן 🎉</p>');
   }
-  const views = { mine: (t) => t.status !== 'done' && mine(t), all: (t) => t.status !== 'done', overdue: (t) => t.status !== 'done' && t.due && t.due < t0, week: (t) => t.status !== 'done' && t.due && t.due <= wk, done: (t) => t.status === 'done' };
+  const views = { mine: (t) => t.status !== 'done' && mine(t), all: (t) => t.status !== 'done', overdue: (t) => t.status !== 'done' && t.due && t.due < t0, week: (t) => t.status !== 'done' && t.due && t.due <= wk, byme: (t) => t.status !== 'done' && t.createdBy === S.me.id && !t.auto && !isMyTask(t, S.me.id), done: (t) => t.status === 'done' };
   const rows = all.filter(views[S.f.taskView] || views.mine).filter((t) => !S.f.taskWho || taskResp(t) === S.f.taskWho).sort(S.f.taskView === 'done' ? (a, b) => String(b.doneAt || '').localeCompare(String(a.doneAt || '')) : taskCmp(t0));
   return tasksHead(all) + taskTiles(all) + '<section class="card">' +
     (rows.length ? '<div class="scroll"><table><thead><tr><th></th><th>משימה</th><th>לקוח</th><th>אחראי</th><th>עדיפות</th><th>יעד</th><th></th></tr></thead><tbody>' + rows.map((t) => {
       const late = t.due && t.due < t0 && t.status !== 'done', c = t.clientId && S.clients.get(t.clientId);
       return '<tr><td style="width:28px;border-inline-start:4px solid ' + prioVar(t) + '"><input class="cb" type="checkbox" data-taskdone="' + esc(t.id) + '"' + (t.status === 'done' ? ' checked' : '') + (S.canTask ? '' : ' disabled') + ' aria-label="בוצע"></td>' +
         '<td class="wide"' + (t.status === 'done' ? ' style="color:var(--text-3);text-decoration:line-through"' : '') + '>' + esc(t.title) + (t.auto ? ' <span class="pill committed">אוטומטית</span>' : '') + (t.notes ? '<div class="hint">' + esc(String(t.notes).slice(0, 140)) + '</div>' : '') + '</td>' +
-        '<td>' + (c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : esc(t.clientName || '')) + '</td>' +
+        '<td>' + (c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : t.leadId && S.leads.has(t.leadId) ? '<a href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + '</a>' : esc(t.clientName || '')) + '</td>' +
         '<td>' + respChip(taskResp(t)) + '</td>' +
         '<td><span class="pill ' + (t.priority === 'urgent' || t.priority === 'high' ? 'open' : 'muted') + '">' + (L.priority[t.priority] || 'רגילה') + '</span></td>' +
         '<td class="num">' + (t.due ? dLabel(t.due) + (t.time ? ' ' + esc(t.time) : '') + (late ? ' <span class="pill open">באיחור</span>' : '') : '—') + '</td>' +
@@ -1384,10 +1419,10 @@ function vTasks() {
 
 function tasksHead(all) {
   const t0 = today(), wk = addDays(t0, 7), me = S.me.id;
-  const views = { lanes: (t) => t.status !== 'done' && (!t.due || t.due <= t0), mine: (t) => t.status !== 'done' && isMyTask(t, me), all: (t) => t.status !== 'done', overdue: (t) => t.status !== 'done' && t.due && t.due < t0, week: (t) => t.status !== 'done' && t.due && t.due <= wk, done: (t) => t.status === 'done' };
+  const views = { lanes: (t) => t.status !== 'done' && (!t.due || t.due <= t0), mine: (t) => t.status !== 'done' && isMyTask(t, me), all: (t) => t.status !== 'done', overdue: (t) => t.status !== 'done' && t.due && t.due < t0, week: (t) => t.status !== 'done' && t.due && t.due <= wk, byme: (t) => t.status !== 'done' && t.createdBy === me && !t.auto && !isMyTask(t, me), done: (t) => t.status === 'done' };
   return '<div class="row"><div class="grow"><h1>משימות</h1><p class="hint">לוח אחד לכל הצוות' + (S.division === 'all' ? '' : ' של ' + L.division[S.division]) + ' — מה שמסומן כאן מופיע בסיכום היומי. משימה שנשארת פתוחה נגררת למחר.</p></div>' + '<button class="btn" data-act="tasksPdf">PDF לעובד</button>' + (S.canTask ? '<button class="btn primary" data-act="newTask">+ משימה</button>' : '') + '<button class="btn" data-act="exportTasks">ייצוא ל-CSV</button></div>' +
     '<div class="row"><div class="seg" role="group" aria-label="תצוגה">' +
-      [['lanes', 'לוח יומי'], ['mine', 'שלי'], ['all', 'כל הצוות'], ['overdue', 'באיחור'], ['week', 'השבוע'], ['done', 'בוצעו']].map(([k, v]) => '<button data-tv="' + k + '" aria-pressed="' + (S.f.taskView === k) + '">' + v + ' <span class="num">(' + all.filter(views[k]).length + ')</span></button>').join('') +
+      [['lanes', 'לוח יומי'], ['mine', 'שלי'], ['all', 'כל הצוות'], ['overdue', 'באיחור'], ['week', 'השבוע'], ['byme', 'שהקצתי לאחרים'], ['done', 'בוצעו']].map(([k, v]) => '<button data-tv="' + k + '" aria-pressed="' + (S.f.taskView === k) + '">' + v + ' <span class="num">(' + all.filter(views[k]).length + ')</span></button>').join('') +
     '</div>' + (S.f.taskView === 'lanes' ? '<label class="row hint" style="gap:6px"><input type="checkbox" class="cb" id="laneDone"' + (S.f.laneDone ? ' checked' : '') + '> הצג גם מה שבוצע היום</label><button class="btn small' + (S.f.laneAhead ? ' primary' : '') + '" data-act="laneAhead" aria-pressed="' + !!S.f.laneAhead + '">הימים הבאים</button>' : '') + '</div>';
 }
 
@@ -1628,12 +1663,12 @@ async function syncLeadSheet(src, quiet, cache) {
   if (!quiet) toast((src.label || 'טבלה') + ': ' + seen + ' לידים · ' + added + ' חדשים · ' + updated + ' עודכנו');
   return run;
 }
-async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); dedupeAuto(); }
+async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); dedupeAuto(); leadTaskSweep().catch(() => {}); }
 const lastRun = (s) => [S.runs.get('leadsync-' + srcKey(s)), lsRun(s)].filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
 async function autoLeadSync() {
   if (!S.mcp || autoOff()) return; const cache = {};
   for (const src of leadSources()) { if (!S.claudeOwner && !lsRun(src)) continue; const last = lastRun(src); if (last && Date.now() - new Date(last.at).getTime() < 30 * 60e3) continue; await syncLeadSheet(src, true, cache).catch(() => null); }
-  dedupeAuto();
+  dedupeAuto(); leadTaskSweep().catch(() => {});
 }
 /* עלות, המרה והיקף עסקאות לפי מודעה — 150 ₪ לליד, לידים כחולים/אדומים לזיכוי ולא נספרים בעלות */
 function sheetLeadStats() {
@@ -1755,6 +1790,7 @@ async function leadPatch(id, patch, text, auto = false) {
   if (patch.stage && patch.stage !== l.stage) { patch = { ...patch, stageAt: stamp(), ...(patch.stage === 'won' ? { wonAt: stamp() } : {}), ...(LEAD_CLOSED.includes(patch.stage) ? { followUp: null } : {}) }; }
   const log = text ? [{ at: stamp(), by: S.me.id, who: whoAmI(), text, auto }, ...(l.log || [])].slice(0, 300) : undefined;
   await write('leads/' + id, { ...patch, ...(log ? { log } : {}), updatedAt: stamp() }, 'update');
+  if ('resp' in patch || 'stage' in patch || 'dupOf' in patch) await leadTaskSync({ ...l, ...patch }).catch(() => {});
 }
 /* ליד כפול (הר-אל פתרונות): אותו טלפון באותה חברה.
    ליד "חדש" שאף אחד עוד לא נגע בו, ויש לו ליד קודם מ-90 הימים האחרונים → "ליד כפול · לזיכוי", עם קישור לליד הקיים ושורה ביומן של שניהם.
@@ -2082,8 +2118,9 @@ function signSignerDefaults(c, mode) {
   const rows = [{ on: true, label: 'הלקוח', name: c.name || '', email: c.email || '', phone: c.phone || '' }];
   const spName = c.spouseName || b1.name || '';
   rows.push({ on: mode === 'client_spouse' && !!spName, label: 'בן/בת זוג', name: spName, email: c.spouseEmail || b1.email || '', phone: c.spousePhone || b1.phone || '' });
+  (c.moreBorrowers || []).forEach((b, i) => rows.push({ on: mode === 'client_spouse', label: 'לווה ' + (i + 3), name: b.name || '', email: b.email || '', phone: b.phone || '' }));
   rows.push({ on: false, label: 'חותם נוסף', name: '', email: '', phone: '' });
-  return rows;
+  return rows.slice(0, 6);
 }
 function signCard(c) {
   if (!S.isOwner && !S.canTask) return ''; const server = !!window.__harelServer, w = S.canWrite || S.canTask;
@@ -2619,7 +2656,9 @@ function allocBar(rows) {
   const ppl = respEntries(divs.length === 1 ? divs[0] : S.division === 'all' ? null : S.division).filter(([k]) => k !== 'dan');
   return '<div class="row allocbar" style="align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border-radius:10px;background:var(--sunk)">' +
     (n0 ? '<b>נבחרו ' + n0 + '</b><label class="fl" style="margin:0">הקצה ל<select class="f" id="selWho">' + ppl.map(([k, v]) => '<option value="' + esc(k) + '">' + esc(v) + ' — ' + live(S.leads).filter((l) => l.resp === k && isLeadOpen(l)).length + ' פתוחים</option>').join('') + '</select></label>' +
-      '<button class="btn small primary" data-act="selAssign">הקצה</button><button class="btn small ghost" data-act="selClear">נקה</button>'
+      '<button class="btn small primary" data-act="selAssign">הקצה</button>' +
+      (divs.length === 1 ? '<label class="fl" style="margin:0">סטטוס<select class="f" id="selSt">' + stageDefs(divs[0]).filter((x) => !x.hide).map((x) => '<option value="' + esc(x.key) + '">' + esc(x.label) + '</option>').join('') + '</select></label><button class="btn small" data-act="selStatus">עדכן סטטוס</button>' : '<span class="hint">שינוי סטטוס — לבחור לידים מחברה אחת</span>') +
+      '<button class="btn small ghost" data-act="selClear">נקה</button>'
     : '<span class="hint grow">לסמן לידים בטבלה ולהקצות אותם לנציג' + (un.length ? ' · ' + un.length + ' בלי אחראי ברשימה הזו' : '') + '</span>') +
     (un.length ? '<button class="btn small" data-act="selUnassigned">בחר את כל ה' + un.length + ' בלי אחראי</button>' : '') + '</div>';
 }
@@ -2640,7 +2679,7 @@ function vLeadsList(seg) {
   const stSel = (l) => '<select class="f" style="font-size:12px;padding:2px 4px" data-leadstage="' + esc(l.id) + '" aria-label="סטטוס"' + (w ? '' : ' disabled') + '>' + stageOpts(l) + '</select>';
   const phoneCell = (l) => l.phone ? '<a class="num" dir="ltr" href="tel:' + esc(normPhone(l.phone)) + '">' + esc(normPhone(l.phone)) + '</a><div><button class="btn small ghost" data-copyq="l:' + esc(l.id) + '" title="העתק שם פרטי וטלפון" aria-label="העתק שם וטלפון">העתק</button></div>' + (waLink(l.phone) ? ' <a class="hint hide-m" href="' + waLink(l.phone) + '" target="_blank" rel="noopener" title="וואטסאפ">וואטסאפ</a>' : '') : '<span class="hint">—</span>';
   return '<div class="row"><h1 class="grow">' + (S.isCenter ? 'הלידים שלי' : 'לידים') + (S.division !== 'all' && !S.isCenter ? ' · ' + L.division[S.division] : '') + '</h1><span class="hint">' + (srcs.length && !S.isCenter ? 'מהטבלאות: ' + runs : '') + '</span>' +
-      (srcs.length && !S.isCenter ? '<button class="btn small" data-act="leadSync">סנכרן עכשיו</button>' : '') + (w ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' + (S.isCenter ? '<div class="seg" role="group" style="margin:0 0 12px"><button data-leadview="list" aria-pressed="true">הלידים שלי</button><button data-leadview="board" aria-pressed="false">לוח מעקב</button></div>' : seg) +
+      (srcs.length && !S.isCenter ? '<button class="btn small" data-act="leadSync">סנכרן עכשיו</button>' : '') + (S.isCenter ? '' : '<button class="btn small" data-act="exportLeadsView" title="הרשימה כפי שהיא מסוננת עכשיו">ייצוא הרשימה</button>') + (w ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' + (S.isCenter ? '<div class="seg" role="group" style="margin:0 0 12px"><button data-leadview="list" aria-pressed="true">הלידים שלי</button><button data-leadview="board" aria-pressed="false">לוח מעקב</button></div>' : seg) +
     '<div class="grid4">' + kpi('לטיפול', '<span class="num">' + open.length + '</span>', fresh.length + ' חדשים שעוד לא טופלו', null, open.length ? 'open' : null) +
       kpi('מעקב להיום', '<span class="num">' + due.length + '</span>', due.length ? 'כולל מעקבים באיחור' : 'אין מעקבים פתוחים להיום', null, due.length ? 'open' : null) +
       (S.division === 'realestate' ? kpi('פגישות זום החודש', '<span class="num">' + all.filter((l) => l.zoom && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + '</span>', all.filter((l) => l.zoom && l.zoom.attended && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + ' הגיעו בפועל', null, 'committed') + kpi('רכשו', '<span class="num">' + won.length + '</span>', 'מכל הלידים של הר-אל השקעות', null, 'actual') :
@@ -2656,12 +2695,12 @@ function vLeadsList(seg) {
     '<section class="card"><header><h2>' + (f.leadCost ? esc(f.leadCost.k) + ' · ' + ({ all: 'כל הלידים', rel: 'רלוונטיים', signed: 'נחתמו', exec: 'בוצעו' }[f.leadCost.b]) + '</h2><button class="btn small ghost" data-act="costClear">✕ נקה</button><h2 hidden>' : '') + esc(f.leadReach ? ({ 1: 'פגישות זום', 2: 'הגיעו לפגישת זום', 3: 'המשיכו לפרונטלי', 4: 'המשיכו לפרונטלי — הגיעו בפועל' })[f.leadReach] || '' : (chips.find((c) => c[0] === st) || [])[1] || '') + '</h2>' + (f.leadReach ? '<button class="btn small ghost" data-leadst="todo">✕ נקה</button>' : '') + '<span class="pill muted">' + rows.length + '</span></header>' +
       (canAlloc && rows.length ? allocBar(rows) : '') +
       (rows.length ? '<div class="lclegend" aria-label="מקרא צבעים">' + LEAD_ROW_LEGEND.map(([k, v]) => '<span class="lc-' + k + '" style="display:inline-flex;align-items:center"><span class="lcdot"></span>' + v + '</span>').join('') + '<span>לבן — חדש / אין מענה</span></div>' : '') +
-      (rows.length ? '<div class="scroll"><table class="leads"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m">מקור</th><th class="hide-m">סטטוס</th><th class="hide-m">בסטטוס</th><th class="hide-m">אחראי</th><th class="hide-m">מעקב</th><th class="hide-m">אחרון</th></tr></thead><tbody>' +
+      (rows.length ? '' + leadColsPick() + '<div class="scroll"><table class="leads' + leadColsCls() + '"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>נכנס</th><th>שם</th><th>טלפון</th><th class="hide-m c-src">מקור</th><th class="hide-m c-st">סטטוס</th><th class="hide-m c-days">בסטטוס</th><th class="hide-m c-resp">אחראי</th><th class="hide-m c-fu">מעקב</th><th class="hide-m c-last">אחרון</th></tr></thead><tbody>' +
         shown.map((l) => '<tr class="clickable' + (leadRowTone(l) ? ' lc-' + leadRowTone(l) : '') + '" data-lead="' + esc(l.id) + '">' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="num">' + dLabel(dayOf(l.createdAt)) + '<div class="hint">' + esc(leadTime(l)) + '</div></td>' +
           '<td class="wide"><b>' + esc(l.name || '—') + '</b>' + (l.city ? '<div class="hint">' + esc(l.city) + '</div>' : '') + (l.clientId ? '<div><span class="pill actual">לקוח</span></div>' : '') + ((l.returns || []).length ? '<div><span class="pill open" title="אותו טלפון נכנס שוב כליד">נכנס שוב ×' + l.returns.length + '</span></div>' : '') + '<div class="show-m">' + leadPill(l) + (l.followUp ? ' <span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">מעקב ' + dLabel(l.followUp).slice(0, 5) + '</span>' : '') + '</div></td><td>' + phoneCell(l) + '</td>' +
-          '<td class="hide-m">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m">' + stSel(l) + '</td><td class="hide-m num">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m">' + respSel(l) + '</td>' +
-          '<td class="hide-m">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
-          '<td class="hide-m"><span class="hint">' + linkify(leadLast(l), 70) + '</span></td></tr>').join('') + '</tbody></table></div>' +
+          '<td class="hide-m c-src">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m c-st">' + stSel(l) + '</td><td class="hide-m num c-days">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m c-resp">' + respSel(l) + '</td>' +
+          '<td class="hide-m c-fu">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
+          '<td class="hide-m c-last"><span class="hint">' + linkify(leadLast(l), 70) + '</span></td></tr>').join('') + '</tbody></table></div>' +
         (rows.length > lim ? '<p style="text-align:center"><button class="btn small" data-leadmore>הצג עוד ' + Math.min(120, rows.length - lim) + ' (מתוך ' + rows.length + ')</button></p>' : '')
       : '<p class="empty">אין לידים בסינון הזה.</p>') + '</section>' +
     '<p class="hint">הלידים נכנסים אוטומטית מהטבלה. צבע שמשתנה בטבלה מעדכן את הסטטוס כאן; מה שמשנים כאן (סטטוס, אחראי, מעקב, הערות) נשמר במערכת ולא נדרס בסנכרון.</p>';
@@ -4280,7 +4319,7 @@ function vSettings() {
     '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="newLink">+ קישור</button>' : '') + '</header>' + linksBlock(false) + '</section>' +
     '<div class="grid2">' + list('partnersRE', 'שותפי הר-אל השקעות', 'לחלוקת 33/33/33 ולרישום משיכות.') + list('partnersFin', 'שותפי הר-אל פתרונות', 'משיכות של דן; ניסים מקבל דרך מקדמות.') + '</div>' +
     '<div class="grid3">' + list('tags', 'תגיות לקוח', 'מופיעות כהצעה בכרטיס הלקוח.') + list('sources', 'מקורות הגעה', 'פייסבוק, המלצה, גוגל, שותף.') + list('platforms', 'פלטפורמות שיווק', 'נכנסות לבד מקובץ לידים שמועלה.') + '</div>' +
-    usersCard() + driveRootsCard() + signTplCard() + statusSetsCard() + callScriptCard() + commRulesCard() +
+    usersCard() + driveRootsCard() + signTplCard() + statusSetsCard() + leadTaskCard() + callScriptCard() + commRulesCard() +
     (!S.isDan ? '' : '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
       (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
@@ -4322,11 +4361,18 @@ function formClient(c) {
     '<h3 class="sec full">זיהוי ואחריות</h3>' +
     fi('name', 'שם הלקוח *', c.name, 'text', 'required', true) + fs('division', 'חטיבה', Object.entries(L.division), c.division) + fs('resp', 'אחראי', [['', 'בלי אחראי'], ...Object.entries(L.resp)], c.resp || '') +
     fi('phone', 'טלפון', c.phone || '', 'tel', 'dir="ltr"') + fi('email', 'מייל', c.email || '', 'email', 'dir="ltr"') + fi('source', 'מקור הגעה', c.source || '', 'text', 'list="dlSources"') +
-    fi('idNumber', 'ת״ז', c.idNumber || '', 'text', 'inputmode="numeric" dir="ltr"') + fi('address', 'כתובת / עיר', c.address || '') +
+    fi('idNumber', 'ת״ז', c.idNumber || '', 'text', 'inputmode="numeric" dir="ltr"') + fi('address', 'כתובת / עיר', c.address || '') + fi('birthDate', 'תאריך לידה', c.birthDate || '', 'date') +
+    fi('extraPhones', 'טלפונים נוספים (מופרדים בפסיק)', (c.extraPhones || []).join(', '), 'text', 'dir="ltr"') + fi('extraEmails', 'מיילים נוספים (מופרדים בפסיק)', (c.extraEmails || []).join(', '), 'text', 'dir="ltr"') +
     '<h3 class="sec full">בן / בת זוג</h3>' + fi('spouseName', 'שם', c.spouseName || '') + fi('spouseId', 'ת״ז', c.spouseId || '', 'text', 'inputmode="numeric" dir="ltr"') + fi('spousePhone', 'טלפון', c.spousePhone || '', 'tel', 'dir="ltr"') +
+    fi('spouseEmail', 'מייל', c.spouseEmail || '', 'email', 'dir="ltr"') + fi('spouseBirthDate', 'תאריך לידה', c.spouseBirthDate || '', 'date') +
+    '<label class="fl full">לווים נוספים — שורה לכל לווה: שם, ת״ז, טלפון, מייל<textarea class="f" name="moreBorrowers" id="d_moreBorrowers" rows="2">' + esc((c.moreBorrowers || []).map((b) => [b.name, b.idNumber, b.phone, b.email].join(', ')).join('\n')) + '</textarea></label>' +
     '<h3 class="sec full">תהליך</h3>' +
     fs('product', 'תהליך / מוצר', Object.entries(L.product), c.product) + fs('approval', 'סטטוס אישור', Object.entries(L.approval), c.approval || 'pending') + fs('stage', 'מיקום בתהליך', STAGE_ORDER.map((k) => [k, L.stage[k]]), c.stage) +
     fs('status', 'סטטוס תיק', Object.entries(L.status), c.status) + fi('signDate', 'תאריך חתימה', c.signDate || '', 'date') + fi('lenders', 'גופי מימון (מופרדים בפסיק)', (c.submissions || []).map((s) => s.bank).join(', '), 'text', 'list="dlLenders"') +
+    fs('dealType', 'סוג עסקה', [['', '—'], ...Object.entries(DEAL_TYPE)], c.dealType || '') +
+    '<h3 class="sec full">הנכס</h3>' + fi('propAddress', 'כתובת הנכס', (c.prop || {}).address || '') + fi('propGush', 'גוש', (c.prop || {}).gush || '', 'text', 'inputmode="numeric" dir="ltr"') + fi('propHelka', 'חלקה', (c.prop || {}).helka || '', 'text', 'inputmode="numeric" dir="ltr"') +
+    fi('propSub', 'תת-חלקה', (c.prop || {}).sub || '', 'text', 'inputmode="numeric" dir="ltr"') + fi('propRooms', 'חדרים', (c.prop || {}).rooms ?? '', 'number', 'min="0" step="0.5"') + fi('propFloor', 'קומה', (c.prop || {}).floor ?? '', 'text') +
+    fi('propValue', 'שווי (₪)', (c.prop || {}).value ?? '', 'number', 'min="0" step="1"') + fi('propAppraisal', 'תאריך שמאות', (c.prop || {}).appraisalDate || '', 'date') +
     '<p class="hint full" style="margin:0">"אושר ב" נקבע לפי ההגשות: גוף מימון שסומן "אושר עקרונית" או "בוצע" בכרטיס.</p>' +
     '<h3 class="sec full">כסף</h3>' +
     fi('baseAmount', 'סכום הבקשה (₪)', c.baseAmount ?? '', 'number', 'min="0" step="1"') + fi('fee', 'שכ״ט נסגר, נטו (₪)', c.fee ?? '', 'number', 'min="0" step="0.01" inputmode="decimal"') +
@@ -4339,11 +4385,14 @@ function formClient(c) {
     dl('dlSources', S.settings.sources || []) + dl('dlLenders', lendersList),
     async (d) => {
       if (!String(d.name || '').trim()) return 'חסר שם לקוח';
+      { const bad = [...listOf(d.extraEmails), String(d.spouseEmail || '').trim(), ...parseMoreBorrowers(d.moreBorrowers).map((b) => b.email)].filter((x) => x && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)); if (bad.length) return 'מייל לא תקין: ' + bad.join(', '); }
       const id = isNew ? uid() : c.id;
       const numOrNull = (v) => v === '' || v == null ? null : r2(v);
       const banks = String(d.lenders || '').split(/[,،]/).map((x) => x.trim()).filter(Boolean);
       const oldSubs = Object.fromEntries((c.submissions || []).map((s) => [s.bank, s]));
       const body = { ...c, id, name: d.name.trim(), division: d.division, resp: d.resp || null, phone: d.phone.trim(), email: d.email.trim(), source: d.source.trim(), idNumber: String(d.idNumber || '').trim(), address: String(d.address || '').trim(), spouseName: String(d.spouseName || '').trim(), spouseId: String(d.spouseId || '').trim(), spousePhone: String(d.spousePhone || '').trim(),
+        spouseEmail: String(d.spouseEmail || '').trim(), birthDate: d.birthDate || null, spouseBirthDate: d.spouseBirthDate || null, extraPhones: listOf(d.extraPhones), extraEmails: listOf(d.extraEmails), moreBorrowers: parseMoreBorrowers(d.moreBorrowers),
+        dealType: d.dealType || null, prop: { address: String(d.propAddress || '').trim(), gush: String(d.propGush || '').trim(), helka: String(d.propHelka || '').trim(), sub: String(d.propSub || '').trim(), rooms: d.propRooms === '' ? null : n(d.propRooms), floor: String(d.propFloor || '').trim(), value: d.propValue === '' ? null : r2(d.propValue), appraisalDate: d.propAppraisal || null },
         product: d.product, approval: d.approval, stage: d.stage, status: d.status, signDate: d.signDate || null,
         submissions: banks.map((b) => oldSubs[b] || { bank: b, status: ['approved', 'finished'].includes(d.approval) ? 'approved' : 'submitted' }),
         lendersApproved: approvedBy({ submissions: banks.map((b) => oldSubs[b] || { bank: b, status: ['approved', 'finished'].includes(d.approval) ? 'approved' : 'submitted' }) }),
@@ -4541,6 +4590,110 @@ function formTag(c) {
   document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { $('d_tag').value = b.dataset.pick; $('dsave').click(); }));
 }
 
+/* ═════════════ חיפוש גלובלי (WISE): לקוח, ליד, איש קשר, משימה — מכל מסך. "/" או Ctrl+K פותח ═════════════
+   מחפש רק במה שהמשתמש רואה ממילא: חברות מורשות, ואיש מוקד — רק הלידים והמשימות שלו. */
+const gsNorm = (s) => String(s || '').toLowerCase().replace(/[֑-ׇ"'׳״\-]/g, '').replace(/\s+/g, ' ').trim();
+function gsFind(q0) {
+  const q = gsNorm(q0), qd = String(q0 || '').replace(/\D/g, ''), ph = qd.length >= 3 ? normPhone(qd) : '';
+  if (q.length < 2 && !ph) return [];
+  const score = (texts, phones) => { let best = 0;
+    for (const t of texts) { const v = gsNorm(t); if (!v || !q) continue; if (v === q) best = Math.max(best, 3); else if (v.startsWith(q) || v.includes(' ' + q)) best = Math.max(best, 2); else if (v.includes(q)) best = Math.max(best, 1); }
+    if (ph) for (const p of phones) { const v = normPhone(p); if (v && v.includes(ph)) best = Math.max(best, v === ph ? 3 : 2); }
+    return best; };
+  const out = [], take = (kind, rows) => { rows.sort((a, b) => b.s - a.s || String(a.t).localeCompare(String(b.t), 'he')); out.push(...rows.slice(0, 8).map((r) => ({ kind, ...r }))); };
+  take('client', live(S.clients).filter((c) => canSeeDiv(c.division || 'finance')).map((c) => ({ c, t: c.name, s: score(
+    [c.name, c.spouseName, c.email, c.spouseEmail, ...(c.extraEmails || []), c.idNumber, c.spouseId, ...(c.tags || []), ...(c.moreBorrowers || []).flatMap((b) => [b.name, b.idNumber, b.email])],
+    [c.phone, c.spousePhone, ...(c.extraPhones || []), ...(c.moreBorrowers || []).map((b) => b.phone)]) })).filter((r) => r.s));
+  take('lead', live(S.leads).filter((l) => canSeeDiv(leadDiv(l)) && (!S.isCenter || l.resp === S.myKey)).map((l) => ({ l, t: l.name, s: score([l.name, l.city, l.email, l.campaign], [l.phone]) })).filter((r) => r.s));
+  if (!S.isCenter) take('contact', live(S.contacts || new Map()).map((x) => ({ x, t: x.name || x.org, s: score([x.name, x.org, x.email, x.role], [x.phone]) })).filter((r) => r.s));
+  take('task', live(S.tasks).filter((t) => t.status !== 'done' && (!S.isCenter || isMyTask(t))).map((t) => ({ k: t, t: t.title, s: score([t.title, t.notes, t.clientName], []) })).filter((r) => r.s));
+  return out;
+}
+const GS_HEAD = { client: 'לקוחות', lead: 'לידים', contact: 'אנשי קשר', task: 'משימות פתוחות' };
+function gsRow(r) {
+  const ph = (p) => p ? '<span class="hint" dir="ltr">' + esc(normPhone(p)) + '</span>' : '';
+  if (r.kind === 'client') { const c = r.c; return ['client:' + c.id, '<b class="grow">' + esc(c.name || '—') + (c.spouseName ? ' <span class="hint">· ' + esc(c.spouseName) + '</span>' : '') + '</b>' + ph(c.phone) + '<span class="pill ' + (c.status === 'open' ? 'committed' : 'muted') + '">' + esc(L.status[c.status] || c.status || '') + '</span>' + (S.division === 'all' ? '<span class="hint">' + esc(L.division[c.division || 'finance']) + '</span>' : '')]; }
+  if (r.kind === 'lead') { const l = r.l; return ['lead:' + l.id, '<b class="grow">' + esc(l.name || '—') + (l.city ? ' <span class="hint">· ' + esc(l.city) + '</span>' : '') + '</b>' + ph(l.phone) + leadPill(l) + (l.resp ? '<span class="hint">' + esc(L.resp[l.resp] || l.resp) + '</span>' : '')]; }
+  if (r.kind === 'contact') { const x = r.x; return ['contact:' + x.id, '<b class="grow">' + esc(x.name || x.org || '—') + (x.org && x.name ? ' <span class="hint">· ' + esc(x.org) + '</span>' : '') + '</b>' + ph(x.phone)]; }
+  const t = r.k, t0 = today(); return ['task:' + t.id, '<b class="grow">' + esc(t.title) + '</b>' + (t.due ? '<span class="pill ' + (t.due < t0 ? 'open' : 'muted') + '">' + dLabel(t.due) + '</span>' : '') + '<span class="hint">' + esc(L.resp[taskResp(t)] || '') + '</span>'];
+}
+function gsRender() {
+  const box = $('gsRes'); if (!box) return;
+  const q = ($('gsQ') || {}).value || '', res = gsFind(q);
+  S.gsHits = res.map((r) => gsRow(r)[0]); S.gsIdx = Math.min(S.gsIdx || 0, Math.max(0, res.length - 1));
+  if (!res.length) { box.innerHTML = '<p class="hint">' + (gsNorm(q).length < 2 && String(q).replace(/\D/g, '').length < 3 ? 'שם, טלפון, ת״ז או מייל — מחפש בלקוחות, לידים' + (S.isCenter ? '' : ', אנשי קשר') + ' ומשימות. Enter פותח את הראשונה.' : 'לא נמצא') + '</p>'; return; }
+  let last = '', i = 0;
+  box.innerHTML = res.map((r) => { const [key, html] = gsRow(r), head = r.kind !== last ? '<h3>' + GS_HEAD[r.kind] + '</h3>' : ''; last = r.kind;
+    return head + '<button type="button" role="option" data-gs="' + esc(key) + '" aria-selected="' + (i++ === S.gsIdx) + '">' + html + '</button>'; }).join('');
+}
+function gsOpen() {
+  if (!S.me || document.body.classList.contains('locked')) return;
+  if ($('gsQ')) return $('gsQ').focus();
+  $('layer').innerHTML = '<div class="scrim gs" id="gsScrim"><div class="drawer gsbox" role="dialog" aria-modal="true" aria-label="חיפוש"><header><input class="f grow" type="search" id="gsQ" placeholder="שם, טלפון, ת״ז, מייל…" autocomplete="off" aria-label="חיפוש"><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header><div id="gsRes" class="gsres" role="listbox" aria-label="תוצאות"></div></div></div>';
+  $('gsQ').value = S.f.gsQ || ''; S.gsIdx = 0; gsRender(); $('gsQ').focus(); $('gsQ').select();
+}
+function gsGo(key) {
+  const i = key.indexOf(':'), kind = key.slice(0, i), id = key.slice(i + 1); $('layer').innerHTML = '';
+  if (kind === 'client') return go('client', id);
+  if (kind === 'lead') return go('lead', id);
+  if (kind === 'contact') { const x = S.contacts.get(id); S.f.lendView = 'contacts'; S.f.ctCat = 'all'; S.f.ctQ = x ? x.name || x.org || '' : ''; return go('lenders'); }
+  const t = S.tasks.get(id); if (!t) return;
+  if (t.clientId && S.clients.has(t.clientId)) return go('client', t.clientId);
+  if (t.leadId && S.leads.has(t.leadId)) return go('lead', t.leadId);
+  if (S.canTask) return formTask(t);
+  S.f.taskView = 'mine'; return go('tasks');
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#gsBtn')) return gsOpen();
+  const g = e.target.closest('[data-gs]'); if (g) return gsGo(g.dataset.gs);
+  if (e.target.id === 'gsScrim' || e.target.closest('[data-gsclose]')) $('layer').innerHTML = '';
+});
+document.addEventListener('input', (e) => { if (e.target.id === 'gsQ') { S.f.gsQ = e.target.value; S.gsIdx = 0; gsRender(); } });
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (((e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.target.isContentEditable) || ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'ל'))) && !$('layer').innerHTML) { e.preventDefault(); return gsOpen(); }
+  if (e.target.id !== 'gsQ' || !(S.gsHits || []).length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); S.gsIdx = (S.gsIdx + (e.key === 'ArrowDown' ? 1 : -1) + S.gsHits.length) % S.gsHits.length; gsRender(); const b = document.querySelector('.gsres [aria-selected="true"]'); if (b) b.scrollIntoView({ block: 'nearest' }); }
+  if (e.key === 'Enter') { e.preventDefault(); gsGo(S.gsHits[S.gsIdx || 0]); }
+});
+
+/* ═════════════ משימה אוטומטית "ליד חדש — ליצור קשר" (WISE) ═════════════
+   נפתחת כשליד חדש מוקצה לנציג, ונסגרת לבד כשהסטטוס זז מ"חדש" או כשהליד עובר לנציג אחר.
+   rule_key = leadnew:<ליד>:<נציג> והוא גם מזהה המשימה — הקצאה חוזרת או שני דפדפנים לא יוצרים כפילות.
+   כבוי/דלוק בהגדרות ("משימה אוטומטית לליד חדש"). */
+const leadTaskOn = () => S.settings.leadNewTask !== false;
+const LEAD_TASK_FRESH_DAYS = 2;
+async function leadTaskSync(l, create = true) {
+  if (!l || !l.id || !S.canTask) return;
+  const want = leadTaskOn() && (l.stage || 'new') === 'new' && l.resp && !l.dupOf && !l.deletedAt ? 'leadnew:' + l.id + ':' + l.resp : null;
+  for (const t of live(S.tasks)) { if (t.leadId !== l.id || !String(t.ruleKey || '').startsWith('leadnew:') || t.status === 'done' || t.ruleKey === want) continue;
+    await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id, autoClosed: (l.stage || 'new') !== 'new' ? 'הליד טופל — ' + leadStageLabel(l) : 'הליד הועבר' }, 'update').catch(() => {}); }
+  if (!want || !create) return;
+  const id = 'leadnew-' + slug(l.id + '|' + l.resp);
+  if (S.tasks.has(id)) return;
+  await write('tasks/' + id, { id, ruleKey: want, auto: true, leadId: l.id, title: 'ליד חדש — ליצור קשר: ' + (l.name || normPhone(l.phone) || ''), notes: [normPhone(l.phone), l.campaign || leadChannel(l)].filter(Boolean).join(' · '),
+    resp: l.resp, assigneeId: userOfResp(l.resp) || null, due: today(), priority: 'high', status: 'open', createdAt: stamp(), createdBy: S.me.id }).catch(() => {});
+}
+/* אחרי סנכרון מהטבלאות: סטטוס שהשתנה בטבלה סוגר את המשימה; ליד חדש מהיומיים האחרונים שכבר הגיע עם אחראי — מקבל משימה */
+async function leadTaskSweep() {
+  if (!S.canTask) return; const since = addDays(today(), -LEAD_TASK_FRESH_DAYS);
+  const withTask = new Set(live(S.tasks).filter((t) => String(t.ruleKey || '').startsWith('leadnew:') && t.status !== 'done').map((t) => t.leadId));
+  for (const l of live(S.leads)) { if (withTask.has(l.id)) await leadTaskSync(l, false); else if (leadTaskOn() && l.resp && (l.stage || 'new') === 'new' && dayOf(l.createdAt) >= since) await leadTaskSync(l); }
+}
+function leadTaskCard() {
+  const on = leadTaskOn(), n0 = live(S.tasks).filter((t) => String(t.ruleKey || '').startsWith('leadnew:') && t.status !== 'done').length;
+  return '<section class="card"><header><h2>משימה אוטומטית לליד חדש</h2><span class="pill ' + (on ? 'actual' : 'muted') + '">' + (on ? 'פעיל' : 'כבוי') + '</span></header>' +
+    '<label class="row" style="gap:8px"><input type="checkbox" class="cb" id="leadNewTask"' + (on ? ' checked' : '') + (S.isOwner && S.canWrite ? '' : ' disabled') + '> כשליד חדש מוקצה לנציג — נפתחת לו משימה "ליד חדש — ליצור קשר" להיום. נסגרת לבד כשהסטטוס משתנה.</label>' +
+    '<p class="hint" style="margin:6px 0 0">' + n0 + ' משימות כאלה פתוחות עכשיו.</p></section>';
+}
+
+/* ── עמודות בטבלת הלידים — כל משתמש בוחר מה רואים (נשמר בדפדפן) ── */
+const LEAD_COLS = [['src', 'מקור'], ['st', 'סטטוס'], ['days', 'בסטטוס'], ['resp', 'אחראי'], ['fu', 'מעקב'], ['last', 'אחרון']];
+function leadHidden() { if (!S.f.leadHide) { try { S.f.leadHide = JSON.parse(localStorage.getItem('harel-leadcols') || '[]'); } catch (e) { S.f.leadHide = []; } if (!Array.isArray(S.f.leadHide)) S.f.leadHide = []; } return S.f.leadHide; }
+const leadColsCls = () => leadHidden().map((k) => ' no-' + k).join('');
+const leadColsPick = () => '<details class="lfilt" style="margin:0 0 8px"><summary class="hint">עמודות' + (leadHidden().length ? ' (' + leadHidden().length + ' מוסתרות)' : '') + '</summary><div class="row" style="gap:12px;margin-top:6px">' +
+  LEAD_COLS.map(([k, v]) => '<label class="row" style="gap:4px"><input type="checkbox" class="cb" data-leadcol="' + k + '"' + (leadHidden().includes(k) ? '' : ' checked') + '> ' + v + '</label>').join('') + '</div></details>';
+
 /* ── ייצוא ───────────────────────────────────────────────────────────────── */
 async function exportCsv(name, head, rows) {
   const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -4560,6 +4713,9 @@ const EXPORTS = {
     live(S.transactions).filter((t) => String(t.date).slice(0, 7) === m).sort((a, b) => String(a.date).localeCompare(b.date)).map((t) => [t.date, L.nature[t.nature], t.counterparty || t.description, cname(t.clientId), t.category, t.net, t.vat, t.gross, t.nature === 'expense' ? (t.deductible ? 'כן' : 'לא') : '', t.invoice || ''])); },
   poolCsv: () => { const leadPh = new Set(live(S.leads).map((l) => normPhone(l.phone))); return exportCsv('מאגר-כוורת-מאשרי-דיוור', ['כרטיס', 'שם', 'טלפון', 'כבר ליד'], poolIdx().rows.filter((r) => r.ok && r.phone).map((r) => [r.kid, r.name, r.phone, leadPh.has(r.phone) ? 'כן' : ''])); },
   exportTasks: () => exportCsv('משימות', ['משימה', 'יעד', 'עדיפות', 'סטטוס', 'לקוח', 'אחראי'], live(S.tasks).map((t) => [t.title, t.due, L.priority[t.priority] || '', t.status === 'done' ? 'בוצע' : 'פתוח', cname(t.clientId), nameOf(taskUser(t))])),
+  exportLeadsView: () => { if (S.isCenter) return toast('ייצוא לידים — למנהלים בלבד');
+    return exportCsv('לידים-מסונן', ['נכנס', 'שם', 'טלפון', 'עיר', 'חברה', 'מקור', 'מודעה', 'קמפיין', 'סטטוס', 'אחראי', 'מעקב', 'אחרון', 'לקוח'],
+      leadsFiltered().map((l) => [dayOf(l.createdAt), l.name, normPhone(l.phone), l.city, L.division[leadDiv(l)], leadChannel(l), l.ad, l.campaign, leadStageLabel(l), L.resp[l.resp] || l.resp || '', l.followUp || '', String(leadLast(l) || '').replace(/\s+/g, ' ').slice(0, 300), cname(l.clientId)])); },
   exportLeads: () => exportCsv('לידים', ['שם', 'טלפון', 'קמפיין', 'פלטפורמה', 'משווק', 'שלב', 'נוצר', 'לקוח'], live(S.leads).map((l) => [l.name, l.phone, l.campaign, l.platform, l.marketer, L.leadStage[l.stage], dayOf(l.createdAt), cname(l.clientId)])),
 };
 function reportMail(kind, ref) {
@@ -4936,9 +5092,13 @@ function detailsCard(c) {
     (S.isOwner && n(c.paidBefore) ? detail('שולם לפני המערכת', plain(c.paidBefore) + ' <span class="hint">נספר על חשבון השכ״ט, לא בספרים</span>') : '') +
     (S.isOwner ? detail('הוצאות ישירות', (c.directCostInfo != null ? plain(c.directCostInfo) : '—') + (c.directCostClient ? ' · לתשלום הלקוח ' + plain(c.directCostClient) : '')) : '') +
     detail('מסמכים', esc(c.docsNote || '—') + (c.hasFolder ? ' · <span class="pill actual">יש תיקיית מסמכים</span>' : '') + (c.wiseUpdated ? ' <span class="pill actual">עודכן בוואיז</span>' : '')) +
-    detail('טלפון', c.phone ? '<span dir="ltr">' + esc(c.phone) + '</span>' : '—') + detail('מייל', c.email ? '<span dir="ltr">' + esc(c.email) + '</span>' : '—') +
+    detail('טלפון', c.phone ? '<span dir="ltr">' + esc([c.phone, ...(c.extraPhones || [])].join(' · ')) + '</span>' : '—') + detail('מייל', c.email ? '<span dir="ltr">' + esc([c.email, ...(c.extraEmails || [])].join(' · ')) + '</span>' : '—') +
     (c.idNumber ? detail('ת״ז', '<span dir="ltr">' + esc(c.idNumber) + '</span>') : '') + (c.address ? detail('כתובת', esc(c.address)) : '') +
-    (c.spouseName || c.spouseId || c.spousePhone ? detail('בן/בת זוג', esc([c.spouseName, c.spouseId ? 'ת״ז ' + c.spouseId : '', c.spousePhone].filter(Boolean).join(' · '))) : '') +
+    (c.birthDate ? detail('תאריך לידה', dLabel(c.birthDate) + (ageOf(c.birthDate) != null ? ' · גיל <b class="num">' + ageOf(c.birthDate) + '</b>' : '')) : '') +
+    (c.spouseName || c.spouseId || c.spousePhone ? detail('בן/בת זוג', esc([c.spouseName, c.spouseId ? 'ת״ז ' + c.spouseId : '', c.spousePhone, c.spouseEmail].filter(Boolean).join(' · ')) + (ageOf(c.spouseBirthDate) != null ? ' · גיל ' + ageOf(c.spouseBirthDate) : '')) : '') +
+    (c.moreBorrowers || []).map((b, i) => detail('לווה ' + (i + 3), esc([b.name, b.idNumber ? 'ת״ז ' + b.idNumber : '', b.phone, b.email].filter(Boolean).join(' · ')))).join('') +
+    (c.dealType ? detail('סוג עסקה', esc(DEAL_TYPE[c.dealType] || c.dealType)) : '') +
+    (c.prop && Object.values(c.prop).some((v) => v !== null && v !== '') ? detail('הנכס', esc([c.prop.address, c.prop.gush ? 'גוש ' + c.prop.gush : '', c.prop.helka ? 'חלקה ' + c.prop.helka : '', c.prop.sub ? 'תת ' + c.prop.sub : '', c.prop.rooms ? c.prop.rooms + ' חד׳' : '', c.prop.floor ? 'קומה ' + c.prop.floor : '', c.prop.appraisalDate ? 'שמאות ' + dLabel(c.prop.appraisalDate) : ''].filter(Boolean).join(' · ')) + (c.prop.value ? ' · ' + money(c.prop.value, { tone: 'muted' }) : '')) : '') +
     detail('מקור הגעה', esc(c.source || '—')) + (c.sheetNote ? detail('הערה מהטבלה', esc(c.sheetNote)) : '') + (c.notes ? detail('הערות', esc(c.notes)) : '') +
     (f.status ? detail('תיק מנוהל', esc(f.status) + (f.detail ? ' · ' + esc(f.detail) : '')) : '') + '</tbody></table></div></section>';
 }
@@ -6754,6 +6914,10 @@ document.addEventListener('click', async (e) => {
           for (const id of [...SEL]) { const l = S.leads.get(id); if (!l) continue; if (!peopleFor(leadDiv(l)).some((p) => p.key === who)) { skip++; continue; } if (l.resp === who) continue;
             await leadPatch(id, { resp: who, assignedAt: stamp(), assignedBy: S.myKey || null }, (l.resp ? 'הועבר מ' + (L.resp[l.resp] || l.resp) + ' ל' : 'הוקצה ל') + lbl, true); k++; }
           SEL.clear(); toast(k + ' לידים הוקצו ל' + lbl + (skip ? ' · ' + skip + ' לא שייכים לחברה שלו' : '')); return render(); }
+        case 'selStatus': { const key = ($('selSt') || {}).value; if (!key || !SEL.size) return; const divs = [...new Set([...SEL].map((id) => S.leads.get(id)).filter(Boolean).map(leadDiv))]; if (divs.length !== 1) return toast('לבחור לידים מחברה אחת');
+          const lbl = (stageDefs(divs[0]).find((x) => x.key === key) || {}).label || key; let k = 0;
+          for (const id of [...SEL]) { const l = S.leads.get(id); if (!l || stKey(l) === key) continue; await leadSetStatus(l, key); k++; }
+          SEL.clear(); toast(k + ' לידים עודכנו ל' + lbl); return render(); }
         case 'poolAlloc': return poolAlloc();
         case 'scriptSave': { const o = { ...(S.settings.callScripts || {}) }; document.querySelectorAll('[data-script]').forEach((t) => { o[t.dataset.script] = t.value; }); await write('settings/main', { callScripts: o }, 'update'); return toast('התסריט נשמר'); }
         case 'stReset': { const div = $('stTable').dataset.div; const o = { ...(S.settings.statusSets || {}) }; delete o[div]; await write('settings/main', { statusSets: o }, 'update'); return toast('חזרה לברירת המחדל'); }
@@ -6957,6 +7121,8 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.ctcatset && S.canWrite) { await write('contacts/' + el.dataset.ctcatset, { cat: el.value, updatedAt: stamp() }, 'update'); return toast('סווג כ' + contactCatLabel(el.value)); }
   if (el.dataset && el.dataset.ctimport && el.files && el.files[0] && S.canWrite) { const f = el.files[0]; el.value = ''; return contactsImport(f); }
   if (el.dataset && el.dataset.rootcli !== undefined && S.rootMatch) { const m = S.rootMatch[+el.dataset.rootcli], c = S.clients.get(el.value); if (m && c) { m.c = c; m.tie = false; } return; }
+  if (el.dataset && el.dataset.leadcol) { const h = new Set(leadHidden()); if (el.checked) h.delete(el.dataset.leadcol); else h.add(el.dataset.leadcol); S.f.leadHide = [...h]; try { localStorage.setItem('harel-leadcols', JSON.stringify(S.f.leadHide)); } catch (err) {} return render(); }
+  if (el.id === 'leadNewTask') { if (!S.isOwner) return; await write('settings/main', { leadNewTask: el.checked }, 'update'); toast(el.checked ? 'משימה אוטומטית לליד חדש — פעיל' : 'משימה אוטומטית לליד חדש — כבוי'); if (el.checked) leadTaskSweep().catch(() => {}); return; }
   if (el.dataset && el.dataset.lsel) { if (el.checked) SEL.add(el.dataset.lsel); else SEL.delete(el.dataset.lsel); return render(); }
   if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
   try {
