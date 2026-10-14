@@ -776,7 +776,7 @@ function go(tab, clientId = null) {
 /* ═════════════════════════ היום שלי ═════════════════════════ */
 const dayId = (u = S.me.id, d = today()) => (u || 'anon') + '__' + d;
 function myOpenCases(uid = S.me.id) {
-  return live(S.clients).filter((c) => c.status === 'open' && isMyCase(c, uid));
+  return live(S.clients).filter((c) => c.status === 'open' && !isRejected(c) && isMyCase(c, uid));
 }
 /* תיק בלי אחראי נופל על בעל הדף, כדי ששום תיק לא ייעלם מסגירת יום. */
 /* מייל של בעל המשרד: מהצוות, ואם חסר — settings.ownerEmail (החשבון לא חושף מייל לדף). */
@@ -1105,21 +1105,27 @@ function vClients() {
 }
 async function mkFolders() { const list = live(S.clients).filter(inDiv).filter((c) => !c.driveFolder && ['open', 'hold'].includes(c.status)); let k = 0; toast('יוצר ' + list.length + ' תיקיות…');
   for (const c of list) { if (await driveFolderFor('proc', c.id, c.name)) k++; } toast(k + ' תיקיות נוצרו בדרייב'); render(); }
+/* "לא אושר" (דן, 14/10): לא מופיע בשום מקום — רק כשמחפשים "לא אושר" או בוחרים בסינון האישור "לא אושר" */
+const isRejected = (c) => !!c && c.approval === 'rejected';
+const REJ_Q = /לא\s*אושר[וה]?/g;
+const wantRejected = () => S.f.clientAppr === 'rejected' || /לא\s*אושר/.test(String(S.f.clientQ || ''));
 function vClientsInner() {
-  const f = S.f, all = live(S.clients).filter(inDiv);
+  const f = S.f, showRej = wantRejected(), qRej = /לא\s*אושר/.test(String(f.clientQ || '')), qText = String(f.clientQ || '').replace(REJ_Q, '').trim();
+  const all = live(S.clients).filter(inDiv).filter((c) => showRej || !isRejected(c));
   const tags = [...new Set(all.flatMap((c) => c.tags || []))].sort();
   const notOk = (c) => ['pending', 'waiting_guarantor', 'rejected'].includes(c.approval);
   const match = (c, anyStatus) =>
-    (!f.clientQ || [c.name, c.phone, c.email, c.notes, c.source, c.docsNote, c.sheetNote, c.service, ...(c.tags || [])].some((v) => String(v || '').includes(f.clientQ))) &&
+    (!qRej || isRejected(c)) && (!qText || [c.name, c.phone, c.email, c.notes, c.source, c.docsNote, c.sheetNote, c.service, ...(c.tags || [])].some((v) => String(v || '').includes(qText))) &&
     (anyStatus || !f.clientStatus || c.status === f.clientStatus) && (!f.clientTag || (c.tags || []).includes(f.clientTag)) &&
     (!f.clientStage || c.stage === f.clientStage) && (!f.clientOwner || caseUser(c) === f.clientOwner) &&
     (!f.clientResp || (c.resp || '') === f.clientResp) && (!f.clientAppr || (f.clientAppr === 'not_ok' ? notOk(c) : c.approval === f.clientAppr));
   const byOpen = (a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he');
-  /* סינון הסטטוס (ברירת מחדל "פתוח") חל רק על הטבלה — לפי סטטוס / הסתיימו / לא אושרו מציגים את כולם */
-  const rows = all.filter((c) => match(c, f.clientView !== 'table')).sort((a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he'));
+  /* סינון הסטטוס (ברירת מחדל "פתוח") חל רק על הטבלה — לפי סטטוס / הסתיימו / לא אושרו מציגים את כולם. חיפוש "לא אושר" — מכל הסטטוסים */
+  const rows = all.filter((c) => match(c, f.clientView !== 'table' || qRej)).sort((a, b) => clientMoney(b).open - clientMoney(a).open || String(a.name).localeCompare(String(b.name), 'he'));
   const views = [['board', 'לוח מעקב'], ['table', 'לפי שלב'], ['status', 'לפי סטטוס'], ['notok', 'לא אושרו (' + all.filter((c) => notOk(c) && c.status !== 'cancelled').length + ')'], ['done', 'הסתיימו (' + all.filter((c) => c.status === 'won').length + ')'], ['interest', 'מתעניינים (' + live(S.leads).filter(isLeadOpen).length + ')']];
   let body;
-  if (f.clientView === 'board') body = vClientBoard(all);
+  if (qRej && f.clientView === 'board') body = '<section class="card"><header><h2>לא אושר</h2><span class="pill open">' + rows.length + '</span><span class="hint">מוצגים רק כשמחפשים "לא אושר"</span></header>' + (rows.length ? clientTable(rows, false) : '<p class="empty">אין לקוחות שלא אושרו</p>') + '</section>';
+  else if (f.clientView === 'board') body = vClientBoard(all);
   else if (f.clientView === 'dan' || f.clientView === 'stuck') {
     const g = (f.clientView === 'dan' ? all.filter((c) => ['open', 'hold'].includes(c.status) && (fileOf(c.id) || {}).needsDan) : stuckFiles()).filter((c) => !f.clientResp || (c.resp || '') === f.clientResp);
     body = '<section class="card"><header><h2>' + (f.clientView === 'dan' ? 'ממתינים לאישור דן' : 'תיקים תקועים — 3 ימי עבודה בלי תזוזה') + (f.clientResp ? ' · ' + esc(L.resp[f.clientResp] || f.clientResp) : '') + '</h2><span class="pill open">' + g.length + '</span><span class="grow"></span><button class="btn small ghost" data-cview="board">← ללוח</button></header>' +
@@ -1782,7 +1788,7 @@ const refiDue = () => live(S.clients).flatMap((c) => refiOf(c)).filter((x) => x.
 /* ── תיק תקוע: 3 ימי עבודה (א׳–ה׳) בלי תזוזה — בלי שינוי, הערה או משימה שבוצעה ── */
 function bizDaysSince(iso, t0 = today()) { if (!iso) return 99; let d = String(iso).slice(0, 10), k = 0; while (d < t0 && k < 99) { d = addDays(d, 1); const wd = new Date(d + 'T12:00:00Z').getUTCDay(); if (wd !== 5 && wd !== 6) k++; } return k; }
 function lastMove(c) { const acts = [c.updatedAt, ...(c.log || []).slice(0, 1).map((e) => e.at), ...live(S.tasks).filter((t) => t.clientId === c.id && t.doneAt).map((t) => t.doneAt)].filter(Boolean).sort(); return acts[acts.length - 1] || c.createdAt; }
-const stuckFiles = () => live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && bizDaysSince(lastMove(c)) >= 3).sort((a, b) => String(lastMove(a)).localeCompare(String(lastMove(b))));
+const stuckFiles = () => live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && !isRejected(c) && bizDaysSince(lastMove(c)) >= 3).sort((a, b) => String(lastMove(a)).localeCompare(String(lastMove(b))));
 /* ═════════════ נוכחות צוות (שלב 2): כניסה ויציאה עם מיקום · 40 דקות בלי פעילות (מכירות / טלפנות) · דוח יומי למנהל עם עלות ═════════════ */
 const attId = (key, d = today()) => key + '_' + d;
 const attDoc = (key = S.myKey, d = today()) => key ? S.attendance.get(attId(key, d)) : null;
@@ -3562,7 +3568,7 @@ async function doImport() {
 function lenderStats() {
   const g = {};
   live(S.lenders).filter((l) => l.kind !== 'developer').forEach((l) => (g[l.name] = { l, name: l.name, cases: 0, submitted: 0, approved: 0, executed: 0, requested: 0, transferred: 0, clients: [] }));
-  live(S.clients).forEach((c) => (c.submissions || []).forEach((s) => {
+  live(S.clients).filter((c) => !isRejected(c)).forEach((c) => (c.submissions || []).forEach((s) => {
     const r = (g[s.bank] = g[s.bank] || { l: null, name: s.bank, cases: 0, submitted: 0, approved: 0, executed: 0, requested: 0, transferred: 0, clients: [] });
     r.cases++; r.clients.push(c); r[s.status === 'executed' ? 'executed' : s.status === 'approved' ? 'approved' : 'submitted']++;
     r.requested += n(c.baseAmount); if (s.status === 'executed') r.transferred += n(s.amount || c.baseAmount);
@@ -3605,7 +3611,7 @@ const SUB_GROUPS = [['executed', 'הכסף הועבר', 'actual'], ['approved', 
 const subGroupOf = (st) => st === 'executed' ? 'executed' : st === 'approved' ? 'approved' : ['submitted', 'review'].includes(st) ? 'submitted' : st === 'prep' ? 'prep' : st === 'declined' ? 'declined' : 'submitted';
 function subsAll() {
   const out = [];
-  for (const c of live(S.clients)) { if (!canSeeDiv(c.division || 'finance') || !inDiv(c) || ['cancelled', 'lost'].includes(c.status)) continue;
+  for (const c of live(S.clients)) { if (!canSeeDiv(c.division || 'finance') || !inDiv(c) || ['cancelled', 'lost'].includes(c.status) || isRejected(c)) continue;
     (c.submissions || []).forEach((x, i) => { if (!x || !x.bank) return; out.push({ c, i, s: x, g: subGroupOf(x.status), amount: n(x.amount), date: x.transferredAt || x.approvedAt || x.submittedAt || null }); }); }
   return out;
 }
@@ -3625,7 +3631,7 @@ function vSubsStatus() {
         '<td class="num">' + (r.date ? dLabel(r.date) : '<span class="hint">—</span>') + '</td><td><span class="pill muted">' + esc(L.stage[r.c.stage] || '') + '</span></td><td>' + (r.c.resp ? respChip(r.c.resp) : '<span class="hint">—</span>') + '</td></tr>').join('') + '</tbody></table></div></section>'; };
   return '<div class="row" style="margin-bottom:10px;align-items:flex-end"><label class="fl grow">חיפוש לקוח או גוף<input class="f search" type="search" id="fSubQ" value="' + esc(S.f.subQ || '') + '" placeholder="שם לקוח / גוף"></label></div>' + tiles +
     (L2.length ? SUB_GROUPS.map(group).join('') + byLender : '<p class="empty">' + (q ? 'אין הגשות שמתאימות לחיפוש.' : 'אין עדיין הגשות לגופים.') + '</p>') +
-    '<p class="hint">תיקים מבוטלים ואבודים לא מוצגים. הסטטוס של כל הגשה מתעדכן בכרטיס הלקוח ← "גופי מימון".</p>';
+    '<p class="hint">תיקים מבוטלים, אבודים ו"לא אושר" לא מוצגים. הסטטוס של כל הגשה מתעדכן בכרטיס הלקוח ← "גופי מימון".</p>';
 }
 function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : 'bodies';
   const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
@@ -4460,7 +4466,7 @@ function dayMoney(day = today()) {
 /* תזכורות שחוזרות כל יום עד שמטפלים: חוסר להעברה לקרן, פעימה שעבר מועדה. */
 function dailyReminders(filterFn = () => true, day = today()) {
   const out = [];
-  live(S.clients).filter(inDiv).filter(filterFn).forEach((c) => {
+  live(S.clients).filter(inDiv).filter((c) => !isRejected(c)).filter(filterFn).forEach((c) => {
     const f = c.fundDue;
     if (f && !f.done) out.push({ c, kind: 'fund', key: 'a-fund-' + c.id + '-' + day, text: 'חוסר ' + plain(f.amount) + ' להעברה ל' + (f.fund || 'קרן') + (f.action ? ' — ' + (L.fundAction[f.action] || f.action) : '') });
     (['lost', 'cancelled', 'hold'].includes(c.status) ? [] : c.installments || []).filter((i) => !i.paid && i.due && i.due <= day).forEach((i) => out.push({ c, kind: 'inst', key: 'a-inst-' + i.id, text: 'פעימה ' + plain(i.amount) + ' מ-' + dLabel(i.due) + ' עוד לא נכנסה' }));
@@ -4502,7 +4508,7 @@ function vLanes() {
       (S.f.laneAhead ? laneAhead(all, t0, w) : later ? '<p style="padding:0 14px 8px"><button class="xlink hint" data-act="laneAhead">ועוד ' + later + ' לימים הבאים — הצג</button></p>' : '') +
       (w ? '<div class="laneadd"><input class="f" data-laneadd="' + r + '" placeholder="+ משימה ל' + L.resp[r] + ' (Enter)" aria-label="משימה חדשה ל' + L.resp[r] + '"></div>' : '') + '</section>';
   };
-  const files = live(S.clients).filter(inDiv).filter((c) => (c.resp || fileOf(c.id)) && (c.status === 'open' || c.status === 'hold' || (c.status === 'won' && ((c.installments || []).some((i) => !i.paid) || (c.fundDue && !c.fundDue.done)))))
+  const files = live(S.clients).filter(inDiv).filter((c) => !isRejected(c) && (c.resp || fileOf(c.id)) && (c.status === 'open' || c.status === 'hold' || (c.status === 'won' && ((c.installments || []).some((i) => !i.paid) || (c.fundDue && !c.fundDue.done)))))
     .sort((a, b) => RESP_KEYS.indexOf(a.resp || 'dan') - RESP_KEYS.indexOf(b.resp || 'dan') || String(a.name).localeCompare(String(b.name), 'he'));
   const extra = staff().filter((p) => !RESP_KEYS.includes(p.key) && p.role !== 'partner' && live(S.tasks).some((t) => taskResp(t) === p.key && t.status !== 'done')).map((p) => p.key);
   const mineDivs = (k) => { const pd = PERSON_DIVS(k); return !pd || pd.some(canSeeDiv) && (S.division === 'all' || pd.includes(S.division)); };
