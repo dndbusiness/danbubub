@@ -12,8 +12,9 @@ const globalForDb = globalThis as unknown as { __harelSql?: Sql }
 
 function connect(): Sql {
   if (globalForDb.__harelSql) return globalForDb.__harelSql
-  // POSTGRES_URL — השם שהחיבור של Vercel ל-Supabase (Storage → Supabase) מייצר לבד
-  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL
+  // POSTGRES_URL — השם שהחיבור של Vercel ל-Supabase (Storage → Supabase) מייצר לבד. כשהוא קיים הוא גובר:
+  // החיבור מנוהל ע"י Vercel ומתעדכן לבד, ו-DATABASE_URL ידני שנשאר מפעם היה מפנה למסד אחר בשקט
+  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL לא מוגדר. ראו .env.example')
   // ה-pooler של Supabase (פורט 6543, מצב transaction) לא תומך ב-prepared statements
   const pooled = /:6543\b|pooler\.supabase|pgbouncer=true/.test(url)

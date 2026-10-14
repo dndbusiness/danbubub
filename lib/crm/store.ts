@@ -48,18 +48,38 @@ export async function writeDoc(path: string, op: WriteOp, data: unknown): Promis
 
 export interface MirrorResult { total: number; written: number; unchanged: number; removed: number; colls: string[] }
 
+export type CrmMode = 'mirror' | 'live'
+
+/** 'live' = עובדים מכאן והשרת הוא המקור; עד אז — שכפול מהדף ב-Claude. */
+export async function crmMode(): Promise<CrmMode> {
+  const [r] = await sql<{ value: unknown }[]>`select value from settings where key = 'crm_mode'`
+  return r?.value === 'live' ? 'live' : 'mirror'
+}
+
+export async function setCrmMode(mode: CrmMode): Promise<void> {
+  await withActor((tx) => tx`
+    insert into settings (key, value, description, updated_by) values ('crm_mode', ${tx.json(mode as never)}, 'mirror = שכפול מהדף ב-Claude · live = עובדים מכאן', current_actor())
+    on conflict (key) do update set value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`)
+}
+
 /**
  * שכפול מהגיבוי של הדף ב-Claude. idempotent (הנחיה 9): מסמך זהה לא נכתב שוב,
  * ומה שנמחק שם מסומן deleted_at כאן — באוספים שהגיבוי מכיל בלבד.
+ * אחרי המעבר (crm_mode = live) גיבוי ישן היה דורס עבודה שנעשתה כאן — נדחה, אלא אם force (שחזור מכוון).
  */
-export async function importMirror(dump: BackupDump): Promise<MirrorResult> {
+export async function importMirror(dump: BackupDump, opts: { force?: boolean } = {}): Promise<MirrorResult> {
   const { docs, colls } = docsFromDump(dump)
+  if (!opts.force && (await crmMode()) === 'live') throw Object.assign(new Error('המעבר כבר בוצע — עובדים מהמערכת הזו, וגיבוי מהדף ב-Claude היה דורס את מה שנעשה כאן'), { code: 'failed_precondition' })
   return withActor(async (tx) => {
     let written = 0
-    for (const d of docs) {
+    // במנות: שאילתה לכל מסמך = אלפי סבבים מול מסד מרוחק, מעבר לתקרת הזמן של פונקציה בענן.
+    // מפתח כפול באותה מנה נדחה ב-ON CONFLICT — לכן אחד לכל מפתח (האחרון גובר).
+    const rows = [...new Map(docs.map((d) => [d.coll + '/' + d.id, { coll: d.coll, doc_id: d.id, data: d.data }])).values()]
+    for (let i = 0; i < rows.length; i += 200) {
       const r = await tx`
         insert into crm_docs (coll, doc_id, data, source, created_by)
-        values (${d.coll}, ${d.id}, ${tx.json(d.data as never)}, 'mirror', current_actor())
+        select x.coll, x.doc_id, x.data, 'mirror', current_actor()
+        from jsonb_to_recordset(${tx.json(rows.slice(i, i + 200) as never)}) as x(coll text, doc_id text, data jsonb)
         on conflict (coll, doc_id) do update
           set data = excluded.data, source = 'mirror', deleted_at = null, seq = nextval('crm_docs_seq')
           where crm_docs.data is distinct from excluded.data or crm_docs.deleted_at is not null`
@@ -70,9 +90,9 @@ export async function importMirror(dump: BackupDump): Promise<MirrorResult> {
       update crm_docs set deleted_at = now(), seq = nextval('crm_docs_seq')
       where coll = any(${colls}::text[]) and deleted_at is null and not (id = any(${keys}::text[]))`
     await tx`
-      insert into settings (key, value, updated_by) values ('crm_mirror_last', ${tx.json({ at: new Date().toISOString(), exportedAt: dump.exportedAt ?? null, total: docs.length } as never)}, current_actor())
+      insert into settings (key, value, updated_by) values ('crm_mirror_last', ${tx.json({ at: new Date().toISOString(), exportedAt: dump.exportedAt ?? null, total: rows.length } as never)}, current_actor())
       on conflict (key) do update set value = excluded.value`
-    return { total: docs.length, written, unchanged: docs.length - written, removed: gone.count, colls }
+    return { total: rows.length, written, unchanged: rows.length - written, removed: gone.count, colls }
   })
 }
 

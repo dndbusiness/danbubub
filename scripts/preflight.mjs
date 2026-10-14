@@ -16,7 +16,7 @@ const limit = (m, how) => R.limit.push({ m, how })
 const ok = (m) => R.ok.push(m)
 
 // ── סביבה ──────────────────────────────────────────────────────────────────
-if (!process.env.DATABASE_URL && process.env.POSTGRES_URL) process.env.DATABASE_URL = process.env.POSTGRES_URL /* החיבור של Vercel ל-Supabase */
+if (process.env.POSTGRES_URL) process.env.DATABASE_URL = process.env.POSTGRES_URL /* החיבור של Vercel ל-Supabase גובר — כמו lib/db.ts */
 if (!process.env.DATABASE_URL) block('DATABASE_URL לא מוגדר', 'Supabase → Connection string (pooler), או ./scripts/dev-db.sh start')
 else ok('DATABASE_URL מוגדר')
 
