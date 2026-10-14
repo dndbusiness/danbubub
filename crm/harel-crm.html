@@ -513,6 +513,9 @@ COLL.forEach((c) => (S[c] = new Map()));
 const RE_SPLIT = { transactions: 'reTx', expenses: 'reExpenses', planned: 'rePlanned' }, RE_BASE = Object.fromEntries(Object.entries(RE_SPLIT).map(([a, b]) => [b, a]));
 S._raw = Object.fromEntries(Object.keys(RE_SPLIT).map((c) => [c, new Map()]));
 const reMerge = (base) => { S[base] = new Map([...S._raw[base], ...S[RE_SPLIT[base]]]); };
+/* דפדפן אוטומטי (בדיקות) לא מסנכרן ולא מגבה. חריג אחד: "השומר" על השרת (scripts/crm-keeper.mjs) — דפדפן בלי
+   אדם שפותח את הדף כל חצי שעה כדי שהסנכרון והגיבוי ירוצו גם כשאף אחד לא בתוך המערכת. */
+const autoOff = () => !!navigator.webdriver && !window.__CRM_KEEPER;
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 
 /* ── עזרים ───────────────────────────────────────────────────────────────── */
@@ -1551,8 +1554,10 @@ const screenFails = (ans) => SCREEN_RULES.filter(([q, bad]) => Object.entries(an
 async function syncLeadSheet(src, quiet, cache) {
   if (!S.mcp) { if (!quiet) toast('אין חיבור לגוגל דרייב בתצוגה הזו'); return null; }
   let wb; try { wb = await sheetBook(src.fileId, cache); }
-  catch (e) { if (!quiet) toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : e && e.code === 'empty' ? 'הטבלה חזרה ריקה' : 'לא הצלחתי לקרוא את הטבלה'); return null; }
-  const ws = wb.Sheets[src.sheet && wb.Sheets[src.sheet] ? src.sheet : wb.SheetNames[0]]; if (!ws) return null;
+  catch (e) { (S.lsErr = S.lsErr || {})[srcKey(src)] = (e && (e.code || e.message)) || 'שגיאה'; /* השומר מדווח למה */
+    if (!quiet) toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : e && e.code === 'empty' ? 'הטבלה חזרה ריקה' : 'לא הצלחתי לקרוא את הטבלה'); return null; }
+  const ws = wb.Sheets[src.sheet && wb.Sheets[src.sheet] ? src.sheet : wb.SheetNames[0]]; if (!ws) { (S.lsErr = S.lsErr || {})[srcKey(src)] = 'אין לשונית ' + (src.sheet || ''); return null; }
+  if (S.lsErr) delete S.lsErr[srcKey(src)];
   const rng = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1'), cv = (c, row) => { const x = ws[c + row]; return x ? String(x.w ?? x.v ?? '').trim() : ''; };
   const form = src.layout === 'form', COLS = 'ABCDEFGHIJKLMNOP'.split('');
   let head = 1; for (let row = 1; row <= Math.min(10, rng.e.r + 1); row++) if (COLS.some((c) => cv(c, row) === 'שם')) { head = row; break; }
@@ -1619,7 +1624,7 @@ async function syncLeadSheet(src, quiet, cache) {
 async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); dedupeAuto(); }
 const lastRun = (s) => [S.runs.get('leadsync-' + srcKey(s)), lsRun(s)].filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
 async function autoLeadSync() {
-  if (!S.mcp || navigator.webdriver) return; const cache = {};
+  if (!S.mcp || autoOff()) return; const cache = {};
   for (const src of leadSources()) { if (!S.claudeOwner && !lsRun(src)) continue; const last = lastRun(src); if (last && Date.now() - new Date(last.at).getTime() < 30 * 60e3) continue; await syncLeadSheet(src, true, cache).catch(() => null); }
   dedupeAuto();
 }
@@ -1781,7 +1786,7 @@ async function dedupeLeads() {
   } finally { DEDUPE_BUSY = false; }
   return k;
 }
-const dedupeAuto = () => { if (!navigator.webdriver || window.__dedupeTest) dedupeLeads().then((k) => { if (k) toast(k + ' לידים כפולים סומנו'); }).catch(() => {}); };
+const dedupeAuto = () => { if (!autoOff() || window.__dedupeTest) dedupeLeads().then((k) => { if (k) toast(k + ' לידים כפולים סומנו'); }).catch(() => {}); };
 function leadDupCard(l, w) {
   const tw = leadTwins(l); if (!tw.length) return '';
   const orig = l.dupOf && S.leads.get(l.dupOf);
@@ -4141,7 +4146,7 @@ async function driveBackup(manual = false) {
 }
 function autoDriveBackup() {
   const o = S.runs.get('drive');
-  if (!S.claudeOwner || !S.isOwner || !S.canWrite || !S.mcp || navigator.webdriver) return; // לא בריצה אוטומטית/בדיקות
+  if (!S.claudeOwner || !S.isOwner || !S.canWrite || !S.mcp || autoOff()) return; // לא בריצה אוטומטית/בדיקות
   if (o && o.day === today()) return; // פעם ביום — גם אם נכשל, לא מנסים שוב אוטומטית באותו יום
   setTimeout(() => driveBackup(false), 4000);
 }
@@ -4558,6 +4563,10 @@ async function exportAll() {
 }
 window.HAREL_JOBS = {
   ready: () => S.ready,
+  /* מצב לשומר (scripts/crm-keeper.mjs): מתי סונכרנה כל טבלת לידים ומתי נעשה הגיבוי — כדי לדעת מתי סיים */
+  status: () => ({ ready: S.ready, owner: !!(S.claudeOwner && S.isOwner), canWrite: !!S.canWrite, mcp: !!S.mcp, today: today(),
+    sources: leadSources().map((s) => { const r = lastRun(s) || {}; return { key: srcKey(s), label: s.label || '', at: r.at || null, added: r.added ?? null, error: (S.lsErr || {})[srcKey(s)] || null }; }),
+    drive: (() => { const o = S.runs.get('drive'); return o ? { day: o.day, status: o.status, at: o.at, error: o.error || null } : null; })() }),
   run(job, opt = {}) {
     const day = opt.day || today();
     const ownerMail = mailOf(S.settings.ownerId) || opt.ownerEmail || '';

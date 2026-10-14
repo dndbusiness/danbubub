@@ -14,6 +14,8 @@ const SERVICES: { key: string; label: string; scopes: string[] }[] = [
   { key: 'calendar', label: 'יומן — תזכורות ואירועי סגירה', scopes: ['calendar.events'] },
   { key: 'drive', label: 'דרייב — דוחות וגיבויים (רק קבצי המערכת)', scopes: ['drive.file'] },
   { key: 'sheets', label: 'Sheets — ייצוא/ייבוא גיליונות', scopes: ['spreadsheets'] },
+  // ה-CRM קורא את טבלאות הלידים ואת תיקיות הלקוחות הקיימות — קבצים שהמערכת לא יצרה, ולכן drive.file לא מספיק
+  { key: 'crm', label: 'CRM — טבלאות הלידים ותיקיות הלקוחות בדרייב', scopes: ['drive'] },
 ]
 
 /** ADDENDUM ב.1 — כרטיס החיבור לגוגל: מצב, scopes שאושרו, חיבור/ניתוק. */

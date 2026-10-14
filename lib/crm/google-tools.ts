@@ -1,5 +1,5 @@
 /**
- * הכלים שהדף של ה-CRM קורא להם דרך "חיבורים" של Claude (Gmail / Google Drive),
+ * הכלים שהדף של ה-CRM קורא להם דרך "חיבורים" של Claude (Gmail / Google Drive / Google Calendar),
  * כאן מול גוגל ישירות עם ה-OAuth של השרת. אותם שמות כלים, אותו מבנה תשובה —
  * כדי שהדף ירוץ על השרת בלי שינוי. fetch ניתן להזרקה לבדיקות.
  */
@@ -136,6 +136,109 @@ export async function driveTool(tool: string, input: ToolInput, token: string, f
       const buf = Buffer.from(await res.arrayBuffer())
       return { id: meta.id, title: meta.name, mimeType: native ? exportType : meta.mimeType, content: buf.toString('base64') }
     }
+    case 'search_files': {
+      const u = new URL(DRIVE)
+      u.searchParams.set('q', driveQuery(String(input.query ?? '')))
+      u.searchParams.set('pageSize', String(Math.min(Math.max(Number(input.pageSize) || 50, 1), 1000)))
+      u.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink,parents)')
+      u.searchParams.set('supportsAllDrives', 'true'); u.searchParams.set('includeItemsFromAllDrives', 'true')
+      if (input.pageToken) u.searchParams.set('pageToken', String(input.pageToken))
+      const r = await g(token, u, {}, fetchImpl) as { nextPageToken?: string; files?: { id: string; name: string; mimeType: string; modifiedTime?: string; size?: string; webViewLink?: string; parents?: string[] }[] }
+      return {
+        files: (r.files ?? []).map((f) => ({ id: f.id, title: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime ?? null, fileSize: f.size ?? null, viewUrl: f.webViewLink ?? null, parentId: f.parents?.[0] ?? null })),
+        ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}),
+      }
+    }
+    case 'update_file': {
+      const id = encodeURIComponent(String(input.fileId ?? ''))
+      if (!id) throw new ToolError('invalid_argument', 'Drive: חסר fileId')
+      const u = new URL(`${DRIVE}/${id}`)
+      u.searchParams.set('supportsAllDrives', 'true'); u.searchParams.set('fields', 'id,name,mimeType,webViewLink,parents')
+      const body: Record<string, unknown> = {}
+      if (input.title) body.name = String(input.title)
+      if (input.parentId) {
+        // העברה לתיקייה: מוסיפים את החדשה ומסירים את הקודמות (כמו "העבר אל" בדרייב)
+        const cur = await g(token, `${DRIVE}/${id}?fields=parents&supportsAllDrives=true`, {}, fetchImpl) as { parents?: string[] }
+        u.searchParams.set('addParents', String(input.parentId))
+        const prev = (cur.parents ?? []).filter((p) => p !== input.parentId)
+        if (prev.length) u.searchParams.set('removeParents', prev.join(','))
+      }
+      const r = await g(token, u, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, fetchImpl) as { id: string; name: string; mimeType: string; webViewLink?: string; parents?: string[] }
+      return { id: r.id, title: r.name, mimeType: r.mimeType, viewUrl: r.webViewLink ?? null, parentId: r.parents?.[0] ?? null }
+    }
     default: throw new ToolError('tool_not_found', `Drive: הכלי ${tool} לא ממומש בשרת`)
+  }
+}
+
+/**
+ * שפת השאילתה של החיבור של Claude → שפת השאילתה של Drive. הדף משתמש רק ב-parentId = '…';
+ * גם title contains '…' נתמך. כל השאר נדחה במפורש — לא מעבירים לגוגל מחרוזת שלא הבנו.
+ */
+export function driveQuery(q: string): string {
+  const out: string[] = []
+  const id = /^[\w-]{1,200}$/
+  for (const raw of q.split(/\s+and\s+/i)) {
+    const part = raw.trim()
+    let m: RegExpMatchArray | null
+    if ((m = part.match(/^parentId\s*=\s*'([^']+)'$/)) && id.test(m[1]!)) out.push(`'${m[1]}' in parents`)
+    else if ((m = part.match(/^(?:title|name)\s+contains\s+'([^'\\]{1,200})'$/))) out.push(`name contains '${m[1]}'`)
+    else if ((m = part.match(/^mimeType\s*=\s*'([\w./+-]{1,200})'$/))) out.push(`mimeType = '${m[1]}'`)
+    else throw new ToolError('invalid_argument', `Drive: שאילתה לא נתמכת: ${part}`)
+  }
+  out.push('trashed = false')
+  return out.join(' and ')
+}
+
+const CAL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+const TZ = 'Asia/Jerusalem'
+
+/** "2026-10-14T09:00:00" בשעון ישראל → RFC3339 עם ההיסט של אותו רגע (קיץ +03:00, חורף +02:00). */
+export function ilTime(local: string): string {
+  if (/(Z|[+-]\d{2}:\d{2})$/.test(local)) return local
+  const m = local.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/)
+  if (!m) throw new ToolError('invalid_argument', `Calendar: זמן לא תקין: ${local}`)
+  const [y, mo, d, h = '00', mi = '00', se = '00'] = m.slice(1) as string[]
+  const asUtc = Date.UTC(+y!, +mo! - 1, +d!, +h, +mi, +se)
+  const wall = (t: number) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(new Date(t)).map((x) => [x.type, x.value]))
+    return Date.UTC(+p.year!, +p.month! - 1, +p.day!, +p.hour!, +p.minute!, +p.second!)
+  }
+  // ההיסט ברגע עצמו (ולא ברגע ה-UTC המקביל) — נכון גם בשעות שסביב מעבר שעון
+  let off = wall(asUtc) - asUtc
+  off = wall(asUtc - off) - (asUtc - off)
+  const mins = Math.round(off / 60000), sign = mins >= 0 ? '+' : '-', a = Math.abs(mins)
+  return `${y}-${mo}-${d}T${h}:${mi}:${se}${sign}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`
+}
+
+interface GEvent { id: string; status?: string; summary?: string; description?: string; location?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }
+const evOut = (e: GEvent) => ({ id: e.id, status: e.status ?? 'confirmed', summary: e.summary ?? '', description: e.description ?? '', location: e.location ?? '', htmlLink: e.htmlLink ?? null, start: e.start ?? {}, end: e.end ?? {} })
+
+export async function calendarTool(tool: string, input: ToolInput, token: string, fetchImpl: F = fetch): Promise<unknown> {
+  switch (tool) {
+    case 'list_events':
+    case 'search_events': {
+      const u = new URL(CAL)
+      u.searchParams.set('singleEvents', 'true'); u.searchParams.set('timeZone', TZ)
+      u.searchParams.set('maxResults', String(Math.min(Math.max(Number(input.pageSize) || 50, 1), 250)))
+      if (input.startTime) u.searchParams.set('timeMin', ilTime(String(input.startTime)))
+      if (input.endTime) u.searchParams.set('timeMax', ilTime(String(input.endTime)))
+      if (input.query) u.searchParams.set('q', String(input.query))
+      if (input.orderBy === 'startTime' || input.startTime) u.searchParams.set('orderBy', 'startTime')
+      if (input.pageToken) u.searchParams.set('pageToken', String(input.pageToken))
+      const r = await g(token, u, {}, fetchImpl) as { items?: GEvent[]; nextPageToken?: string }
+      return { events: (r.items ?? []).map(evOut), ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}) }
+    }
+    case 'create_event': {
+      if (!input.startTime || !input.summary) throw new ToolError('invalid_argument', 'Calendar: חסר summary או startTime')
+      const at = (v: unknown) => ({ dateTime: String(v), timeZone: TZ })
+      const body = {
+        summary: String(input.summary), start: at(input.startTime), end: at(input.endTime ?? input.startTime),
+        ...(input.description ? { description: String(input.description) } : {}), ...(input.location ? { location: String(input.location) } : {}),
+      }
+      const e = await g(token, CAL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, fetchImpl) as unknown as GEvent
+      return evOut(e)
+    }
+    default: throw new ToolError('tool_not_found', `Calendar: הכלי ${tool} לא ממומש בשרת`)
   }
 }
