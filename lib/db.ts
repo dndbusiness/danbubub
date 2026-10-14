@@ -12,10 +12,14 @@ const globalForDb = globalThis as unknown as { __harelSql?: Sql }
 
 function connect(): Sql {
   if (globalForDb.__harelSql) return globalForDb.__harelSql
-  const url = process.env.DATABASE_URL
+  // POSTGRES_URL — השם שהחיבור של Vercel ל-Supabase (Storage → Supabase) מייצר לבד
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL
   if (!url) throw new Error('DATABASE_URL לא מוגדר. ראו .env.example')
+  // ה-pooler של Supabase (פורט 6543, מצב transaction) לא תומך ב-prepared statements
+  const pooled = /:6543\b|pooler\.supabase|pgbouncer=true/.test(url)
   const client = postgres(url, {
     max: 5,
+    ...(pooled ? { prepare: false } : {}),
     // NUMERIC → number. SPEC §11.5: הערכים נשמרים ב-NUMERIC(14,2); בקריאה
     // הם מומרים למספר JS עם 2 ספרות — בטוח לתצוגה, וכל חישוב עובר ב-lib/rules.
     types: { numeric: { to: 1700, from: [1700], serialize: (v: number) => String(v), parse: Number } },

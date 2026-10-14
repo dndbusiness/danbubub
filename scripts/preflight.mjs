@@ -16,6 +16,7 @@ const limit = (m, how) => R.limit.push({ m, how })
 const ok = (m) => R.ok.push(m)
 
 // ── סביבה ──────────────────────────────────────────────────────────────────
+if (!process.env.DATABASE_URL && process.env.POSTGRES_URL) process.env.DATABASE_URL = process.env.POSTGRES_URL /* החיבור של Vercel ל-Supabase */
 if (!process.env.DATABASE_URL) block('DATABASE_URL לא מוגדר', 'Supabase → Connection string (pooler), או ./scripts/dev-db.sh start')
 else ok('DATABASE_URL מוגדר')
 
@@ -44,7 +45,7 @@ if (process.env.VERCEL && !process.env.CHROMIUM_PACK_URL && !process.env.CHROMIU
 
 // ── DB ─────────────────────────────────────────────────────────────────────
 if (process.env.DATABASE_URL) {
-  const sql = postgres(process.env.DATABASE_URL, { max: 1, idle_timeout: 5 })
+  const sql = postgres(process.env.DATABASE_URL, { max: 1, idle_timeout: 5, ...(/:6543\b|pooler\.supabase/.test(process.env.DATABASE_URL) ? { prepare: false } : {}) })
   try {
     const [{ tables, views }] = await sql`
       select (select count(*)::int from information_schema.tables where table_schema='public' and table_type='BASE TABLE') as tables,
