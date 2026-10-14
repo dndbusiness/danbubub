@@ -2,6 +2,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
+body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai label:has(#repFile), body.noai label:has(#repMore), body.noai label:has(#condScan) { display: none !important; }
   /* Design tokens — UIUX §2.1 של מערכת הכספים. ודאות היא צבע (§1.2). */
   :root {
     --bg: #F7F8FA; --surface: #FFFFFF; --sunk: #F1F3F6; --border: #E6E8EC;
@@ -515,7 +516,7 @@ S._raw = Object.fromEntries(Object.keys(RE_SPLIT).map((c) => [c, new Map()]));
 const reMerge = (base) => { S[base] = new Map([...S._raw[base], ...S[RE_SPLIT[base]]]); };
 /* דפדפן אוטומטי (בדיקות) לא מסנכרן ולא מגבה. חריג אחד: "השומר" על השרת (scripts/crm-keeper.mjs) — דפדפן בלי
    אדם שפותח את הדף כל חצי שעה כדי שהסנכרון והגיבוי ירוצו גם כשאף אחד לא בתוך המערכת. */
-const autoOff = () => !!navigator.webdriver && !window.__CRM_KEEPER;
+const autoOff = () => (!!navigator.webdriver && !window.__CRM_KEEPER) || (!!window.__harelServer && window.__CRM_MODE === 'mirror'); /* בשרת לפני המעבר — הדף ב-Claude מסנכרן ומגבה */
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 
 /* ── עזרים ───────────────────────────────────────────────────────────────── */
@@ -746,6 +747,12 @@ const MAIL_FIX = {
   blocked_by_policy: 'מדיניות הארגון חוסמת שליחת מיילים מהדף.',
   approval_required: 'הארגון דורש אישור לכל שליחה — לא נתמך בדף הזה.',
 };
+/* בשרת החיבור לגוגל הוא של המערכת, לא של claude.ai */
+if (window.__harelServer) Object.assign(MAIL_FIX, {
+  needs_reauth: 'החיבור לגוגל פג. בהגדרות המערכת ← "חבר את גוגל" מחדש.',
+  server_not_connected: 'גוגל לא מחובר למערכת. בהגדרות המערכת ← "חבר את גוגל" (כולל CRM).',
+  not_granted: 'לחיבור לגוגל אין את ההרשאה הזו. בהגדרות המערכת ← "חבר את גוגל" מחדש, כולל CRM.',
+});
 async function sendMail({ to, cc, subject, html, text, kind, ref, attachments }) {
   const rcpt = [...new Set((to || []).filter((x) => /.+@.+\..+/.test(String(x || ''))))];
   const ccs = [...new Set((cc || []).filter((x) => /.+@.+\..+/.test(String(x || '')) && !rcpt.includes(x)))];
@@ -2046,7 +2053,9 @@ async function docMove(c, fileId, cat) {
   toast('הועבר ל' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
 /* ═════ חתימה דיגיטלית על הסכם התקשרות — עובד במערכת בשרת (קישור ציבורי ללקוח: /s/<token>).
    בדף ב-Claude אין כתובת שלקוח יכול לפתוח, ולכן כאן מוצג רק הסבר. הנוסח לכל חברה — בהגדרות. ═════ */
-const SIGN_DRAFT = '[טיוטה — להחליף בנוסח ההסכם שלך, מאושר ע״י עו״ד. לא נשלח ללקוח כל עוד מופיעה כאן המילה טיוטה]\n\n# הסכם התקשרות — {{company}}\n\nנחתם ביום {{date}} בין {{company}} ("החברה") לבין {{client_name}}, ת״ז {{client_id}}, {{client_address}} ("הלקוח").\n\n# השירות\n- {{service}}\n\n# שכר טרחה\n- {{fee}}\n\n# תנאים\n- (להשלים)\n\nהלקוח מאשר שקרא את ההסכם והבין אותו.';
+/* טיוטה = הסימון "[טיוטה" בנוסח (כמו בברירת המחדל) — לא כל הופעה של המילה; הסכם אמיתי יכול להזכיר טיוטה */
+const isSignDraft = (t) => /\[\s*טיוטה/.test(String(t || ''));
+const SIGN_DRAFT = '[טיוטה — להחליף בנוסח ההסכם שלך, מאושר ע״י עו״ד. לא נשלח ללקוח כל עוד מופיע כאן הסימון בסוגריים המרובעים]\n\n# הסכם התקשרות — {{company}}\n\nנחתם ביום {{date}} בין {{company}} ("החברה") לבין {{client_name}}, ת״ז {{client_id}}, {{client_address}} ("הלקוח").\n\n# השירות\n- {{service}}\n\n# שכר טרחה\n- {{fee}}\n\n# תנאים\n- (להשלים)\n\nהלקוח מאשר שקרא את ההסכם והבין אותו.';
 const SIGN_TPL = (div) => ((S.settings.signTemplates || {})[div] || SIGN_DRAFT);
 const SIGN_LABELS = { company: 'שם החברה', date: 'תאריך', client_name: 'שם הלקוח', client_id: 'ת״ז הלקוח', client_address: 'כתובת', client_phone: 'טלפון', client_email: 'מייל', spouse_name: 'בן/בת זוג', spouse_id: 'ת״ז בן/בת זוג', service: 'השירות', amount: 'סכום הבקשה', fee: 'שכר טרחה' };
 const signTplFields = (t) => { const out = []; for (const m of String(t).matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)) if (!out.includes(m[1])) out.push(m[1]); return out; };
@@ -2064,7 +2073,7 @@ function signCard(c) {
     (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') + '</header>';
   if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: הלקוח מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב ב"הסכמי התקשרות". בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
   S.signRes = S.signRes || {}; const list = S.signRes[c.id]; if (list === undefined) { S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
-  const tpl = SIGN_TPL(c.division || 'finance'), draft = /טיוטה/.test(tpl), defs = signDefaults(c), st = (S.signForm = S.signForm || {})[c.id] || {};
+  const tpl = SIGN_TPL(c.division || 'finance'), draft = isSignDraft(tpl), defs = signDefaults(c), st = (S.signForm = S.signForm || {})[c.id] || {};
   const flds = signTplFields(tpl), last = S.signLast && S.signLast.client === c.id ? S.signLast : null;
   return head +
     (Array.isArray(list) && list.length ? '<div class="scroll" style="margin-bottom:10px"><table><tbody>' + list.map((r) => '<tr><td class="wide"><b>' + esc(r.title) + '</b><div class="hint">' + dLabel(dayOf(r.created_at)) + (r.send_email ? ' · ' + esc(r.send_email) : '') + (r.signer_name ? ' · נחתם ע״י ' + esc(r.signer_name) : '') + (r.finalize_error ? ' · <span style="color:var(--open)">' + esc(r.finalize_error) + '</span>' : '') + '</div></td>' +
@@ -2219,7 +2228,7 @@ async function shrinkImage(b64, mime) {
   try { const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), bm = await createImageBitmap(new Blob([bytes], { type: mime })), k = Math.min(1, 2000 / Math.max(bm.width, bm.height));
     const cv = document.createElement('canvas'); cv.width = Math.round(bm.width * k); cv.height = Math.round(bm.height * k); const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bm, 0, 0, cv.width, cv.height);
     const out = cv.toDataURL('image/jpeg', 0.82).split(',')[1]; return out && out.length < b64.length ? out : null; } catch (e) { return null; } }
-const FUND_PART_MAX = 4e6; /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
+const FUND_PART_MAX = window.__harelServer ? 2.5e6 : 4e6; /* בשרת: תקרת בקשה של 4.5MB ב-Vercel, וה-base64 מנפח בשליש */ /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
 async function fundSend(c) {
   if (S._fundBusy) return toast('השליחה כבר בדרך — רגע');
   const pick = ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
@@ -2252,7 +2261,7 @@ async function fundSend(c) {
       const r = await sendMail({ to: tos, cc: [FIN_BOX], subject: subj + (parts.length > 1 || okParts.length || queue.length ? tag : ''), html: okParts.length ? '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px">המשך המסמכים' + esc(tag) + '.</div>' : html, text: okParts.length ? 'המשך המסמכים' + tag : body, kind: 'fund', ref: c.id, attachments: items.map(({ filename, mimeType, content }) => ({ filename, mimeType, content })) });
       if (r.ok) { okParts.push(items); continue; }
       lastWhy = r.why;
-      if (!['bad_request', 'payload_too_large', 'tool_error'].includes(r.code)) break; /* חיבור / הרשאה — אין טעם לפצל */
+      if (!['bad_request', 'payload_too_large', 'tool_error', 'upstream_error'].includes(r.code)) break; /* חיבור / הרשאה — אין טעם לפצל */
       if (items.length > 1) { cap = Math.min(cap, wt(items) * 0.6); S._mailCap = Math.max(cap, 5e5); const h = Math.ceil(items.length / 2); queue.unshift(items.slice(0, h), items.slice(h)); } else bad.push(items[0].filename); }
     const sent = okParts.length, sentFiles = okParts.flat();
     if (!sent) return toast('לא נשלח: ' + lastWhy);
@@ -6810,7 +6819,7 @@ document.addEventListener('click', async (e) => {
         case 'rootMatch': toast('סורק את התיקיות בדרייב…'); return rootMatchRun();
         case 'newContact': return formContact(null);
         case 'reTargetSave': { const v = (k) => Math.max(0, Math.round(n(($('reT_' + k) || {}).value))); await write('settings/main', { reZoomTarget: { day: v('day'), week: v('week'), month: v('month'), basis: ($('reT_basis') || {}).value === 'set' ? 'set' : 'held' } }, 'update'); return toast('היעד נשמר'); }
-        case 'signSend': { if (!c) return; const tpl = SIGN_TPL(c.division || 'finance'); if (/טיוטה/.test(tpl)) return toast('הנוסח עדיין טיוטה — לעדכן בהגדרות');
+        case 'signSend': { if (!c) return; const tpl = SIGN_TPL(c.division || 'finance'); if (isSignDraft(tpl)) return toast('הנוסח עדיין טיוטה — לעדכן בהגדרות');
           const fields = signFormRead(c), title = (($('signTitle') || {}).value || '').trim(), email = (($('signEmail') || {}).value || '').trim(), phone = (($('signPhone') || {}).value || '').trim();
           const miss = signTplFields(tpl).filter((k) => !fields[k]); if (miss.length) return toast('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
           el.disabled = true; el.textContent = 'יוצר קישור…';
@@ -7054,6 +7063,8 @@ async function boot() {
   const lvl = !S.claudeOwner && user && user.canEdit ? !!(await Promise.resolve(user.canEdit()).catch(() => false)) : false;
   S.level = S.claudeOwner ? 'owner' : lvl ? 'admin' : cw === false ? 'view' : 'interact'; S.cw = cw;
   applyRole();
+  /* ניתוחי Claude (sample) — בשרת אין; הכפתורים מוסתרים במקום להופיע ולהיכשל */
+  S.ai = !!(await claude.use('sample').catch(() => null)); document.body.classList.toggle('noai', !S.ai);
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;

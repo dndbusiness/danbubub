@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { sql, withActor } from '@/lib/db'
 import { internalBaseUrl, renderPdf } from '@/lib/pdf'
+import { durablePdfRef, storeLocalFile } from '@/lib/files'
 import { buildGapsReport, renderGapsHtml } from '@/lib/reports/gaps'
 import { settingValues } from '@/lib/queries/cashflow'
 import { enqueueOutbox, flushOutbox } from '@/lib/jobs/outbox'
@@ -34,12 +35,12 @@ export async function sendGapsReport(period?: string): Promise<Result<{ pdf: str
         queued = true
         const [ob] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${dedupKey}`
         outboxId = ob?.id ?? null
-        if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ pdfPath: pdf, fileName: `דוח-פערים-${month}.pdf` } as never)} where id = ${outboxId}`
+        if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ fileId: await storeLocalFile(pdf, `דוח-פערים-${month}.pdf`, 'application/pdf', 'report'), fileName: `דוח-פערים-${month}.pdf` } as never)} where id = ${outboxId}`
       }
     }
     await withActor(async (tx) => {
       await tx`insert into report_runs (report_type, period, file_url, file_format, recipients, outbox_id)
-               values ('invoice_gaps', ${month}, ${pdf}, 'pdf', ${to}, ${outboxId})`
+               values ('invoice_gaps', ${month}, ${await durablePdfRef(pdf)}, 'pdf', ${to}, ${outboxId})`
     })
     const flush = queued ? await flushOutbox() : null
     revalidatePath('/gaps'); revalidatePath('/pnl'); revalidatePath('/settings')

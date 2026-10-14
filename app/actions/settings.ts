@@ -41,7 +41,8 @@ export async function saveSettings(fd: FormData): Promise<Result> {
       else if (type === 'list') value = v.split(',').map((x) => x.trim()).filter(Boolean)
       else if (type === 'email') { if (!/^[^@\s]+@[^@\s]+$/.test(v)) return { ok: false, error: `${key}: כתובת מייל לא תקינה` }; value = v }
       else value = v
-      if (value === null) await sql`delete from settings where key = ${key}`
+      // "מחיקה" = ערך null — אין DELETE פיזי (הנחיה 4, 017_stored_files.sql)
+      if (value === null) await sql`update settings set value = 'null'::jsonb, updated_at = now() where key = ${key}`
       else await sql`insert into settings (key, value, description) values (${key}, ${sql.json(value as never)}, 'הוגדר במסך ההגדרות') on conflict (key) do update set value = excluded.value, updated_at = now()`
     }
     revalidatePath('/settings')

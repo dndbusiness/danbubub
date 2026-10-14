@@ -7,12 +7,18 @@ import { applySet, applyUpdate, docsFromDump, parsePath, type BackupDump, type C
 
 export interface Change { coll: string; id: string; seq: number; data: CrmDoc | null }
 
-/** כל מה שהשתנה אחרי seq — כולל מחיקות (data = null). הדף מושך את זה כל כמה שניות. */
+/**
+ * כל מה שהשתנה אחרי seq — כולל מחיקות (data = null). הדף מושך את זה כל כמה שניות.
+ * seq נקבע בתוך הטרנזקציה ונראה רק בסיומה: כתיבה שהתחילה קודם ומסתיימת אחרי כתיבה מאוחרת יותר
+ * הייתה מקבלת seq נמוך ממה שהדף כבר ראה — ונעלמת. לכן מוחזרות שוב גם הכתיבות של שתי הדקות
+ * האחרונות (הדף מתעלם ממה שלא השתנה).
+ */
 export async function changesSince(after: number, colls: string[] | null, limit = 5000): Promise<Change[]> {
   const rows = await sql<{ coll: string; doc_id: string; seq: string; data: CrmDoc; deleted: boolean }[]>`
     select coll, doc_id, seq::text, data, deleted_at is not null as deleted
     from crm_docs
-    where seq > ${after} and (${colls}::text[] is null or coll = any(${colls}::text[]))
+    where (seq > ${after} or (${after} > 0 and updated_at > now() - interval '2 minutes'))
+      and (${colls}::text[] is null or coll = any(${colls}::text[]))
     order by seq limit ${limit}`
   return rows.map((r) => ({ coll: r.coll, id: r.doc_id, seq: Number(r.seq), data: r.deleted ? null : r.data }))
 }

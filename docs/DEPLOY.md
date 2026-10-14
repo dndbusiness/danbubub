@@ -122,7 +122,7 @@ npx vercel link && npx vercel env add DATABASE_URL production   # וכן הלא�
 npx vercel --prod
 ```
 
-`vercel.json` כבר מגדיר את שבעת הג׳ובים של חלק ג' ואת תקרות הזמן.
+`vercel.json` מגדיר את תקרות הזמן ואת אזור הפונקציות (`fra1`). התזמון עצמו רץ מ-GitHub Actions (סעיף 5), לא מ-Vercel Cron.
 **Vercel Hobby מאפשר cron יומי בלבד** — לסריקה כל 15 דקות צריך Pro, או להשתמש
 ב-GitHub Actions (סעיף 5).
 

@@ -53,6 +53,8 @@
       (j.changes || []).forEach(function (c) {
         var key = c.coll + '/' + c.id, had = docs.has(key);
         if (c.seq > seq) seq = c.seq;
+        // השרת שולח שוב כתיבות מהדקות האחרונות (ראו changesSince) — מה שלא השתנה לא מודיע לדף
+        if (had && c.data && JSON.stringify(docs.get(key)) === JSON.stringify(c.data)) return;
         if (c.data) docs.set(key, c.data); else if (had) docs.delete(key); else return;
         if (!loaded) return;
         if (!byColl.has(c.coll)) byColl.set(c.coll, []);
@@ -77,13 +79,15 @@
   function schedule() { clearTimeout(timer); timer = setTimeout(pull, document.hidden ? POLL_HIDDEN_MS : POLL_MS); }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pull(); });
 
-  function write(path, op, data) { return api('/api/crm/write', { path: path, op: op, data: data }).then(function () { return pull(); }).then(function () {}); }
+  // אחרי כתיבה — משיכה חדשה. משיכה שכבר רצה התחילה לפני הכתיבה ולא תכיל אותה: מחכים לה ומושכים שוב.
+  function pullFresh() { return (inflight || Promise.resolve()).then(function () { return pull(); }); }
+  function write(path, op, data) { return api('/api/crm/write', { path: path, op: op, data: data }).then(function () { return pullFresh(); }).then(function () {}); }
 
   var db = {
     doc: function (path) {
       return {
         path: path,
-        get: function () { return pull().then(function () { return docSnap(path); }); },
+        get: function () { return pullFresh().then(function () { return docSnap(path); }); },
         set: function (data) { return write(path, 'set', data); },
         update: function (data) { return write(path, 'update', data); },
         delete: function () { return write(path, 'delete'); },
@@ -98,7 +102,7 @@
     collection: function (name) {
       return {
         doc: function (id) { return db.doc(name + '/' + id); },
-        get: function () { return pull().then(function () { return collSnap(name, []); }); },
+        get: function () { return pullFresh().then(function () { return collSnap(name, []); }); },
         onSnapshot: function (cb, err) {
           var s = { cb: cb, err: err, primed: false };
           if (!collSubs.has(name)) collSubs.set(name, []);

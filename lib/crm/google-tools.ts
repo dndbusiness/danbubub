@@ -55,6 +55,16 @@ function msgView(m: GMsg, account: string | null) {
   }
 }
 
+/** הקבצים המצורפים בהודעה (שם, סוג, גודל) — בלי התוכן; התוכן דרך get_message RAW. */
+function attachmentsOf(p: Part | undefined, out: { filename: string; mimeType: string; size: number; attachmentId: string | null }[] = []) {
+  if (!p) return out
+  const b = p.body as { attachmentId?: string; size?: number } | undefined
+  const filename = (p as { filename?: string }).filename
+  if (filename) out.push({ filename, mimeType: p.mimeType ?? 'application/octet-stream', size: Number(b?.size ?? 0), attachmentId: b?.attachmentId ?? null })
+  for (const c of p.parts ?? []) attachmentsOf(c, out)
+  return out
+}
+
 const viewUrl = (threadId: string, account: string | null) => `https://mail.google.com/mail/${account ? `?authuser=${encodeURIComponent(account)}` : ''}#all/${threadId}`
 
 export async function gmailTool(tool: string, input: ToolInput, token: string, account: string | null, fetchImpl: F = fetch): Promise<unknown> {
@@ -64,7 +74,9 @@ export async function gmailTool(tool: string, input: ToolInput, token: string, a
       if (!to.length) throw new ToolError('invalid_argument', 'אין נמען')
       const atts = ((input.attachments as { filename: string; mimeType: string; content: string }[] | undefined) ?? [])
         .map((a) => ({ fileName: a.filename, mimeType: a.mimeType, content: Buffer.from(a.content, 'base64') }))
-      const raw = base64url(buildMime({ to, subject: String(input.subject ?? ''), html: String(input.htmlBody ?? input.body ?? ''), attachments: atts }))
+      // עותק (cc) — למשל finance@ בהגשה לגוף. בלעדיו העותק לא היה יוצא בשרת.
+      const cc = ((input.cc as string[] | undefined) ?? []).map((x) => String(x).trim()).filter((x) => /^[^@\s,;]+@[^@\s,;]+$/.test(x))
+      const raw = base64url(buildMime({ to, ...(cc.length ? { cc } : {}), subject: String(input.subject ?? ''), html: String(input.htmlBody ?? input.body ?? ''), attachments: atts }))
       const r = await g(token, `${GM}/messages/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ raw }) }, fetchImpl)
       return { id: r.id }
     }
@@ -95,7 +107,15 @@ export async function gmailTool(tool: string, input: ToolInput, token: string, a
     }
     case 'get_thread': {
       const th = await g(token, `${GM}/threads/${encodeURIComponent(String(input.threadId))}?format=full`, {}, fetchImpl) as { id: string; messages?: GMsg[] }
-      return { id: th.id, messages: (th.messages ?? []).map((x) => ({ ...msgView(x, account), plaintextBody: plainBody(x.payload) })) }
+      return { id: th.id, messages: (th.messages ?? []).map((x) => ({ ...msgView(x, account), plaintextBody: plainBody(x.payload), attachments: attachmentsOf(x.payload) })) }
+    }
+    case 'get_message': {
+      // RAW — הדף מפרק את ה-MIME בעצמו ושומר את הקבצים בדרייב של הלקוח (mailFilesToDrive)
+      const id = encodeURIComponent(String(input.messageId ?? ''))
+      if (!id) throw new ToolError('invalid_argument', 'Gmail: חסר messageId')
+      const raw = String(input.messageFormat ?? '').toUpperCase() === 'RAW'
+      const m = await g(token, `${GM}/messages/${id}?format=${raw ? 'raw' : 'full'}`, {}, fetchImpl) as unknown as GMsg & { raw?: string }
+      return raw ? { id: m.id, threadId: m.threadId, raw: m.raw ?? '' } : { ...msgView(m, account), plaintextBody: plainBody(m.payload), attachments: attachmentsOf(m.payload) }
     }
     default: throw new ToolError('tool_not_found', `Gmail: הכלי ${tool} לא ממומש בשרת`)
   }

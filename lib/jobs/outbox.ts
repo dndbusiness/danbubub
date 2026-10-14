@@ -6,6 +6,7 @@ import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/sto
 import { upsertEvent } from '@/lib/google/calendar'
 import type { CalendarPayload } from './calendar-sync'
 import { readFile } from 'node:fs/promises'
+import { readStoredFile } from '@/lib/files'
 
 /**
  * ADDENDUM הנחיה 16 — "כל יציאה החוצה עוברת דרך outbox עם retry ולוג".
@@ -28,7 +29,7 @@ export interface FlushResult { sent: number; failed: number; waiting: number; no
 
 export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch } = {}): Promise<FlushResult> {
   const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp
-  const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: ({ pdfPath?: string; fileName?: string } & Partial<CalendarPayload>) | null; attempts: number; max_attempts: number }[]>`
+  const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: ({ pdfPath?: string; fileId?: string; fileName?: string } & Partial<CalendarPayload>) | null; attempts: number; max_attempts: number }[]>`
     select id, channel, target, subject, body, payload, attempts, max_attempts from outbox
     where status = 'pending' and deleted_at is null and next_attempt_at <= now()
     order by created_at limit 50`
@@ -53,7 +54,11 @@ export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetc
         for (const cal of p.calendarIds) results.push(`${cal}:${await upsertEvent(token, cal, p.event, p.fingerprint, opts.fetchImpl)}`)
         id = results.join(',')
       } else {
-        const attachments = row.payload?.pdfPath ? [{ fileName: row.payload.fileName ?? 'report.pdf', mimeType: 'application/pdf', content: await readFile(row.payload.pdfPath) }] : []
+        // קובץ מצורף: מהמסד (fileId — שורד בשרת מנוהל), ורק כגיבוי מנתיב מקומי (שרת אחד עם דיסק)
+        const stored = row.payload?.fileId ? await readStoredFile(row.payload.fileId) : null
+        if (row.payload?.fileId && !stored) throw new Error('הקובץ המצורף לא נמצא במסד')
+        const attachments = stored ? [{ fileName: row.payload?.fileName ?? stored.name, mimeType: stored.mime, content: stored.bytes }]
+          : row.payload?.pdfPath ? [{ fileName: row.payload.fileName ?? 'report.pdf', mimeType: 'application/pdf', content: await readFile(row.payload.pdfPath) }] : []
         id = await sendMail(await googleAccessToken(), { to: row.target.split(',').map((t) => t.trim()), subject: row.subject ?? 'הר-אל', html: row.body, attachments }, opts.fetchImpl)
       }
       await sql`update outbox set status = 'sent', sent_at = now(), attempts = attempts + 1, payload = ${sql.json({ ...(row.payload ?? {}), messageId: id } as never)} where id = ${row.id}`

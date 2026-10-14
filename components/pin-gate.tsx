@@ -3,53 +3,55 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Lock, LockOpen } from 'lucide-react'
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/ui/cn'
 
-/** §6 — לכל אזור קוד משלו, ולכן גם פתיחה משלו: פתיחת כרטיס ניסים לא פותחת פרייבט. */
-const storageKey = (area: string) => `harel.pin.unlockedUntil.${area}`
 /** SPEC §6 — "פג תוקף אחרי 10 דקות". */
 export const PIN_TTL_MS = 10 * 60 * 1000
 
-function readUnlockedUntil(area: string): number {
-  try {
-    return Number(sessionStorage.getItem(storageKey(area)) ?? 0)
-  } catch {
-    return 0
-  }
-}
+type VerifyResult = boolean | { ok: true; until?: number } | { ok: false; error: string }
 
 /**
  * <PinGate> — UIUX §3.1 / SPEC §6.
  * "לחיצה ראשונה פותחת מודל PIN (4–6 ספרות, מקלדת מספרית). אחרי אישור:
  *  מנעול פתוח ירוק + טיימר 10 דק'. פג → המסכים מתערפלים עם כפתור 'פתח שוב'."
  *
- * האימות עצמו נעשה ב-`verify` (server action) — ה-PIN לעולם לא מושווה בלקוח.
+ * האימות בשרת (`verify`, server action) ששם עוגייה חתומה לעשר דקות (lib/pin.ts). העמוד טוען
+ * את הנתונים רק כשהעוגייה תקפה — ולכן כשהאזור נעול, ה-children הם שלד בלי מספרים, ואחרי
+ * קוד נכון הדף נטען מחדש מהשרת. `unlockedUntil` מגיע מהשרת. בלי השרת (ui-kit) — הפתיחה מקומית.
  * UIUX §9: מודל מותר רק ל-PIN ולאישורים הרסניים — זה המקרה.
  */
 export function PinGate({
   area,
   verify,
   areaLabel,
+  unlockedUntil: serverUntil,
   children,
 }: {
-  /** שם האזור (nissim / partners / private / bank) — קובע גם את מפתח הפתיחה. */
+  /** שם האזור (nissim / partners / private / bank). */
   area: string
-  verify: (pin: string) => Promise<boolean>
+  verify: (pin: string) => Promise<VerifyResult>
   areaLabel: string
+  /** עד מתי האזור פתוח לפי העוגייה בשרת (ms). לא הועבר = מצב הדגמה (ui-kit). */
+  unlockedUntil?: number
   children: React.ReactNode
 }) {
-  const [unlockedUntil, setUnlockedUntil] = React.useState(0)
+  const router = useRouter()
+  const [unlockedUntil, setUnlockedUntil] = React.useState(serverUntil ?? 0)
   const [open, setOpen] = React.useState(false)
   const [pin, setPin] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [now, setNow] = React.useState(() => Date.now())
 
+  React.useEffect(() => { setUnlockedUntil(serverUntil ?? 0) }, [serverUntil, area])
   React.useEffect(() => {
-    setUnlockedUntil(readUnlockedUntil(area))
     const t = setInterval(() => setNow(Date.now()), 5_000)
     return () => clearInterval(t)
-  }, [area])
+  }, [])
+  // פג תוקף → טוענים מחדש: השרת מחזיר שלד בלי נתונים
+  const expired = serverUntil !== undefined && unlockedUntil > 0 && unlockedUntil <= now
+  React.useEffect(() => { if (expired) router.refresh() }, [expired, router])
 
   const unlocked = unlockedUntil > now
 
@@ -57,18 +59,18 @@ export function PinGate({
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const ok = await verify(pin)
+    const r = await verify(pin)
     setBusy(false)
+    const ok = r === true || (typeof r === 'object' && r.ok)
     if (!ok) {
-      setError('קוד שגוי')
+      setError(typeof r === 'object' && !r.ok ? r.error : 'קוד שגוי')
       setPin('')
       return
     }
-    const until = Date.now() + PIN_TTL_MS
-    try { sessionStorage.setItem(storageKey(area), String(until)) } catch { /* private mode */ }
-    setUnlockedUntil(until)
+    setUnlockedUntil(typeof r === 'object' && r.ok && r.until ? r.until : Date.now() + PIN_TTL_MS)
     setOpen(false)
     setPin('')
+    if (serverUntil !== undefined) router.refresh()
   }
 
   const remainingMin = unlocked ? Math.ceil((unlockedUntil - now) / 60_000) : 0
@@ -125,6 +127,24 @@ export function PinGate({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+    </div>
+  )
+}
+
+/** מה שמוצג מתחת לשער כשהאזור נעול: שלד בלי נתונים — הנתונים עצמם לא נשלחו מהשרת. */
+export function LockedSkeleton() {
+  return (
+    <div className="flex flex-col gap-3" aria-hidden>
+      {[0, 1, 2].map((i) => <div key={i} className="h-24 rounded-[var(--radius-card)] bg-locked-bg" />)}
+    </div>
+  )
+}
+
+/** אין קוד מוגדר לאזור — בלי פקודות טרמינל במסך (הנחיה 6). */
+export function PinNotConfigured() {
+  return (
+    <div className="bg-expected-bg text-expected rounded-[var(--radius-card)] p-4 text-sm">
+      לא הוגדר קוד גישה לאזור זה, ולכן הוא סגור. דן מגדיר את הקוד בשרת.
     </div>
   )
 }

@@ -75,3 +75,40 @@ describe('יומן — שעון ישראל', () => {
     await expect(calendarTool('delete_event', {}, 'tok', fake([]).fetchImpl)).rejects.toMatchObject({ code: 'tool_not_found' })
   })
 })
+
+describe('Gmail בשרת — עותק, קבצים מצורפים, RAW', () => {
+  it('send_message עם cc → כותרת Cc ב-MIME', async () => {
+    const { calls, fetchImpl } = fake([{ id: 'm1' }])
+    const { gmailTool } = await import('@/lib/crm/google-tools.js')
+    await gmailTool('send_message', { to: ['bank@x.co.il'], cc: ['finance@harel.example', 'לא-מייל'], subject: 'הגשה', htmlBody: '<p>x</p>' }, 'tok', null, fetchImpl)
+    const raw = JSON.parse(String(calls[0]!.init?.body)).raw as string
+    const mime = Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    expect(mime).toContain('Cc: finance@harel.example')
+    expect(mime).not.toContain('לא-מייל')
+  })
+  it('get_thread מחזיר את רשימת הקבצים המצורפים; get_message RAW מחזיר raw', async () => {
+    const { gmailTool } = await import('@/lib/crm/google-tools.js')
+    const th = fake([{ id: 't1', messages: [{ id: 'm1', threadId: 't1', payload: { headers: [], parts: [{ mimeType: 'text/plain', body: { data: '' } }, { mimeType: 'application/pdf', filename: 'תלוש.pdf', body: { attachmentId: 'a1', size: 1200 } }] } }] }])
+    const r = await gmailTool('get_thread', { threadId: 't1' }, 'tok', null, th.fetchImpl) as { messages: { attachments: { filename: string; size: number }[] }[] }
+    expect(r.messages[0]!.attachments).toEqual([{ filename: 'תלוש.pdf', mimeType: 'application/pdf', size: 1200, attachmentId: 'a1' }])
+    const raw = fake([{ id: 'm1', threadId: 't1', raw: 'UkFX' }])
+    expect(await gmailTool('get_message', { messageId: 'm1', messageFormat: 'RAW' }, 'tok', null, raw.fetchImpl)).toEqual({ id: 'm1', threadId: 't1', raw: 'UkFX' })
+    expect(new URL(raw.calls[0]!.url).searchParams.get('format')).toBe('raw')
+  })
+})
+
+describe('שער הכניסה', () => {
+  it('next פנימי בלבד — "//evil.com" ו-"/\\evil.com" חוזרים לדף הבית', async () => {
+    const { safeNext } = await import('@/lib/gate.js')
+    expect(safeNext('/crm')).toBe('/crm')
+    expect(safeNext('//evil.com')).toBe('/')
+    expect(safeNext('/\\evil.com')).toBe('/')
+    expect(safeNext('https://evil.com')).toBe('/')
+  })
+  it('הטוקן נגזר מהסיסמה ב-HMAC — יציב, תלוי סיסמה, לא הסיסמה עצמה', async () => {
+    const { gateToken, sameToken } = await import('@/lib/gate.js')
+    const a = await gateToken('pw-1'), b = await gateToken('pw-1'), c = await gateToken('pw-2')
+    expect(a).toBe(b); expect(a).not.toBe(c); expect(a).not.toContain('pw-1'); expect(a).toMatch(/^[0-9a-f]{40}$/)
+    expect(sameToken(a, b)).toBe(true); expect(sameToken('x', b)).toBe(false)
+  })
+})

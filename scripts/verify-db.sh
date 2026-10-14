@@ -73,6 +73,8 @@ run "$ROOT/db/tests/003_realestate.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 
 echo "→ הבטחות מבניות (חתימה דיגיטלית)"
 run "$ROOT/db/tests/004_signatures.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+echo "→ קבצים במסד והגדרות ביומן (017)"
+run "$ROOT/db/tests/005_files.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 
 echo "→ זהות views ↔ lib/rules (SPEC §8)"
 run "$ROOT/db/tests/001_parity.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
