@@ -431,6 +431,16 @@ body.add-open #qadd { display: grid; position: fixed; inset-inline: 0; bottom: 0
 @media (min-width: 768px) and (max-width: 1023px) { nav.tabs #tabAdd { order: -1; background: var(--ink); color: var(--surface); margin-bottom: 8px; } }
 body.locked nav.tabs, body.locked .navx { display: none !important; }
 body.locked { padding-inline-start: 0; }
+.dgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.dgrid > .w2 { grid-column: span 2; } .dgrid > .w4 { grid-column: 1 / -1; }
+@media (max-width: 760px) { .dgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dgrid > .w2, .dgrid > .w4 { grid-column: 1 / -1; } }
+.dw { position: relative; margin: 0; }
+.dw.kpi { border-inline-start: 4px solid var(--dc, var(--border)); text-align: start; width: 100%; cursor: pointer; }
+.dw .dtools { position: absolute; top: 4px; inset-inline-end: 4px; display: flex; gap: 2px; }
+.dhead { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 6px 0 -2px; }
+.dhead h2 { font-size: 16px; margin: 0; }
+.dfun { display: flex; flex-direction: column; gap: 6px; }
+.dfun .bar { height: 26px; border-radius: 6px; background: color-mix(in srgb, var(--dc, var(--sg2)) 22%, transparent); border-inline-start: 4px solid var(--dc, var(--sg2)); display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 13px; white-space: nowrap; cursor: pointer; min-width: 120px; }
 .pdfed { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; }
 .pdfbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .pdfsel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px; background: var(--sunk); border-bottom: 1px solid var(--border); min-height: 44px; }
@@ -1063,7 +1073,156 @@ function vHomeRE() {
     (owe.length ? '<section class="card"><header><h2>נסגרו — עוד לא נגבה הכל</h2><span class="pill open">' + owe.length + '</span></header>' + clientTable(owe, false) + '</section>' : '') +
     '<section class="card"><header><h2>רווח לפי חודש</h2><span class="hint">הר-אל השקעות · לחלוקה · תפעולי</span></header>' + chart(P) + '</section>';
 }
+/* ═════════════ דשבורדים (מפרט הכוורת): לוח של ווידג'טים לכל משתמש / קבוצה, כל ווידג'ט = פילוח שמור ═════════════
+   מקורות: התצוגות השמורות בלידים, סטטוסי הלידים של כל חברה, "הגיעו לזום/פרונטלי", משימות ולקוחות.
+   בורר התקופה (יום / שבוע / חודש / שנה + חיצים) ומסנן העובד חלים על כל הווידג'טים. הדשבורד לא מחשב כלום
+   בעצמו — כל מספר הוא מספר השורות בפילוח, ולחיצה עליו פותחת את השורות (הנחיה 7). שמור ב-settings.dashboards. */
+const DASH_COLORS = [['sg1', 'כתום — קליטה'], ['sg3', 'ירוק — פגישה'], ['sg4', 'ורוד — תיאום / דחיפות'], ['sg2', 'כחול — מעקב'], ['sg5', 'סגול'], ['sg6', 'טורקיז']];
+const DASH_TYPES = { heading: 'כותרת', kpi: 'מדד', summary: 'פאנל סיכום', table: 'טבלת פילוח', funnel: 'משפך', tag: 'תגית' };
+const DASH_RANGES = { day: 'יום', week: 'שבוע', month: 'חודש', year: 'שנה', all: 'הכל' };
+const REACH_LBL = { 1: 'נקבעה פגישת זום', 2: 'התקיימה פגישת זום', 3: 'המשיכו לפרונטלי', 4: 'התקיימה פגישה פרונטלית' };
+const dashList = () => (S.settings.dashboards || []).filter((d) => d && d.id && !d.deletedAt && (d.owner === S.me.id || !d.private || (d.users || []).includes(S.me.id) || S.isOwner && !d.private));
+const dashCanEdit = (d) => S.canWrite && (d.owner === S.me.id || S.isOwner);
+/* מקורות הנתונים (פילוחים) — לפי החברות שהמשתמש רואה */
+function dashSources() {
+  const divs = DIVS.filter((d) => canSeeDiv(d) && (S.division === 'all' || d === S.division)), many = divs.length > 1, out = [];
+  savedViews().forEach((v) => out.push({ key: 'view:' + v.id, label: v.name, group: 'תצוגות שמורות (לידים)' }));
+  out.push({ key: 'lead:all', label: 'כל הלידים', group: 'לידים' }, { key: 'lead:open', label: 'לידים לטיפול', group: 'לידים' }, { key: 'lead:due', label: 'מעקב להיום', group: 'לידים' });
+  divs.forEach((dv) => stageDefs(dv).filter((x) => !x.hide).forEach((x) => out.push({ key: 'lead:' + dv + ':' + x.key, label: x.label + (many ? ' · ' + L.division[dv] : ''), group: 'סטטוס ליד' + (many ? ' — ' + L.division[dv] : '') })));
+  if (divs.includes('realestate')) Object.entries(REACH_LBL).forEach(([r, t]) => out.push({ key: 'reach:' + r, label: t, group: 'מסע ליד — הר-אל השקעות' }));
+  out.push({ key: 'task:open', label: 'משימות שלא הושלמו', group: 'משימות' }, { key: 'task:overdue', label: 'משימות באיחור', group: 'משימות' }, { key: 'task:today', label: 'משימות להיום', group: 'משימות' }, { key: 'task:done', label: 'משימות שבוצעו', group: 'משימות' });
+  out.push({ key: 'client:open', label: 'לקוחות פעילים', group: 'לקוחות' }, { key: 'client:new', label: 'לקוחות חדשים', group: 'לקוחות' }, { key: 'client:won', label: 'נסגרו בהצלחה', group: 'לקוחות' });
+  Object.entries(L.stage).forEach(([k, t]) => out.push({ key: 'cstage:' + k, label: t, group: 'שלב תיק' }));
+  return out;
+}
+const dashSrcLabel = (key) => (dashSources().find((x) => x.key === key) || {}).label || 'מקור שנמחק';
+/* תקופה: עוגן + טווח → [מ-, עד] */
+function dashPeriod(range = S.f.dashRange || 'month', anchor = S.f.dashAnchor || today()) {
+  if (range === 'all') return { from: '', to: '', label: 'כל הזמן' };
+  if (range === 'day') return { from: anchor, to: anchor, label: dLabel(anchor) };
+  if (range === 'week') { const f = weekStart(anchor); return { from: f, to: addDays(f, 6), label: dLabel(f) + '–' + dLabel(addDays(f, 6)) }; }
+  if (range === 'year') { const y = anchor.slice(0, 4); return { from: y + '-01-01', to: y + '-12-31', label: y }; }
+  const m = anchor.slice(0, 7), f = m + '-01'; return { from: f, to: addDays(addMonth(f), -1), label: mLabel(m) };
+}
+function dashShift(dir) { const r = S.f.dashRange || 'month', a = S.f.dashAnchor || today();
+  S.f.dashAnchor = r === 'day' ? addDays(a, dir) : r === 'week' ? addDays(a, 7 * dir) : r === 'year' ? String(+a.slice(0, 4) + dir) + a.slice(4) : addMonths(a.slice(0, 7) + '-01', dir); }
+/* הרצת פילוח: { kind, rows } אחרי תקופה ועובד */
+function dashRows(key, w = {}) {
+  const P = dashPeriod(), who = S.f.dashWho || '', inP = (d) => !P.from || (d && dayOf(d) >= P.from && dayOf(d) <= P.to), t0 = today();
+  const [k1, k2, k3] = key.split(':');
+  if (k1 === 'view' || k1 === 'lead' || k1 === 'reach') {
+    let rows;
+    if (k1 === 'view') { const v = (S.settings.savedViews || []).find((x) => x.id === k2); rows = v ? viewRun(v, () => leadsFiltered()) : []; }
+    else { rows = live(S.leads).filter((l) => canSeeDiv(leadDiv(l)) && (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey));
+      if (k1 === 'reach') rows = rows.filter((l) => leadReach(l) >= +k2);
+      else if (k2 === 'open') rows = rows.filter(isLeadOpen); else if (k2 === 'due') rows = rows.filter((l) => leadDue(l, t0));
+      else if (k2 !== 'all') rows = rows.filter((l) => leadDiv(l) === k2 && (stKey(l) === k3 || (!l.sub && (l.stage || 'new') === k3))); }
+    const dateOf = (l) => w.dateBy === 'status' ? stSince(l) : l.createdAt;
+    return { kind: 'lead', rows: rows.filter((l) => (!who || l.resp === who) && (k2 === 'due' || inP(dateOf(l)))) };
+  }
+  if (k1 === 'task') {
+    let rows = live(S.tasks).filter((t) => !S.isCenter || isMyTask(t)).filter((t) => !who || taskResp(t) === who);
+    if (k2 === 'open') rows = rows.filter((t) => t.status !== 'done' && (!P.from || !t.due || t.due <= P.to));
+    else if (k2 === 'overdue') rows = rows.filter((t) => t.status !== 'done' && t.due && t.due < t0);
+    else if (k2 === 'today') rows = rows.filter((t) => t.status !== 'done' && t.due === t0);
+    else if (k2 === 'done') rows = rows.filter((t) => t.status === 'done' && inP(t.doneAt));
+    return { kind: 'task', rows: rows.sort(taskCmp(t0)) };
+  }
+  let rows = live(S.clients).filter(inDiv).filter((c) => !who || (c.resp || '') === who);
+  if (k1 === 'client' && k2 === 'open') rows = rows.filter((c) => c.status === 'open');
+  else if (k1 === 'client' && k2 === 'new') rows = rows.filter((c) => inP(c.createdAt));
+  else if (k1 === 'client' && k2 === 'won') rows = rows.filter((c) => c.status === 'won' && inP(c.wonAt || c.updatedAt));
+  else if (k1 === 'cstage') rows = rows.filter((c) => c.stage === k2 && c.status === 'open');
+  return { kind: 'client', rows };
+}
+function dashRowHtml(kind, x) {
+  if (kind === 'lead') return '<button type="button" data-gs="lead:' + esc(x.id) + '"><b class="grow">' + esc(x.name || '—') + '</b><span class="hint" dir="ltr">' + esc(normPhone(x.phone)) + '</span>' + leadPill(x) + '<span class="hint">' + esc(L.resp[x.resp] || '') + '</span><span class="hint num">' + dLabel(dayOf(x.createdAt)) + '</span></button>';
+  if (kind === 'task') return '<button type="button" data-gs="task:' + esc(x.id) + '"><b class="grow">' + esc(x.title) + '</b>' + (x.due ? '<span class="pill ' + (x.due < today() && x.status !== 'done' ? 'open' : 'muted') + '">' + dLabel(x.due) + '</span>' : '') + '<span class="hint">' + esc(L.resp[taskResp(x)] || '') + '</span></button>';
+  return '<button type="button" data-gs="client:' + esc(x.id) + '"><b class="grow">' + esc(x.name || '—') + '</b><span class="hint">' + esc(L.stage[x.stage] || '') + '</span><span class="pill muted">' + esc(L.status[x.status] || '') + '</span></button>';
+}
+/* drill-down: השורות שמרכיבות את המספר */
+function dashDrill(key, title, w) {
+  const R = dashRows(key, w || {}), P = dashPeriod();
+  $('layer').innerHTML = '<div class="scrim" id="gsScrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><header><h2 class="grow">' + esc(title) + ' <span class="hint">' + R.rows.length + ' · ' + esc(P.label) + (S.f.dashWho ? ' · ' + esc(L.resp[S.f.dashWho] || '') : '') + '</span></h2><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header>' +
+    '<div class="gsres">' + (R.rows.length ? R.rows.slice(0, 300).map((x) => dashRowHtml(R.kind, x)).join('') + (R.rows.length > 300 ? '<p class="hint">מוצגות 300 הראשונות</p>' : '') : '<p class="empty">אין שורות בתקופה הזו</p>') + '</div></div></div>';
+}
+function dashWidget(d, w, i, edit) {
+  const tools = edit ? '<span class="dtools"><button class="btn small ghost" data-dwmove="' + i + ':-1" aria-label="למעלה">↑</button><button class="btn small ghost" data-dwmove="' + i + ':1" aria-label="למטה">↓</button><button class="btn small ghost" data-dwedit="' + i + '" aria-label="עריכה">✎</button><button class="btn small ghost danger" data-dwdel="' + i + '" aria-label="מחיקה">×</button></span>' : '';
+  const col = 'var(--' + (w.color || 'border') + ')', span = w.type === 'kpi' ? (w.span === 2 ? ' w2' : '') : w.type === 'heading' ? '' : w.span === 4 ? ' w4' : ' w2';
+  if (w.type === 'heading') return '<div class="dhead">' + '<h2>' + esc(w.title || '') + '</h2>' + tools + '</div>';
+  if (w.type === 'tag') return '<div class="dw' + span + '"><span class="pill" style="background:color-mix(in srgb, ' + col + ' 18%, transparent)">' + esc(w.title || '') + '</span>' + tools + '</div>';
+  if (w.type === 'kpi') { const n = dashRows(w.src, w).rows.length;
+    return '<div class="dw' + span + '" style="position:relative"><button type="button" class="card kpi dw" style="--dc:' + col + '" data-dwdrill="' + i + '"><h3>' + esc(w.title || dashSrcLabel(w.src)) + '</h3><div class="v num">' + n + '</div><div class="sub">' + esc(w.dateBy === 'status' ? 'לפי שינוי סטטוס' : String(w.src).startsWith('task:') ? 'משימות' : 'לפי תאריך יצירה') + '</div></button>' + tools + '</div>'; }
+  if (w.type === 'summary' || w.type === 'funnel') { const srcs = (w.srcs || []).filter(Boolean), counts = srcs.map((k) => dashRows(k, w).rows.length), top = Math.max(1, counts[0] || 0);
+    const body = w.type === 'funnel'
+      ? '<div class="dfun">' + srcs.map((k, j) => '<div class="bar" style="--dc:' + col + ';width:' + Math.max(18, Math.round(counts[j] / Math.max(1, Math.max(...counts)) * 100)) + '%" data-dwdrill="' + i + ':' + j + '"><b class="num">' + counts[j] + '</b><span>' + esc(dashSrcLabel(k)) + '</span>' + (j ? '<span class="hint">' + (counts[0] ? Math.round(counts[j] / top * 1000) / 10 : 0) + '%</span>' : '') + '</div>').join('') + '</div>'
+      : '<table><tbody>' + srcs.map((k, j) => '<tr class="clickable" data-dwdrill="' + i + ':' + j + '"><td class="wide">' + esc(dashSrcLabel(k)) + '</td><td class="num"><b>' + counts[j] + '</b></td></tr>').join('') + '</tbody></table>';
+    return '<section class="card dw' + span + '" style="border-top:3px solid ' + col + '"><header><h2>' + esc(w.title || DASH_TYPES[w.type]) + '</h2></header>' + body + tools + '</section>'; }
+  const R = dashRows(w.src, w);
+  return '<section class="card dw' + span + '" style="border-top:3px solid ' + col + '"><header><h2>' + esc(w.title || dashSrcLabel(w.src)) + '</h2><span class="pill muted">' + R.rows.length + '</span><span class="grow"></span>' + (R.rows.length ? '<button class="btn small ghost" data-dwdrill="' + i + '">הכל ↗</button>' : '') + '</header>' +
+    '<div class="gsres">' + (R.rows.length ? R.rows.slice(0, w.limit || 8).map((x) => dashRowHtml(R.kind, x)).join('') : '<p class="hint">אין שורות בתקופה הזו</p>') + '</div>' + tools + '</section>';
+}
+function dashTabs(cur) {
+  const ds = dashList(); if (!ds.length && !S.canWrite) return '';
+  return '<div class="seg" role="group" aria-label="דשבורדים" style="margin:0 0 12px;flex-wrap:wrap"><button data-dash="" aria-pressed="' + !cur + '">סקירה</button>' + ds.map((d) => '<button data-dash="' + esc(d.id) + '" aria-pressed="' + (cur === d.id) + '">' + esc(d.name) + (d.private ? ' 🔒' : '') + '</button>').join('') + (S.canWrite ? '<button data-act="dashNew">+ דשבורד</button>' : '') + '</div>';
+}
+function vDash(d) {
+  const edit = !!S.f.dashEdit && dashCanEdit(d), P = dashPeriod(), ppl = respEntries(S.division === 'all' ? null : S.division);
+  if (!S.f.dashRange) S.f.dashRange = d.range || 'month';
+  return '<div class="row" style="align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><h1 class="grow">' + esc(d.name) + '</h1>' +
+      '<div class="seg" role="group" aria-label="תקופה">' + Object.entries(DASH_RANGES).map(([k, t]) => '<button data-dashrange="' + k + '" aria-pressed="' + ((S.f.dashRange || 'month') === k) + '">' + t + '</button>').join('') + '</div>' +
+      ((S.f.dashRange || 'month') !== 'all' ? '<button class="btn small ghost" data-dashshift="-1" aria-label="תקופה קודמת">›</button><b class="num">' + esc(P.label) + '</b><button class="btn small ghost" data-dashshift="1" aria-label="תקופה הבאה">‹</button>' : '') +
+      (S.isCenter ? '' : '<select class="f small" id="dashWho" aria-label="עובד"><option value="">כל העובדים</option>' + ppl.map(([k, v]) => '<option value="' + esc(k) + '"' + (S.f.dashWho === k ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select>') +
+      (dashCanEdit(d) ? '<button class="btn small' + (edit ? ' primary' : '') + '" data-act="dashEdit">' + (edit ? 'סיום עריכה' : 'עריכה') + '</button>' : '') + '</div>' +
+    (edit ? '<div class="notice info" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px"><b>הוספה:</b>' + Object.entries(DASH_TYPES).map(([k, t]) => '<button class="btn small" data-dwadd="' + k + '">+ ' + t + '</button>').join('') + '<span class="grow"></span><button class="btn small ghost" data-act="dashSettings">הגדרות הלוח</button><button class="btn small ghost" data-act="dashDup">שכפול</button><button class="btn small ghost danger" data-act="dashDel">מחיקה</button></div>' : '') +
+    ((d.widgets || []).length ? '<div class="dgrid">' + d.widgets.map((w, i) => dashWidget(d, w, i, edit)).join('') + '</div>' : '<p class="empty">הלוח ריק. "עריכה" → הוספת מדדים, טבלאות ומשפך.</p>') +
+    '<p class="hint" style="margin-top:12px">כל מספר הוא מספר השורות בפילוח, בתקופה ובעובד שנבחרו. לחיצה עליו מציגה את השורות.</p>';
+}
+async function dashSave(d) { const all = (S.settings.dashboards || []).filter((x) => x.id !== d.id); await write('settings/main', { dashboards: [...all, { ...d, updatedAt: stamp() }] }, 'update'); }
+const dashCur = () => (S.settings.dashboards || []).find((x) => x.id === S.f.dash && !x.deletedAt) || null;
+/* תבנית כמו הדשבורד הראשי של הכוורת: מעקב לפי תאריך יצירה, כללי, משימות שלא הושלמו, משפך */
+function dashTemplate(kind) {
+  const div = S.division === 'all' ? (canSeeDiv('realestate') ? 'realestate' : 'finance') : S.division, defs = stageDefs(div).filter((x) => !x.hide), W = [];
+  if (kind === 'empty') return W;
+  const tone = (k) => /new|noanswer/.test(k) ? 'sg1' : /meet|zoom|front|won|agree|sign/.test(k) ? 'sg3' : /follow|later|think|check/.test(k) ? 'sg2' : 'sg4';
+  W.push({ type: 'heading', title: 'מעקב — לפי תאריך יצירה' });
+  defs.slice(0, 8).forEach((x) => W.push({ type: 'kpi', src: 'lead:' + div + ':' + x.key, color: tone(x.key) }));
+  W.push({ type: 'heading', title: 'כללי' }, { type: 'kpi', src: 'lead:all', title: 'לידים', color: 'sg1' }, { type: 'kpi', src: 'lead:open', color: 'sg2' }, { type: 'kpi', src: 'lead:due', color: 'sg4' });
+  if (div === 'realestate') W.push({ type: 'funnel', title: 'משפך לידים', srcs: ['lead:all', 'reach:1', 'reach:2', 'reach:3', 'reach:4'], color: 'sg3', span: 2 });
+  else W.push({ type: 'funnel', title: 'משפך לידים', srcs: ['lead:all', 'lead:open', ...defs.filter((x) => /agree|sign|won/.test(x.key)).slice(0, 2).map((x) => 'lead:' + div + ':' + x.key)], color: 'sg3', span: 2 });
+  W.push({ type: 'heading', title: 'מעקב לבקרה' }, { type: 'table', src: 'task:open', title: 'משימות שלא הושלמו', color: 'sg4', span: 2 }, { type: 'summary', title: 'משימות', srcs: ['task:overdue', 'task:today', 'task:done'], color: 'sg2', span: 2 });
+  return W;
+}
+function dashForm(d) {
+  const isNew = !d; d = d || { id: 'dash-' + uid(), name: '', range: 'month', owner: S.me.id, private: false, users: [], widgets: [] };
+  drawer(isNew ? 'דשבורד חדש' : 'הגדרות הלוח', fi('name', 'שם הלוח', d.name, 'text', 'required', true) + fs('range', 'טווח ברירת מחדל', Object.entries(DASH_RANGES), d.range) +
+    fs('private', 'פרטיות', [['0', 'משותף לצוות'], ['1', 'פרטי — רק אני ומי שאבחר']], d.private ? '1' : '0') +
+    '<div class="fl full">משתמשים מורשים (בלוח פרטי)<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:4px">' + people().filter(([id]) => id !== S.me.id).map(([id, nm]) => '<label class="row" style="gap:4px"><input type="checkbox" class="cb" name="u_' + esc(id) + '"' + ((d.users || []).includes(id) ? ' checked' : '') + '> ' + esc(nm) + '</label>').join('') + '</div></div>' +
+    (isNew ? fs('tpl', 'להתחיל מ-', [['kaveret', 'תבנית: מעקב לידים (כמו הלוח הראשי בכוורת)'], ['empty', 'לוח ריק']], 'kaveret') : ''),
+    async (x) => { if (!String(x.name || '').trim()) return 'חסר שם';
+      const users = Object.keys(x).filter((k) => k.startsWith('u_')).map((k) => k.slice(2));
+      const nd = { ...d, name: x.name.trim(), range: x.range, private: x.private === '1', users, ...(isNew ? { widgets: dashTemplate(x.tpl), createdAt: stamp() } : {}) };
+      await dashSave(nd); S.f.dash = nd.id; S.f.dashRange = nd.range; S.f.dashEdit = isNew && x.tpl === 'empty'; toast('נשמר'); render(); }, '', isNew ? 'צור לוח' : 'שמור');
+}
+function dashWidgetForm(d, i, type) {
+  const isNew = i == null, w = isNew ? { type, color: 'sg2', span: type === 'kpi' ? 1 : 2 } : { ...d.widgets[i] }, t = w.type, srcs = dashSources();
+  const srcSel = (name, val) => '<label class="fl full">מקור (פילוח)<select class="f" name="' + name + '">' + [...new Set(srcs.map((x) => x.group))].map((g) => '<optgroup label="' + esc(g) + '">' + srcs.filter((x) => x.group === g).map((x) => '<option value="' + esc(x.key) + '"' + (x.key === val ? ' selected' : '') + '>' + esc(x.label) + '</option>').join('') + '</optgroup>').join('') + '</select></label>';
+  drawer((isNew ? 'הוספת ' : 'עריכת ') + DASH_TYPES[t], fi('title', t === 'heading' || t === 'tag' ? 'טקסט' : 'כותרת (ריק = שם המקור)', w.title || '', 'text', '', true) +
+    (t === 'kpi' || t === 'table' ? srcSel('src', w.src) : '') +
+    (t === 'summary' || t === 'funnel' ? '<div class="fl full">מקורות' + (t === 'funnel' ? ' — לפי סדר המשפך (השלב הראשון = 100%)' : '') + [0, 1, 2, 3, 4, 5].map((j) => '<select class="f" name="s' + j + '" style="margin-top:4px"><option value="">—</option>' + srcs.map((x) => '<option value="' + esc(x.key) + '"' + ((w.srcs || [])[j] === x.key ? ' selected' : '') + '>' + esc(x.group + ' · ' + x.label) + '</option>').join('') + '</select>').join('') + '</div>' : '') +
+    (t === 'kpi' || t === 'table' ? fs('dateBy', 'תקופה לפי (לידים)', [['created', 'תאריך יצירה'], ['status', 'שינוי סטטוס אחרון']], w.dateBy || 'created') : '') +
+    (t !== 'heading' ? fs('color', 'צבע', DASH_COLORS, w.color || 'sg2') : '') +
+    (t !== 'heading' && t !== 'tag' ? fs('span', 'רוחב', t === 'kpi' ? [['1', 'רבע'], ['2', 'חצי']] : [['2', 'חצי'], ['4', 'מלא']], String(w.span || (t === 'kpi' ? 1 : 2))) : ''),
+    async (x) => { const nw = { type: t, title: String(x.title || '').trim() };
+      if (x.src) nw.src = x.src; if (t === 'summary' || t === 'funnel') { nw.srcs = [0, 1, 2, 3, 4, 5].map((j) => x['s' + j]).filter(Boolean); if (!nw.srcs.length) return 'לבחור לפחות מקור אחד'; }
+      if ((t === 'heading' || t === 'tag') && !nw.title) return 'חסר טקסט'; if (x.color) nw.color = x.color; if (x.span) nw.span = +x.span; if (x.dateBy && x.dateBy !== 'created') nw.dateBy = x.dateBy;
+      const ws = [...(d.widgets || [])]; if (isNew) ws.push(nw); else ws[i] = nw; await dashSave({ ...d, widgets: ws }); render(); }, '', isNew ? 'הוסף' : 'שמור');
+}
 function vHome() {
+  const d = dashCur(); if (d) return dashTabs(d.id) + vDash(d);
+  return dashTabs('') + vHomeBase();
+}
+function vHomeBase() {
   if (S.division === 'realestate') return vHomeRE();
   const P = pnl(distDiv()), last = P[P.length - 1] || { distributable: 0, operational: 0, month: null };
   const clients = live(S.clients).filter(inDiv);
@@ -4776,7 +4935,8 @@ function gsRow(r) {
 }
 function gsRender() {
   const box = $('gsRes'); if (!box) return;
-  const q = ($('gsQ') || {}).value || '', res = gsFind(q);
+  const q = ($('gsQ') || {}).value || '', res = gsFind(q).filter((r) => !S.gsKind || r.kind === S.gsKind);
+  document.querySelectorAll('[data-gskind]').forEach((b) => b.setAttribute('aria-pressed', String((S.gsKind || '') === b.dataset.gskind)));
   S.gsHits = res.map((r) => gsRow(r)[0]); S.gsIdx = Math.min(S.gsIdx || 0, Math.max(0, res.length - 1));
   if (!res.length) { box.innerHTML = '<p class="hint">' + (gsNorm(q).length < 2 && String(q).replace(/\D/g, '').length < 3 ? 'שם, טלפון, ת״ז או מייל — מחפש בלקוחות, לידים' + (S.isCenter ? '' : ', אנשי קשר') + ' ומשימות. Enter פותח את הראשונה.' : 'לא נמצא') + '</p>'; return; }
   let last = '', i = 0;
@@ -4786,7 +4946,7 @@ function gsRender() {
 function gsOpen() {
   if (!S.me || document.body.classList.contains('locked')) return;
   if ($('gsQ')) return $('gsQ').focus();
-  $('layer').innerHTML = '<div class="scrim gs" id="gsScrim"><div class="drawer gsbox" role="dialog" aria-modal="true" aria-label="חיפוש"><header><input class="f grow" type="search" id="gsQ" placeholder="שם, טלפון, ת״ז, מייל…" autocomplete="off" aria-label="חיפוש"><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header><div id="gsRes" class="gsres" role="listbox" aria-label="תוצאות"></div></div></div>';
+  $('layer').innerHTML = '<div class="scrim gs" id="gsScrim"><div class="drawer gsbox" role="dialog" aria-modal="true" aria-label="חיפוש"><header><input class="f grow" type="search" id="gsQ" placeholder="שם, טלפון, ת״ז, מייל…" autocomplete="off" aria-label="חיפוש"><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header><div class="seg" role="group" aria-label="סוג" id="gsKinds" style="flex-wrap:wrap">' + [['', 'הכל'], ['client', 'לקוחות'], ['lead', 'לידים'], ...(S.isCenter ? [] : [['contact', 'אנשי קשר']]), ['task', 'משימות']].map(([k, t]) => '<button type="button" data-gskind="' + k + '" aria-pressed="' + ((S.gsKind || '') === k) + '">' + t + '</button>').join('') + '</div><div id="gsRes" class="gsres" role="listbox" aria-label="תוצאות"></div></div></div>';
   $('gsQ').value = S.f.gsQ || ''; S.gsIdx = 0; gsRender(); $('gsQ').focus(); $('gsQ').select();
 }
 function gsGo(key) {
@@ -4802,6 +4962,7 @@ function gsGo(key) {
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('#gsBtn')) return gsOpen();
+  const gk = e.target.closest('[data-gskind]'); if (gk) { S.gsKind = gk.dataset.gskind; S.gsIdx = 0; gsRender(); return $('gsQ') && $('gsQ').focus(); }
   const g = e.target.closest('[data-gs]'); if (g) return gsGo(g.dataset.gs);
   if (e.target.id === 'gsScrim' || e.target.closest('[data-gsclose]')) $('layer').innerHTML = '';
 });
@@ -6861,6 +7022,14 @@ document.addEventListener('click', async (e) => {
     if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; return l ? copyText(l.url, 'הקישור הועתק') : null; }
     if (d.signstate) { S.f.signState = d.signstate; return render(); }
     if (d.signkind) { S.f.signKind = d.signkind; return render(); }
+    if (d.dash !== undefined) { S.f.dash = d.dash || null; S.f.dashEdit = false; const x = dashCur(); if (x) S.f.dashRange = x.range || 'month'; return render(); }
+    if (d.dashrange) { S.f.dashRange = d.dashrange; return render(); }
+    if (d.dashshift) { dashShift(+d.dashshift); return render(); }
+    if (d.dwdrill !== undefined) { const x = dashCur(); if (!x) return; const [i, j] = String(d.dwdrill).split(':'), w = x.widgets[+i]; if (!w) return; const key = j != null ? (w.srcs || [])[+j] : w.src; return dashDrill(key, (j != null ? dashSrcLabel(key) : w.title || dashSrcLabel(key)), w); }
+    if (d.dwadd) { const x = dashCur(); return x ? dashWidgetForm(x, null, d.dwadd) : null; }
+    if (d.dwedit !== undefined) { const x = dashCur(); return x ? dashWidgetForm(x, +d.dwedit) : null; }
+    if (d.dwdel !== undefined) { const x = dashCur(); if (!x || !confirm('להסיר את הווידג׳ט?')) return; const ws = [...x.widgets]; ws.splice(+d.dwdel, 1); await dashSave({ ...x, widgets: ws }); return render(); }
+    if (d.dwmove) { const x = dashCur(); if (!x) return; const [i, dir] = d.dwmove.split(':').map(Number), j = i + dir, ws = [...x.widgets]; if (j < 0 || j >= ws.length) return; [ws[i], ws[j]] = [ws[j], ws[i]]; await dashSave({ ...x, widgets: ws }); return render(); }
     if (d.tplgrid !== undefined) { S.f.tplGrid = d.tplgrid === '1'; return render(); }
     if (d.pdftpledit) { const t = pdfTplOf(d.pdftpledit); return t ? pdfTplForm(t) : null; }
     if (d.pdftpldel) { const t = pdfTplOf(d.pdftpldel); if (!t || !confirm('למחוק את הטופס "' + t.name + '" מהספרייה? מסמכים שכבר נשלחו ממנו לא נפגעים.')) return;
@@ -7246,6 +7415,11 @@ document.addEventListener('click', async (e) => {
         case 'signAdhocFields': { const sc = signSubject(), st = sc && (S.signForm || {})[sc.id]; if (!st || !st.adhoc) return; const a = st.adhoc;
           return pdfEditor({ fileId: a.fileId, pages: a.pages, fields: a.fields, title: (a.name || 'מסמך') + ' — הצבת שדות', onSave: async (fields) => { st.adhoc = { ...a, fields }; st.open = true; render(); } }); }
         case 'pdfTplAdd': return pdfTplForm(null);
+        case 'dashNew': return dashForm(null);
+        case 'dashEdit': S.f.dashEdit = !S.f.dashEdit; return render();
+        case 'dashSettings': { const x = dashCur(); return x ? dashForm(x) : null; }
+        case 'dashDup': { const x = dashCur(); if (!x) return; const nd = { ...JSON.parse(JSON.stringify(x)), id: 'dash-' + uid(), name: x.name + ' (עותק)', owner: S.me.id, createdAt: stamp() }; await dashSave(nd); S.f.dash = nd.id; return render(); }
+        case 'dashDel': { const x = dashCur(); if (!x || !confirm('למחוק את הלוח "' + x.name + '"?')) return; await dashSave({ ...x, deletedAt: stamp() }); S.f.dash = null; S.f.dashEdit = false; toast('נמחק'); return render(); }
         case 'signSend': { const c = signSubject(); if (!c) return; const st = (S.signForm = S.signForm || {})[c.id] || {}, key = ($('signTpl') || {}).value || st.tpl || '';
           if (key.startsWith('pdf:') || key === 'adhoc') { const t = key === 'adhoc' ? null : pdfTplOf(key.slice(4)), ad = key === 'adhoc' ? st.adhoc : null;
             if (!t && !ad) return toast(key === 'adhoc' ? 'מעלים קובץ ומציבים שדות קודם' : 'הטופס לא נמצא');
@@ -7298,6 +7472,7 @@ document.addEventListener('change', async (e) => {
     const files = [...e.target.files], name = files[0].name.replace(/\.pdf$/i, ''); toast('מעלה…'); let up; try { up = await pdfUpload(files, name); } catch (err) { return toast(err.message); }
     return pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 1, title: name + ' — הצבת שדות', onSave: async (fields) => { f.adhoc = { fileId: up.fileId, pages: up.pages, fields, name }; f.title = f.title || name; render(); } }); }
   if (e.target && (e.target.id === 'sdFrom' || e.target.id === 'sdTo')) { S.f[e.target.id] = e.target.value; return render(); }
+  if (e.target && e.target.id === 'dashWho') { S.f.dashWho = e.target.value; return render(); }
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
