@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createEnvelope, envelopeCounts, listEnvelopes } from '@/lib/sign/store'
+import { cleanField, type PdfField } from '@/lib/rules/sign-pdf'
+import { getTemplate, templateKey } from '@/lib/sign/templates'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -10,6 +12,8 @@ export const maxDuration = 60
  *   GET  ?client=<doc>                 → המסמכים של הלקוח (v_sign_overview)
  *   GET  ?all=1[&state=][&division=]   → "מסמכים לחתימה" + מונים לפי מצב
  *   POST                               → מסמך חדש: חותם אחד או יותר (signers), או הצורה הישנה (email/phone)
+ *        נוסח מוקלד (template) · או טופס PDF: pdfTemplateId (מהספרייה) / pdf {fileId, fields} (מסמך מזדמן)
+ *        recipientKind: 'lead' — מתעניין (המסמך נרשם ביומן הליד)
  */
 const Field = z.union([z.string().max(2000), z.number(), z.null()])
 const Signer = z.object({
@@ -21,7 +25,10 @@ const Create = z.object({
   clientName: z.string().min(1).max(200),
   division: z.enum(['finance', 'realestate']),
   title: z.string().min(2).max(200),
-  template: z.string().min(20).max(60000),
+  template: z.string().min(20).max(60000).optional(),
+  pdfTemplateId: z.string().uuid().optional(),
+  pdf: z.object({ fileId: z.string().uuid(), fields: z.array(z.unknown()).max(300) }).optional(),
+  recipientKind: z.enum(['client', 'lead']).optional(),
   category: z.enum(['agreement', 'bank', 'fund', 'insurance', 'poa', 'general']).optional(),
   templateKey: z.string().max(80).nullish(), lender: z.string().max(120).nullish(),
   fields: z.record(z.string(), Field).default({}),
@@ -52,7 +59,20 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ code: 'invalid_argument', message: 'בקשה לא תקינה: ' + parsed.error.issues.map((i) => i.path.join('.')).join(', ') }, { status: 400 })
   const d = parsed.data
   const signers = d.signers ?? [{ label: 'הלקוח', name: d.clientName, email: d.email, phone: d.phone }]
-  const r = await createEnvelope({ ...d, signers }, new Date(), new URL(req.url).origin)
+  let pdf: { fileId: string; fields: PdfField[]; templateId?: string | null } | null = null
+  let templateKeyV = d.templateKey ?? null, requireOtp = false
+  if (d.pdfTemplateId) {
+    const t = await getTemplate(d.pdfTemplateId)
+    if (!t) return NextResponse.json({ code: 'not_found', message: 'התבנית לא נמצאה' }, { status: 404 })
+    pdf = { fileId: t.file_id, fields: t.fields, templateId: t.id }
+    templateKeyV = templateKey(t.id); requireOtp = t.require_otp
+  } else if (d.pdf) {
+    const fields = d.pdf.fields.map(cleanField)
+    if (fields.some((f) => !f)) return NextResponse.json({ code: 'invalid_argument', message: 'שדה לא תקין במסמך' }, { status: 400 })
+    pdf = { fileId: d.pdf.fileId, fields: fields as PdfField[] }
+  } else if (!d.template) return NextResponse.json({ code: 'invalid_argument', message: 'חסר נוסח או מסמך PDF' }, { status: 400 })
+  const r = await createEnvelope({ ...d, template: d.template ?? '', templateKey: templateKeyV, pdf,
+    signers: requireOtp ? signers.map((s) => ({ ...s, requireOtp: s.requireOtp ?? true })) : signers }, new Date(), new URL(req.url).origin)
   if ('error' in r) return NextResponse.json({ code: r.missing.length ? 'missing_fields' : 'invalid_argument', message: r.error, missing: r.missing }, { status: 422 })
   return NextResponse.json(r)
 }

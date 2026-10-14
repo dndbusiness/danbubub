@@ -11,5 +11,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   const now = new Date()
   const r = await openRequest(token, now).catch(() => null)
   if (!r) return new Response(messagePage('הקישור לא נמצא', 'ייתכן שהקישור הועתק חלקית, או שנשלח קישור חדש במקומו. נא לפנות אלינו.', 'bad'), { status: 404, headers: HEADERS })
-  return new Response(signPage(r.row, r.state, token, { total: r.total, now }), { headers: HEADERS })
+  const pdf = r.envelope?.pdf_fields && r.envelope.page_sizes ? { fields: r.envelope.pdf_fields, pages: r.envelope.page_sizes } : null
+  return new Response(signPage(r.row, r.state, token, { total: r.total, now, pdf }), { headers: HEADERS })
 }

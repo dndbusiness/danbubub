@@ -2,8 +2,12 @@
  * העמודים של החתימה — HTML שלם בלי ה-layout של המערכת (הלקוח לא רואה תפריטים פנימיים).
  *   signPage   — מה שהלקוח פותח בטלפון: הנוסח, שם + ת"ז, חתימת אצבע, אישור.
  *   printPage  — ההסכם החתום + עמוד תיעוד. ממנו נוצר ה-PDF (lib/pdf.ts, Playwright).
+ *                בטופס PDF — רק עמוד התיעוד (auditOnly); החתימות נכתבות על המקור (lib/sign/pdf.ts).
+ * טופס PDF בדף החותם: העמודים מוצגים עם pdf.js, השדות של החותם מסומנים וממולאים בזמן אמת
+ * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
 import { groupByDocument, maskEmail, otpState, SIGN_CATEGORIES, type SignState } from '@/lib/rules/sign'
+import { FIELD_KINDS, fieldsOf, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -31,6 +35,12 @@ input[type=text]{width:100%;font:inherit;padding:10px 12px;border:1px solid var(
 .err{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:10px 12px;margin:10px 0;display:none}
 .done{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:16px;text-align:center}
 .otp input{font-size:24px;letter-spacing:8px;text-align:center;direction:ltr}
+.pages{display:flex;flex-direction:column;gap:12px}.pg{position:relative;direction:ltr;background:#fff;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.pg canvas{display:block;width:100%;height:100%}
+.fld{position:absolute;border:1.5px solid #F59E0B;background:rgba(245,158,11,.14);border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#111827;font:600 11px/1 Arial,sans-serif}
+.fld.other{border:1px dashed #9CA3AF;background:rgba(156,163,175,.10);color:#6B7280;font-weight:400}
+.fld.filled{background:rgba(22,163,74,.08);border-color:#16A34A}.fld img{max-width:100%;max-height:100%}
+.fld .t{white-space:nowrap;direction:rtl;padding:0 2px}
 .who{display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-size:13px;margin-top:6px}
 `
 
@@ -45,7 +55,7 @@ export function messagePage(title: string, text: string, tone: 'ok' | 'bad' | 'm
   return shell(title, `<div class="wrap"><div class="card" style="text-align:center"><h1>${esc(title)}</h1><p class="${tone === 'muted' ? 'hint' : ''}" style="${tone === 'bad' ? 'color:var(--bad)' : tone === 'ok' ? 'color:var(--ok)' : ''}">${esc(text)}</p><p class="hint">הר-אל</p></div></div>`)
 }
 
-export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date } = {}): string {
+export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date; pdf?: { fields: PdfField[]; pages: { w: number; h: number }[] } | null } = {}): string {
   const company = COMPANY[row.division] ?? 'הר-אל'
   const total = opts.total ?? 1
   // קוד אימות: עד שאומת — הטופס מוסתר, והשרת דוחה חתימה בלי אימות בכל מקרה
@@ -53,10 +63,20 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   if (state === 'signed') return messagePage('המסמך נחתם', `חתמת ב-${il(row.signed_at)}. ${total > 1 ? 'כשכל החותמים יחתמו יישלח' : 'נשלח'} אליך עותק חתום${row.send_email ? ' במייל' : ''}. תודה!`, 'ok')
   if (state === 'expired') return messagePage('תוקף הקישור פג', 'נא לפנות אלינו לקבלת קישור חדש.', 'bad')
   if (state === 'cancelled') return messagePage('הקישור בוטל', 'נא לפנות אלינו אם יש שאלה.', 'bad')
+  const pdf = opts.pdf ?? null
+  const mine = pdf ? fieldsOf(pdf.fields, row.signer_order) : []
+  const inputs = pdf ? signerInputs(pdf.fields, row.signer_order) : []
+  const pdfHtml = pdf ? `<div class="card"><div class="row" style="justify-content:space-between"><b>המסמך</b><span class="hint">${pdf.pages.length} עמודים · ${mine.length} שדות שלך מסומנים בכתום</span></div>
+    <div class="pages" id="pages" style="margin-top:10px">${pdf.pages.map((p, i) => `<div class="pg" data-pg="${i}" style="aspect-ratio:${p.w}/${p.h}"><canvas></canvas>${pdf.fields.filter((f) => f.page === i).map((f) =>
+      `<div class="fld${f.signer === row.signer_order ? '' : ' other'}" data-f="${esc(f.id)}" data-k="${f.kind}" style="left:${(f.x * 100).toFixed(3)}%;top:${(f.y * 100).toFixed(3)}%;width:${(f.w * 100).toFixed(3)}%;height:${(f.h * 100).toFixed(3)}%"><span class="t">${esc(f.signer === row.signer_order ? f.label || FIELD_KINDS[f.kind] : 'לווה ' + f.signer)}</span></div>`).join('')}</div>`).join('')}</div>
+    <p class="hint" id="pdfFallback" style="display:none">התצוגה לא נטענה. <a href="/api/s/${encodeURIComponent(token)}/file" target="_blank" rel="noopener">פתיחת המסמך</a></p></div>` : ''
+  const inputsHtml = inputs.map((f) => f.kind === 'checkbox'
+    ? `<label class="check"><input type="checkbox" data-fid="${esc(f.id)}"><span>${esc(f.label || 'אישור')}${f.required ? ' *' : ''}</span></label>`
+    : `<label for="v_${esc(f.id)}">${esc(f.label || 'טקסט')}${f.required ? ' *' : ''}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" maxlength="200">`).join('')
   const body = `<div class="wrap">
   <div class="card"><div class="hint">${esc(company)}</div><h1>${esc(row.title)}</h1><div class="hint">בתוקף עד ${esc(il(row.expires_at))}</div>
     <div class="who">חותם/ת: ${esc(row.client_name)}${row.signer_label && row.signer_label !== 'הלקוח' ? ' · ' + esc(row.signer_label) : ''}${total > 1 ? ` · אחד/ת מ-${total} חותמים` : ''}</div></div>
-  <div class="card doc">${row.body_html}</div>
+  ${pdf ? pdfHtml : `<div class="card doc">${row.body_html}</div>`}
   ${needOtp ? `<div class="card otp" id="otp"><h2 style="margin-top:0">אימות לפני חתימה</h2>
     <p class="hint">נשלח קוד חד-פעמי למייל ${esc(maskEmail(row.send_email))}.</p>
     <div class="row"><button type="button" class="btn" id="otpSend">שלחו לי קוד</button></div>
@@ -67,6 +87,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     <h2 style="margin-top:0">חתימה</h2>
     <label for="name">שם מלא</label><input type="text" id="name" autocomplete="name" required>
     <label for="idn">מספר תעודת זהות</label><input type="text" id="idn" inputmode="numeric" autocomplete="off" maxlength="10" required dir="ltr" style="text-align:right">
+    ${inputsHtml}
     <label>חתימה <span class="hint">— לחתום באצבע / בעכבר בתוך המסגרת</span></label>
     <div class="pad" id="pad"><canvas id="cv"></canvas><div class="ph" id="ph">כאן חותמים</div></div>
     <div class="row" style="margin-top:6px"><button type="button" class="btn" id="clear">ניקוי</button></div>
@@ -77,7 +98,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   </form></div>
 <script>
 (function(){
-  var API='/api/s/${encodeURIComponent(token)}';
+  var API='/api/s/${encodeURIComponent(token)}', PDF=${pdf ? 'true' : 'false'}, TODAY=${JSON.stringify(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', year: 'numeric' }).format(opts.now ?? new Date()))};
   function post(b){return fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json()})}
   // "נפתח" — רק כשהדף באמת נפתח בדפדפן (לא תצוגה מקדימה של הקישור בוואטסאפ/מייל)
   post({action:'open'}).catch(function(){});
@@ -93,14 +114,30 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   ['pointerup','pointercancel','pointerleave'].forEach(function(t){cv.addEventListener(t,function(){drawing=false})});
   document.getElementById('clear').onclick=function(){ctx.clearRect(0,0,cv.width,cv.height);pts=0;ph.style.display=''};
   window.addEventListener('resize',size);size();
+  // טופס PDF: העמודים (pdf.js) + מילוי חי של השדות שלי
+  function trimmed(){var w=cv.width,h=cv.height,d=ctx.getImageData(0,0,w,h).data,x0=w,y0=h,x1=-1,y1=-1;for(var y=0;y<h;y++)for(var x=0;x<w;x++){if(d[(y*w+x)*4+3]>10){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}if(x1<0)return cv.toDataURL('image/png');var m=6;x0=Math.max(0,x0-m);y0=Math.max(0,y0-m);x1=Math.min(w-1,x1+m);y1=Math.min(h-1,y1+m);var o=document.createElement('canvas');o.width=x1-x0+1;o.height=y1-y0+1;o.getContext('2d').drawImage(cv,x0,y0,o.width,o.height,0,0,o.width,o.height);return o.toDataURL('image/png')}
+  function initials(n){return n.trim().split(/\s+/).filter(Boolean).slice(0,3).map(function(w){return w[0]+'.'}).join('')}
+  function preview(){if(!PDF)return;var name=document.getElementById('name').value.trim(),idn=document.getElementById('idn').value.replace(/\D/g,''),sig=pts>=12?trimmed():null;
+    document.querySelectorAll('.fld:not(.other)').forEach(function(el){var k=el.getAttribute('data-k'),id=el.getAttribute('data-f'),v='';
+      if(k==='signature'){if(sig){el.innerHTML='<img alt="" src="'+sig+'">';el.classList.add('filled')}return}
+      if(k==='name')v=name;else if(k==='id_number')v=idn;else if(k==='date')v=TODAY;else if(k==='initials')v=initials(name);
+      else{var inp=document.querySelector('[data-fid="'+id+'"]');if(inp)v=inp.type==='checkbox'?(inp.checked?'X':''):inp.value}
+      if(v){el.innerHTML='<span class="t"></span>';el.firstChild.textContent=v;el.classList.add('filled')}})}
+  if(PDF){['name','idn'].forEach(function(i){document.getElementById(i).addEventListener('input',preview)});document.querySelectorAll('[data-fid]').forEach(function(i){i.addEventListener('input',preview);i.addEventListener('change',preview)});cv.addEventListener('pointerup',preview);
+    var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onerror=function(){document.getElementById('pdfFallback').style.display='block'};
+    s.onload=function(){var lib=window.pdfjsLib;lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      lib.getDocument({url:API+'/file'}).promise.then(function(doc){document.querySelectorAll('.pg').forEach(function(box){var i=+box.getAttribute('data-pg');doc.getPage(i+1).then(function(pg){var c=box.querySelector('canvas'),vw=pg.getViewport({scale:1}),sc=box.clientWidth*(window.devicePixelRatio||1)/vw.width,v=pg.getViewport({scale:sc});c.width=Math.round(v.width);c.height=Math.round(v.height);pg.render({canvasContext:c.getContext('2d'),viewport:v})})})})
+        .catch(function(){document.getElementById('pdfFallback').style.display='block'})};document.head.appendChild(s)}
   var err=document.getElementById('err'),go=document.getElementById('go');
   function show(m){err.innerHTML=m.map(function(x){return'<div>'+x.replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})+'</div>'}).join('');err.style.display=m.length?'block':'none'}
   document.getElementById('f').addEventListener('submit',function(e){
     e.preventDefault();var name=document.getElementById('name').value.trim(),idn=document.getElementById('idn').value,agree=document.getElementById('agree').checked,m=[];
+    var values={};document.querySelectorAll('[data-fid]').forEach(function(i){values[i.getAttribute('data-fid')]=i.type==='checkbox'?i.checked:i.value.trim()});
     if(name.length<2)m.push('נא למלא שם מלא');if(!/^\\d{5,9}$/.test(idn.replace(/\\D/g,'')))m.push('נא למלא מספר תעודת זהות');if(pts<12)m.push('נא לחתום במסגרת');if(!agree)m.push('נא לאשר שקראת את ההסכם ושאתה מסכים לו');
     show(m);if(m.length)return;go.disabled=true;go.textContent='שומר את החתימה…';
     var w=document.createElement('canvas');w.width=cv.width;w.height=cv.height;var g=w.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w.width,w.height);g.drawImage(cv,0,0);
-    post({name:name,idNumber:idn,signature:w.toDataURL('image/png'),agree:true})
+    // טופס PDF: חתימה שקופה וחתוכה — נכתבת על הטופס בלי מלבן לבן
+    post({name:name,idNumber:idn,signature:PDF?trimmed():w.toDataURL('image/png'),agree:true,values:values})
       .then(function(j){if(j.ok){document.querySelector('.wrap').innerHTML='<div class="card done"><h1>נחתם — תודה!</h1><p>${total > 1 ? 'כשכל החותמים יחתמו יישלח אליך עותק חתום.' : 'עותק חתום יישלח אליך.'}</p></div>';window.scrollTo(0,0)}else{show(j.errors||['השמירה נכשלה — נסו שוב']);go.disabled=false;go.textContent='אני מאשר/ת וחותם/ת'}})
       .catch(function(){show(['אין חיבור — נסו שוב']);go.disabled=false;go.textContent='אני מאשר/ת וחותם/ת'});
   });
@@ -109,7 +146,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   return shell(row.title, body)
 }
 
-export function printPage(env: EnvelopeRow, rows: SignRow[]): string {
+export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?: boolean } = {}): string {
   const company = COMPANY[env.division] ?? 'הר-אל'
   const signed = rows.filter((r) => r.status === 'signed')
   const css = `<style>@page{size:A4}body{background:#fff;color:#111827;font-size:13.5px}.wrap{max-width:none;padding:0}.card{border:0;padding:0}
@@ -128,7 +165,15 @@ export function printPage(env: EnvelopeRow, rows: SignRow[]): string {
     <tr><td>נחתם</td><td>${esc(il(r.signed_at))}</td></tr>
     <tr><td>החותם</td><td>${esc(r.signer_name)} · ת"ז ${esc(r.signer_id_number)}</td></tr>
     <tr><td>כתובת IP</td><td class="mono">${esc(r.signer_ip ?? '—')}</td></tr>
-    <tr><td>מכשיר / דפדפן</td><td class="mono">${esc(r.signer_ua ?? '—')}</td></tr></table>`
+    <tr><td>מכשיר / דפדפן</td><td class="mono">${esc(r.signer_ua ?? '—')}</td></tr>
+    ${env.pdf_fields ? `<tr><td>שדות שמולאו</td><td>${esc(fieldsOf(env.pdf_fields, r.signer_order).filter((f) => f.kind === 'text' || f.kind === 'checkbox')
+      .map((f) => (f.label || FIELD_KINDS[f.kind]) + ': ' + (f.kind === 'checkbox' ? (r.field_values?.[f.id] ? 'סומן' : 'לא סומן') : r.field_values?.[f.id] || '—')).join(' · ') || '—')}</td></tr>` : ''}</table>`
+  if (opts.auditOnly) return shell(env.title, `<div class="wrap"><div class="hint">${esc(company)} · ${esc(SIGN_CATEGORIES[env.category] ?? '')}</div>
+  <h2 style="margin-top:0">עמוד תיעוד חתימה</h2><table><tr><td>מסמך</td><td>${esc(env.title)}${env.page_sizes ? ' · ' + env.page_sizes.length + ' עמודים (המסמך המקורי, לפני עמוד זה)' : ''}</td></tr>
+  <tr><td>עבור</td><td>${esc(env.client_name)}${env.recipient_kind === 'lead' ? ' (מתעניין)' : ''}${env.lender ? ' · ' + esc(env.lender) : ''}</td></tr>
+  <tr><td>מזהה מסמך</td><td class="mono">${esc(env.id)}</td></tr><tr><td>הושלם</td><td>${esc(il(env.completed_at))} · ${signed.length} חותמים</td></tr></table>
+  ${signed.map(auditRows).join('')}
+  <p class="hint" style="margin-top:12px">כל חותם חתם דרך קישור אישי שנשלח אליו בלבד. החתימות, השמות, מספרי הזהות והתאריכים נכתבו על המסמך המקורי במקומות שסומנו לפני השליחה; טביעת המסמך והשדות של כל חותם מופיעה למעלה. השעות לפי שעון ישראל.</p></div>`, css)
   const body = `<div class="wrap">
   <div class="hint">${esc(company)} · ${esc(SIGN_CATEGORIES[env.category] ?? '')}</div><h1>${esc(env.title)}</h1><div class="hint">עבור ${esc(env.client_name)}${env.lender ? ' · ' + esc(env.lender) : ''}</div>
   ${docs}

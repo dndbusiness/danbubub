@@ -12,6 +12,10 @@
  *   finalizeEnvelope — כשכל החותמים חתמו: PDF אחד (stored_files) → דרייב → כרטיס הלקוח → עותק לכל
  *                    חותם ולדן. נכשל? הכרטיס מציג "צור PDF שוב".
  *   remind         — קישור חדש לחותם שלא חתם (הישן מפסיק לעבוד) + מייל.
+ *
+ * טפסים מ-PDF (019): במקום נוסח מוקלד — קובץ PDF (stored_files) ושדות שהוצבו עליו לכל לווה.
+ * הטביעה של כל חותם = SHA-256 של הקובץ + השדות שלו. בסיום החתימות נכתבות על ה-PDF המקורי
+ * (lib/sign/pdf.ts) ועמוד התיעוד מתווסף בסוף. נמען יכול להיות גם מתעניין (ליד).
  */
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
@@ -23,7 +27,10 @@ import { writeDoc } from '@/lib/crm/store'
 import { googleAccessToken } from '@/lib/google/store'
 import { ensureChildFolder, uploadFile } from '@/lib/google/drive'
 import { internalBaseUrl, renderPdf } from '@/lib/pdf'
-import { readStoredFile, storeLocalFile } from '@/lib/files'
+import { readStoredFile, storeFile, storeLocalFile } from '@/lib/files'
+import { readFile } from 'node:fs/promises'
+import { checkSignerValues, fieldsOf, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
+import { appendPdf, readPageSizes, stampPdf } from './pdf'
 import { flushOutbox } from '@/lib/jobs/outbox'
 
 export const AGREEMENTS_FOLDER = 'הסכמי התקשרות'
@@ -38,12 +45,22 @@ export interface SignRow {
   finalize_error: string | null; created_at: string; deleted_at: string | null
   signer_label: string | null; signer_order: number; require_otp: boolean; otp_hash: string | null; otp_expires_at: string | null; otp_attempts: number
   otp_sent_at: string | null; otp_verified_at: string | null; reminders_sent: number; last_reminder_at: string | null
+  field_values: Record<string, string>
 }
 
 export interface EnvelopeRow {
   id: string; client_doc: string; client_name: string; division: 'finance' | 'realestate'; title: string; category: SignCategory
   template_key: string | null; lender: string | null; status: 'sent' | 'completed' | 'cancelled'; completed_at: string | null
   pdf_file_id: string | null; drive_file_id: string | null; drive_url: string | null; finalize_error: string | null; created_at: string
+  source_file_id: string | null; pdf_fields: PdfField[] | null; page_sizes: PageSize[] | null; template_id: string | null; recipient_kind: 'client' | 'lead'
+}
+
+/** איפה נרשם היומן ב-CRM: כרטיס הלקוח או הליד. */
+const collOf = (kind: string | null | undefined) => (kind === 'lead' ? 'leads' : 'clients')
+async function kindOfRow(row: SignRow): Promise<'client' | 'lead'> {
+  if (!row.envelope_id) return 'client'
+  const [e] = await sql<{ k: 'client' | 'lead' }[]>`select recipient_kind as k from sign_envelopes where id = ${row.envelope_id}`
+  return e?.k ?? 'client'
 }
 
 export const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('hex')
@@ -77,6 +94,9 @@ export interface EnvelopeInput {
   /** נוסח נפרד לכל חותם (השדות של החותם ממולאים בנוסח שלו) — "גרסה לכל לווה" */
   perSigner?: boolean
   expiresDays?: number | null; allowMissing?: boolean
+  /** טופס PDF: הקובץ (stored_files), השדות לכל לווה ומידות העמודים. אז template לא בשימוש. */
+  pdf?: { fileId: string; fields: PdfField[]; templateId?: string | null } | null
+  recipientKind?: 'client' | 'lead'
 }
 export interface SignerLink { id: string; label: string; url: string; email: string | null; phone: string | null; emailQueued: boolean; requireOtp: boolean }
 
@@ -85,9 +105,27 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
   const errs = validateSigners(input.signers)
   if (errs.length) return { error: errs.join(' · '), missing: [] }
   const category: SignCategory = input.category && input.category in SIGN_CATEGORIES ? input.category : 'agreement'
-  const bodies = input.signers.map((s) => renderAgreement(input.template, input.perSigner
-    ? { ...input.fields, ...(s.fields ?? {}), signer_name: s.name ?? '', signer_label: s.label }
-    : input.fields))
+  const kind = input.recipientKind === 'lead' ? 'lead' : 'client'
+  let bodies: { html: string; missing: string[]; hash?: string }[]
+  let pdf: { fileId: string; fields: PdfField[]; pages: PageSize[]; templateId: string | null } | null = null
+  if (input.pdf) {
+    const f = await readStoredFile(input.pdf.fileId)
+    if (!f || !String(f.mime).includes('pdf')) return { error: 'קובץ ה-PDF לא נמצא — העלו שוב', missing: [] }
+    const pages = await readPageSizes(f.bytes).catch(() => null)
+    if (!pages) return { error: 'קובץ ה-PDF לא נקרא', missing: [] }
+    const errs = validatePdfFields(input.pdf.fields, pages.length, input.signers.length)
+    if (errs.length) return { error: errs.join(' · '), missing: [] }
+    pdf = { fileId: input.pdf.fileId, fields: input.pdf.fields, pages, templateId: input.pdf.templateId ?? null }
+    const fileHash = sha256(f.bytes)
+    bodies = input.signers.map((_s, i) => {
+      const mine = fieldsOf(pdf!.fields, i + 1)
+      return { html: `<p>מסמך PDF: <b>${escHtml(input.title)}</b> · ${pages.length} עמודים · ${mine.length} שדות לחותם הזה.</p>`, missing: [], hash: sha256(fileHash + ':' + JSON.stringify(mine)) }
+    })
+  } else {
+    bodies = input.signers.map((s) => renderAgreement(input.template, input.perSigner
+      ? { ...input.fields, ...(s.fields ?? {}), signer_name: s.name ?? '', signer_label: s.label }
+      : input.fields))
+  }
   const missing = [...new Set(bodies.flatMap((b) => b.missing))]
   if (!bodies[0]?.html.trim()) return { error: 'הנוסח ריק', missing }
   if (missing.length && !input.allowMissing) return { error: 'חסרים שדות בנוסח: ' + missing.join(', '), missing }
@@ -96,8 +134,9 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
   const expires = expiryFrom(now, input.expiresDays)
   const res = await sql.begin(async (tx) => {
     const [env] = await tx<{ id: string }[]>`
-      insert into sign_envelopes (client_doc, client_name, division, title, category, template_key, lender)
-      values (${input.clientDoc}, ${input.clientName}, ${input.division}, ${input.title}, ${category}, ${input.templateKey ?? null}, ${input.lender ?? null})
+      insert into sign_envelopes (client_doc, client_name, division, title, category, template_key, lender, recipient_kind, source_file_id, pdf_fields, page_sizes, template_id)
+      values (${input.clientDoc}, ${input.clientName}, ${input.division}, ${input.title}, ${category}, ${input.templateKey ?? null}, ${input.lender ?? null}, ${kind},
+              ${pdf?.fileId ?? null}, ${pdf ? tx.json(pdf.fields as never) : null}, ${pdf ? tx.json(pdf.pages as never) : null}, ${pdf?.templateId ?? null})
       returning id`
     const ids: string[] = []
     for (const [i, s] of input.signers.entries()) {
@@ -105,7 +144,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
       const [row] = await tx<{ id: string }[]>`
         insert into sign_requests (envelope_id, token_hash, client_doc, client_name, division, title, body_html, doc_hash, fields, send_email, send_phone,
                                    expires_at, signer_label, signer_order, require_otp)
-        values (${env!.id}, ${sha256(tokens[i]!)}, ${input.clientDoc}, ${s.name || input.clientName}, ${input.division}, ${input.title}, ${html}, ${sha256(html)},
+        values (${env!.id}, ${sha256(tokens[i]!)}, ${input.clientDoc}, ${s.name || input.clientName}, ${input.division}, ${input.title}, ${html}, ${bodies[i]!.hash ?? sha256(html)},
                 ${tx.json((input.perSigner ? { ...input.fields, ...(s.fields ?? {}) } : input.fields) as never)}, ${cleanEmail(s.email)}, ${cleanPhone(s.phone)},
                 ${expires}, ${s.label}, ${i + 1}, ${Boolean(s.requireOtp)})
         returning id`
@@ -124,7 +163,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
     links.push({ id: res.ids[i]!, label: s.label, url, email, phone: cleanPhone(s.phone), emailQueued: Boolean(email), requireOtp: Boolean(s.requireOtp) })
   }
   await crmLog(input.clientDoc, `נשלח לחתימה: ${input.title}` + (input.signers.length > 1 ? ` · ${input.signers.length} חותמים (${input.signers.map((s) => s.label).join(', ')})` : '') +
-    (links.some((l) => l.email) ? ' · במייל' : ''), now, category === 'agreement' ? { agreementSignId: res.envelopeId, agreementStatus: 'sent' } : {}).catch(() => {})
+    (links.some((l) => l.email) ? ' · במייל' : ''), now, category === 'agreement' && kind === 'client' ? { agreementSignId: res.envelopeId, agreementStatus: 'sent' } : {}, collOf(kind)).catch(() => {})
   await flushNow()
   return { envelopeId: res.envelopeId, links, missing }
 }
@@ -167,6 +206,7 @@ export interface OverviewRow {
   signers: number; signed: number; waiting: number; expired: number; opened: number; last_activity: string | null; next_expiry: string | null
   people: { id: string; label: string | null; order: number; status: string; expired: boolean; email: string | null; phone: string | null; signer: string | null; opened_at: string | null; signed_at: string | null; expires_at: string; require_otp: boolean; otp_ok: boolean; reminders: number; last_reminder_at: string | null }[]
   state: 'completed' | 'cancelled' | 'partial' | 'opened' | 'expired' | 'sent'
+  recipient_kind: 'client' | 'lead'; template_id: string | null; source_file_id: string | null; pages: number
 }
 
 /** "מסמכים לחתימה" (v_sign_overview): לכל המערכת, או ללקוח אחד. */
@@ -202,7 +242,7 @@ export async function markOpened(token: string, now: Date): Promise<boolean> {
   const row = await byToken(token)
   if (!row || signState(row, now) !== 'open' || row.status !== 'sent') return false
   const res = await sql`update sign_requests set status = 'opened', opened_at = ${now} where id = ${row.id} and status = 'sent'`
-  if (res.count) await crmLog(row.client_doc, `${row.signer_label && row.signer_label !== 'הלקוח' ? row.signer_label + ' (' + row.client_name + ')' : 'הלקוח'} פתח/ה את "${row.title}" לחתימה`, now).catch(() => {})
+  if (res.count) await crmLog(row.client_doc, `${row.signer_label && row.signer_label !== 'הלקוח' ? row.signer_label + ' (' + row.client_name + ')' : 'הלקוח'} פתח/ה את "${row.title}" לחתימה`, now, {}, collOf(await kindOfRow(row))).catch(() => {})
   return res.count > 0
 }
 
@@ -253,11 +293,17 @@ export async function submitRequest(token: string, s: Partial<Submission>, meta:
   if (state !== 'open') return { ok: false, errors: [state === 'signed' ? 'המסמך כבר נחתם' : state === 'expired' ? 'תוקף הקישור פג — בקשו קישור חדש' : 'הקישור בוטל'], state }
   if (row.require_otp && !row.otp_verified_at) return { ok: false, errors: ['נדרש קוד אימות מהמייל לפני החתימה'] }
   const errors = validateSubmission(s)
+  // טופס PDF: שדות הטקסט / הסימון של החותם הזה
+  let values: Record<string, string> = {}
+  if (row.envelope_id) {
+    const [e] = await sql<{ pdf_fields: PdfField[] | null }[]>`select pdf_fields from sign_envelopes where id = ${row.envelope_id}`
+    if (e?.pdf_fields) { const c = checkSignerValues(e.pdf_fields, row.signer_order, (s as { values?: unknown }).values); values = c.values; errors.push(...c.errors) }
+  }
   if (errors.length) return { ok: false, errors }
   const id = String(s.idNumber).replace(/\D/g, '').padStart(9, '0')
   const res = await sql`
     update sign_requests set status = 'signed', signed_at = ${now}, signer_name = ${String(s.name).trim()}, signer_id_number = ${id},
-      signature_png = ${String(s.signature)}, signer_ip = ${meta.ip}, signer_ua = ${(meta.ua ?? '').slice(0, 400)},
+      signature_png = ${String(s.signature)}, signer_ip = ${meta.ip}, signer_ua = ${(meta.ua ?? '').slice(0, 400)}, field_values = ${sql.json(values as never)},
       opened_at = coalesce(opened_at, ${now})
     where id = ${row.id} and status in ('sent', 'opened') and deleted_at is null and expires_at > ${now}
       and (not require_otp or otp_verified_at is not null)`
@@ -278,10 +324,11 @@ export async function finalizeEnvelope(id: string, now: Date, justSigned?: strin
   const signed = rows.filter((r) => r.status === 'signed')
   if (!rows.length) return { ok: false, complete: false, error: 'אין חותמים' }
 
+  const coll = collOf(env.recipient_kind)
   if (signed.length < rows.length) {
     const who = rows.find((r) => r.id === justSigned)
     if (who) {
-      await crmLog(env.client_doc, `${who.signer_name} חתם/ה על "${env.title}" (${signed.length} מתוך ${rows.length})`, now).catch(() => {})
+      await crmLog(env.client_doc, `${who.signer_name} חתם/ה על "${env.title}" (${signed.length} מתוך ${rows.length})`, now, {}, coll).catch(() => {})
       await notifyOwner(env, `${who.signer_name} חתם/ה — ${signed.length} מתוך ${rows.length}`, `sign-partial:${who.id}`, null)
     }
     return { ok: true, complete: false }
@@ -296,20 +343,32 @@ export async function finalizeEnvelope(id: string, now: Date, justSigned?: strin
   let fileId = env.pdf_file_id
   if (!fileId) {
     try {
-      const path = await renderPdf(`${internalBaseUrl()}/s/print/${env.id}?k=${printKey(env.id)}`, `sign-${env.id}.pdf`)
-      fileId = await storeLocalFile(path, fileName, 'application/pdf', 'sign')
+      if (env.source_file_id && env.pdf_fields) {
+        // טופס PDF: החתימות על המסמך המקורי + עמוד התיעוד בסוף
+        const src = await readStoredFile(env.source_file_id)
+        if (!src) throw new Error('המסמך המקורי לא נמצא במסד')
+        const stamped = await stampPdf(src.bytes, env.pdf_fields, signed.map((r) => ({
+          order: r.signer_order, name: String(r.signer_name ?? ''), idNumber: String(r.signer_id_number ?? ''), signedAt: new Date(r.signed_at!),
+          signaturePng: String(r.signature_png ?? ''), values: r.field_values ?? {},
+        })))
+        const auditPath = await renderPdf(`${internalBaseUrl()}/s/print/${env.id}?k=${printKey(env.id)}&audit=1`, `sign-${env.id}-audit.pdf`)
+        fileId = await storeFile(await appendPdf(stamped, await readFile(auditPath)), fileName, 'application/pdf', 'sign')
+      } else {
+        const path = await renderPdf(`${internalBaseUrl()}/s/print/${env.id}?k=${printKey(env.id)}`, `sign-${env.id}.pdf`)
+        fileId = await storeLocalFile(path, fileName, 'application/pdf', 'sign')
+      }
       await sql`update sign_envelopes set pdf_file_id = ${fileId} where id = ${env.id}`
     } catch (e) {
       const msg = 'יצירת ה-PDF נכשלה: ' + (e as Error).message
       await sql`update sign_envelopes set finalize_error = ${msg.slice(0, 500)} where id = ${env.id}`
-      await crmLog(env.client_doc, `"${env.title}" נחתם ע"י כל החותמים — ${msg.slice(0, 160)}`, now, agreementPatch(env, lastSigned, null)).catch(() => {})
+      await crmLog(env.client_doc, `"${env.title}" נחתם ע"י כל החותמים — ${msg.slice(0, 160)}`, now, agreementPatch(env, lastSigned, null), coll).catch(() => {})
       return { ok: false, complete: true, error: msg }
     }
   }
 
   // 2. דרייב — כישלון כאן לא עוצר את העותקים במייל
   let driveUrl = env.drive_url, driveErr: string | null = null
-  if (!env.drive_file_id) {
+  if (!env.drive_file_id && env.recipient_kind !== 'lead') {
     try {
       const folder = await clientDriveFolder(env.client_doc)
       if (!folder) throw new Error('ללקוח אין תיקייה בדרייב — פתח תיקייה בכרטיס ולחץ "צור PDF שוב"')
@@ -325,8 +384,8 @@ export async function finalizeEnvelope(id: string, now: Date, justSigned?: strin
   await sql`update sign_envelopes set finalize_error = ${driveErr ? driveErr.slice(0, 500) : null} where id = ${env.id}`
 
   // 3. כרטיס הלקוח + עותק לכל חותם ולדן (dedup — הרצה חוזרת לא שולחת שוב)
-  await crmLog(env.client_doc, `"${env.title}" נחתם ע"י ${signed.map((r) => r.signer_name).join(', ')}` + (driveUrl ? ` · נשמר בדרייב (${folderFor(env.category)})` : driveErr ? ' — ' + driveErr.slice(0, 140) : ''), now,
-    agreementPatch(env, lastSigned, driveUrl ?? null)).catch(() => {})
+  await crmLog(env.client_doc, `"${env.title}" נחתם ע"י ${signed.map((r) => r.signer_name).join(', ')}` + (driveUrl ? ` · נשמר בדרייב (${folderFor(env.category)})` : driveErr ? ' — ' + driveErr.slice(0, 140) : env.recipient_kind === 'lead' ? ' · נשמר במערכת (מתעניין — אין תיקייה בדרייב)' : ''), now,
+    agreementPatch(env, lastSigned, driveUrl ?? null), coll).catch(() => {})
   const payload = { fileId, fileName }
   await notifyOwner(env, `נחתם ע"י כל החותמים (${signed.length})`, `sign-done-owner:${env.id}`, payload, driveUrl ?? null)
   for (const r of signed) if (r.send_email) await sql`insert into outbox (channel, target, subject, body, payload, dedup_key)
@@ -351,10 +410,24 @@ export async function cancelEnvelope(id: string, now: Date): Promise<boolean> {
     await tx`update sign_requests set status = 'cancelled' where envelope_id = ${env.id} and status in ('sent', 'opened')`
     await tx`update sign_envelopes set status = 'cancelled' where id = ${env.id} and status = 'sent'`
   })
-  await crmLog(env.client_doc, 'בוטל מסמך לחתימה: ' + env.title, now, env.category === 'agreement' ? { agreementStatus: 'cancelled' } : {}).catch(() => {})
+  await crmLog(env.client_doc, 'בוטל מסמך לחתימה: ' + env.title, now, env.category === 'agreement' && env.recipient_kind === 'client' ? { agreementStatus: 'cancelled' } : {}, collOf(env.recipient_kind)).catch(() => {})
   return true
 }
 export const cancelRequest = cancelEnvelope
+
+/** "מחיקת המסמך" (מפרט WISE): הסתרה בלבד. מסמך שעוד פתוח מבוטל קודם (הקישורים מפסיקים לעבוד); מסמך חתום נשאר במסד ובדרייב. */
+export async function deleteEnvelope(id: string, now: Date): Promise<boolean> {
+  const env = await envelopeById(id)
+  if (!env) return false
+  await sql.begin(async (tx) => {
+    await tx`update sign_requests set status = 'cancelled' where envelope_id = ${env.id} and status in ('sent', 'opened')`
+    if (env.status === 'sent') await tx`update sign_envelopes set status = 'cancelled' where id = ${env.id} and status = 'sent'`
+    await tx`update sign_requests set deleted_at = ${now} where envelope_id = ${env.id} and deleted_at is null`
+    await tx`update sign_envelopes set deleted_at = ${now} where id = ${env.id} and deleted_at is null`
+  })
+  await crmLog(env.client_doc, 'נמחק מרשימת המסמכים לחתימה: ' + env.title + (env.status === 'completed' ? ' (העותק החתום נשאר שמור)' : ''), now, {}, collOf(env.recipient_kind)).catch(() => {})
+  return true
+}
 
 /** תזכורת לחותם שלא חתם: קישור חדש (הקודם מפסיק לעבוד), תוקף מוארך ל-7 ימים לפחות, ומייל. */
 export async function remind(requestId: string, now: Date, baseUrl?: string): Promise<{ ok: true; url: string; emailQueued: boolean } | { ok: false; error: string }> {
@@ -371,7 +444,7 @@ export async function remind(requestId: string, now: Date, baseUrl?: string): Pr
   if (row.send_email) await sql`insert into outbox (channel, target, subject, body, dedup_key)
     values ('email', ${row.send_email}, ${'תזכורת: ' + row.title + ' — לחתימה'}, ${inviteHtml(row.client_name, row.title, url, 1, true)}, ${'sign-remind:' + row.id + ':' + u.reminders_sent})
     on conflict (dedup_key) where dedup_key is not null and deleted_at is null do nothing`
-  await crmLog(row.client_doc, `נשלחה תזכורת לחתימה (${row.signer_label ?? 'הלקוח'}): ${row.title}`, now).catch(() => {})
+  await crmLog(row.client_doc, `נשלחה תזכורת לחתימה (${row.signer_label ?? 'הלקוח'}): ${row.title}`, now, {}, collOf(await kindOfRow(row))).catch(() => {})
   await flushNow()
   return { ok: true, url, emailQueued: Boolean(row.send_email) }
 }
@@ -396,7 +469,7 @@ function inviteHtml(name: string, title: string, url: string, signers: number, r
     `<p style="color:#6B7280;font-size:13px">החתימה נעשית בטלפון או במחשב, בלי הרשמה. אחרי שכולם חותמים יישלח אליך עותק חתום.${reminder ? ' הקישור הקודם כבר לא פעיל.' : ''}</p><p>הר-אל</p></div>`
 }
 
-const agreementPatch = (env: EnvelopeRow, signedAt: string, url: string | null) => env.category === 'agreement'
+const agreementPatch = (env: EnvelopeRow, signedAt: string, url: string | null) => env.category === 'agreement' && env.recipient_kind !== 'lead'
   ? { agreementStatus: 'signed', agreementSignedAt: signedAt, agreementSignId: env.id, ...(url ? { agreementPdfUrl: url } : {}) } : {}
 
 async function clientDriveFolder(clientDoc: string): Promise<string | null> {
@@ -404,12 +477,12 @@ async function clientDriveFolder(clientDoc: string): Promise<string | null> {
   return r?.folder && /^[A-Za-z0-9_-]{10,}$/.test(r.folder) ? r.folder : null
 }
 
-/** רישום ביומן הלקוח ב-CRM (המסמך clients/<id>), ועדכון שדות הסטטוס בכרטיס. */
-export async function crmLog(clientDoc: string, text: string, now: Date, patch: Record<string, unknown> = {}): Promise<void> {
-  const [r] = await sql<{ data: { log?: unknown[] } }[]>`select data from crm_docs where coll = 'clients' and doc_id = ${clientDoc} and deleted_at is null`
+/** רישום ביומן ב-CRM (clients/<id> או leads/<id>), ועדכון שדות הסטטוס בכרטיס. */
+export async function crmLog(clientDoc: string, text: string, now: Date, patch: Record<string, unknown> = {}, coll: 'clients' | 'leads' = 'clients'): Promise<void> {
+  const [r] = await sql<{ data: { log?: unknown[] } }[]>`select data from crm_docs where coll = ${coll} and doc_id = ${clientDoc} and deleted_at is null`
   if (!r) return
   const log = Array.isArray(r.data.log) ? r.data.log : []
-  await writeDoc('clients/' + clientDoc, 'update', { ...patch, log: [{ at: now.toISOString(), text, auto: true, by: 'sign' }, ...log].slice(0, 300), updatedAt: now.toISOString() })
+  await writeDoc(coll + '/' + clientDoc, 'update', { ...patch, log: [{ at: now.toISOString(), text, auto: true, by: 'sign' }, ...log].slice(0, 300), updatedAt: now.toISOString() })
 }
 
 async function notifyOwner(env: EnvelopeRow, what: string, dedup: string, payload: Record<string, unknown> | null, driveUrl: string | null = null): Promise<void> {

@@ -44,9 +44,10 @@ select e.id, e.client_doc, e.client_name, e.division, e.title, e.category, e.tem
          when coalesce(s.waiting, 0) = 0 and coalesce(s.expired, 0) > 0 then 'expired'
          when coalesce(s.opened, 0) > 0 then 'opened'
          else 'sent'
-       end as state
+       end as state,
+       e.recipient_kind, e.template_id, e.source_file_id, jsonb_array_length(coalesce(e.page_sizes, '[]'::jsonb)) as pages
 from sign_envelopes e
 left join s on s.envelope_id = e.id
 where e.deleted_at is null;
 
-comment on view v_sign_overview is 'מסמכים לחתימה: מצב לכל מסמך וחותמים (completed/cancelled/partial/opened/expired/sent).';
+comment on view v_sign_overview is 'מסמכים לחתימה: מצב לכל מסמך וחותמים (completed/cancelled/partial/opened/expired/sent), לקוח או מתעניין, PDF או נוסח.';
