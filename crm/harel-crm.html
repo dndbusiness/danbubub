@@ -556,6 +556,7 @@ const S = {
   f: { leadSt: 'todo', leadLim: 120, clientQ: '', clientStatus: 'open', clientTag: '', clientStage: '', clientOwner: '', txQ: '', txNature: '', txMonth: '', taskView: 'lanes', laneDone: false, clientView: 'board', clientAppr: '', clientResp: '', books: 'invoices', bookMonth: null, pnlMonth: null, pnlMode: 'distributable',
        money: 'pnl', mkt: 'funnel', rep: 'weekly', repWeek: null, repMonth: null, svc: 'open', closeStep: 0 },
 };
+if (window.__harelServer) COLL.push('aiJobs'); /* בשרת: בקשות הניתוח שבתור ל-Claude על המנוי — כדי שהכרטיס יראה מה ממתין */
 COLL.forEach((c) => (S[c] = new Map()));
 /* הר-אל השקעות: הכספים נשמרים באוספים נפרדים שרק דן קורא (גם ברמת הנתונים) — ומוצגים אצלו יחד עם השאר */
 const RE_SPLIT = { transactions: 'reTx', expenses: 'reExpenses', planned: 'rePlanned' }, RE_BASE = Object.fromEntries(Object.entries(RE_SPLIT).map(([a, b]) => [b, a]));
@@ -646,7 +647,7 @@ function toast(msg) {
 
 /* ── אנשים ───────────────────────────────────────────────────────────────── */
 const teamOf = (id) => live(S.team).find((x) => x.userId === id);
-const nameOf = (id) => !id ? 'לא משויך' : String(id).startsWith('resp:') ? (L.resp[String(id).slice(5)] || 'חבר צוות') : (S.profiles[id] && S.profiles[id].name) || (teamOf(id) && teamOf(id).label) || (id === S.me.id && S.me.name) || 'חבר צוות';
+const nameOf = (id) => !id ? 'לא משויך' : id === 'claude' ? 'Claude' : String(id).startsWith('resp:') ? (L.resp[String(id).slice(5)] || 'חבר צוות') : (S.profiles[id] && S.profiles[id].name) || (teamOf(id) && teamOf(id).label) || (id === S.me.id && S.me.name) || 'חבר צוות';
 const avatar = (id) => id && S.profiles[id] && S.profiles[id].avatarUrl ? '<img class="av" alt="" src="' + esc(S.profiles[id].avatarUrl) + '">' : '';
 const teamIds = () => [...new Set([...live(S.team).map((t) => t.userId), ...(S.me.id ? [S.me.id] : [])].filter(Boolean))];
 let profT;
@@ -1506,7 +1507,7 @@ function vClient(id) {
             : '<p class="empty">לא הוגש לאף גוף</p>') + '</section>') +
         detailsCard(c) + (lead ? '<p class="hint">הגיע מליד: ' + esc(lead.name) + ' · ' + esc([lead.campaign, lead.platform, lead.marketer].filter(Boolean).join(' · ')) + '</p>' : '') + privCard(c) +
       '</div>' +
-      '<div style="display:flex;flex-direction:column;gap:16px">' + clientNotesCard(c) +
+      '<div style="display:flex;flex-direction:column;gap:16px">' + clientNotesCard(c) + aiCard(c) +
         (!S.isOwner ? '' : '<section class="card"><header><h2>תנועות</h2>' + (w ? '<button class="btn small" data-act="payIn">+ תקבול</button><button class="btn small" data-act="payOut">+ הוצאה ישירה</button>' : '') + '</header>' +
           (m.txs.length ? '<div class="scroll"><table><tbody>' + m.txs.sort((a, b) => String(b.date).localeCompare(a.date)).map((t) =>
             '<tr><td class="num">' + dLabel(t.date) + '</td><td><span class="pill ' + (t.nature === 'income' ? 'actual' : 'muted') + '">' + L.nature[t.nature] + '</span></td><td class="wide">' + esc(t.description || t.category || '') + '</td><td>' + money(t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' }) + '</td></tr>').join('') + '</tbody></table></div>'
@@ -1519,6 +1520,19 @@ function vClient(id) {
         (w ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (S.isOwner ? 'העבר לארכיון' : 'בקש העברה לארכיון') + '</button></div>' : '') +
       '</div>' +
     '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + signCard(c) + planCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
+}
+/* כרטיס לקוח — "ניתוחי Claude": כל מה ש-Claude ניתח על התיק חוזר לכאן — ניתוח התיק, דוחות אשראי, ומה שעוד בתור */
+function aiCard(c) {
+  const x = S.intakes.get(c.id), ai = x && x.ai, reps = ((x && x.reports) || []).filter((r) => r && r.data);
+  const jobs = live(S.aiJobs || new Map()).filter((j) => j.clientId === c.id && ['pending', 'working'].includes(j.status));
+  if (!ai && !reps.length && !jobs.length) return '';
+  const first = ai ? String(ai.text || '').split('\n').filter((l) => l.trim()).slice(0, 6).join('\n') : '';
+  return '<section class="card"><header><h2>ניתוחי Claude</h2><span class="grow"></span><button class="btn small ghost" data-intake="' + esc(c.id) + '">הכר את הלקוח ↗</button></header>' +
+    (jobs.length ? '<div class="notice" style="margin-bottom:8px"><b>בתור ל-Claude</b><span>' + jobs.map((j) => esc(j.label || 'ניתוח') + ' · ' + (j.status === 'working' ? 'Claude עובד על זה' : 'ממתין') + ' מ-' + hm(j.createdAt)).join(' · ') + ' — התשובה תישמר כאן.</span></div>' : '') +
+    (ai ? '<p class="hint" style="margin:0 0 4px">ניתוח התיק · ' + dLabel(dayOf(ai.at)) + ' · ' + (ai.by === 'claude' ? 'Claude (מהתור)' : esc(nameOf(ai.by))) + ' · הצעה בלבד</p>' +
+      '<div style="font-size:13.5px;line-height:1.55">' + aiHtml(first) + '</div><details style="margin-top:4px"><summary class="hint" style="cursor:pointer">הניתוח המלא</summary><div style="font-size:13.5px;line-height:1.55;margin-top:6px">' + aiHtml(ai.text) + '</div></details>' : '') +
+    (reps.length ? '<p class="hint" style="margin:8px 0 0">דוחות אשראי: ' + reps.map((r) => esc(r.file || 'דוח') + ' — ' + (r.status === 'verified' ? '<span class="pill actual">אומת</span>' : '<span class="pill expected">ממתין לאימות</span>')).join(' · ') + '</p>' : '') +
+  '</section>';
 }
 /* כרטיס לקוח — "דגשים והערות" בצד: הערות כלליות על הלקוח, ודגשים חשובים (★) שמופיעים גם בראש הכרטיס */
 function clientNotesCard(c) {
@@ -3516,19 +3530,22 @@ async function docToInput(file, maxPages = 8, maxImages = 5) {
   }
   return { text: text.slice(0, 28000), images, pages: pdf.numPages };
 }
-async function askDoc(file, prompt, stEl) {
+/* בשרת: ניתוחי Claude עוברים בתור ל-Claude על המנוי (תשובה תוך דקות). נושא לבקשה, ולאן להחזיר את התשובה בתיק — רק בשרת */
+const aiSrv = (o) => window.__harelServer ? o : {};
+const aiWait = (fast) => window.__crmAiQueue ? 'נשלח ל-Claude — תשובה תוך כמה דקות. השאר את הדף פתוח.' : fast;
+async function askDoc(file, prompt, stEl, label) {
   const sample = await claude.use('sample').catch(() => null); if (!sample) throw Object.assign(new Error('no'), { code: 'unavailable' });
   if (stEl) stEl.textContent = 'קורא את הקובץ…';
   const lim = await sample.limits().catch(() => null), maxImg = (lim && lim.images && lim.images.maxCount) || 5;
   const inp = await docToInput(file, 10, maxImg);
   if (inp.images.length) { if (!lim || !lim.images) throw Object.assign(new Error('img'), { code: 'images_unavailable' }); inp.images = inp.images.slice(0, maxImg); }
-  if (stEl) stEl.textContent = 'Claude קורא… (עד דקה)';
-  return sample.json(prompt + (inp.text ? '\n\nתוכן המסמך:\n' + inp.text : '\n\nהמסמך מצורף כתמונות עמודים.'), { modelTier: 'default', cache: false, ...(inp.images.length ? { images: inp.images } : {}) });
+  if (stEl) stEl.textContent = aiWait('Claude קורא… (עד דקה)');
+  return sample.json(prompt + (inp.text ? '\n\nתוכן המסמך:\n' + inp.text : '\n\nהמסמך מצורף כתמונות עמודים.'), { modelTier: 'default', cache: false, ...(inp.images.length ? { images: inp.images } : {}), ...aiSrv({ label: label || 'קריאת מסמך' }) });
 }
 async function scanConditions(c, file) {
   const st = $('condScanSt'), box = $('condSug');
   try {
-    const r = await askDoc(file, 'זה מכתב אישור עקרוני מקרן / גוף מימון למשכנתא או הלוואה. חלץ את כל ההתניות והמסמכים שהלווה צריך להשלים לפני העמדת ההלוואה או לפני כל פעימה. החזר JSON בלבד: {"fund":"שם הגוף אם מופיע","amount":מספר או null,"conditions":["התניה 1","התניה 2"],"tranches":[{"amount":מספר,"purpose":"למה","conditions":["..."]}]}. בעברית, קצר וענייני, בלי להמציא.', st);
+    const r = await askDoc(file, 'זה מכתב אישור עקרוני מקרן / גוף מימון למשכנתא או הלוואה. חלץ את כל ההתניות והמסמכים שהלווה צריך להשלים לפני העמדת ההלוואה או לפני כל פעימה. החזר JSON בלבד: {"fund":"שם הגוף אם מופיע","amount":מספר או null,"conditions":["התניה 1","התניה 2"],"tranches":[{"amount":מספר,"purpose":"למה","conditions":["..."]}]}. בעברית, קצר וענייני, בלי להמציא.', st, 'אישור עקרוני — התניות');
     if (st) st.textContent = 'הצעה מ-Claude — סמן מה להוסיף';
     S.condSug = r; if (box) box.innerHTML = condSugHtml(r);
   } catch (e) { if (st) st.textContent = e.code === 'not_granted' ? 'לא אושרה גישה ל-Claude' : e.code === 'images_unavailable' ? 'קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט.' : 'לא הצלחתי לקרוא: ' + (e.message || e.code || ''); }
@@ -3598,10 +3615,10 @@ async function askReport(file, say, signal, only) {
   const per = P.kind === 'img' ? Math.max(2, Math.min(6, lim.images.maxCount || 5)) : 0;
   let chunks = repChunks(P, per); if (only && only.length) chunks = chunks.filter((c) => only.some(([f, t]) => c.from === f && c.to === t));
   const parts = [], missing = []; let done = 0, next = 0, stop = null;
-  const tick = () => say('Claude קורא את הדוח — ' + done + '/' + chunks.length + ' מנות · ' + P.n + ' עמודים' + (missing.length ? ' · ' + missing.length + ' לא נקראו' : '') + '…');
+  const tick = () => say('Claude קורא את הדוח — ' + done + '/' + chunks.length + ' מנות · ' + P.n + ' עמודים' + (missing.length ? ' · ' + missing.length + ' לא נקראו' : '') + (window.__crmAiQueue ? ' · בתור ל-Claude, כמה דקות לכל מנה — השאר את הדף פתוח' : '') + '…');
   const run = async (ch) => {
     if (stop) { missing.push([ch.from, ch.to]); return; }
-    try { const r = await sample.json(repChunkPrompt(ch, P.n) + (ch.text ? '\n\nתוכן העמודים:\n' + ch.text : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, signal, ...(ch.images ? { images: ch.images } : {}) });
+    try { const r = await sample.json(repChunkPrompt(ch, P.n) + (ch.text ? '\n\nתוכן העמודים:\n' + ch.text : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, signal, ...(ch.images ? { images: ch.images } : {}), ...aiSrv({ label: 'דוח אשראי — עמודים ' + ch.from + '–' + ch.to }) });
       if (r && typeof r === 'object') parts.push(r); else missing.push([ch.from, ch.to]); }
     catch (e) { if (REP_FATAL.includes(e && e.code)) { stop = e; throw e; } if (e && e.code === 'rate_limited') stop = e; missing.push([ch.from, ch.to]); }
     done++; tick(); };
@@ -4050,7 +4067,7 @@ async function scanUpload(scope, key, file) {
   const fields = SCAN_FIELDS[scope + ':' + key]; if (!fields) return;
   try {
     const prompt = 'זה מסמך שנסרק לתיק הלקוח. חלץ ממנו את השדות הבאים בלבד — רק מה שכתוב במפורש, null כשאין. מספרים כמספרים בלי ₪ ופסיקים. החזר JSON בלבד {"שדה": ערך}.\nהשדות:\n' + fields.map(([k, l]) => k + ' — ' + l).join('\n');
-    const d = await askDoc(file, prompt, null);
+    const d = await askDoc(file, prompt, null, 'מסמך שנסרק — ' + key);
     const sug = fields.map(([k, l]) => ({ k, l, v: d ? d[k] : null })).filter((s2) => s2.v != null && s2.v !== '');
     if (!sug.length) return toast('Claude לא מצא ערכים במסמך');
     S.scanSug = { scope, key, sug };
@@ -6670,7 +6687,7 @@ async function ikExtract(cid) {
   const x = intakeDoc(cid), F = IK_FIELDS(), idx = Object.fromEntries(F.map((f, i) => [f[0], i]));
   S.ikSug = { cid, busy: true, rows: [], ask: [] }; render();
   try {
-    const r = await sample.json(ikPrompt(F, x, txt), { modelTier: 'default', cache: false }), rows = [];
+    const r = await sample.json(ikPrompt(F, x, txt), { modelTier: 'default', cache: false, ...aiSrv({ label: 'מילוי שדות מהשיחה' }) }), rows = [];
     for (const it of (r && Array.isArray(r.fields) ? r.fields : [])) {
       const i = idx[it && it.path]; if (i == null || rows.some((q) => q.path === it.path)) continue;
       const f = F[i], val = ikCoerce(f, it.value), cur = ikGet(x, f[0]); if (val === undefined || cur === val || (val === false && !cur)) continue;
@@ -6772,6 +6789,7 @@ function vIntake(cid) {
         (!lead && S.canWrite ? '<button class="btn small ghost" data-act="docsToChecklist">לצ׳קליסט התיק</button>' : '') + '</div>' + (K.phone || K.email ? '' : '<p class="hint" style="margin:6px 0 0">הזן טלפון או מייל בראש הטופס כדי לשלוח ללקוח.</p>') + '</section>' +
     '<section class="card"><header><h2>ניתוח Claude</h2><span class="grow"></span>' + (w ? '<button class="btn small primary" data-act="intakeAI" id="aiBtn">' + (x.ai ? 'נתח מחדש' : 'נתח את התיק') + '</button><button class="btn small ghost" data-act="aiStop" id="aiStop" hidden>עצור</button>' : '') + '</header>' +
       '<p class="hint" style="margin:-4px 0 8px">סיפור לחתם, תוכנית יציאה, הסבר לאורות האדומים, התאמת גופים ומסמכים נוספים — הצעה בלבד.' + (x.ai ? ' עודכן ' + dLabel(dayOf(x.ai.at)) : '') + '</p>' +
+      (window.__crmAiQueue && live(S.aiJobs || new Map()).some((j) => j.clientId === x.id && ['pending', 'working'].includes(j.status)) ? '<div class="notice" style="margin-bottom:8px"><b>בתור ל-Claude</b><span>הניתוח יגיע תוך כמה דקות וישמר כאן ובכרטיס הלקוח — אפשר לסגור את הדף.</span></div>' : '') +
       '<div id="aiOut" style="white-space:pre-wrap;font-size:14px;line-height:1.6">' + esc((x.ai && x.ai.text) || '') + '</div>' + (x.ai ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="copyAI">העתק</button></div>' : '') + '</section>' +
     '<section class="card"><header><h2>' + (lead ? 'סיום המכירה' : 'עדכון הכרטיס') + '</h2></header><p class="hint" style="margin:-4px 0 8px">' +
       (lead ? 'עד החתימה הלקוח נשאר במתעניינים. בחתימה הוא נכנס לתפעול עם השכ״ט, המטרות, ההתניות ורשימת המסמכים.' : 'מעדכן בכרטיס את השכ״ט, המטרות, ההתניות ומוסיף מסמכים חסרים לצ׳קליסט.') + '</p>' +
@@ -6789,9 +6807,12 @@ async function intakeAI(cid) {
   const out = $('aiOut'), btn = $('aiBtn'), stop = $('aiStop');
   aiCtl = new AbortController(); if (btn) btn.disabled = true; if (stop) stop.hidden = false; if (out) out.textContent = 'חושב…';
   try {
-    const { text, truncated } = await sample(intakePrompt(c, x, C, M, D), { signal: aiCtl.signal, modelTier: 'complex', cache: false, onText: ({ text }) => { const o = $('aiOut'); if (o) o.textContent = text; } });
-    await write('intakes/' + cid, { ...intakeDoc(cid), id: cid, clientId: cid, ai: { at: stamp(), text: text + (truncated ? '\n\n[נקטע — אפשר לנתח שוב]' : ''), by: S.me.id }, updatedAt: stamp() });
-    toast('הניתוח נשמר');
+    const { text, truncated } = await sample(intakePrompt(c, x, C, M, D), { signal: aiCtl.signal, modelTier: 'complex', cache: false, onText: ({ text }) => { const o = $('aiOut'); if (o) o.textContent = text; },
+      ...aiSrv({ label: 'ניתוח תיק — ' + c.name, saveTo: { path: 'intakes/' + cid, field: 'ai' } }) });
+    /* בתור — השרת כבר שמר את התשובה בתיק ורשם ביומן הלקוח (גם אם הדף נסגר בינתיים) */
+    if (!window.__crmAiQueue) { await write('intakes/' + cid, { ...intakeDoc(cid), id: cid, clientId: cid, ai: { at: stamp(), text: text + (truncated ? '\n\n[נקטע — אפשר לנתח שוב]' : ''), by: S.me.id }, updatedAt: stamp() });
+      logClient(cid, 'Claude: ניתוח תיק — נשמר בהכר את הלקוח').catch(() => {}); }
+    toast('הניתוח נשמר בתיק');
   } catch (e) {
     const o = $('aiOut'); if (o) o.textContent = e.text || '';
     if (e.code !== 'cancelled') toast({ not_granted: 'לא אושר שימוש ב-Claude', rate_limited: 'יותר מדי בקשות — נסה בעוד רגע', refused: 'Claude סירב לבקשה', sampling_disabled: 'Claude לא זמין לחשבון' }[e.code] || 'הניתוח נכשל — נסה שוב');

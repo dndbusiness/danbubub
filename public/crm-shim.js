@@ -5,7 +5,8 @@
  *   user      → /api/crm/me
  *   mcp       → /api/crm/mcp (Gmail / Google Drive דרך ה-OAuth של השרת)
  *   downloads → הורדה רגילה בדפדפן
- *   sample    → /api/crm/sample — רק כשיש ANTHROPIC_API_KEY בשרת. אחרת null = הדף מסתיר את כפתורי הניתוח.
+ *   sample    → /api/crm/sample — תור ל-Claude על המנוי (תשובה תוך דקות, חוזרת לתיק), או מיידי עם ANTHROPIC_API_KEY.
+ *               אף אחד מהם לא פעיל → null = הדף מסתיר את כפתורי הניתוח.
  */
 (function () {
   'use strict';
@@ -173,9 +174,10 @@
     if (opts.tools && opts.tools.length) return Promise.reject(fail('unsupported', 'כלים לא נתמכים בשרת'));
     return Promise.all((opts.images || []).map(function (im) { return im instanceof Blob ? b64(im) : im; })).then(function (images) {
       return fetch('/api/crm/sample', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: opts.signal,
-        body: JSON.stringify({ input: input, images: images, modelTier: opts.modelTier, system: opts.system }) });
+        body: JSON.stringify({ input: input, images: images, modelTier: opts.modelTier, system: opts.system, json: !!opts.__json, apply: opts.saveTo || null, label: opts.label || '' }) });
     }).then(function (r) {
       if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw fail(j.code || 'upstream_error', j.message || r.statusText); });
+      if (/json/.test(r.headers.get('content-type') || '') && !/ndjson/.test(r.headers.get('content-type') || '')) return r.json().then(function (j) { return waitJob(j.job, opts); });
       var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', end = null;
       function line(l) {
         if (!l.trim()) return;
@@ -198,6 +200,26 @@
       throw e;
     });
   }
+  /* תור: Claude על המנוי עונה תוך דקות. בודקים כל כמה שניות; "עצור" מבטל את הבקשה בשרת */
+  var QUEUE_MSG = 'נשלח ל-Claude — התשובה מגיעה תוך כמה דקות.';
+  function waitJob(id, opts) {
+    if (!id) return Promise.reject(fail('upstream_error', 'הבקשה לא נכנסה לתור'));
+    if (opts.onText) try { opts.onText({ text: QUEUE_MSG + (opts.saveTo ? ' אפשר לסגור את הדף — התשובה תישמר בתיק.' : ''), delta: '' }); } catch (e) { /* הדף */ }
+    return new Promise(function (ok, bad) {
+      var t = null, stop = false;
+      function onAbort() { stop = true; clearTimeout(t); fetch('/api/crm/sample?job=' + encodeURIComponent(id), { method: 'DELETE' }).catch(function () {}); bad(fail('cancelled', 'בוטל')); }
+      if (opts.signal) { if (opts.signal.aborted) return onAbort(); opts.signal.addEventListener('abort', onAbort, { once: true }); }
+      (function tick() {
+        if (stop) return;
+        fetch('/api/crm/sample?job=' + encodeURIComponent(id), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+          if (stop) return;
+          if (j.status === 'done') { stop = true; return ok({ text: j.text || '', truncated: false }); }
+          if (j.status === 'error' || j.status === 'cancelled' || j.code) { stop = true; return bad(fail(j.status === 'cancelled' ? 'cancelled' : 'upstream_error', j.error || j.message || 'הניתוח נכשל')); }
+          t = setTimeout(tick, 4000);
+        }).catch(function () { if (!stop) t = setTimeout(tick, 8000); });
+      })();
+    });
+  }
   function parseJson(t) {
     var s = String(t).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
     try { return JSON.parse(s); } catch (e) { /* מחפשים את הגוש הראשון */ }
@@ -210,11 +232,12 @@
     if (sampleP) return sampleP;
     sampleP = fetch('/api/crm/sample', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (j) {
       if (!j.enabled) return null;
+      window.__crmAiQueue = j.mode === 'queue'; /* הדף מתאים את הטקסטים: "תוך כמה דקות" במקום "עד דקה" */
       var f = function (input, opts) { return runSample(input, opts); };
       f.json = function (input, opts) {
         var tail = '\n\nהחזר JSON תקין בלבד, בלי טקסט לפניו או אחריו ובלי ```.';
         var inp = typeof input === 'string' ? input + tail : input.map(function (t, i) { return i === input.length - 1 ? { role: t.role, content: String(t.content) + tail } : t; });
-        return runSample(inp, opts).then(function (r) { return parseJson(r.text); });
+        return runSample(inp, Object.assign({}, opts, { __json: true })).then(function (r) { return parseJson(r.text); });
       };
       f.limits = function () { return Promise.resolve(j.limits || { images: { maxCount: 5 } }); };
       sampleNs = Object.freeze(f);

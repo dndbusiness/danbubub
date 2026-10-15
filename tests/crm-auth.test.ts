@@ -91,3 +91,21 @@ describe('sanitizeSettings / restoreSecrets', () => {
     expect(back.users[0]!.hash).toBeUndefined()
   })
 })
+
+describe('ai queue — מה נכתב ומה יוצא לדפדפן', async () => {
+  const { validApply, SERVER_ONLY } = await import('@/lib/crm/ai-queue')
+  const owner: CrmSession = { k: 'dan', r: 'owner', d: [], l: '', e: 0 }
+  it('תשובה מהתור נכתבת רק לשדה הניתוח של הכר את הלקוח', () => {
+    expect(validApply({ path: 'intakes/abc-1', field: 'ai' })).toEqual({ path: 'intakes/abc-1', field: 'ai' })
+    expect(validApply({ path: 'clients/abc', field: 'ai' })).toBeNull()
+    expect(validApply({ path: 'intakes/abc', field: 'status' })).toBeNull()
+    expect(validApply({ path: 'intakes/../settings', field: 'ai' })).toBeNull()
+    expect(validApply(null)).toBeNull()
+  })
+  it('התמונות והדופק לא יוצאים לדפדפן; בקשות — קריאה בלבד', () => {
+    for (const c of SERVER_ONLY) expect(canRead(owner, c)).toBe(false)
+    expect(canRead(owner, 'aiJobs')).toBe(true)
+    expect(canWrite(owner, 'aiJobs')).toBe(false)
+    expect(canWrite(owner, 'aiJobFiles')).toBe(false)
+  })
+})

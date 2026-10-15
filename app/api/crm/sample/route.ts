@@ -2,32 +2,60 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { effectiveSession } from '@/lib/crm/auth'
 import { llmAvailable } from '@/lib/intake/llm'
+import { enqueue, fail, jobOf, queueAlive, JOB_TIMEOUT_MS } from '@/lib/crm/ai-queue'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 /**
- * claude.use('sample') של הדף — בשרת. דלוק רק כשיש ANTHROPIC_API_KEY בסביבה (החלטת דן: תשלום לפי שימוש).
- * בלי מפתח: GET מחזיר enabled=false והשים מחזיר null — הדף מסתיר את כפתורי הניתוח, בדיוק כמו קודם.
- * התשובה זורמת כשורות JSON: {d:"…"} לכל קטע טקסט, ובסוף {done:true,text,truncated} או {error:{code,message}}.
+ * claude.use('sample') של הדף — בשרת. שתי דרכים:
+ *   · queue (ברירת המחדל, התוכנית: Claude על המנוי) — הבקשה נכנסת לתור (lib/crm/ai-queue.ts), Claude על המנוי
+ *     עונה תוך דקות, והשים מושך את הסטטוס (GET ?job=). דלוק רק כשהמעבד חי.
+ *   · api — רק אם הוגדר ANTHROPIC_API_KEY (תשלום לפי שימוש — החלטה של דן): תשובה מיידית, זורמת כשורות JSON:
+ *     {d:"…"} לכל קטע טקסט, ובסוף {done:true,text,truncated} או {error:{code,message}}.
+ * בלי אף אחד מהם: enabled=false, והדף מסתיר את כפתורי הניתוח.
  * מה שחוזר הוא הצעה בלבד (הנחיה 17) — הדף מציג, אדם מאשר.
  */
 const MAX_IMAGES = 5
 const TIERS = { quick: { effort: 'low', max: 4096 }, default: { effort: 'medium', max: 16000 }, complex: { effort: 'high', max: 32000 } } as const
 type Tier = keyof typeof TIERS
 
+async function modeOf(): Promise<'api' | 'queue' | null> {
+  if (llmAvailable()) return 'api'
+  return (await queueAlive().catch(() => false)) ? 'queue' : null
+}
+
 export async function GET(req: Request) {
   const s = await effectiveSession(req)
-  return NextResponse.json({ enabled: !!s && llmAvailable(), limits: { images: { maxCount: MAX_IMAGES } } })
+  if (!s) return NextResponse.json({ enabled: false })
+  const job = new URL(req.url).searchParams.get('job')
+  if (job) {
+    const j = await jobOf(job)
+    if (!j) return NextResponse.json({ code: 'not_found', message: 'הבקשה לא נמצאה' }, { status: 404 })
+    const late = ['pending', 'working'].includes(j.status) && Date.now() - Date.parse(j.createdAt) > JOB_TIMEOUT_MS
+    return NextResponse.json({ status: late ? 'error' : j.status, text: j.text ?? null, error: late ? 'Claude לא ענה בזמן — נסו שוב' : j.error ?? null })
+  }
+  const mode = await modeOf()
+  return NextResponse.json({ enabled: !!mode, mode, limits: { images: { maxCount: MAX_IMAGES } } })
+}
+
+/** ביטול בקשה שבתור (הדף לחץ "עצור") */
+export async function DELETE(req: Request) {
+  if (!(await effectiveSession(req))) return NextResponse.json({ code: 'unauthenticated', message: 'צריך להיכנס' }, { status: 401 })
+  const job = new URL(req.url).searchParams.get('job')
+  if (job) await fail(job, 'בוטל', 'cancelled')
+  return NextResponse.json({ ok: true })
 }
 
 interface Img { media_type?: string; data?: string }
 interface Turn { role?: string; content?: unknown }
 
 export async function POST(req: Request) {
-  if (!(await effectiveSession(req))) return NextResponse.json({ code: 'unauthenticated', message: 'צריך להיכנס' }, { status: 401 })
-  if (!llmAvailable()) return NextResponse.json({ code: 'not_granted', message: 'Claude לא מוגדר בשרת (ANTHROPIC_API_KEY)' }, { status: 503 })
-  let body: { input?: string | Turn[]; images?: Img[]; modelTier?: string; system?: string }
+  const session = await effectiveSession(req)
+  if (!session) return NextResponse.json({ code: 'unauthenticated', message: 'צריך להיכנס' }, { status: 401 })
+  const mode = await modeOf()
+  if (!mode) return NextResponse.json({ code: 'not_granted', message: 'Claude לא מחובר לשרת' }, { status: 503 })
+  let body: { input?: string | Turn[]; images?: Img[]; modelTier?: string; system?: string; json?: boolean; apply?: unknown; label?: string }
   try { body = await req.json() } catch { return NextResponse.json({ code: 'invalid_argument', message: 'גוף הבקשה לא JSON' }, { status: 400 }) }
 
   const turns: Turn[] = typeof body.input === 'string' ? [{ role: 'user', content: body.input }] : Array.isArray(body.input) ? body.input : []
@@ -45,6 +73,15 @@ export async function POST(req: Request) {
     ] }
   })
   const tier: Tier = (['quick', 'default', 'complex'] as const).includes(body.modelTier as Tier) ? (body.modelTier as Tier) : 'default'
+
+  if (mode === 'queue') {
+    const job = await enqueue(session, {
+      turns: turns.map((t) => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: typeof t.content === 'string' ? t.content : JSON.stringify(t.content ?? '') })),
+      system: body.system ? String(body.system) : undefined, modelTier: tier, json: !!body.json,
+      images: images.map((i) => ({ media_type: i.media_type as string, data: i.data as string })), apply: body.apply, label: body.label,
+    })
+    return NextResponse.json({ job: job.id, status: job.status })
+  }
 
   const enc = new TextEncoder()
   const stream = new ReadableStream({

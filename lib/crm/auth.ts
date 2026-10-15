@@ -11,6 +11,7 @@
 import { createHmac, pbkdf2Sync, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
 import type { CrmDoc } from '@/lib/crm/docs.js'
+import { SERVER_ONLY, SERVER_WRITE } from '@/lib/crm/ai-queue'
 
 export const USER_COOKIE = 'harel_crm_user'
 export const SESSION_DAYS = 14
@@ -107,6 +108,7 @@ export const lockConfigured = (s: Settings) => !!(s.lock && s.lock.hash && s.loc
 
 export function canRead(s: CrmSession | null, coll: string): boolean {
   if (coll === 'settings') return true
+  if (SERVER_ONLY.includes(coll)) return false
   if (!s) return false
   if (coll === 'private') return s.r === 'owner'
   if (s.r === 'center') return !OWNER_READ.includes(coll)
@@ -114,7 +116,7 @@ export function canRead(s: CrmSession | null, coll: string): boolean {
 }
 
 export function canWrite(s: CrmSession | null, coll: string): boolean {
-  if (!s) return false
+  if (!s || SERVER_WRITE.includes(coll)) return false
   if (coll === 'private') return s.r === 'owner'
   if (s.r === 'center') return TEAM_WRITE.includes(coll)
   return true
