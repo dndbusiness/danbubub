@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { effectiveSession } from '@/lib/crm/auth'
 import { gunzipSync } from 'node:zlib'
 import { importMirror } from '@/lib/crm/store'
 
@@ -11,6 +12,7 @@ export const maxDuration = 60
  * אחרי המעבר נדחה (409) — ?force=1 לשחזור מכוון.
  */
 export async function POST(req: Request) {
+  { const s = await effectiveSession(req); if (s?.r !== 'owner') return NextResponse.json({ code: 'permission_denied', message: 'רק דן' }, { status: 403 }) }
   const buf = Buffer.from(await req.arrayBuffer())
   if (!buf.length) return NextResponse.json({ code: 'invalid_argument', message: 'לא התקבל קובץ' }, { status: 400 })
   let dump: unknown

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { effectiveSession } from '@/lib/crm/auth'
 import { googleAccessToken, googleIntegration } from '@/lib/google/store'
 import { calendarTool, driveTool, gmailTool, ToolError } from '@/lib/crm/google-tools.js'
 
@@ -7,6 +8,7 @@ export const maxDuration = 60
 
 /** הגשר בין הדף לגוגל: אותם שמות כלים כמו בחיבורים של Claude (Gmail / Google Drive / Google Calendar). */
 export async function POST(req: Request) {
+  if (!(await effectiveSession(req))) return NextResponse.json({ code: 'unauthenticated', message: 'צריך להיכנס' }, { status: 401 })
   let body: { server?: string; tool?: string; input?: Record<string, unknown> }
   try { body = await req.json() } catch { return NextResponse.json({ code: 'invalid_argument', message: 'גוף הבקשה לא JSON' }, { status: 400 }) }
   const server = String(body.server ?? ''), tool = String(body.tool ?? ''), input = body.input ?? {}

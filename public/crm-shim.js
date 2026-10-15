@@ -5,7 +5,7 @@
  *   user      → /api/crm/me
  *   mcp       → /api/crm/mcp (Gmail / Google Drive דרך ה-OAuth של השרת)
  *   downloads → הורדה רגילה בדפדפן
- *   sample    → עדיין לא (ניתוחי Claude יעברו לתור שרץ על המנוי — שלב 3). null = הדף מסתיר את הכפתורים.
+ *   sample    → /api/crm/sample — רק כשיש ANTHROPIC_API_KEY בשרת. אחרת null = הדף מסתיר את כפתורי הניתוח.
  */
 (function () {
   'use strict';
@@ -49,6 +49,9 @@
   function pull() {
     if (inflight) return inflight;
     inflight = api('/api/crm/sync?after=' + seq).then(function (j) {
+      /* אין כניסה בשרת (עוגייה פגה / חדש) אבל הדפדפן זוכר "פתוח" — מוחקים, כדי שמסך הכניסה יעלה ולא דף ריק */
+      if (!j.session) { try { if (sessionStorage.getItem('harel-unlock')) { sessionStorage.removeItem('harel-unlock'); if (loaded) location.reload(); } } catch (e) {} }
+      window.__crmSession = j.session || null;
       var byColl = new Map(), touched = new Set();
       (j.changes || []).forEach(function (c) {
         var key = c.coll + '/' + c.id, had = docs.has(key);
@@ -138,6 +141,13 @@
     server: function (server) { return Promise.resolve(new Proxy({}, { get: function (_, tool) { return function (input) { return mcp.callTool(server, tool, input).then(function (r) { return r.payload; }); }; } })); },
   };
 
+  /* ── כניסה אישית בשרת (lib/crm/auth.ts): הסיסמה נבדקת בשרת, לא בדפדפן. הדף קורא לזה ממסך הנעילה ── */
+  window.__crmLogin = function (username, password) {
+    return fetch('/api/crm/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password || '' }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw Object.assign(new Error(j.message || 'כניסה נכשלה'), { code: j.code }); return j; }); });
+  };
+  window.__crmLogout = function () { return fetch('/api/crm/login', { method: 'DELETE' }).catch(function () {}); };
+
   /* ── downloads ──────────────────────────────────────────────────────── */
   var downloads = {
     save: function (o) {
@@ -148,6 +158,71 @@
     },
   };
 
+  /* ── sample (ניתוחי Claude) — התשובה זורמת כשורות JSON מ-/api/crm/sample ── */
+  function b64(blob) {
+    return new Promise(function (ok, bad) {
+      var fr = new FileReader();
+      fr.onload = function () { var u = String(fr.result); ok({ media_type: blob.type || 'image/jpeg', data: u.slice(u.indexOf(',') + 1) }); };
+      fr.onerror = function () { bad(fr.error); };
+      fr.readAsDataURL(blob);
+    });
+  }
+  function fail(code, message, text) { return Object.assign(new Error(message || code), { code: code, text: text }); }
+  function runSample(input, opts) {
+    opts = opts || {};
+    if (opts.tools && opts.tools.length) return Promise.reject(fail('unsupported', 'כלים לא נתמכים בשרת'));
+    return Promise.all((opts.images || []).map(function (im) { return im instanceof Blob ? b64(im) : im; })).then(function (images) {
+      return fetch('/api/crm/sample', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: opts.signal,
+        body: JSON.stringify({ input: input, images: images, modelTier: opts.modelTier, system: opts.system }) });
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw fail(j.code || 'upstream_error', j.message || r.statusText); });
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', end = null;
+      function line(l) {
+        if (!l.trim()) return;
+        var m = JSON.parse(l);
+        if (m.d) { text += m.d; if (opts.onText) try { opts.onText({ text: text, delta: m.d }); } catch (e) { /* בעיה בדף לא עוצרת את הזרם */ } }
+        else if (m.done) end = { text: m.text != null ? m.text : text, truncated: !!m.truncated };
+        else if (m.error) throw fail(m.error.code, m.error.message, m.error.text || text);
+      }
+      function pump() {
+        return reader.read().then(function (x) {
+          if (x.done) { line(buf); if (!end) throw fail('upstream_error', 'התשובה נקטעה', text); return end; }
+          buf += dec.decode(x.value, { stream: true });
+          var parts = buf.split('\n'); buf = parts.pop(); parts.forEach(line);
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') throw fail('cancelled', 'בוטל');
+      throw e;
+    });
+  }
+  function parseJson(t) {
+    var s = String(t).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+    try { return JSON.parse(s); } catch (e) { /* מחפשים את הגוש הראשון */ }
+    var a = s.search(/[\[{]/), z = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+    if (a >= 0 && z > a) try { return JSON.parse(s.slice(a, z + 1)); } catch (e) { /* נופל למטה */ }
+    throw fail('invalid_json', 'Claude לא החזיר JSON תקין', t);
+  }
+  var sampleNs = null, sampleP = null;
+  function getSample() {
+    if (sampleP) return sampleP;
+    sampleP = fetch('/api/crm/sample', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (j) {
+      if (!j.enabled) return null;
+      var f = function (input, opts) { return runSample(input, opts); };
+      f.json = function (input, opts) {
+        var tail = '\n\nהחזר JSON תקין בלבד, בלי טקסט לפניו או אחריו ובלי ```.';
+        var inp = typeof input === 'string' ? input + tail : input.map(function (t, i) { return i === input.length - 1 ? { role: t.role, content: String(t.content) + tail } : t; });
+        return runSample(inp, opts).then(function (r) { return parseJson(r.text); });
+      };
+      f.limits = function () { return Promise.resolve(j.limits || { images: { maxCount: 5 } }); };
+      sampleNs = Object.freeze(f);
+      return sampleNs;
+    });
+    return sampleP;
+  }
+
   var NS = { db: db, user: user, mcp: mcp, downloads: downloads };
-  window.claude = Object.freeze({ use: function (name) { return Promise.resolve(NS[name] || null); } });
+  window.claude = Object.freeze({ use: function (name) { return name === 'sample' ? getSample() : Promise.resolve(NS[name] || null); } });
 })();

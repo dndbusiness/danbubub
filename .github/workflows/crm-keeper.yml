@@ -2,7 +2,7 @@
 # הלידים, סימון הכפולים, אירועי היומן והגיבוי היומי לדרייב ירוצו גם כשאף אחד לא בתוך המערכת.
 # לא ג'וב חדש — אותן אוטומציות שהדף כבר מריץ כשמישהו בפנים (הנחיה 14), עכשיו בלי תלות בדפדפן פתוח. ממתין לאישור דן.
 # מדלג לבד כל עוד המערכת במצב שכפול (הדף ב-Claude הוא המקור).
-# נדרש: secrets APP_BASE_URL ו-APP_PASSWORD במאגר. תזמון ב-GitHub רץ רק מהענף הראשי (main).
+# נדרש: secrets APP_BASE_URL, APP_PASSWORD ו-JOBS_SECRET במאגר (JOBS_SECRET — אותו ערך כמו ב-Vercel; השומר נכנס איתו כבעלים). תזמון ב-GitHub רץ רק מהענף הראשי (main).
 name: crm-keeper
 
 on:
@@ -30,4 +30,5 @@ jobs:
         env:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          JOBS_SECRET: ${{ secrets.JOBS_SECRET }}
         run: node scripts/crm-keeper.mjs

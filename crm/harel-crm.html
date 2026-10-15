@@ -5254,6 +5254,8 @@ async function pwHash(pw, salt, iter) {
    הגישה לנתונים עצמם נקבעת בשיתוף ב-claude.ai ובכללי המסד; הסיסמה היא שכבת נעילה על המכשיר. */
 const normUser = (u) => String(u || '').trim().toLowerCase();
 async function userOk(username, pw) {
+  /* בשרת: הסיסמה נבדקת בשרת (lib/crm/auth.ts), והגיבובים בכלל לא מגיעים לדפדפן */
+  if (window.__crmLogin) { try { const j = await window.__crmLogin(username, pw); return (S.settings.users || []).find((x) => normUser(x.username) === normUser(username)) || { username, resp: j.key, label: j.label }; } catch (e) { if (e.code === 'rate_limited') toast(e.message); return null; } }
   const u = (S.settings.users || []).find((x) => normUser(x.username) === normUser(username));
   if (!u || !u.hash) return null;
   return (await pwHash(pw, u.salt, u.iter || 210000)) === u.hash ? u : null;
@@ -5282,7 +5284,9 @@ function usersCard() {
   return '<section class="card"><header><h2>משתמשים והרשאות</h2><span class="pill muted">' + shown.length + '</span></header><p class="hint" style="margin:-4px 0 10px">שם משתמש וסיסמה למסך הכניסה, תפקיד וחברות. כדי להיכנס בכלל, כל אחד צריך גם שהדף ישותף איתו מחשבון Claude שלו (תפריט השיתוף) — מנהלי מערכת בהרשאת עריכה. הפרייבט נפתח רק בסיסמה של דן.</p>' +
     (shown.length ? '<div class="tlist">' + shown.map(row).join('') + '</div>' : '<p class="empty">אין משתמשים.</p>') + form + '</section>';
 }
-async function pwOk(pw) { const lk = S.settings.lock; if (!lk || !lk.hash) return true; return (await pwHash(pw, lk.salt, lk.iter || 210000)) === lk.hash; }
+async function pwOk(pw) { const lk = S.settings.lock; if (!lk || !lk.hash) return true;
+  if (window.__crmLogin) { try { await window.__crmLogin('', pw); return true; } catch (e) { if (e.code === 'rate_limited') toast(e.message); return false; } }
+  return (await pwHash(pw, lk.salt, lk.iter || 210000)) === lk.hash; }
 const UNLOCK_MS = 8 * 36e5, IDLE_MS = 30 * 6e4, PRIV_MS = 10 * 6e4;
 let lastAct = Date.now(), pwFails = 0;
 try { S.loginAs = JSON.parse(sessionStorage.getItem('harel-user') || 'null'); } catch (e) { S.loginAs = null; }
@@ -5301,7 +5305,7 @@ function applyRole() {
   S.canManageUsers = ROLES[role] && ROLES[role].manage && full && w;
   S.canTask = w; S.canWrite = S.isOwner && w && full; S.canClient = (S.isOwner || S.isPartner) && w && full; S.canExpense = S.canClient;
 }
-function logout() { setUnlocked(false); S.privUntil = 0; S.loginAs = null; try { sessionStorage.removeItem('harel-user'); } catch (e) {} render(); }
+function logout() { if (window.__crmLogout) window.__crmLogout(); setUnlocked(false); S.privUntil = 0; S.loginAs = null; try { sessionStorage.removeItem('harel-user'); } catch (e) {} render(); }
 function storedUnlock() { try { return Number(sessionStorage.getItem('harel-unlock') || 0); } catch (e) { return 0; } }
 function isLocked() { const lk = S.settings.lock; if (!lk || !lk.hash) return false; return Date.now() > Math.max(S.unlockUntil || 0, storedUnlock()); }
 function setUnlocked(on) { S.unlockUntil = on ? Date.now() + UNLOCK_MS : 0; try { if (on) sessionStorage.setItem('harel-unlock', String(S.unlockUntil)); else sessionStorage.removeItem('harel-unlock'); } catch (e) {} }
@@ -7722,7 +7726,10 @@ document.addEventListener('submit', async (e) => {
   const uObj = uname ? await userOk(uname, pwEl.value) : null, ok = uname ? !!uObj : await pwOk(pwEl.value);
   if (ok && f.id === 'lockForm') { S.loginAs = uObj ? { username: uObj.username, resp: userKey(uObj), label: uObj.label || L.resp[uObj.resp] || uObj.username } : { resp: 'dan', label: 'דן' }; try { sessionStorage.setItem('harel-user', JSON.stringify(S.loginAs)); } catch (e) {} }
   if (uObj && !S.claudeOwner && S.me && S.me.id && !teamOf(S.me.id)) write('team/' + S.me.id, { id: S.me.id, userId: S.me.id, resp: userKey(uObj), role: '', linkedBy: 'login', createdAt: stamp() }).catch(() => {});
-  if (ok) { pwFails = 0; if (f.id === 'lockForm') setUnlocked(true); else { S.privUntil = Date.now() + PRIV_MS; setUnlocked(true); } render(); }
+  if (ok) { pwFails = 0; if (f.id === 'lockForm') setUnlocked(true); else { S.privUntil = Date.now() + PRIV_MS; setUnlocked(true); }
+    /* בשרת: אחרי כניסה הנתונים נטענים לפי ההרשאה של מי שנכנס — טוענים מחדש (פרייבט של דן שכבר מחובר — בלי) */
+    if (window.__crmLogin && (f.id === 'lockForm' || !(window.__crmSession && window.__crmSession.role === 'owner'))) { location.reload(); return; }
+    render(); }
   else { pwFails++; errEl.textContent = uname ? 'שם משתמש או סיסמה שגויים' : 'סיסמה שגויה'; pwEl.value = ''; pwEl.focus(); }
 });
 
@@ -7745,7 +7752,7 @@ async function boot() {
   const lvl = !S.claudeOwner && user && user.canEdit ? !!(await Promise.resolve(user.canEdit()).catch(() => false)) : false;
   S.level = S.claudeOwner ? 'owner' : lvl ? 'admin' : cw === false ? 'view' : 'interact'; S.cw = cw;
   applyRole();
-  /* ניתוחי Claude (sample) — בשרת אין; הכפתורים מוסתרים במקום להופיע ולהיכשל */
+  /* ניתוחי Claude (sample) — בשרת רק כשמוגדר מפתח; אחרת הכפתורים מוסתרים במקום להופיע ולהיכשל */
   S.ai = !!(await claude.use('sample').catch(() => null)); document.body.classList.toggle('noai', !S.ai);
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));

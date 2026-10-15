@@ -3,7 +3,7 @@
  * ירוץ גם כשאף אחד לא בפנים — סנכרון טבלאות הלידים, סימון כפולים, אירועי יומן שממתינים, וגיבוי יומי לדרייב.
  * אותו קוד בדיוק כמו בדף (הנחיה 20 — מנוע אחד), בלי העתק בשרת.
  *
- *   APP_BASE_URL=https://… APP_PASSWORD=… node scripts/crm-keeper.mjs
+ *   APP_BASE_URL=https://… APP_PASSWORD=… JOBS_SECRET=… node scripts/crm-keeper.mjs
  *
  * רץ מ-GitHub Actions כל חצי שעה (.github/workflows/crm-keeper.yml). מדלג כשהמערכת עדיין במצב שכפול:
  * אז הדף ב-Claude הוא המקור, וגיבוי מכאן היה נכנס לאותה תיקייה ונקלט חזרה כשכפול.
@@ -16,7 +16,7 @@ const log = (s) => console.log(new Date().toISOString().slice(11, 19), s)
 const fresh = (at) => !!at && Date.now() - Date.parse(at) < 30 * 60e3
 
 /** ריצה אחת. מחזיר true כשהכל הצליח (או דילוג במצב שכפול). setup — לבדיקות: מקבל את ה-context לפני הטעינה. */
-export async function keep({ base, key = '', waitMs = 4 * 60e3, executablePath, setup } = {}) {
+export async function keep({ base, key = '', secret = '', waitMs = 4 * 60e3, executablePath, setup } = {}) {
   const BASE = String(base || '').replace(/\/+$/, '')
   if (!BASE) throw new Error('חסר APP_BASE_URL')
   const browser = await chromium.launch(executablePath ? { executablePath } : {})
@@ -24,6 +24,8 @@ export async function keep({ base, key = '', waitMs = 4 * 60e3, executablePath, 
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'he-IL', timezoneId: 'Asia/Jerusalem' })
     await ctx.addInitScript(() => { window.__CRM_KEEPER = true })
+    // כניסה אישית בשרת (lib/crm/auth.ts): השומר נכנס כבעלים עם JOBS_SECRET — רק בבקשות ל-API של המערכת, לא לשום כתובת אחרת
+    if (secret) await ctx.route(BASE + '/api/**', (r) => r.continue({ headers: { ...r.request().headers(), 'x-crm-keeper': secret } }))
     if (setup) await setup(ctx)
     const page = await ctx.newPage()
     const errors = []
@@ -68,7 +70,7 @@ export async function keep({ base, key = '', waitMs = 4 * 60e3, executablePath, 
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  const ok = await keep({ base: process.env.APP_BASE_URL, key: process.env.APP_PASSWORD, waitMs: Number(process.env.KEEPER_WAIT_MS || 4 * 60e3), executablePath: process.env.CHROMIUM_PATH })
+  const ok = await keep({ base: process.env.APP_BASE_URL, key: process.env.APP_PASSWORD, secret: process.env.JOBS_SECRET, waitMs: Number(process.env.KEEPER_WAIT_MS || 4 * 60e3), executablePath: process.env.CHROMIUM_PATH })
     .catch((e) => { console.error('✗ ' + e.message); return false })
   process.exit(ok ? 0 : 1)
 }
