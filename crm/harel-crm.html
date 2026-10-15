@@ -379,6 +379,19 @@ body.locked .mark { display: none; }
 .permx thead th { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 .permx input { width: 20px; height: 20px; accent-color: var(--brand-strong); cursor: pointer; }
 .permx input:disabled { cursor: not-allowed; }
+#callbar { position: fixed; inset-inline: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; margin-inline: auto;
+  background: var(--surface); border: 1px solid var(--border); border-inline-start: 4px solid var(--brand-accent); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
+#callbar > span { flex: 1 1 auto; }
+@media (max-width: 767px) { #callbar { bottom: calc(var(--bnav-h) + 10px + env(safe-area-inset-bottom, 0px)); } }
+.calload th, .calload td { text-align: center; white-space: nowrap; } .calload td:first-child { text-align: start; } .calload .calgap { background: var(--open-bg); color: var(--open); }
+tr.tot td { font-weight: 700; background: var(--sunk); }
+.kv.wrap th, .kv.wrap td { white-space: normal; }
+/* בזמן שמגירה פתוחה פס "מצב שכפול" (z 9999) מוסתר — אחרת הוא מכסה את כפתור השמירה */
+body:has(#layer .scrim) #mirrorBar { display: none !important; }
+body:has(#mirrorBar) #callbar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 767px) { body:has(#mirrorBar) #callbar { bottom: calc(var(--bnav-h) + 64px + env(safe-area-inset-bottom, 0px)); } }
+.meet { border-top: 1px solid var(--border); padding: 10px 0; } .meet:first-of-type { border-top: 0; }
+.meet .row { gap: 6px 10px; } .mrec > summary { list-style: none; display: inline-flex; } .mrec > summary::-webkit-details-marker { display: none; }
 .permx th.dan, .permx th.dan .xlink { color: var(--brand-text); }
 .permx thead .xlink { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; min-height: 32px; }
 .areaguide { margin: 10px 0 4px; border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 8px 12px; background: var(--sunk); }
@@ -2478,9 +2491,9 @@ function attMailHtml(d) { const rows = live(S.attendance).filter((a) => a.date =
     '<p>עלות הצוות היום: <b>' + plain(rows.reduce((x, r) => x + r.cost, 0)) + '</b></p>'; }
 /* ═════════════ יומן גוגל: זום / פגישות → יומן דרך תיבת היוצא (מפתח ייחודי, בלי כפילויות) · פגישות היום מקושרות לכרטיסי לקוחות ═════════════ */
 const addMinLocal = (s0, k) => { const d = new Date(String(s0).slice(0, 16)); d.setMinutes(d.getMinutes() + k); const z = (x) => String(x).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':00'; };
-async function calEnqueue({ key, summary, start, mins = 45, description = '', location = '', ref = null }) {
+async function calEnqueue({ key, summary, start, mins = 45, description = '', location = '', ref = null, calendarId = null, attendees = [] }) {
   if (!start || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(start)) return; const id = 'cal-' + slug(key); if (S.outbox.has(id)) return;
-  await write('outbox/' + id, { id, kind: 'calendar', status: 'pending', ruleKey: key, subject: summary, ref, at: stamp(), by: S.me.id, tries: 0, payload: { summary, startTime: String(start).slice(0, 16) + ':00', endTime: addMinLocal(start, mins), description, ...(location ? { location } : {}) } }).catch(() => {});
+  await write('outbox/' + id, { id, kind: 'calendar', status: 'pending', ruleKey: key, subject: summary, ref, at: stamp(), by: S.me.id, tries: 0, payload: { summary, startTime: String(start).slice(0, 16) + ':00', endTime: addMinLocal(start, mins), description, ...(location ? { location } : {}), ...(calendarId ? { calendarId } : {}), ...(attendees && attendees.length ? { attendees } : {}) } }).catch(() => {});
   setTimeout(() => calRun().catch(() => {}), 300);
 }
 async function calRun() {
@@ -3095,8 +3108,8 @@ function vUnits() {
     '</tbody><tfoot><tr><td>סה״כ</td><td class="num">' + rows.reduce((a, r) => a + r.won, 0) + '</td><td>' + money(tot, { tone: 'actual' }) + '</td><td>' + money(-rows.reduce((a, r) => a + r.direct, 0)) + '</td><td>' + money(-rows.reduce((a, r) => a + r.comm, 0)) + '</td><td>' + money(-rows.reduce((a, r) => a + r.mkt, 0)) + '</td><td>' + money(rows.reduce((a, r) => a + r.net, 0)) + '</td><td>100%</td><td></td></tr></tfoot></table></div></section>';
 }
 /* ═════════════ הר-אל השקעות: מסע הלקוח, דמי רצינות, סיכום פגישה ועמלות (דן, 09/10) ═════════════ */
-const RE_STEPS = [['docs', 'השלמת מסמכים'], ['zoom', 'פגישת זום'], ['frontal', 'פגישה פרונטלית'], ['summary', 'סיכום פגישה'], ['plan', 'תוכנית נכס'], ['second', 'פגישה נוספת'],
-  ['lawyer', 'תיאום עו״ד'], ['lawyerMeet', 'פגישה עם עו״ד'], ['register', 'הרשמה אצל היזם'], ['closed', 'נסגר — חתם ושילם']];
+const RE_STEPS = [['zoom', 'פגישת זום'], ['frontal', 'פגישה פרונטלית'], ['exclusive', 'בלעדיות והסכם'], ['progress', 'פגישת התקדמות והכנסות'], ['docs', 'השלמת מסמכים'], ['prep', 'הכנת נכסים (אביב)'],
+  ['planMeet', 'הצגת תוכנית'], ['lawyer', 'עו״ד וטופס הרשמה ליזם'], ['ready', 'מוכן להרשמה'], ['register', 'הרשמה אצל היזם וגביה'], ['closed', 'נסגר — חתם ושילם']];
 const RE_SUMMARY = [['feeling', 'ההרגשה לגבי הלקוח', 'ta'], ['properties', 'נכסים שמתאימים', 'ta'], ['profiled', 'מילא אפיון?', 'yn'], ['equity', 'הון עצמי (₪)', 'num'], ['income', 'הכנסה חודשית (₪)', 'num'],
   ['loans', 'כמה הלוואות יש לו', 'text'], ['wants', 'מה הלקוח רוצה', 'ta'], ['helpClose', 'מה יעזור לו לסגור', 'ta'], ['notes', 'עוד', 'ta']];
 const DEPOSIT_CAT = 'דמי רצינות';
@@ -3110,17 +3123,8 @@ function leadQCard(l, w) {
   return '<section class="card"><header><h2>שאלון</h2><span class="grow"></span><span class="hint">מה שהגיע מדף הנחיתה מופיע כאן — אפשר לתקן בשיחה</span></header><div class="row" style="align-items:flex-end">' +
     RE_LEAD_Q.map(([k, label, opts]) => '<label class="fl">' + label + '<input class="f" list="lq-' + k + '" data-leadq="' + k + '" data-id="' + esc(l.id) + '" value="' + esc(leadQ(l, k)) + '"' + (w ? '' : ' disabled') + '><datalist id="lq-' + k + '">' + opts.map((o) => '<option value="' + esc(o) + '">').join('') + '</datalist></label>').join('') + '</div></section>';
 }
-function leadZoomCard(l, w) {
-  const z = l.zoom || {};
-  return '<section class="card"><header><h2>פגישת זום</h2>' + (z.attended ? '<span class="pill actual">התקיימה</span>' : z.at ? '<span class="pill committed">נקבעה</span>' : '<span class="pill muted">לא נקבעה</span>') + '<span class="grow"></span><span class="hint">פגישה שהתקיימה בפועל = עמלה למי שתיאם</span></header>' +
-    '<div class="row" style="align-items:flex-end"><label class="fl">מתי<input class="f" type="datetime-local" data-lzoom="at" data-id="' + esc(l.id) + '" value="' + esc(z.at || '') + '"' + (w ? '' : ' disabled') + '></label>' +
-    '<label class="fl grow">קישור<input class="f" dir="ltr" data-lzoom="link" data-id="' + esc(l.id) + '" value="' + esc(z.link || '') + '" placeholder="https://zoom.us/…"' + (w ? '' : ' disabled') + '></label>' +
-    '<label class="fl">מי תיאם<select class="f" data-lzoom="by" data-id="' + esc(l.id) + '"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts({ ...l, resp: z.by || l.resp }) + '</select></label>' +
-    '<label class="check" style="border:0"><input type="checkbox" class="cb" data-lzoom="attended" data-id="' + esc(l.id) + '"' + (z.attended ? ' checked' : '') + (w ? '' : ' disabled') + '><span>הגיע בפועל לזום</span></label></div>' +
-    (z.link ? '<p class="hint">' + linkify(z.link) + '</p>' : '') + '</section>';
-}
 function reJourneyCard(c) {
-  const w = S.canTask, r = reOf(c), cur = r.step || 'docs', ci = RE_STEPS.findIndex((x) => x[0] === cur), lead = c.leadId && S.leads.get(c.leadId), z = (lead && lead.zoom) || {};
+  const w = S.canTask, r = reOf(c), cur = reStep(c), ci = RE_STEPS.findIndex((x) => x[0] === cur), lead = c.leadId && S.leads.get(c.leadId), z = (lead && lead.zoom) || {};
   const deps = live(S.transactions).filter((t) => t.clientId === c.id && t.nature === 'income' && t.category === DEPOSIT_CAT);
   const chip = (s, i) => '<button class="pstep ' + (i < ci ? 'done' : i === ci ? 'cur' : 'next') + '" data-restep="' + s[0] + '"' + (w ? '' : ' disabled') + '><i>' + (i < ci ? '✓' : i + 1) + '</i><span>' + esc(s[1]) + '</span>' + (r.hist && r.hist[s[0]] ? '<small>' + dLabel(dayOf(r.hist[s[0]])).slice(0, 5) + '</small>' : '') + '</button>';
   const inp = (k, label, type = 'text', val = r[k], attrs = '') => '<label class="fl">' + label + '<input class="f" type="' + type + '" data-ref="' + k + '" value="' + esc(val || '') + '"' + attrs + (w ? '' : ' disabled') + '></label>';
@@ -3128,10 +3132,11 @@ function reJourneyCard(c) {
   const sm = r.summary, coms = commRowsForClient(c);
   return '<section class="card proc"><header><h2>מסע הלקוח — הר-אל השקעות</h2><span class="grow"></span>' + (r.closedAt ? '<span class="pill actual">נסגר ' + dLabel(dayOf(r.closedAt)) + '</span>' : '') + '</header>' +
     '<div class="psteps">' + RE_STEPS.map(chip).join('') + '</div>' +
+    '<div class="grid2" style="margin-bottom:12px">' + reNowPanel(c) + reDealCard(c) + '</div>' +
     '<div class="grid2"><div class="ppanel"><h3 class="sec">פגישות</h3><div class="row" style="align-items:flex-end">' +
       inp('zoomAt', 'זום', 'datetime-local', r.zoomAt || z.at) + cb('zoomAttended', 'הגיע בפועל לזום') + inp('frontalAt', 'פגישה פרונטלית', 'datetime-local') + inp('secondAt', 'פגישה נוספת', 'datetime-local') + '</div>' +
       '<label class="fl">מי תיאם את הזום (לעמלה)<select class="f" data-ref="meetingBy"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts({ division: 'realestate', resp: r.meetingBy || z.by || (lead && lead.resp) || c.resp }) + '</select></label>' +
-      '<h3 class="sec">דמי רצינות <span class="hint">· 2,500–5,000 ₪ לפי העסקה · עבור התוכנית — לא מוחזר ובדרך כלל לא מתקזז</span></h3>' +
+      '<h3 class="sec">פגישה פרונטלית — תוכנית + דמי רצינות <span class="hint">· ' + plain(n(reCfg().frontalFee) || 2000) + ' · לא מוחזר ובדרך כלל לא מתקזז</span></h3>' +
       (deps.length ? deps.map((t) => '<div class="row"><span class="pill actual">' + plain(t.gross || t.net) + '</span><span class="hint">' + dLabel(t.date) + ' · ' + esc(t.description || '') + '</span></div>').join('') : '<p class="hint">עוד לא נרשמו.</p>') +
       (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reDeposit">+ רישום דמי רצינות</button>' : '') + '</div>' +
     '<div class="ppanel"><h3 class="sec">סיכום הפגישה הפרונטלית</h3>' + (sm ? '<table class="kv"><tbody>' + RE_SUMMARY.filter(([k]) => sm[k] != null && sm[k] !== '').map(([k, label, t]) => '<tr><th>' + label + '</th><td>' + (t === 'num' ? plain(sm[k]) : t === 'yn' ? (sm[k] === 'yes' ? 'כן' : 'לא') : esc(sm[k])) + '</td></tr>').join('') + '</tbody></table><p class="hint">' + esc(L.resp[sm.by] || '') + ' · ' + dLabel(dayOf(sm.at)) + '</p>' : '<p class="hint">מנהל הלקוח ממלא אחרי הפגישה (בהמשך — שאלון בוואטסאפ ישירות לכאן).</p>') +
@@ -3140,7 +3145,516 @@ function reJourneyCard(c) {
       '<div class="row" style="align-items:flex-end">' + inp('developer', 'יזם') + inp('project', 'פרויקט / נכס') + inp('registerAt', 'פגישת הרשמה', 'datetime-local') + '</div>' +
       '<div class="row">' + cb('devSigned', 'חתם אצל היזם') + cb('devPaid', 'שילם') + '</div></div>' +
     '<div class="ppanel"><h3 class="sec">עמלות על העסקה</h3>' + (coms.length ? '<table><tbody>' + coms.map((x) => '<tr><td>' + esc(x.whoLabel) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + money(x.amount, { tone: 'muted' }) + '</td><td class="num hint">' + mLabel(x.month) + '</td>' + (x.manual && S.isOwner && S.canWrite ? '<td><button class="btn small ghost danger" data-rmcomm="' + x.idx + '">הסר</button></td>' : '<td></td>') + '</tr>').join('') + '</tbody></table>' : '<p class="hint">אין עדיין.</p>') +
-      (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reComm">+ עמלה ידנית (למשל יורם)</button>' : '') + '</div></div></section>';
+      (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reComm">+ עמלה ידנית (למשל יורם)</button>' : '') + '</div></div></section>' +
+    reMeetCard(lead ? 'l:' + lead.id : 'c:' + c.id) + (lead ? reProfileCard(lead) : '');
+}
+/* ═════════════ הר-אל השקעות: פגישות מתוך המערכת · מתאם ↔ אנליסט · אפיון (דן, 15/10) ═════════════
+   פגישה נשמרת על הליד (l.meetings — גם המוקד כותב לידים); תיק בלי ליד: c.re.meetings.
+   קביעה = יומן גוגל של האנליסט דרך תיבת היוצא (הלקוח מוזמן כמשתתף) + משימת וידוא יום לפני עם הודעה מוכנה ללקוח,
+   והשעה ננעלת לאנליסט (פגישות במערכת + האירועים ביומן שלו). אחרי הפגישה: התקיימה / לא הגיע / בוטלה, "האנליסט עלה",
+   סיכום (Claude מציע מהתמלול — אדם מאשר), הקלטות לתיקייה, ופגישת המשך בלחיצה. */
+const MEET_KINDS = { zoom: ['זום', 45], frontal: ['פגישה פרונטלית', 90], followup: ['פגישת המשך', 45], progress: ['פגישת התקדמות', 60], plan: ['הצגת תוכנית', 60], lawyer: ['פגישה עם עו״ד', 60] };
+const MEET_ST = { set: ['נקבעה', 'committed'], held: ['התקיימה', 'actual'], noshow: ['לא הגיע', 'open'], canceled: ['בוטלה', 'muted'] };
+const RE_MSG = {
+  confirm: 'שלום {שם}, נקבעה לך {סוג} עם {אנליסט} מהר-אל השקעות ביום {יום} {תאריך} בשעה {שעה}.{פרטים}\nנתראה!',
+  remind: 'שלום {שם}, תזכורת: מחר, יום {יום} {תאריך}, בשעה {שעה} — {סוג} עם {אנליסט} מהר-אל השקעות.{פרטים}\nאם משהו השתנה, כתוב לנו כאן. תודה!',
+};
+const RE_REC = [['setterCall', 'שיחת המתאם'], ['zoomRec', 'הקלטת הזום'], ['transcript', 'תמלול']];
+function reCfg() { return { analysts: [], office: '', payUrl: '', frontalFee: 2000, hours: { from: '09:00', to: '21:00' }, msg: {}, ...(S.settings.reCfg || {}) }; }
+/* האנליסטים (אנשי המכירות): מההגדרות; ואם עוד לא הוגדרו — אנשי הצוות של השקעות שאינם מוקד */
+function reAnalysts() {
+  const c = reCfg().analysts || []; if (c.length) return c.filter((a) => a && a.key);
+  return staff().filter((p) => p.divs.includes('realestate') && p.role !== 'center').map((p) => ({ key: p.key, label: p.label, email: '', zoom: '' }));
+}
+const anOf = (k) => reAnalysts().find((a) => a.key === k) || null;
+const anLabel = (k) => (anOf(k) || {}).label || L.resp[k] || k || '—';
+const meetRefStr = (ref) => (ref.lead ? 'l:' + ref.lead : 'c:' + ref.client);
+const meetRefOf = (s) => (String(s).startsWith('l:') ? { lead: String(s).slice(2) } : { client: String(s).slice(2) });
+const meetHolder = (ref) => (ref.lead ? S.leads.get(ref.lead) : S.clients.get(ref.client));
+const meetsRaw = (ref) => { const h = meetHolder(ref); return (h && (ref.lead ? h.meetings : reOf(h).meetings)) || []; };
+const hmOf = (s) => { const t = String(s || '').slice(11, 16); return Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)); };
+const hmStr = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+/* כל הפגישות של השקעות — כולל מה שנקבע לפני המודול (l.zoom, c.re.frontalAt), כדי שהנעילה והמדדים יראו הכל */
+function allMeetings() {
+  const out = [];
+  for (const l of live(S.leads)) { if (leadDiv(l) !== 'realestate') continue; const ms = l.meetings || [];
+    ms.forEach((m) => out.push({ ...m, ref: { lead: l.id }, name: l.name, phone: l.phone, email: l.email || '' }));
+    const z = l.zoom; if (z && z.at && !ms.some((m) => m.kind === 'zoom' && m.at === z.at)) out.push({ id: 'lz-' + l.id, kind: 'zoom', at: z.at, mins: 45, setter: z.by || l.resp || null, analyst: z.analyst || null, link: z.link || '', status: z.attended ? 'held' : 'set', legacy: true, ref: { lead: l.id }, name: l.name, phone: l.phone, email: l.email || '' }); }
+  for (const c of live(S.clients)) { if ((c.division || 'finance') !== 'realestate') continue; const r = reOf(c), lead = c.leadId && S.leads.get(c.leadId), ref = lead ? { lead: lead.id } : { client: c.id };
+    (r.meetings || []).forEach((m) => out.push({ ...m, ref: { client: c.id }, name: c.name, phone: c.phone, email: c.email || '' }));
+    if (r.frontalAt && !out.some((m) => m.kind === 'frontal' && m.at === r.frontalAt && (m.ref.client === c.id || (lead && m.ref.lead === lead.id))))
+      out.push({ id: 'cf-' + c.id, kind: 'frontal', at: r.frontalAt, mins: 90, setter: r.meetingBy || null, analyst: c.resp || null, status: String(r.frontalAt).slice(0, 16) <= localNow() ? 'held' : 'set', legacy: true, ref, name: c.name, phone: c.phone, email: c.email || '' }); }
+  return out;
+}
+/* מה תפוס לאנליסט ביום: פגישות במערכת + אירועים ביומן הגוגל שלו (אם יש גישה) */
+S.gBusy = S.gBusy || {};
+function busyOf(an, day, skipId) {
+  const mine = allMeetings().filter((m) => m.analyst === an && m.status !== 'canceled' && String(m.at).slice(0, 10) === day && m.id !== skipId).map((m) => ({ a: hmOf(m.at), b: hmOf(m.at) + n(m.mins || (MEET_KINDS[m.kind] || [])[1] || 45), what: (MEET_KINDS[m.kind] || [m.kind])[0] + ' — ' + (m.name || '') }));
+  const g = S.gBusy[an + '|' + day]; return Array.isArray(g) ? [...mine, ...g] : mine;
+}
+async function gBusyLoad(an, day) {
+  const a = anOf(an), key = an + '|' + day; if (!a || !a.email || !S.mcp || S.gBusy[key]) return;
+  S.gBusy[key] = 'loading';
+  try { const r = await S.mcp.callTool('Google Calendar', 'list_events', { calendarId: a.email, startTime: day + 'T00:00:00', endTime: day + 'T23:59:00', pageSize: 100 }, { cache: false });
+    let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+    S.gBusy[key] = ((p && p.events) || []).filter((e) => e && e.status !== 'cancelled' && e.start && e.start.dateTime && e.end && e.end.dateTime).map((e) => ({ a: hmOf(e.start.dateTime), b: hmOf(e.end.dateTime), what: 'ביומן: ' + (e.summary || 'תפוס'), g: true }));
+  } catch (e) { S.gBusy[key] = []; }
+}
+const slotFree = (busy, a, mins) => !busy.some((x) => a < x.b && a + mins > x.a);
+function reMsgFill(tpl, m) {
+  const d = String(m.at).slice(0, 10), dt = new Date(d + 'T12:00'), K = MEET_KINDS[m.kind] || [m.kind];
+  const det = m.kind === 'frontal' || m.kind === 'plan' ? (m.location || reCfg().office ? '\nכתובת: ' + (m.location || reCfg().office) : '') : m.link ? '\nקישור לזום: ' + m.link : '';
+  return String(tpl).replace(/\{שם\}/g, String(m.name || '').split(' ')[0]).replace(/\{סוג\}/g, K[0] === 'זום' ? 'פגישת זום' : K[0]).replace(/\{אנליסט\}/g, anLabel(m.analyst))
+    .replace(/\{יום\}/g, HE_DAYS[dt.getDay()] || '').replace(/\{תאריך\}/g, d.slice(8, 10) + '/' + d.slice(5, 7)).replace(/\{שעה\}/g, String(m.at).slice(11, 16)).replace(/\{פרטים\}/g, det);
+}
+const reMsg = (k, m) => reMsgFill((reCfg().msg || {})[k] || RE_MSG[k], m);
+const waTo = (phone, text) => { const w = waLink(phone); return w ? w + '?text=' + encodeURIComponent(text) : ''; };
+/* קביעת פגישה */
+function formMeet(refS, preset = {}) {
+  const ref = meetRefOf(refS), h = meetHolder(ref); if (!h) return;
+  const ANS = reAnalysts(); if (!ANS.length) return toast('אין אנליסטים — הגדרות ← השקעות: פגישות ותמחור');
+  const kind = preset.kind || (meetsRaw(ref).some((m) => m.kind === 'zoom' && m.status === 'held') ? 'frontal' : 'zoom');
+  const an0 = preset.analyst || (meetsRaw(ref).slice(-1)[0] || {}).analyst || ANS[0].key, day0 = preset.day || addDays(today(), 1);
+  const email = ref.lead ? h.email || '' : h.email || '';
+  const body = fs('kind', 'סוג', Object.entries(MEET_KINDS).map(([k, v]) => [k, v[0]]), kind) + fs('analyst', 'אנליסט (מי לוקח את הפגישה)', ANS.map((a) => [a.key, a.label + (a.email ? '' : ' · בלי יומן')]), an0) +
+    fi('day', 'תאריך', day0, 'date', 'required') + '<label class="fl">שעה<select class="f" id="d_time" name="time" required></select></label>' +
+    '<div class="full" id="d_busy" aria-live="polite"></div>' +
+    fi('link', 'קישור לזום', preset.link || '', 'url', 'dir="ltr" placeholder="ברירת מחדל: החדר של האנליסט"', true) + fi('location', 'מקום (לפגישה פרונטלית)', preset.location || reCfg().office || '', 'text', '', true) +
+    fi('email', 'מייל הלקוח (יקבל זימון ביומן)', email, 'email', 'dir="ltr"') + fi('more', 'עוד משתתפים (מיילים, בפסיק)', '', 'text', 'dir="ltr"') + ft('note', 'הערה לאנליסט', preset.note || '');
+  drawer('קביעת פגישה — ' + (h.name || ''), body, async (fd) => {
+    const K = MEET_KINDS[fd.kind] || ['פגישה', 45], at = fd.day + 'T' + fd.time, mins = K[1], a = anOf(fd.analyst);
+    if (!fd.day || !fd.time) return 'בחר תאריך ושעה';
+    if (!slotFree(busyOf(fd.analyst, fd.day), hmOf(at), mins)) return 'השעה תפוסה אצל ' + anLabel(fd.analyst);
+    const emails = [fd.email, ...String(fd.more || '').split(/[,\s]+/)].map((x) => String(x || '').trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+    const m = { id: uid(), kind: fd.kind, at, mins, setter: S.myKey || null, analyst: fd.analyst, link: fd.link || (/zoom|followup|progress/.test(fd.kind) && a && a.zoom) || '', location: fd.kind === 'frontal' || fd.kind === 'plan' || fd.kind === 'lawyer' ? fd.location || '' : '',
+      emails, note: fd.note || '', status: 'set', createdAt: stamp(), createdBy: S.myKey || null, prev: preset.prev || null };
+    await meetCreate(ref, m, emails);
+  }, '', 'קבע פגישה');
+  const kSel = $('d_kind'), aSel = $('d_analyst'), dIn = $('d_day'), tSel = $('d_time'), box = $('d_busy'), linkIn = $('d_link');
+  const refresh = async (load) => {
+    const an = aSel.value, day = dIn.value, mins = (MEET_KINDS[kSel.value] || [0, 45])[1], H = reCfg().hours || {}; if (!day) return;
+    if (load) { const p = gBusyLoad(an, day); if (p && p.then) p.then(() => refresh(false)); }
+    const busy = busyOf(an, day), cur = tSel.value, from = hmOf('0000-00-00T' + (H.from || '09:00')), to = hmOf('0000-00-00T' + (H.to || '21:00'));
+    const isToday = day === today(), nowM = hmOf(localNow()), sat = new Date(day + 'T12:00').getDay() === 6;
+    let opts = ''; for (let t = from; t + mins <= to + 1; t += 15) { const ok = !sat && slotFree(busy, t, mins) && !(isToday && t <= nowM);
+      opts += '<option value="' + hmStr(t) + '"' + (ok ? '' : ' disabled') + (cur === hmStr(t) && ok ? ' selected' : '') + '>' + hmStr(t) + (ok ? '' : ' — תפוס') + '</option>'; }
+    tSel.innerHTML = opts; if (!tSel.value || tSel.selectedOptions[0].disabled) { const f = [...tSel.options].find((o) => !o.disabled); if (f) tSel.value = f.value; }
+    const a = anOf(an), g = S.gBusy[an + '|' + day];
+    box.innerHTML = '<p class="hint" style="margin:0">' + esc(anLabel(an)) + ' · ' + HE_DAYS[new Date(day + 'T12:00').getDay()] + ' ' + dLabel(day) + ': ' +
+      (sat ? '<b>שבת — אין תיאומים</b> · ' : '') + (busy.length ? busy.sort((x, y) => x.a - y.a).map((x) => '<span class="pill ' + (x.g ? 'muted' : 'committed') + '">' + hmStr(x.a) + '–' + hmStr(x.b) + ' ' + esc(x.what) + '</span>').join(' ') : 'פנוי כל היום') +
+      (a && a.email ? (g === 'loading' ? ' · בודק ביומן…' : '') : ' · <b>אין יומן מוגדר לאנליסט</b> — נועל רק לפי הפגישות במערכת') + '</p>';
+    if (linkIn && !linkIn.value && a && a.zoom && /zoom|followup|progress/.test(kSel.value)) linkIn.placeholder = a.zoom;
+  };
+  [kSel, aSel, dIn].forEach((el) => el.addEventListener('change', () => refresh(true))); refresh(true);
+}
+async function meetCreate(ref, m, emails) {
+  const h = meetHolder(ref), list = [...meetsRaw(ref), m], a = anOf(m.analyst), K = MEET_KINDS[m.kind] || [m.kind];
+  const text = K[0] + ' נקבעה: ' + String(m.at).replace('T', ' ') + ' · אנליסט ' + anLabel(m.analyst) + ' · תיאם ' + (L.resp[m.setter] || m.setter || '—');
+  if (ref.lead) {
+    const patch = { meetings: list };
+    if (m.kind === 'zoom') patch.zoom = { ...(h.zoom || {}), at: m.at, link: m.link || (h.zoom || {}).link || '', by: m.setter || (h.zoom || {}).by || null, analyst: m.analyst, attended: false };
+    await leadPatch(h.id, patch, text, true);
+    const want = { zoom: 're_zoom_set', frontal: 're_frontal_set', followup: 're_next_meet', progress: 're_in_process', plan: 're_in_process' }[m.kind], cur = stageDefs('realestate').find((x) => x.key === stKey(h)), nx = stageDefs('realestate').find((x) => x.key === want);
+    if (nx && n(cur && cur.reach) < n(nx.reach)) await leadSetStatus(S.leads.get(h.id), want).catch(() => {});
+  } else await reSet(h, { meetings: list, ...(m.kind === 'frontal' ? { frontalAt: m.at } : {}) }, text);
+  await calEnqueue({ key: 'meet:' + m.id, summary: K[0] + ' — ' + (h.name || '') + ' · הר-אל השקעות', start: m.at, mins: m.mins, location: m.location || m.link || '', ref: ref.lead ? { lead: ref.lead } : { client: ref.client },
+    calendarId: (a && a.email) || null, attendees: emails.map((e) => ({ email: e })),
+    description: ['לקוח: ' + (h.name || ''), h.phone ? 'טלפון: ' + normPhone(h.phone) : '', 'אנליסט: ' + anLabel(m.analyst), 'תיאם: ' + (L.resp[m.setter] || m.setter || ''), m.link ? 'קישור לזום: ' + m.link : '', m.note ? 'הערה: ' + m.note : '', 'הכרטיס ב-CRM: הר-אל השקעות'].filter(Boolean).join('\n') });
+  /* משימת וידוא יום לפני — אצל המתאם, עם ההודעה המוכנה ללקוח (rule_key ייחודי — הנחיה 18) */
+  const due = addDays(String(m.at).slice(0, 10), -1), tid = 'mc-' + slug(m.id), wa = waTo(h.phone, reMsg('remind', { ...m, name: h.name }));
+  if (!S.tasks.has(tid)) await write('tasks/' + tid, { id: tid, ruleKey: 'meet-confirm:' + m.id, auto: true, title: 'וידוא הגעה + קישור — ' + (h.name || '') + ' · ' + K[0] + ' ' + String(m.at).slice(11, 16), resp: m.setter || S.myKey || 'dan', due: due < today() ? today() : due, time: '10:00', priority: 'high',
+    leadId: ref.lead || null, clientId: ref.client || (h.clientId || null), division: 'realestate', notes: ['ההודעה ללקוח (וואטסאפ):', reMsg('remind', { ...m, name: h.name }), wa ? 'לשליחה: ' + wa : 'אין טלפון תקין'].join('\n'), status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() }).catch(() => {});
+  toast(K[0] + ' נקבעה · נשלח ליומן' + (emails.length ? ' עם זימון ללקוח' : '') + ' · משימת וידוא ליום ' + dLabel(due));
+}
+async function meetSet(refS, id, patch, text) {
+  const ref = meetRefOf(refS), h = meetHolder(ref); if (!h) return;
+  const all = allMeetings().filter((m) => m.ref.lead === ref.lead && m.ref.client === ref.client), cur = all.find((m) => m.id === id); if (!cur) return;
+  let list = meetsRaw(ref);
+  if (cur.legacy) { const { ref: _r, name: _n, phone: _p, email: _e, legacy: _l, ...base } = cur; list = [...list, { ...base, id: uid(), createdAt: stamp(), adopted: cur.id }]; }
+  const mid = cur.legacy ? list[list.length - 1].id : id, m = { ...list.find((x) => x.id === mid), ...patch, updatedAt: stamp() };
+  list = list.map((x) => (x.id === mid ? m : x));
+  if (ref.lead) {
+    const lp = { meetings: list };
+    if (m.kind === 'zoom' && (h.zoom || {}).at === m.at) lp.zoom = { ...(h.zoom || {}), attended: m.status === 'held', analyst: m.analyst };
+    await leadPatch(h.id, lp, text, true);
+    if (patch.status === 'held') { const want = { zoom: 're_zoom_came' }[m.kind], cd = stageDefs('realestate').find((x) => x.key === stKey(h)), nx = stageDefs('realestate').find((x) => x.key === want);
+      if (nx && n(cd && cd.reach) < n(nx.reach)) await leadSetStatus(S.leads.get(h.id), want).catch(() => {}); }
+  } else await reSet(h, { meetings: list, ...(m.kind === 'zoom' && patch.status ? { zoomAt: m.at, zoomAttended: m.status === 'held' } : {}) }, text);
+  if (patch.status === 'held') await reAdvanceFromMeet(ref, m).catch(() => {});
+  if (patch.status === 'canceled' || patch.status === 'held' || patch.status === 'noshow') { const t = S.tasks.get('mc-' + slug(mid)) || S.tasks.get('mc-' + slug(id)); if (t && t.status !== 'done') await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), updatedAt: stamp() }, 'update').catch(() => {}); }
+  return m;
+}
+function meetRow(m, refS, w) {
+  const K = MEET_KINDS[m.kind] || [m.kind], st = MEET_ST[m.status] || MEET_ST.set, past = String(m.at).slice(0, 16) <= localNow(), id = esc(m.id);
+  const conf = waTo(m.phone, reMsg('confirm', m)), noSum = m.status === 'held' && !(m.summary && m.summary.text);
+  const recs = RE_REC.map(([k, lbl]) => (m.rec && m.rec[k] ? '<a href="' + esc(m.rec[k].url) + '" target="_blank" rel="noopener">📄 ' + lbl + '</a>' : '')).filter(Boolean).join(' · ');
+  return '<div class="meet" data-pk>' +
+    '<div class="row"><b>' + esc(K[0]) + '</b><span class="num">' + esc(dLabel(String(m.at).slice(0, 10))) + ' ' + esc(String(m.at).slice(11, 16)) + '</span><span class="pill ' + st[1] + '">' + st[0] + '</span>' +
+      (noSum ? '<span class="pill open">חסר סיכום</span>' : '') + (m.status === 'set' && past ? '<span class="pill expected">עבר — לסמן מה היה</span>' : '') + '<span class="grow"></span>' +
+      '<span class="hint">אנליסט <b>' + esc(anLabel(m.analyst)) + '</b> · תיאם ' + esc(L.resp[m.setter] || m.setter || '—') + '</span></div>' +
+    (m.link ? '<p class="hint" style="margin:2px 0">' + linkify(m.link) + '</p>' : m.location ? '<p class="hint" style="margin:2px 0">' + esc(m.location) + '</p>' : '') +
+    (m.summary && m.summary.text ? '<p style="margin:4px 0;white-space:pre-wrap">' + esc(m.summary.text) + '</p><p class="hint" style="margin:0">' + esc(L.resp[m.summary.by] || m.summary.by || '') + ' · ' + dLabel(dayOf(m.summary.at)) + (m.summary.ai ? ' · הוצע ע״י Claude ואושר' : '') + '</p>' : '') +
+    (recs ? '<p class="hint" style="margin:4px 0">' + recs + '</p>' : '') +
+    (w ? '<div class="row" style="margin-top:6px">' +
+      (m.status === 'set' ? (conf ? '<a class="btn small" href="' + esc(conf) + '" target="_blank" rel="noopener">אישור ללקוח בוואטסאפ</a>' : '') +
+        '<button class="btn small go" data-meetst="' + esc(refS) + '|' + id + '|held">התקיימה</button><button class="btn small" data-meetst="' + esc(refS) + '|' + id + '|noshow">לא הגיע</button><button class="btn small ghost" data-meetst="' + esc(refS) + '|' + id + '|canceled">בוטלה</button>' : '') +
+      (m.status !== 'set' && m.status !== 'canceled' ? '<label class="check" style="border:0"><input type="checkbox" class="cb" data-meetin="' + esc(refS) + '|' + id + '"' + (m.analystIn ? ' checked' : '') + '><span>האנליסט עלה לפגישה</span></label>' : '') +
+      (m.status === 'held' ? '<button class="btn small' + (noSum ? ' primary' : '') + '" data-meetsum="' + esc(refS) + '|' + id + '">' + (m.summary ? 'עדכון סיכום' : 'סיכום פגישה') + '</button><button class="btn small" data-meetnext="' + esc(refS) + '|' + id + '">+ פגישת המשך</button>' : '') +
+      (m.status === 'noshow' || m.status === 'canceled' ? '<button class="btn small" data-meetnext="' + esc(refS) + '|' + id + '|again">לתאם מחדש</button>' : '') +
+      '<details class="mrec"><summary class="btn small ghost">הקלטות ותמלול</summary><div class="row" style="margin-top:6px">' + RE_REC.map(([k, lbl]) => '<label class="btn small ghost">📎 ' + lbl + '<input type="file" hidden data-meetrec="' + esc(refS) + '|' + id + '|' + k + '" accept="audio/*,video/*,application/pdf,text/plain,.vtt,.txt,.docx"></label>').join('') + '</div></details>' +
+    '</div>' : '') + '</div>';
+}
+function reMeetCard(refS) {
+  const ref = meetRefOf(refS), h = meetHolder(ref); if (!h) return '';
+  const w = ref.lead ? S.canTask : S.canClient || S.isOwner, ms = allMeetings().filter((m) => (ref.lead ? m.ref.lead === ref.lead : m.ref.client === ref.client)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const held = ms.filter((m) => m.status === 'held').length;
+  return '<section class="card"><header><h2>פגישות</h2><span class="pill muted">' + ms.length + '</span>' + (held ? '<span class="pill actual">' + held + ' התקיימו</span>' : '') + '<span class="grow"></span>' +
+    (w ? '<button class="btn small primary" data-meetnew="' + esc(refS) + '">+ תיאום פגישה</button>' : '') + '</header>' +
+    (ms.length ? ms.map((m) => meetRow({ ...m, name: h.name, phone: h.phone }, refS, w)).join('') : '<p class="hint">עוד לא נקבעו פגישות. "תיאום פגישה" — בוחרים אנליסט ושעה פנויה, והפגישה נכנסת ליומן שלו עם זימון ללקוח.</p>') + '</section>';
+}
+/* סיכום אחרי פגישה — Claude מציע מהתמלול / הצ׳אט, אדם מאשר (הנחיה 17) */
+function formMeetSum(refS, id) {
+  const m = allMeetings().find((x) => x.id === id && meetRefStr(x.ref) === refS) || allMeetings().find((x) => x.id === id); if (!m) return;
+  const s = m.summary || {};
+  drawer('סיכום — ' + (MEET_KINDS[m.kind] || [m.kind])[0] + ' · ' + (m.name || ''), ft('text', 'מה היה בפגישה, מה הלקוח רוצה, מה הצעד הבא', s.text || '') + ft('src', 'תמלול / צ׳אט של הפגישה (לא חובה — Claude יציע ממנו סיכום)', '') +
+    '<div class="full"><button type="button" class="btn small" id="meetAi">Claude: הצע סיכום מהתמלול</button> <span class="hint" id="meetAiSt"></span></div>',
+  async (fd) => { if (!String(fd.text || '').trim()) return 'כתוב סיכום';
+    await meetSet(refS, id, { summary: { text: fd.text.trim(), at: stamp(), by: S.myKey || null, ai: !!S._meetAi } }, 'סיכום פגישה נשמר'); S._meetAi = false; });
+  S._meetAi = false;
+  $('meetAi').addEventListener('click', async () => {
+    const src = ($('d_src').value || '').trim(); if (src.length < 40) return ($('meetAiSt').textContent = 'הדבק קודם את התמלול או הצ׳אט');
+    const sample = await claude.use('sample').catch(() => null); if (!sample) return ($('meetAiSt').textContent = 'Claude לא זמין בתצוגה הזו');
+    $('meetAiSt').textContent = 'Claude קורא…';
+    try { const r = await sample('אתה עוזר של אנליסט נדל״ן בהר-אל השקעות. כתוב סיכום פגישה בעברית, 5–8 שורות קצרות: מצב הלקוח (הון עצמי, הכנסות, נכסים), מה הוא רוצה, התנגדויות, מה סוכם, והצעד הבא עם תאריך אם נאמר. רק עובדות מהטקסט — בלי להמציא.\n\nהתמלול:\n' + src.slice(0, 40000), { modelTier: 'default', cache: false });
+      $('d_text').value = (r && r.text) || ''; S._meetAi = true; $('meetAiSt').textContent = 'הצעה — קרא, תקן ושמור';
+    } catch (e) { $('meetAiSt').textContent = 'לא הצליח: ' + ((e && e.message) || ''); }
+  });
+}
+async function meetRecUpload(refS, id, key, file) {
+  const ref = meetRefOf(refS), h = meetHolder(ref); if (!h) return;
+  if (file.size > 25e6) return toast('קובץ גדול מ-25MB — העלה לדרייב ידנית והדבק קישור בסיכום');
+  if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו');
+  toast('שומר בתיקיית הלקוח…');
+  try { const folder = await reFolder(ref);
+    const r = await S.mcp.callTool('Google Drive', 'create_file', { title: (h.name || '') + ' — ' + (RE_REC.find((x) => x[0] === key) || [key, key])[1] + ' — ' + today() + ' — ' + file.name, base64Content: b64Of(await file.arrayBuffer()), contentMimeType: file.type || 'application/octet-stream', disableConversionToGoogleType: true, ...(folder ? { parentId: folder } : {}) }, { cache: false });
+    let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+    const fid = p && (p.id || p.fileId || (p.file && p.file.id)), url = (p && (p.viewUrl || p.webViewLink || p.alternateLink)) || (fid ? 'https://drive.google.com/file/d/' + fid + '/view' : '');
+    const m = allMeetings().find((x) => x.id === id) || {};
+    await meetSet(refS, id, { rec: { ...(m.rec || {}), [key]: { url, driveId: fid || null, name: file.name, at: stamp() } } }, 'נשמר בדרייב: ' + (RE_REC.find((x) => x[0] === key) || [key, key])[1]);
+    toast('נשמר בתיקיית הלקוח');
+  } catch (e) { toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'השמירה בדרייב נכשלה'); }
+}
+/* תיקיית הלקוח בדרייב: של התיק אם יש, אחרת של הליד (נוצרת אוטומטית) */
+async function reFolder(ref) {
+  const h = meetHolder(ref); if (!h) return null;
+  const c = ref.client ? h : (h.clientId && S.clients.get(h.clientId)) || live(S.clients).find((x) => x.leadId === h.id);
+  if (c) return clientFolder(c);
+  if (h.driveFolder) return h.driveFolder;
+  const r = await S.mcp.callTool('Google Drive', 'create_file', { title: 'הר-אל השקעות — ' + (h.name || ''), mimeType: 'application/vnd.google-apps.folder', parentId: S.settings.scanFolderId || SCAN_ROOT }, { cache: false }).catch(() => null);
+  let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+  const fid = p && (p.id || p.fileId || (p.file && p.file.id)); if (!fid) return null;
+  await leadPatch(h.id, { driveFolder: fid }, 'נפתחה תיקייה בדרייב', true); return fid;
+}
+
+/* ── אפיון לקוח (הטופס של הר-אל השקעות) — המתאם ממלא לפני הפגישה ושולח לאנליסט; נשמר כ-PDF בתיקייה ── */
+const RE_PROFILE = [
+  ['לקוח א׳', [['a_name', 'שם מלא'], ['a_idn', 'ת.ז.'], ['a_phone', 'טלפון'], ['a_email', 'מייל'], ['a_emp', 'עיסוק', ['שכיר', 'עצמאי', 'אחר']], ['a_income', 'הכנסה חודשית נטו (₪)', 'num']]],
+  ['לקוח ב׳', [['b_name', 'שם מלא'], ['b_idn', 'ת.ז.'], ['b_phone', 'טלפון'], ['b_email', 'מייל'], ['b_emp', 'עיסוק', ['שכיר', 'עצמאי', 'אחר']], ['b_income', 'הכנסה חודשית נטו (₪)', 'num']]],
+  ['הכנסות', [['income', 'סה״כ הכנסות (₪)', 'num']]],
+  ['נכס בבעלות', [['p_address', 'כתובת הנכס'], ['p_value', 'שווי הנכס (₪)', 'num'], ['p_mortgage', 'יתרת משכנתא (₪)', 'num'], ['p_monthly', 'החזר חודשי (₪)', 'num'], ['p_none', 'ללא משכנתא', ['כן', 'לא']]]],
+  ['הון עצמי וחסכונות', [['equity', 'הון עצמי (₪)', 'num'], ['pension', 'קרן פנסיה (₪)', 'num'], ['study', 'קרן השתלמות (₪)', 'num'], ['otherSav', 'אחר (₪)', 'num']]],
+  ['הלוואות נוספות', [['bankLoan', 'הלוואה בנקאית (₪)', 'num'], ['otherLoan', 'חוץ בנקאית (₪)', 'num']]],
+  ['עוד', [['goal', 'מה הלקוח רוצה (מטרה, אזור, תקציב)', 'ta'], ['notes', 'הערות המתאם לאנליסט', 'ta']]],
+];
+const RE_PROFILE_KEYS = RE_PROFILE.flatMap(([, fs0]) => fs0.map((f) => f[0]));
+const profTotal = (p) => n(p.income) || n(p.a_income) + n(p.b_income);
+function reProfileCard(l) {
+  const p = l.profile || {}, filled = RE_PROFILE_KEYS.filter((k) => p[k] != null && p[k] !== '').length, w = S.canTask;
+  const show = [['שם', p.a_name || l.name], ['הכנסות', profTotal(p) ? plain(profTotal(p)) : ''], ['הון עצמי', p.equity ? plain(p.equity) : ''], ['נכס', p.p_value ? plain(p.p_value) + (p.p_mortgage ? ' · משכנתא ' + plain(p.p_mortgage) : '') : ''], ['מטרה', p.goal || '']].filter((x) => x[1]);
+  return '<section class="card"><header><h2>אפיון לקוח</h2>' + (filled ? '<span class="pill ' + (filled >= 8 ? 'actual' : 'expected') + '">' + filled + ' שדות</span>' : '<span class="pill open">לא מולא</span>') +
+    (p.sentAt ? '<span class="pill committed">נשלח לאנליסט ' + dLabel(dayOf(p.sentAt)) + '</span>' : '') + '<span class="grow"></span>' +
+    (w ? '<button class="btn small primary" data-profile="' + esc(l.id) + '">' + (filled ? 'עריכה' : 'מילוי אפיון') + '</button>' : '') +
+    (filled && w ? '<button class="btn small" data-profpdf="' + esc(l.id) + '">PDF לתיקייה</button><button class="btn small" data-profsend="' + esc(l.id) + '">שלח לאנליסט</button>' : '') + '</header>' +
+    (show.length ? '<table class="kv"><tbody>' + show.map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v) + '</td></tr>').join('') + '</tbody></table>' : '<p class="hint">המתאם ממלא לפני הפגישה — בשדות, או במלל חופשי ו-Claude ממלא את השדות (אתה מאשר).</p>') +
+    (p.pdf ? '<p class="hint">' + linkify(p.pdf.url) + ' · ' + dLabel(dayOf(p.pdf.at)) + '</p>' : '') + '</section>';
+}
+function formProfile(lid) {
+  const l = S.leads.get(lid); if (!l) return; const p = { a_name: l.name || '', a_phone: normPhone(l.phone) || '', a_email: l.email || '', equity: '', ...(l.profile || {}) };
+  const fld = ([k, label, t]) => Array.isArray(t) ? fs(k, label, [['', '—'], ...t.map((o) => [o, o])], p[k] || '') : t === 'ta' ? ft(k, label, p[k] || '') : fi(k, label, p[k] != null ? p[k] : '', t === 'num' ? 'number' : 'text', t === 'num' ? 'min="0" step="1"' : '');
+  drawer('אפיון לקוח — ' + (l.name || ''), '<div class="full"><label class="fl full">מלל חופשי (מהשיחה) — Claude ימלא ממנו את השדות למטה<textarea class="f" id="profFree" rows="4" placeholder="למשל: זוג, הוא שכיר 14 אלף נטו, היא עצמאית 9 אלף, דירה בחולון שווה 2.4 מיליון עם משכנתא 600 אלף, החזר 3,800, הון עצמי 350 אלף…"></textarea></label>' +
+    '<button type="button" class="btn small" id="profAi">Claude: מלא את השדות מהמלל</button> <span class="hint" id="profAiSt"></span></div>' +
+    RE_PROFILE.map(([g, fs0]) => '<h3 class="sec full">' + g + '</h3>' + fs0.map(fld).join('')).join(''),
+  async (fd) => { const prof = { ...(l.profile || {}) }; RE_PROFILE_KEYS.forEach((k) => { const v = String(fd[k] == null ? '' : fd[k]).trim(); prof[k] = v === '' ? null : v; });
+    prof.by = S.myKey || null; prof.at = stamp(); if (S._profAi) prof.ai = true; S._profAi = false;
+    await leadPatch(lid, { profile: prof, ...(prof.a_email && !l.email ? { email: prof.a_email } : {}) }, 'אפיון לקוח עודכן', true); toast('האפיון נשמר'); }, '', 'שמור אפיון');
+  S._profAi = false;
+  $('profAi').addEventListener('click', async () => {
+    const txt = ($('profFree').value || '').trim(); if (txt.length < 20) return ($('profAiSt').textContent = 'כתוב קודם מה ידוע על הלקוח');
+    const sample = await claude.use('sample').catch(() => null); if (!sample) return ($('profAiSt').textContent = 'Claude לא זמין בתצוגה הזו');
+    $('profAiSt').textContent = 'Claude ממלא…';
+    try { const r = await sample.json('מלא טופס אפיון לקוח נדל״ן מהמלל. החזר JSON עם המפתחות האלה בלבד, ורק את מה שנאמר במפורש (בלי לנחש). סכומים בשקלים כמספר שלם (אלף = 1000, מיליון = 1000000). עיסוק: שכיר / עצמאי / אחר. p_none: "כן" אם נאמר שאין משכנתא.\nמפתחות: ' +
+        RE_PROFILE.flatMap(([, fs0]) => fs0.map((f) => f[0] + ' = ' + f[1])).join('; ') + '\n\nהמלל:\n' + txt.slice(0, 8000), { modelTier: 'default', cache: false });
+      let k0 = 0; for (const k of RE_PROFILE_KEYS) { const v = r && r[k]; if (v == null || v === '') continue; const el = $('d_' + k); if (!el) continue; el.value = String(v); el.style.background = 'var(--expected-bg)'; k0++; }
+      S._profAi = k0 > 0; $('profAiSt').textContent = k0 ? k0 + ' שדות מולאו (מסומנים) — בדוק ושמור' : 'לא נמצאו שדות במלל';
+    } catch (e) { $('profAiSt').textContent = 'לא הצליח: ' + ((e && e.message) || ''); }
+  });
+}
+function profileHtml(l) {
+  const p = l.profile || {}, v = (k, t) => (p[k] == null || p[k] === '' ? '—' : t === 'num' ? plain(p[k]) : esc(p[k]));
+  return '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:28px 34px;background:#fff">' +
+    '<div style="display:flex;align-items:center;gap:16px;border-bottom:3px solid #26AFA4;padding-bottom:12px">' + LOGO_RE.replace('<svg ', '<svg style="height:54px;width:auto;color:#071D26" ') + '<div style="margin-inline-start:auto;text-align:left;font-size:13px;color:#4B5563">תאריך: ' + dLabel(dayOf(p.at || stamp())) + '</div></div>' +
+    '<h1 style="font-size:24px;color:#17695E;margin:16px 0 6px">טופס אפיון</h1><p style="margin:0 0 14px;color:#4B5563;font-size:13px">' + esc(l.name || '') + (p.by ? ' · מילא: ' + esc(L.resp[p.by] || p.by) : '') + '</p>' +
+    RE_PROFILE.map(([g, fs0]) => '<div data-pk style="border:1px solid #DDE2EA;border-radius:10px;padding:10px 14px;margin:0 0 10px"><h2 style="font-size:15px;color:#17695E;margin:0 0 6px">' + g + '</h2><table style="width:100%;border-collapse:collapse;font-size:13.5px">' +
+      fs0.map(([k, label, t]) => '<tr><td style="padding:4px 0;color:#4B5563;width:42%">' + label + '</td><td style="padding:4px 0;font-weight:600">' + (t === 'ta' ? '<span style="white-space:pre-wrap">' + v(k) + '</span>' : v(k, t)) + '</td></tr>').join('') + '</table></div>').join('') +
+    (profTotal(p) ? '<div data-pk style="background:#EEEBFF;border-radius:10px;padding:10px 14px;font-weight:700">סה״כ הכנסות: ' + plain(profTotal(p)) + '</div>' : '') + '</div>';
+}
+async function profilePdf(lid) {
+  const l = S.leads.get(lid); if (!l || !l.profile) return;
+  if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(profileHtml(l)); } catch (e) { return toast('לא הצלחתי להכין PDF'); }
+  try { const folder = await reFolder({ lead: lid });
+    const r = await S.mcp.callTool('Google Drive', 'create_file', { title: 'אפיון — ' + (l.name || '') + ' — ' + today() + '.pdf', base64Content: b64Of(bytes), contentMimeType: 'application/pdf', disableConversionToGoogleType: true, ...(folder ? { parentId: folder } : {}) }, { cache: false });
+    let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+    const fid = p && (p.id || p.fileId || (p.file && p.file.id)), url = (p && (p.viewUrl || p.webViewLink || p.alternateLink)) || (fid ? 'https://drive.google.com/file/d/' + fid + '/view' : '');
+    await leadPatch(lid, { profile: { ...l.profile, pdf: { url, driveId: fid || null, at: stamp() } } }, 'אפיון — PDF נשמר בתיקייה', true); toast('ה-PDF נשמר בתיקיית הלקוח');
+  } catch (e) { toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'השמירה בדרייב נכשלה'); }
+}
+/* שליחה לאנליסט: משימה אצלו לפני הפגישה הקרובה, עם הקישור ל-PDF */
+async function profileSend(lid) {
+  const l = S.leads.get(lid); if (!l || !l.profile) return;
+  const next = allMeetings().filter((m) => m.ref.lead === lid && m.status === 'set').sort((a, b) => String(a.at).localeCompare(String(b.at)))[0];
+  const an = (next && next.analyst) || (reAnalysts()[0] || {}).key; if (!an) return toast('אין אנליסט — קבע קודם פגישה');
+  const id = 'prof-' + slug(lid + '|' + (next ? next.id : 'x')), p = l.profile, due = next ? String(next.at).slice(0, 10) : today();
+  await write('tasks/' + id, { id, ruleKey: 'profile-send:' + lid + ':' + (next ? next.id : 'x'), auto: true, title: 'לקרוא אפיון לפני הפגישה — ' + (l.name || '') + (next ? ' · ' + String(next.at).slice(11, 16) : ''), resp: an, due, time: next ? String(next.at).slice(11, 16) : null, priority: 'high', leadId: lid, division: 'realestate',
+    notes: ['הכנסות: ' + (profTotal(p) ? plain(profTotal(p)) : '—'), 'הון עצמי: ' + (p.equity ? plain(p.equity) : '—'), p.goal ? 'מטרה: ' + p.goal : '', p.notes ? 'מהמתאם: ' + p.notes : '', p.pdf ? 'PDF: ' + p.pdf.url : 'ה-PDF עוד לא נשמר בתיקייה'].filter(Boolean).join('\n'), status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() });
+  await leadPatch(lid, { profile: { ...p, sentAt: stamp(), sentTo: an } }, 'אפיון נשלח לאנליסט ' + anLabel(an), true); toast('נשלח ל' + anLabel(an) + ' — משימה ליום הפגישה');
+}
+/* הגדרות: אנליסטים (יומן + חדר זום), כתובת משרד, תשלום, הודעות */
+function reCfgCard() {
+  if (!(S.isOwner && canSeeDiv('realestate'))) return ''; const c = reCfg(), A = reAnalysts(), w = S.canWrite;
+  const row = (a, i) => '<tr><td><input class="f" data-recfg="label" data-i="' + i + '" value="' + esc(a.label || '') + '" aria-label="שם"></td><td><input class="f" dir="ltr" data-recfg="email" data-i="' + i + '" value="' + esc(a.email || '') + '" placeholder="name@gmail.com" aria-label="מייל היומן"></td>' +
+    '<td><input class="f" dir="ltr" data-recfg="zoom" data-i="' + i + '" value="' + esc(a.zoom || '') + '" placeholder="https://zoom.us/j/…" aria-label="חדר זום"></td><td><input class="f" dir="ltr" data-recfg="key" data-i="' + i + '" value="' + esc(a.key || '') + '" style="width:90px" aria-label="מזהה"></td></tr>';
+  return '<section class="card"><header><h2>השקעות — פגישות ותמחור</h2></header><p class="hint" style="margin:-4px 0 8px">האנליסטים לוקחים את הפגישות. המייל = היומן שאליו נכנסת הפגישה (צריך שהיומן ישותף עם דן בהרשאת עריכה). המזהה = האחראי במערכת (למשל yishai), או שם חופשי למי שאין לו משתמש.</p>' +
+    '<div class="scroll"><table id="reCfgT"><thead><tr><th>אנליסט</th><th>מייל היומן</th><th>חדר זום קבוע</th><th>מזהה</th></tr></thead><tbody>' + [...A, { key: '', label: '', email: '', zoom: '' }].map(row).join('') + '</tbody></table></div>' +
+    '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl grow">כתובת המשרד (פגישה פרונטלית)<input class="f" id="reOffice" value="' + esc(c.office || '') + '"></label>' +
+      '<label class="fl">שעות לתיאום<input class="f" id="reFrom" type="time" value="' + esc((c.hours || {}).from || '09:00') + '"></label><label class="fl">עד<input class="f" id="reTo" type="time" value="' + esc((c.hours || {}).to || '21:00') + '"></label>' +
+      '<label class="fl">פגישה פרונטלית (₪)<input class="f num" id="reFee" type="number" min="0" value="' + esc(c.frontalFee) + '" style="width:110px"></label></div>' +
+    '<label class="fl">קישור לתשלום באשראי (מערכת הסליקה)<input class="f" dir="ltr" id="rePay" value="' + esc(c.payUrl || '') + '" placeholder="https://…"></label>' +
+    '<label class="fl">שירותים נלווים — שורה לכל שירות: שם | מחיר<textarea class="f" id="reSvcs" rows="3">' + esc(reSvcList().map((x) => x.name + ' | ' + (x.price != null ? x.price : '')).join('\n')) + '</textarea></label>' +
+    '<label class="fl">הודעת אישור ללקוח<textarea class="f" id="reMsgC" rows="2">' + esc((c.msg || {}).confirm || RE_MSG.confirm) + '</textarea></label>' +
+    '<label class="fl">תזכורת יום לפני<textarea class="f" id="reMsgR" rows="2">' + esc((c.msg || {}).remind || RE_MSG.remind) + '</textarea></label>' +
+    '<p class="hint">בהודעות: {שם} {סוג} {אנליסט} {יום} {תאריך} {שעה} {פרטים} — פרטים = קישור לזום או כתובת.</p>' +
+    (w ? '<button class="btn small primary" data-act="reCfgSave">שמור</button>' : '') + '</section>';
+}
+async function reCfgSave() {
+  const rows = [...document.querySelectorAll('#reCfgT tbody tr')].map((tr) => Object.fromEntries([...tr.querySelectorAll('[data-recfg]')].map((x) => [x.dataset.recfg, x.value.trim()])))
+    .filter((r) => r.label).map((r) => ({ ...r, key: r.key || slug(r.label) }));
+  await write('settings/main', { reCfg: { ...reCfg(), analysts: rows, office: $('reOffice').value.trim(), hours: { from: $('reFrom').value || '09:00', to: $('reTo').value || '21:00' }, frontalFee: n($('reFee').value), payUrl: $('rePay').value.trim(),
+    services: $('reSvcs').value.split('\n').map((x) => x.split('|')).filter((x) => String(x[0] || '').trim()).map(([nm, pr]) => ({ name: nm.trim(), price: String(pr || '').trim() === '' ? null : r2(String(pr).replace(/[^\d.]/g, '')) })),
+    msg: { confirm: $('reMsgC').value.trim() || RE_MSG.confirm, remind: $('reMsgR').value.trim() || RE_MSG.remind } } }, 'update');
+  rows.forEach((r) => { if (!L.resp[r.key]) L.resp[r.key] = r.label; }); toast('נשמר');
+}
+/* מדדים: מתאם ↔ אנליסט — כמה נקבעו, כמה הגיעו (שכר וסטטיסטיקה) */
+function reMeetStats(p) {
+  const M = allMeetings(), now = localNow(), due = M.filter((m) => inP(m.at, p) && String(m.at).slice(0, 16) <= now && m.status !== 'canceled');
+  const by = (k) => { const o = {}; const add = (key, f) => { if (!key) return; const r = (o[key] = o[key] || { set: 0, due: 0, held: 0, noshow: 0, open: 0, analystIn: 0, noSum: 0, zoomHeld: 0, frontalHeld: 0 }); f(r); };
+    M.filter((m) => !m.legacy && inP(m.createdAt, p)).forEach((m) => add(m[k], (r) => r.set++));
+    due.forEach((m) => add(m[k], (r) => { r.due++; if (m.status === 'held') { r.held++; if (m.kind === 'zoom') r.zoomHeld++; if (m.kind === 'frontal') r.frontalHeld++; if (m.analystIn) r.analystIn++; if (!(m.summary && m.summary.text) && !m.legacy) r.noSum++; } else if (m.status === 'noshow') r.noshow++; else r.open++; }));
+    return o; };
+  return { setter: by('setter'), analyst: by('analyst'), due };
+}
+function reMeetStatsCard(p) {
+  const st = reMeetStats(p), tbl = (o, title, lab, cols) => { const ks = Object.keys(o); if (!ks.length) return '';
+    return '<section class="card"><header><h2>' + title + '</h2><span class="hint">' + esc(p.label) + ' · "הגיעו" = מתוך הפגישות שמועדן עבר</span></header><div class="scroll"><table><thead><tr><th>' + lab + '</th>' + cols.map((c) => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>' +
+      ks.sort((a, b) => o[b].due - o[a].due).map((k) => '<tr><td>' + esc(lab === 'אנליסט' ? anLabel(k) : L.resp[k] || k) + '</td>' + cols.map((c) => '<td class="num">' + c[1](o[k]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div></section>'; };
+  return tbl(st.setter, 'מתאמים — תואמו מול הגיעו', 'מתאם', [['תואמו', (r) => r.set], ['מועד עבר', (r) => r.due], ['הגיעו', (r) => '<b>' + r.held + '</b>'], ['לא הגיעו', (r) => r.noshow], ['לא סומן', (r) => r.open ? '<span class="pill expected">' + r.open + '</span>' : 0], ['יחס הגעה', (r) => rePct(r.held, r.held + r.noshow)]]) +
+    tbl(st.analyst, 'אנליסטים — פגישות, עלייה וסיכומים', 'אנליסט', [['מועד עבר', (r) => r.due], ['התקיימו', (r) => '<b>' + r.held + '</b>'], ['זום', (r) => r.zoomHeld], ['פרונטלית', (r) => r.frontalHeld], ['עלה לפגישה', (r) => rePct(r.analystIn, r.held)], ['חסר סיכום', (r) => r.noSum ? '<span class="pill open">' + r.noSum + '</span>' : 0]]);
+}
+/* ── שלבי העסקה לפי הזרימה של דן (15/10): זום → פרונטלית (2,000 ₪) → בלעדיות והסכם → פגישת התקדמות והכנסות → השלמת מסמכים →
+   הכנת נכסים (אביב) → הצגת תוכנית → עו״ד וטופס הרשמה ליזם → מוכן להרשמה → הרשמה אצל היזם וגביה → נסגר.
+   מפתחות ישנים (לפני 15/10) מתורגמים — stepV: 2 מסמן שלב שנקבע בזרימה החדשה. ── */
+const RE_STEP_OLD = { summary: 'exclusive', plan: 'planMeet', second: 'progress', lawyerMeet: 'lawyer' };
+function reZoomHeld(c) { const r = reOf(c), l = c.leadId && S.leads.get(c.leadId); return !!(r.zoomAttended || (l && l.zoom && l.zoom.attended) || ((l && l.meetings) || r.meetings || []).some((m) => m.kind === 'zoom' && m.status === 'held')); }
+function reStep(c) { const r = reOf(c); if (r.step && r.stepV === 2) return r.step; if (!r.step || r.step === 'docs') return reZoomHeld(c) ? 'frontal' : 'zoom'; return RE_STEP_OLD[r.step] || r.step; }
+const reStepIdx = (k) => RE_STEPS.findIndex((x) => x[0] === k);
+/* פגישה שהתקיימה מקדמת את התיק (רק קדימה) */
+const MEET_NEXT_STEP = { zoom: 'frontal', frontal: 'exclusive', progress: 'docs', plan: 'lawyer' };
+async function reAdvanceFromMeet(ref, m) {
+  const h = meetHolder(ref), c = ref.client ? h : h && ((h.clientId && S.clients.get(h.clientId)) || live(S.clients).find((x) => x.leadId === h.id)); if (!c) return;
+  const to = MEET_NEXT_STEP[m.kind]; if (to && reStepIdx(to) > reStepIdx(reStep(c))) await reSet(c, { step: to }, 'שלב: ' + RE_STEPS[reStepIdx(to)][1] + ' (אחרי ' + (MEET_KINDS[m.kind] || [m.kind])[0] + ')');
+}
+/* כלכלת העסקה — הערכה לפי ההנחות של דן; כל סכום ניתן לדריסה בתיק */
+const RE_SVC_DEFAULT = [{ name: 'יעוץ משכנתאות', price: null }, { name: 'עו״ד', price: null }, { name: 'הלוואת קבלן', price: null }];
+const reSvcList = () => (reCfg().services && reCfg().services.length ? reCfg().services : RE_SVC_DEFAULT);
+function reDeal(c) {
+  const r = reOf(c), base = n(c.baseAmount), vat = VATR(), feeNet = n(c.fee) > 0 ? n(c.fee) : r2(base * (n(c.feePct) || 0.02));
+  const devPct = r.devPct != null && r.devPct !== '' ? n(r.devPct) : 1, devGross = r2(base * devPct / 100), devNet = r2(devGross / (1 + vat));
+  const deps = live(S.transactions).filter((t) => t.clientId === c.id && t.nature === 'income' && t.category === DEPOSIT_CAT), frontalPaid = r2(deps.reduce((a, t) => a + n(t.gross || t.net), 0));
+  const analyst = r.analystCost != null && r.analystCost !== '' ? n(r.analystCost) : base ? (base >= 2e6 ? 10000 : 8000) : 0;
+  const coord = commRowsForClient(c).filter((x) => x.event === 'close').reduce((a, x) => a + n(x.amount), 0) || (base ? 1500 : 0);
+  const income = r2(feeNet + devNet), coop = r.coopMode === 'pct' ? r2(income * n(r.coopValue) / 100) : n(r.coopValue);
+  const svc = r.services || [], svcIn = r2(svc.filter((s) => s.payer === 'client').reduce((a, s) => a + n(s.price), 0)), svcOut = r2(svc.filter((s) => s.payer === 'us').reduce((a, s) => a + n(s.price), 0));
+  const net = r2(income + svcIn - analyst - coord - coop - svcOut);
+  return { base, feeNet, feeGross: r2(feeNet * (1 + vat)), devPct, devGross, devNet, frontalPaid, frontalFee: n(reCfg().frontalFee) || 2000, analyst, coord, coop, svcIn, svcOut, income, net };
+}
+function reDealCard(c) {
+  const r = reOf(c), D = reDeal(c), w = S.canWrite || (S.isOwner && S.canTask), m = (v, t) => money(v, { tone: t || 'muted' });
+  const inp = (k, label, val, attrs = '') => '<label class="fl">' + label + '<input class="f num" type="number" data-ref="' + k + '" value="' + esc(val == null ? '' : val) + '" ' + attrs + (w ? '' : ' disabled') + '></label>';
+  const svc = r.services || [];
+  return '<div class="ppanel"><h3 class="sec">כלכלת העסקה <span class="hint">· הערכה לפני מע״מ · כל סכום ניתן לשינוי</span></h3>' +
+    '<div class="row" style="align-items:flex-end"><label class="fl">שווי הדירה (₪)<input class="f num" type="number" min="0" data-cbase="' + esc(c.id) + '" value="' + esc(c.baseAmount || '') + '"' + (w ? '' : ' disabled') + '></label>' +
+      inp('devPct', 'עמלת יזם % (כולל מע״מ)', r.devPct != null ? r.devPct : 1, 'step="0.1" min="0" style="width:90px"') + inp('analystCost', 'עלות איש מכירות', r.analystCost, 'min="0" placeholder="' + (D.base >= 2e6 ? '10,000' : '8,000') + '"') + '</div>' +
+    '<table class="kv wrap"><tbody>' +
+      '<tr><th>שכ״ט 2% + מע״מ</th><td>' + m(D.feeNet, 'expected') + '<br><span class="hint">כולל מע״מ ' + plain(D.feeGross) + '</span></td></tr>' +
+      '<tr><th>עמלת יזם ' + D.devPct + '%</th><td>' + m(D.devNet, 'expected') + '<br><span class="hint">כולל מע״מ ' + plain(D.devGross) + ' · שוטף+30</span></td></tr>' +
+      '<tr><th>פגישה פרונטלית</th><td>' + (D.frontalPaid ? m(D.frontalPaid, 'actual') : '<span class="pill open">לא שולם · ' + plain(D.frontalFee) + '</span>') + '</td></tr>' +
+      (D.svcIn ? '<tr><th>שירותים נלווים (הלקוח משלם)</th><td>' + m(D.svcIn, 'expected') + '</td></tr>' : '') +
+      '<tr><th>איש מכירות</th><td>' + m(-D.analyst) + '</td></tr><tr><th>מתאם (סגירה מלאה)</th><td>' + m(-D.coord) + '</td></tr>' +
+      (D.coop ? '<tr><th>שיתוף פעולה' + (r.coopName ? ' — ' + esc(r.coopName) : '') + '</th><td>' + m(-D.coop) + '</td></tr>' : '') +
+      (D.svcOut ? '<tr><th>שירותים על חשבוננו</th><td>' + m(-D.svcOut) + '</td></tr>' : '') +
+      '<tr><th><b>נשאר להר-אל</b></th><td><b>' + m(D.net, D.net < 0 ? 'open' : 'committed') + '</b></td></tr></tbody></table>' +
+    '<div class="row" style="align-items:flex-end"><label class="fl">שיתוף פעולה — עם מי<input class="f" data-ref="coopName" value="' + esc(r.coopName || '') + '"' + (w ? '' : ' disabled') + '></label>' +
+      '<label class="fl">לפי<select class="f" data-ref="coopMode"' + (w ? '' : ' disabled') + '><option value="amount"' + (r.coopMode !== 'pct' ? ' selected' : '') + '>סכום (₪)</option><option value="pct"' + (r.coopMode === 'pct' ? ' selected' : '') + '>% מההכנסה מהעסקה</option></select></label>' + inp('coopValue', 'כמה', r.coopValue, 'min="0" step="0.1" style="width:100px"') + '</div>' +
+    '<h3 class="sec">שירותים נלווים</h3>' + (svc.length ? '<div class="scroll"><table><tbody>' + svc.map((s, i) => '<tr><td class="wide">' + esc(s.name) + (s.note ? ' <span class="hint">' + esc(s.note) + '</span>' : '') + '</td><td>' + (s.price != null ? plain(s.price) : '—') + '</td><td><span class="pill ' + (s.payer === 'us' ? 'expected' : 'committed') + '">' + (s.payer === 'us' ? 'על חשבוננו' : 'הלקוח משלם') + '</span></td>' + (w ? '<td><button class="btn small ghost danger" data-rmsvc="' + i + '">הסר</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>' : '<p class="hint">אין. יעוץ משכנתאות, עו״ד, הלוואת קבלן — הלקוח משלם בנפרד או שאנחנו מממנים; רושמים כאן.</p>') +
+    (w ? '<button class="btn small" data-act="reSvc">+ שירות נלווה</button>' : '') + '</div>';
+}
+function formReSvc(c) {
+  const L0 = reSvcList();
+  drawer('שירות נלווה — ' + c.name, fi('name', 'שירות', L0[0] ? L0[0].name : '', 'text', 'list="reSvcL" required') + dl('reSvcL', L0.map((s) => s.name)) + fi('price', 'מחיר (₪)', L0[0] && L0[0].price != null ? L0[0].price : '', 'number', 'min="0" step="1"') +
+    fs('payer', 'מי משלם', [['client', 'הלקוח (נגבה ממנו)'], ['us', 'על חשבוננו']], 'client') + fi('note', 'הערה', ''), async (fd) => {
+    if (!String(fd.name || '').trim()) return 'חסר שם שירות';
+    const s = { id: uid(), name: fd.name.trim(), price: fd.price === '' ? null : r2(fd.price), payer: fd.payer, note: fd.note || '', at: stamp(), by: S.myKey || null };
+    await reSet(c, { services: [...(reOf(c).services || []), s] }, 'שירות נלווה: ' + s.name + (s.price != null ? ' · ' + plain(s.price) : '') + ' · ' + (s.payer === 'us' ? 'על חשבוננו' : 'הלקוח משלם')); });
+  const nm = $('d_name'), pr = $('d_price'); nm.addEventListener('change', () => { const s = L0.find((x) => x.name === nm.value.trim()); if (s && s.price != null && !pr.value) pr.value = s.price; });
+}
+/* מה עכשיו — לפי השלב: הפעולות של השלב במקום אחד */
+function reNowPanel(c) {
+  const r = reOf(c), st = reStep(c), w = S.canTask, cfg = reCfg(), lead = c.leadId && S.leads.get(c.leadId), refS = lead ? 'l:' + lead.id : 'c:' + c.id;
+  const cb = (k, label) => '<label class="check" style="border:0"><input type="checkbox" class="cb" data-ref="' + k + '"' + (r[k] ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + label + '</span></label>';
+  const pay = cfg.payUrl ? waTo(c.phone, 'שלום ' + String(c.name || '').split(' ')[0] + ', לתשלום עבור הפגישה והתוכנית (' + plain(n(cfg.frontalFee) || 2000) + ') באשראי: ' + cfg.payUrl) : '';
+  const meet = (kind, label) => (w ? '<button class="btn small" data-meetnew="' + esc(refS) + '" data-kind="' + kind + '">' + label + '</button>' : '');
+  const P = {
+    zoom: '<p>לתאם זום — "תיאום פגישה" בכרטיס הפגישות. המתאם ממלא אפיון ושולח לאנליסט.</p>' + meet('zoom', 'תיאום זום'),
+    frontal: '<p>פגישה פרונטלית — ' + plain(n(cfg.frontalFee) || 2000) + ' (עלות התוכנית + דמי רצינות).</p><div class="row">' + meet('frontal', 'תיאום פגישה פרונטלית') + (pay ? '<a class="btn small" href="' + esc(pay) + '" target="_blank" rel="noopener">קישור לתשלום בוואטסאפ</a>' : '<span class="hint">אין קישור סליקה — הגדרות ← השקעות</span>') + (S.isOwner && S.canWrite ? '<button class="btn small" data-act="reDeposit">+ רישום תשלום</button>' : '') + '</div>',
+    exclusive: '<p>חתימה על בלעדיות והסכם — דיגיטלית (חתימה ירוקה, בתבניות הטפסים) או טופס ידני שנסרק.</p><div class="row">' + cb('exclusiveSigned', 'בלעדיות נחתמה') + scanBtn('proc', 'בלעדיות', 'סריקת בלעדיות') + cb('agreementSigned', 'הסכם נחתם') + scanBtn('proc', 'הסכם', 'סריקת הסכם') + '</div>' + scanList(c, 'בלעדיות') + scanList(c, 'הסכם'),
+    progress: '<p>פגישת התקדמות ראשונה — תיעוד, ובחינת הכנסות לפי האפיון.</p><div class="row">' + meet('progress', 'תיאום פגישת התקדמות') + (lead ? '<button class="btn small" data-profile="' + esc(lead.id) + '">אפיון והכנסות</button>' : '') + '</div>',
+    docs: '<p>השלמת מסמכים — הכל לתיקיית הלקוח בדרייב.</p>' + (c.driveFolder ? '<a class="btn small" target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/' + esc(c.driveFolder) + '">פתח תיקייה</a>' : ''),
+    prep: '<p>הכנת נכסים — אביב, לפי תבנית התוכנית ומדף הנכסים (ההתאמה האוטומטית — בהמשך).</p>' + (w ? '<button class="btn small" data-reprep="' + esc(c.id) + '">' + (r.prepSentAt ? 'נשלח לאביב ' + dLabel(dayOf(r.prepSentAt)) + ' · שוב' : 'שלח לאביב להכנת נכסים') + '</button>' : ''),
+    planMeet: '<p>פגישת הצגת תוכנית.</p><div class="row">' + meet('plan', 'תיאום הצגת תוכנית') + cb('planYes', 'הלקוח אמר כן') + '</div>',
+    lawyer: '<p>תיאום עו״ד, צילום ושליחה ליזם של טופס ההרשמה (מוכן מראש בטפסים לחתימה ירוקה).</p><div class="row">' + meet('lawyer', 'תיאום פגישה עם עו״ד') + cb('regFormSent', 'טופס הרשמה נשלח ליזם') + scanBtn('proc', 'טופס הרשמה', 'סריקת טופס') + '</div>' + scanList(c, 'טופס הרשמה'),
+    ready: '<p>העו״ד סגר — מוכן להרשמה אצל היזם.</p>',
+    register: '<p>הרשמה אצל היזם וגביה: 2% + מע״מ מהלקוח, ועמלת היזם.</p><div class="row">' + cb('devSigned', 'חתם אצל היזם') + cb('devPaid', 'שילם') + '</div>',
+    closed: '<p>נסגר. אחרי הגביה — לפעמים יעוץ משכנתאות, הלוואת קבלן וכו׳ (שירותים נלווים למטה).</p>',
+  };
+  return '<div class="ppanel" style="border-inline-start:3px solid var(--brand-accent)"><h3 class="sec">עכשיו: ' + esc((RE_STEPS[reStepIdx(st)] || [st, st])[1]) + '</h3>' + (P[st] || '') +
+    '<h3 class="sec" style="margin-top:12px">העברה לתפעול שלנו (פתרונות)</h3><div class="row" style="align-items:flex-end"><label class="fl">צריך משכנתא עד<input class="f" type="date" data-ref="mortgageBy" value="' + esc(r.mortgageBy || '') + '"' + (w ? '' : ' disabled') + '></label>' +
+      (w ? '<button class="btn small" data-rehand="' + esc(c.id) + '|mortgage">העבר עכשיו — משכנתא</button><button class="btn small" data-rehand="' + esc(c.id) + '|equity">חילוץ הון עצמי — מיידי</button>' : '') + '</div>' +
+    ((r.handoffs || []).length ? '<p class="hint">' + r.handoffs.map((x) => (x.kind === 'equity' ? 'חילוץ הון' : 'משכנתא') + ' → פתרונות · ' + dLabel(dayOf(x.at)) + (x.leadId && S.leads.get(x.leadId) ? ' · <button class="xlink" data-lead="' + esc(x.leadId) + '">לליד</button>' : '')).join(' · ') + '</p>' : '<p class="hint">3 חודשים לפני התאריך נפתחת משימה להעביר. חילוץ הון עצמי — עובר מיד.</p>') + '</div>';
+}
+/* העברה לפתרונות: ליד חדש בפתרונות (משכנתא / חילוץ הון), מקושר לתיק בהשקעות */
+async function reHandoff(cid, kind) {
+  const c = S.clients.get(cid); if (!c) return; const id = 'rh-' + slug(cid + '|' + kind + '|' + today());
+  if (S.leads.has(id)) return toast('כבר הועבר היום');
+  const lbl = kind === 'equity' ? 'חילוץ הון עצמי' : 'משכנתא', r = reOf(c);
+  await write('leads/' + id, { id, name: c.name, phone: c.phone || '', email: c.email || '', division: 'finance', ctype: kind === 'equity' ? 'הלוואה לכל מטרה' : 'משכנתא', channel: 'הפניה', campaign: 'הר-אל השקעות — ' + lbl, stage: 'new', resp: null, reFrom: cid,
+    note: lbl + ' — לקוח של הר-אל השקעות' + (r.project ? ' · ' + r.project : '') + (r.mortgageBy ? ' · צריך עד ' + dLabel(r.mortgageBy) : '') + (c.baseAmount ? ' · שווי דירה ' + plain(c.baseAmount) : ''), createdAt: stamp(), by: S.me.id,
+    log: [{ at: stamp(), by: S.me.id, who: whoAmI(), text: 'הועבר מהר-אל השקעות (' + lbl + ')', auto: true }] });
+  await reSet(c, { handoffs: [...(r.handoffs || []), { kind, leadId: id, at: stamp(), by: S.myKey || null }] }, 'הועבר לפתרונות: ' + lbl);
+  toast('נפתח ליד בפתרונות — ' + lbl);
+}
+async function reMortgageTask(c, by) {
+  const id = 'mtg-' + slug(c.id); if (!by) { const t = S.tasks.get(id); if (t && t.status !== 'done') await write('tasks/' + id, { status: 'done', doneAt: stamp(), updatedAt: stamp() }, 'update').catch(() => {}); return; }
+  const due = addDays(by, -90);
+  await write('tasks/' + id, { id, ruleKey: 'mortgage-prep:' + c.id, auto: true, title: '3 חודשים למשכנתא — להעביר לתפעול משכנתאות: ' + c.name, resp: c.resp || 'dan', due: due < today() ? today() : due, priority: 'high', clientId: c.id, division: 'realestate',
+    notes: 'צריך משכנתא עד ' + dLabel(by) + '. בכרטיס: "העבר עכשיו — משכנתא" פותח ליד בפתרונות, ומכינים את הלקוח לבנק.', status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() });
+}
+async function rePrepSend(cid) {
+  const c = S.clients.get(cid); if (!c) return; const aviv = staff().find((p) => p.key === 'aviv') ? 'aviv' : 'dan', id = 'prep-' + slug(cid), lead = c.leadId && S.leads.get(c.leadId), p = (lead && lead.profile) || {};
+  await write('tasks/' + id, { id, ruleKey: 're-prep:' + cid, auto: true, title: 'הכנת נכסים ותוכנית — ' + c.name, resp: aviv, due: addDays(today(), 3), priority: 'high', clientId: cid, division: 'realestate',
+    notes: ['הון עצמי: ' + (p.equity ? plain(p.equity) : '—'), 'הכנסות: ' + (profTotal(p) ? plain(profTotal(p)) : '—'), p.goal ? 'מטרה: ' + p.goal : '', c.driveFolder ? 'תיקייה: https://drive.google.com/drive/folders/' + c.driveFolder : '', p.pdf ? 'אפיון: ' + p.pdf.url : ''].filter(Boolean).join('\n'), status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() });
+  await reSet(c, { prepSentAt: stamp() }, 'נשלח ל' + (L.resp[aviv] || aviv) + ' להכנת נכסים'); toast('נשלח ל' + (L.resp[aviv] || aviv) + ' — משימה ל-3 ימים');
+}
+/* ── שיחות: הרמה מול אפקטיבית (דן, 15/10). לחיצה על מספר טלפון של ליד מפעילה שעון; כשחוזרים למסך (או "סיום") נרשם המשך.
+   פחות מדקה = הרמה, דקה ומעלה = אפקטיבית — אוטומטית. "לא ענה" / תיקון בלחיצה. המשך כולל צלצול — הערכה. ── */
+let CALL = null, CALL_T = null;
+const callFmt = (s) => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+function callBar(html) {
+  let el = document.getElementById('callbar'); if (!html) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'callbar'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.innerHTML = html;
+}
+function callTick() { if (!CALL) return callBar(''); const s = Math.round((Date.now() - CALL.at) / 1000);
+  callBar('<span>📞 ' + esc(CALL.name || '') + ' · <b class="num">' + callFmt(s) + '</b></span><button class="btn small primary" data-callend="auto">סיום שיחה</button><button class="btn small" data-callend="none">לא ענה</button><button class="btn small ghost" data-callend="x" aria-label="בטל רישום">✕</button>'); }
+document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[href^="tel:"]'); if (!a || !S.ready || !S.canTask) return;
+  const ph = normPhone(decodeURIComponent(a.getAttribute('href').slice(4))), l = ph && live(S.leads).find((x) => normPhone(x.phone) === ph); if (!l) return;
+  CALL = { lid: l.id, at: Date.now(), name: l.name }; clearInterval(CALL_T); CALL_T = setInterval(callTick, 1000); callTick(); }, true);
+document.addEventListener('visibilitychange', () => { if (!CALL) return; if (document.visibilityState === 'hidden') CALL.away = true; else if (CALL.away) callEnd('auto'); });
+async function callEnd(how) {
+  const c = CALL; CALL = null; clearInterval(CALL_T); if (!c || how === 'x') return callBar('');
+  const secs = Math.round((Date.now() - c.at) / 1000), kind = how === 'none' ? 'none' : secs >= 60 ? 'effective' : 'pickup', l = S.leads.get(c.lid); if (!l) return callBar('');
+  const rec = { id: uid(), at: stamp(), secs, kind, by: S.myKey || null };
+  await leadPatch(l.id, { calls: [...(l.calls || []), rec].slice(-200) }, 'שיחה ' + callFmt(secs) + ' — ' + CALL_KIND[kind], true);
+  callBar('<span>נרשם: <b>' + CALL_KIND[kind] + '</b> ' + callFmt(secs) + '</span>' + Object.entries(CALL_KIND).filter(([k]) => k !== kind).map(([k, v]) => '<button class="btn small" data-callfix="' + esc(l.id) + '|' + rec.id + '|' + k + '">' + v + '</button>').join('') + '<button class="btn small ghost" data-callend="x" aria-label="סגור">✕</button>');
+  setTimeout(() => { const el = document.getElementById('callbar'); if (el && el.querySelector('[data-callfix]')) callBar(''); }, 12000);
+}
+const CALL_KIND = { none: 'לא ענה', pickup: 'הרמה (פחות מדקה)', effective: 'שיחה אפקטיבית' };
+async function callFix(lid, id, kind) { const l = S.leads.get(lid); if (!l) return; await leadPatch(lid, { calls: (l.calls || []).map((x) => (x.id === id ? { ...x, kind, fixed: true } : x)) }, 'שיחה תוקנה ל' + CALL_KIND[kind], true); callBar(''); toast('תוקן'); }
+/* ── סיכום יום / תקופה לכל אחד — לאביב: שעות, שיחות, תיאומים, פגישות, סגירות, יעד ── */
+function reTeamRows(p) {
+  const M = allMeetings(), F = reFacts(), ppl = staff().filter((x) => x.divs.includes('realestate')), keys = new Set(ppl.map((x) => x.key));
+  reAnalysts().forEach((a) => keys.add(a.key));
+  return [...keys].map((k) => {
+    const att = live(S.attendance).filter((a) => a.key === k && inP(a.date, p)), hours = r2(att.reduce((x, a) => x + attHours(a), 0));
+    const calls = live(S.leads).flatMap((l) => (l.calls || []).filter((c) => c.by === k && inP(c.at, p)));
+    const set = M.filter((m) => !m.legacy && m.setter === k && inP(m.createdAt, p)).length, setZ = M.filter((m) => !m.legacy && m.setter === k && m.kind === 'zoom' && inP(m.createdAt, p)).length;
+    const mine = M.filter((m) => m.analyst === k && inP(m.at, p) && String(m.at).slice(0, 16) <= localNow() && m.status !== 'canceled'), held = mine.filter((m) => m.status === 'held').length;
+    const closed = F.filter((x) => x.closedAt && inP(x.closedAt, p) && (x.setter === k || x.analyst === k || (!x.setter && x.who === k))).length;
+    return { k, label: anLabel(k) !== k ? anLabel(k) : L.resp[k] || k, hours, calls: calls.length, pickup: calls.filter((c) => c.kind === 'pickup').length, eff: calls.filter((c) => c.kind === 'effective').length, talk: calls.reduce((x, c) => x + (c.kind === 'none' ? 0 : n(c.secs)), 0), set, setZ, due: mine.length, held, closed };
+  }).filter((r) => r.hours || r.calls || r.set || r.due || r.closed);
+}
+function reTeamHtml(p, forMail) {
+  const R = reTeamRows(p), T = reTarget(), tgt = T[p.label === 'היום' ? 'day' : p.label === 'השבוע' ? 'week' : 'month'] || 0, F = reFacts(), got = (T.basis === 'set' ? F.filter((x) => inP(x.setAt, p)) : F.filter((x) => inP(x.heldAt, p))).length;
+  const td = forMail ? ' style="padding:4px 8px;border-bottom:1px solid #E6E8EC;text-align:center"' : ' class="num"', th = forMail ? ' style="padding:4px 8px;background:#F1F3F6;font-size:12px"' : '';
+  const head = ['', 'שעות', 'שיחות', 'הרמה', 'אפקטיביות', 'זמן שיחה', 'תואמו', 'מזה זום', 'פגישות שלו', 'הגיעו', 'סגירות'];
+  return (tgt ? '<p' + (forMail ? ' style="margin:0 0 8px"' : '') + '><b>יעד ' + (T.basis === 'set' ? 'זומים שתואמו' : 'זומים שהתקיימו') + ': ' + got + ' / ' + tgt + '</b> (' + rePct(got, tgt) + ')</p>' : '') +
+    '<table' + (forMail ? ' style="border-collapse:collapse;font-size:13px"' : '') + '><thead><tr>' + head.map((h) => '<th' + th + '>' + h + '</th>').join('') + '</tr></thead><tbody>' +
+    (R.length ? R.map((r) => '<tr><td' + (forMail ? ' style="padding:4px 8px;border-bottom:1px solid #E6E8EC"' : '') + '>' + esc(r.label) + '</td><td' + td + '>' + (r.hours ? r.hours.toFixed(1) : '—') + '</td><td' + td + '>' + r.calls + '</td><td' + td + '>' + r.pickup + '</td><td' + td + '><b>' + r.eff + '</b></td><td' + td + '>' + (r.talk ? callFmt(r.talk) : '—') + '</td><td' + td + '>' + r.set + '</td><td' + td + '>' + r.setZ + '</td><td' + td + '>' + r.due + '</td><td' + td + '>' + r.held + ' <small>' + rePct(r.held, r.due) + '</small></td><td' + td + '><b>' + r.closed + '</b></td></tr>').join('') : '<tr><td colspan="11">אין פעילות בתקופה</td></tr>') + '</tbody></table>';
+}
+function reTeamCard(p) {
+  const aviv = anOf('aviv'), mailTo = (aviv && aviv.email) || '';
+  return '<section class="card"><header><h2>מי עשה מה — ' + esc(p.label) + '</h2><span class="hint">שעות מהנוכחות · שיחה מתחת לדקה = הרמה, מעל = אפקטיבית · "פגישות שלו" = כאנליסט, שמועדן עבר</span><span class="grow"></span>' +
+    (S.isOwner ? '<button class="btn small" data-reteammail="' + esc(S.f.reP || 'month') + '"' + (mailTo ? '' : ' disabled title="אין מייל לאביב — הגדרות ← השקעות, שורת אביב"') + '>מייל לאביב</button>' : '') + '</header><div class="scroll">' + reTeamHtml(p) + '</div></section>';
+}
+async function reTeamMail(key) {
+  const p = rePeriod(key), aviv = anOf('aviv'); if (!aviv || !aviv.email) return toast('אין מייל לאביב');
+  const r = await sendMail({ to: [aviv.email], subject: 'הר-אל השקעות — מי עשה מה · ' + p.label + ' (' + dLabel(p.from) + '–' + dLabel(p.to) + ')', html: mailWrap('מי עשה מה — ' + p.label, reTeamHtml(p, true) + '<h3 style="margin:16px 0 6px">יומן האנליסטים — 14 ימים</h3>' + reCalLoadHtml(true)), kind: 'report', ref: 're-team:' + key }).catch(() => null);
+  toast(r ? 'נשלח לאביב' : 'השליחה נכשלה');
+}
+/* ── יומן האנליסטים: כמה פגישות בכל יום ב-14 הימים הקרובים, ימים בלי פגישות (בלי שבת) ── */
+function reCalLoadHtml(forMail) {
+  const M = allMeetings().filter((m) => m.status !== 'canceled'), A = reAnalysts(), days = []; for (let i = 0; days.length < 12 && i < 20; i++) { const d = addDays(today(), i); if (new Date(d + 'T12:00').getDay() !== 6) days.push(d); }
+  const cell = (cnt) => forMail ? '<td style="padding:3px 6px;text-align:center;border:1px solid #E6E8EC;' + (cnt ? '' : 'background:#FEF2F2;color:#B42318') + '">' + (cnt || '—') + '</td>' : '<td class="num' + (cnt ? '' : ' calgap') + '">' + (cnt || '—') + '</td>';
+  return '<table' + (forMail ? ' style="border-collapse:collapse;font-size:12px"' : ' class="calload"') + '><thead><tr><th></th>' + days.map((d) => '<th>' + 'אבגדהוש'[new Date(d + 'T12:00').getDay()] + '׳ ' + d.slice(8, 10) + '/' + d.slice(5, 7) + '</th>').join('') + '<th>סה״כ</th></tr></thead><tbody>' +
+    A.map((a) => { const c = days.map((d) => M.filter((m) => m.analyst === a.key && String(m.at).slice(0, 10) === d).length); return '<tr><td>' + esc(a.label) + '</td>' + c.map(cell).join('') + '<td class="num"><b>' + c.reduce((x, y) => x + y, 0) + '</b></td></tr>'; }).join('') + '</tbody></table>';
+}
+function reCalLoadCard() {
+  if (!reAnalysts().length) return '';
+  return '<section class="card"><header><h2>יומן האנליסטים — 12 ימי עבודה</h2><span class="hint">אדום = יום בלי פגישות · לחץ "תיאום פגישה" בליד כדי למלא</span></header><div class="scroll">' + reCalLoadHtml() + '</div></section>';
+}
+/* ── המשפך המלא לפי קמפיין: עלות ליד, ליד→תיאום, ליד→זום, תיאום→הגעה, זום→פרונטלית, זום→תשלום 2,000, →סגירה ── */
+function reCampRows(p) {
+  const paidC = new Set(live(S.transactions).filter((t) => t.nature === 'income' && t.category === DEPOSIT_CAT && t.clientId).map((t) => t.clientId));
+  const co = reFacts().filter((x) => !x.noLead && inP(x.created, p)), g = {};
+  co.forEach((x) => { const k = (x.l && (x.l.campaign || leadChannel(x.l))) || 'אחר', r = (g[k] = g[k] || { k, leads: 0, cost: 0, set: 0, held: 0, fr: 0, paid: 0, closed: 0 });
+    r.leads++; r.cost += x.l ? leadCostOf(x.l) : 0; if (x.setAt || x.zoomAt) r.set++; if (x.held) r.held++; if (x.frontalDone) r.fr++; if (x.c && paidC.has(x.c.id)) r.paid++; if (x.closedAt) r.closed++; });
+  const rows = Object.values(g).sort((a, b) => b.leads - a.leads), tot = rows.reduce((a, r) => { Object.keys(r).forEach((k) => { if (k !== 'k') a[k] = (a[k] || 0) + r[k]; }); return a; }, { k: 'סה״כ' });
+  return { rows, tot };
+}
+function reCampCard(p) {
+  const { rows, tot } = reCampRows(p); if (!rows.length) return '';
+  const tr = (r, b) => '<tr' + (b ? ' class="tot"' : '') + '><td class="wide">' + esc(r.k) + '</td><td class="num">' + r.leads + '</td><td class="num">' + (r.cost ? plain(r2(r.cost / r.leads)) : '—') + '</td><td class="num">' + rePct(r.set, r.leads) + '</td><td class="num">' + rePct(r.held, r.leads) + '</td><td class="num">' + rePct(r.held, r.set) + '</td><td class="num">' + rePct(r.fr, r.held) + '</td><td class="num">' + rePct(r.paid, r.held) + '</td><td class="num"><b>' + r.closed + '</b> <small>' + rePct(r.closed, r.held) + '</small></td></tr>';
+  return '<section class="card"><header><h2>משפך לפי קמפיין — לידים שנכנסו ב' + esc(p.label) + '</h2><span class="hint">מה קרה עם הלידים האלה עד היום</span></header><div class="scroll"><table><thead><tr><th>קמפיין</th><th>לידים</th><th>עלות ליד</th><th>ליד→תיאום</th><th>ליד→זום</th><th>תיאום→הגיע</th><th>זום→פרונטלית</th><th>זום→תשלום</th><th>סגירה (מהזומים)</th></tr></thead><tbody>' +
+    rows.map((r) => tr(r)).join('') + (rows.length > 1 ? tr(tot, true) : '') + '</tbody></table></div></section>';
 }
 /* ── עמלות: כללים (הגדרות) + אירועים (פגישת זום שהתקיימה, סגירה מלאה) + עמלות ידניות על עסקה ── */
 const COMM_DEFAULT = [{ id: 'meet', target: 'role:center', div: 'realestate', event: 'meeting', amount: 100, label: 'פגישת זום שהתקיימה' }, { id: 'close', target: 'role:center', div: 'realestate', event: 'close', amount: 1500, label: 'סגירה מלאה — חתם אצל היזם ושילם' }];
@@ -3188,6 +3702,7 @@ function commRulesCard() {
 }
 function commRead() { return [...$('commTable').querySelectorAll('tbody tr')].map((tr) => { const g = (k) => tr.querySelector('[data-cr="' + k + '"]').value; return { id: tr.dataset.id, target: g('target'), div: g('div'), event: g('event'), amount: r2(g('amount')), label: COMM_EVENT[g('event')] }; }); }
 async function reSet(c, patch, text) { const r = { ...reOf(c), ...patch };
+  if (patch.step) r.stepV = 2;
   if (patch.step && patch.step !== reOf(c).step) r.hist = { ...(reOf(c).hist || {}), [patch.step]: stamp() };
   if ((r.devSigned && r.devPaid) && !r.closedAt) { r.closedAt = stamp(); r.step = 'closed'; r.hist = { ...(r.hist || {}), closed: stamp() }; text = (text ? text + ' · ' : '') + 'נסגר — חתם אצל היזם ושילם'; }
   if (!(r.devSigned && r.devPaid) && r.closedAt && (patch.devSigned === false || patch.devPaid === false)) { r.closedAt = null; }
@@ -3202,7 +3717,7 @@ function formReSummary(c) {
   const sm = reOf(c).summary || {};
   drawer('סיכום פגישה — ' + c.name, RE_SUMMARY.map(([k, label, t]) => t === 'ta' ? ft(k, label, sm[k] || '') : t === 'yn' ? fs(k, label, [['', '—'], ['yes', 'כן'], ['no', 'לא']], sm[k] || '') : fi(k, label, sm[k] != null ? sm[k] : '', t === 'num' ? 'number' : 'text', t === 'num' ? 'min="0" step="1"' : '')).join(''),
     async (d) => { const out = {}; RE_SUMMARY.forEach(([k, , t]) => { const v = String(d[k] || '').trim(); if (v) out[k] = t === 'num' ? r2(v) : v; });
-      await reSet(c, { summary: { ...out, at: stamp(), by: S.myKey || null }, ...(['docs', 'zoom', 'frontal'].includes(reOf(c).step || 'docs') ? { step: 'summary' } : {}) }, 'סיכום פגישה נשמר'); toast('הסיכום נשמר'); });
+      await reSet(c, { summary: { ...out, at: stamp(), by: S.myKey || null }, ...(['zoom', 'frontal'].includes(reStep(c)) ? { step: 'exclusive' } : {}) }, 'סיכום פגישה נשמר'); toast('הסיכום נשמר'); });
 }
 function formReComm(c) {
   drawer('עמלה ידנית — ' + c.name, fs('who', 'למי', [...staff().filter((p) => p.key !== 'dan').map((p) => [p.key, p.label]), ['__other', 'מישהו אחר (שם חופשי)']], '') + fi('other', 'שם (אם "מישהו אחר")', 'יורם') +
@@ -3395,7 +3910,7 @@ function vLead(id) {
         (!isRE && creditable(l) ? '<span class="pill ' + CREDIT_TONE[creditOf(l)] + '">זיכוי: ' + CREDIT_ST[creditOf(l)] + '</span>' : '') + '</div>' +
       (w ? '<div class="seg" style="margin-top:10px" role="group" aria-label="פעולה מהירה">' + quick.map(([k, v]) => '<button data-leadquick="' + k + '" data-id="' + esc(l.id) + '">' + v + '</button>').join('') + '</div>' : '') +
       (!c && S.canClient && l.stage === 'won' ? '<div class="row" style="margin-top:10px"><select class="f" data-linklead="' + esc(l.id) + '" aria-label="קשר ללקוח" style="max-width:240px"><option value="">או קשר ללקוח קיים…</option>' + live(S.clients).filter((k) => k.status !== 'cancelled').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he')).map((k) => '<option value="' + esc(k.id) + '">' + esc(k.name) + '</option>').join('') + '</select></div>' : '') + '</section>' +
-    leadDupCard(l, w) + leadHistCard(l) + signCard(leadSignObj(l)) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + leadZoomCard(l, w) : '') +
+    leadDupCard(l, w) + leadHistCard(l) + signCard(leadSignObj(l)) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + reMeetCard('l:' + l.id) + reProfileCard(l) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
       ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(hm(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
@@ -4486,10 +5001,14 @@ function reFacts() {
   const out = [], byLead = new Map(live(S.clients).filter((c) => c.leadId).map((c) => [c.leadId, c]));
   const setLbl = (stageDefs('realestate').find((x) => x.key === 're_zoom_set') || {}).label || 'נקבעה פגישת זום';
   for (const l of live(S.leads).filter((x) => leadDiv(x) === 'realestate')) { const c = (l.clientId && S.clients.get(l.clientId)) || byLead.get(l.id), r = c ? reOf(c) : {}, z = l.zoom || {};
-    const setAt = ((l.log || []).find((e) => String(e.text || '').includes('← ' + setLbl)) || {}).at || (z.at && l.stage === 're_zoom_set' ? l.updatedAt : null);
-    const zoomAt = z.at || r.zoomAt || null, held = !!(z.attended || r.zoomAttended), d = stageDefs('realestate').find((x) => x.key === (l.stage || 'new'));
-    out.push({ l, c, who: l.resp || (c && c.resp) || '', created: l.createdAt || l.date || null, setAt, zoomAt, held, heldAt: held ? zoomAt : null,
-      frontalAt: r.frontalAt || null, frontalDone: !!(r.frontalAt && String(r.frontalAt).slice(0, 16) <= localNow()), closedAt: r.devSigned ? (r.closedAt || r.devSignedAt || (c && c.updatedAt)) : (c && c.status === 'won' ? c.updatedAt : null),
+    /* הפגישות שנקבעו מתוך המערכת (l.meetings) גוברות: מתי תואם, מתי הגיע, פרונטלית שהתקיימה */
+    const ms = (l.meetings || []).filter((m) => m.status !== 'canceled'), zm = ms.filter((m) => m.kind === 'zoom').sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))), fm = ms.filter((m) => m.kind === 'frontal').sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    const zHeld = zm.find((m) => m.status === 'held'), fHeld = fm.find((m) => m.status === 'held');
+    const setAt = (zm[0] && zm[0].createdAt) || ((l.log || []).find((e) => String(e.text || '').includes('← ' + setLbl)) || {}).at || (z.at && l.stage === 're_zoom_set' ? l.updatedAt : null);
+    const zoomAt = (zHeld && zHeld.at) || z.at || r.zoomAt || (zm[0] && zm[0].at) || null, held = !!(zHeld || z.attended || r.zoomAttended), d = stageDefs('realestate').find((x) => x.key === (l.stage || 'new'));
+    const frontalAt = r.frontalAt || (fHeld && fHeld.at) || (fm[0] && fm[0].at) || null;
+    out.push({ l, c, who: l.resp || (c && c.resp) || '', created: l.createdAt || l.date || null, setAt, zoomAt, held, heldAt: held ? zoomAt : null, setter: (zm[0] && zm[0].setter) || z.by || null, analyst: (zHeld || zm[0] || {}).analyst || z.analyst || null,
+      frontalAt, frontalDone: !!(fHeld || (r.frontalAt && String(r.frontalAt).slice(0, 16) <= localNow())), closedAt: r.devSigned ? (r.closedAt || r.devSignedAt || (c && c.updatedAt)) : (c && c.status === 'won' ? c.updatedAt : null),
       touched: (l.stage || 'new') !== 'new', reach: d ? n(d.reach) : 0, relevant: leadRelevant(l) }); }
   for (const c of live(S.clients).filter((x) => (x.division || 'finance') === 'realestate' && !x.leadId)) { const r = reOf(c);
     out.push({ l: null, c, who: c.resp || '', created: c.createdAt, setAt: null, zoomAt: r.zoomAt || null, held: !!r.zoomAttended, heldAt: r.zoomAttended ? r.zoomAt : null, frontalAt: r.frontalAt || null,
@@ -4526,6 +5045,7 @@ function vReFunnel() {
     (rows.length > 1 || !who ? '<section class="card"><header><h2>לפי נציג</h2></header><div class="scroll"><table><thead><tr><th>נציג</th><th>לידים</th><th>זום</th><th>ליד→זום</th><th>פרונטלית</th><th>זום→פרונטלית</th><th>סגירה</th><th>פרונטלית→סגירה</th><th>זומים שנקבעו</th><th>זומים שהתקיימו</th></tr></thead><tbody>' +
       rows.map((r) => '<tr><td>' + respChip(r.k) + '</td><td class="num">' + r.leads + '</td><td class="num">' + r.held + '</td><td class="num">' + rePct(r.held, r.leads) + '</td><td class="num">' + r.fr + '</td><td class="num">' + rePct(r.fr, r.held) + '</td><td class="num">' + r.cl + '</td><td class="num">' + rePct(r.cl, r.fr) + '</td><td class="num">' + r.set + '</td><td class="num">' + r.aheld + '</td></tr>').join('') +
       '</tbody></table></div></section>' : '') +
+    reCampCard(p) + reMeetStatsCard(p) + reTeamCard(p) + reCalLoadCard() +
     '<div class="grid2"><section class="card"><header><h2>פגישות היום</h2><span class="pill muted">' + meet.length + '</span></header>' + (meet.length ? meet.map((m) => '<div class="check"><span class="num">' + esc(m.at || '—') + '</span><span class="pill ' + (m.kind === 'זום' ? 'committed' : 'actual') + '">' + m.kind + '</span><span class="grow">' + (m.x.c ? '<button class="xlink" data-client="' + esc(m.x.c.id) + '">' + esc(m.x.c.name) + '</button>' : '<button class="xlink" data-lead="' + esc(m.x.l.id) + '">' + esc(m.x.l.name) + '</button>') + '</span>' + respChip(m.x.who) + (m.kind === 'זום' ? (m.x.held ? '<span class="pill actual">הגיע</span>' : '') : '') + '</div>').join('') : '<p class="empty">אין פגישות היום</p>') + '</section>' +
       '<section class="card"><header><h2>ניצולת הלידים של ' + esc(p.label) + '</h2><span class="pill muted">' + coh.length + '</span></header>' + (util.length ? util.map(([lb, list, tone]) => '<button class="row xrow" style="width:100%;align-items:center;margin:4px 0;background:none;border:0;cursor:pointer" ' + drill('u' + lb, list) + '><span class="grow" style="text-align:start">' + lb + '</span><span class="pill ' + (list.length ? tone : 'muted') + '">' + list.length + '</span><span class="hint num" style="min-width:42px">' + rePct(list.length, coh.length) + '</span></button>').join('') : '<p class="empty">אין לידים בתקופה</p>') + '</section></div>' +
     (w ? '<details class="card" style="margin-top:12px"><summary><b>יעד זום</b> <span class="hint">יום ' + (T.day || '—') + ' · שבוע ' + (T.week || '—') + ' · חודש ' + (T.month || '—') + '</span></summary><div class="row" style="align-items:flex-end;margin-top:8px">' +
@@ -5062,7 +5582,7 @@ function linksBlock(compact) {
 }
 function vSettings() {
   const s = S.settings, w = S.canWrite;
-  if (S.role === 'admin_re') return '<h1>הגדרות — הר-אל השקעות</h1>' + usersCard() + statusSetsCard() + callScriptCard() + commRulesCard();
+  if (S.role === 'admin_re') return '<h1>הגדרות — הר-אל השקעות</h1>' + usersCard() + statusSetsCard() + callScriptCard() + commRulesCard() + reCfgCard();
   const list = (key, label, hint) => '<section class="card"><header><h2>' + label + '</h2></header><p class="hint" style="margin:-4px 0 10px">' + hint + '</p>' +
     '<div class="row">' + (s[key] || []).map((t) => '<span class="tag">' + esc(t) + (w ? ' <button data-rm="' + key + '" data-v="' + esc(t) + '" aria-label="הסר">×</button>' : '') + '</span>').join('') + (!(s[key] || []).length ? '<span class="hint">ריק</span>' : '') + '</div>' +
     (w ? '<div class="row" style="margin-top:10px"><input class="f grow" id="add_' + key + '" placeholder="הוסף…" aria-label="' + label + '"><button class="btn small" data-addto="' + key + '">הוסף</button></div>' : '') + '</section>';
@@ -5078,7 +5598,7 @@ function vSettings() {
     '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="newLink">+ קישור</button>' : '') + '</header>' + linksBlock(false) + '</section>' +
     '<div class="grid2">' + list('partnersRE', 'שותפי הר-אל השקעות', 'לחלוקת 33/33/33 ולרישום משיכות.') + list('partnersFin', 'שותפי הר-אל פתרונות', 'משיכות של דן; ניסים מקבל דרך מקדמות.') + '</div>' +
     '<div class="grid3">' + list('tags', 'תגיות לקוח', 'מופיעות כהצעה בכרטיס הלקוח.') + list('sources', 'מקורות הגעה', 'פייסבוק, המלצה, גוגל, שותף.') + list('platforms', 'פלטפורמות שיווק', 'נכנסות לבד מקובץ לידים שמועלה.') + '</div>' +
-    usersCard() + appraisersCard() + driveRootsCard() + pdfTplCard() + signTplCard() + statusSetsCard() + leadTaskCard() + callScriptCard() + commRulesCard() +
+    usersCard() + appraisersCard() + driveRootsCard() + pdfTplCard() + signTplCard() + statusSetsCard() + leadTaskCard() + callScriptCard() + commRulesCard() + reCfgCard() +
     (!S.isDan ? '' : '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
       (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
@@ -7612,6 +8132,20 @@ document.addEventListener('click', async (e) => {
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
     if (d.areainfo) return areaInfo(d.areainfo);
+    if (d.callend) return callEnd(d.callend);
+    if (d.callfix) { const [lid, id, k] = d.callfix.split('|'); return callFix(lid, id, k); }
+    if (d.reteammail) return reTeamMail(d.reteammail);
+    if (d.meetnew) return formMeet(d.meetnew, d.kind ? { kind: d.kind } : {});
+    if (d.rmsvc != null && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), sv = [...(reOf(c).services || [])], x = sv.splice(Number(d.rmsvc), 1)[0]; return reSet(c, { services: sv }, 'שירות נלווה הוסר: ' + ((x && x.name) || '')); }
+    if (d.reprep) return rePrepSend(d.reprep);
+    if (d.rehand) { const [cid, k] = d.rehand.split('|'); return reHandoff(cid, k); }
+    if (d.meetst) { const [r, id, st] = d.meetst.split('|'); const m = await meetSet(r, id, { status: st, ...(st === 'held' ? { heldAt: stamp() } : {}) }, (MEET_ST[st] || [st])[0] + ' — ' + ((allMeetings().find((x) => x.id === id) || {}).kind ? (MEET_KINDS[(allMeetings().find((x) => x.id === id) || {}).kind] || [''])[0] : 'פגישה'));
+      if (st === 'held' && m) formMeetSum(r, m.id); return; }
+    if (d.meetsum) { const [r, id] = d.meetsum.split('|'); return formMeetSum(r, id); }
+    if (d.meetnext) { const [r, id, again] = d.meetnext.split('|'), m = allMeetings().find((x) => x.id === id) || {}; return formMeet(r, { kind: again ? m.kind : 'followup', analyst: m.analyst, prev: id, link: m.link || '' }); }
+    if (d.profile) return formProfile(d.profile);
+    if (d.profpdf) return profilePdf(d.profpdf);
+    if (d.profsend) return profileSend(d.profsend);
     if (d.d) { if (d.d !== 'all' && !(S.allowedDivs || DIVS).includes(d.d)) return; S.division = d.d; if (d.d !== 'all') setLastDiv(d.d); return render(); }
     if (d.go) { if (d.rep) S.f.rep = d.rep; const [tab, sub] = d.go.split(':'); if (sub && tab === 'tasks') { S.f.taskView = 'bucket'; S.f.taskBucket = sub; } else if (sub) S.f.money = sub; return go(tab); }
     if (d.attfix) { const a = S.attendance.get(d.attfix); if (!a || !S.isOwner) return; const loc = (iso) => iso ? locIso(iso).slice(0, 16) : '';
@@ -7853,7 +8387,7 @@ document.addEventListener('click', async (e) => {
     if (d.convert) {
       const l = S.leads.get(d.convert); if (!l) return; const id = uid();
       await write('clients/' + id, { id, name: l.name, phone: l.phone || '', source: l.platform || l.campaign || '', product: leadDiv(l) === 'realestate' ? 'presale' : 'mortgage_declined', division: leadDiv(l), status: 'open', stage: 'prospect', fee: l.value || 0, tags: [], checklist: [], submissions: [], leadId: l.id, ownerId: S.me.id, resp: l.resp || null,
-        ...(leadDiv(l) === 'realestate' ? { re: { step: l.zoom && l.zoom.attended ? 'frontal' : 'docs', ...(l.zoom ? { zoomAt: l.zoom.at || null, zoomLink: l.zoom.link || null, zoomAttended: !!l.zoom.attended, meetingBy: l.zoom.by || l.resp || null } : {}) } } : {}),
+        ...(leadDiv(l) === 'realestate' ? { re: { step: l.zoom && l.zoom.attended ? 'frontal' : 'zoom', stepV: 2, ...(l.zoom ? { zoomAt: l.zoom.at || null, zoomLink: l.zoom.link || null, zoomAttended: !!l.zoom.attended, meetingBy: l.zoom.by || l.resp || null } : {}) } } : {}),
         log: [{ at: stamp(), text: 'נפתח מליד' + (l.campaign ? ' (קמפיין: ' + l.campaign + ')' : ''), auto: true, by: S.me.id }], createdAt: stamp(), updatedAt: stamp() });
       await leadPatch(l.id, { stage: 'won', clientId: id, followUp: null }, 'חתם — נפתח לקוח'); toast('הליד הפך ללקוח'); return go('client', id);
     }
@@ -7877,6 +8411,8 @@ document.addEventListener('click', async (e) => {
         case 'commSave': { await write('settings/main', { commRules: commRead() }, 'update'); return toast('כללי העמלות נשמרו'); }
         case 'reDeposit': return formTx(null, { nature: 'income', clientId: c.id, counterparty: c.name, division: 'realestate', category: DEPOSIT_CAT, description: 'דמי רצינות — עבור התוכנית (לא מוחזר)', vatMode: 'incl', deductible: true });
         case 'reSummary': return formReSummary(c);
+        case 'reCfgSave': return reCfgSave();
+        case 'reSvc': return formReSvc(c);
         case 'reComm': return formReComm(c);
         case 'stAdd': { const v = ($('stNew').value || '').trim(); if (!v) return; const tb = $('stTable'), div = tb.dataset.div, rows = stRead(); rows.push({ key: 's' + slug(v + Date.now()), label: v, base: 'followup' });
           await write('settings/main', { statusSets: { ...(S.settings.statusSets || {}), [div]: rows } }, 'update'); return toast('נוסף — בחר "מתנהג כמו" ושמור'); }
@@ -8152,6 +8688,9 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
   try {
     if (el.id === 'leadFile' && el.files && el.files[0]) return parseLeadFile(el.files[0]);
+    if (el.dataset.cbase) { const c = S.clients.get(el.dataset.cbase); if (!c) return; const v = el.value === '' ? null : r2(el.value); await write('clients/' + c.id, { baseAmount: v, updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, 'שווי הדירה: ' + (v == null ? '—' : plain(v))); }
+    if (el.dataset.meetrec && el.files && el.files[0]) { const [r, id, k] = el.dataset.meetrec.split('|'), f = el.files[0]; el.value = ''; return meetRecUpload(r, id, k, f); }
+    if (el.dataset.meetin) { const [r, id] = el.dataset.meetin.split('|'); return meetSet(r, id, { analystIn: el.checked }, el.checked ? 'האנליסט עלה לפגישה' : 'בוטל: האנליסט עלה'); }
     if (el.dataset.scan && el.files && el.files[0]) { const [sc, k] = el.dataset.scan.split('|'), f = el.files[0]; el.value = ''; return scanUpload(sc, k, f); }
     if (el.id === 'bankFile' && el.files && el.files[0]) return parseBankFile(el.files[0]);
     if (el.id === 'laneDone') { S.f.laneDone = el.checked; return render(); }
@@ -8249,8 +8788,9 @@ document.addEventListener('change', async (e) => {
         description: ['ליד: ' + (l.name || ''), 'טלפון: ' + normPhone(l.phone), 'תיאם: ' + (L.resp[z.by] || z.by || ''), z.link ? 'קישור: ' + z.link : 'הקישור לזום — בכרטיס הליד ב-CRM'].join('\n') });
       return; }
     if (el.dataset.ref && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c) return; const k = el.dataset.ref, v = el.type === 'checkbox' ? el.checked : el.value || null;
-      const lbl = { zoomAt: 'זום', zoomAttended: 'הגיע לזום', frontalAt: 'פגישה פרונטלית', secondAt: 'פגישה נוספת', lawyer: 'עו״ד', lawyerAt: 'פגישה עם עו״ד', developer: 'יזם', project: 'פרויקט', registerAt: 'פגישת הרשמה', devSigned: 'חתם אצל היזם', devPaid: 'שילם', meetingBy: 'מי תיאם' }[k] || k;
+      const lbl = { exclusiveSigned: 'בלעדיות נחתמה', agreementSigned: 'הסכם נחתם', regFormSent: 'טופס הרשמה נשלח ליזם', planYes: 'הלקוח אמר כן לתוכנית', mortgageBy: 'צריך משכנתא עד', devPct: 'עמלת יזם %', analystCost: 'עלות איש מכירות', coopName: 'שיתוף פעולה', coopMode: 'שיתוף לפי', coopValue: 'שיתוף — כמה', zoomAt: 'זום', zoomAttended: 'הגיע לזום', frontalAt: 'פגישה פרונטלית', secondAt: 'פגישה נוספת', lawyer: 'עו״ד', lawyerAt: 'פגישה עם עו״ד', developer: 'יזם', project: 'פרויקט', registerAt: 'פגישת הרשמה', devSigned: 'חתם אצל היזם', devPaid: 'שילם', meetingBy: 'מי תיאם' }[k] || k;
       await reSet(c, { [k]: v }, lbl + ': ' + (v === true ? 'כן' : v === false ? 'לא' : k === 'meetingBy' ? L.resp[v] || '—' : String(v || '—').replace('T', ' ')));
+      if (k === 'mortgageBy') await reMortgageTask(S.clients.get(c.id), v);
       if (/At$/.test(k) && v) await calEnqueue({ key: 're:' + c.id + ':' + k + ':' + v, summary: lbl + ' — ' + c.name, start: v, mins: k === 'zoomAt' ? 45 : 60, ref: { client: c.id }, description: ['לקוח: ' + c.name, c.phone ? 'טלפון: ' + c.phone : '', 'הר-אל השקעות — מסע הלקוח ב-CRM'].filter(Boolean).join('\n') });
       return; }
     if (el.id === 'impDiv' && pendingImport) { pendingImport.division = el.value; return; }
