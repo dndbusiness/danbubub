@@ -379,7 +379,18 @@ body.locked .mark { display: none; }
 .permx thead th { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 .permx input { width: 20px; height: 20px; accent-color: var(--brand-strong); cursor: pointer; }
 .permx input:disabled { cursor: not-allowed; }
-.permx th.dan { color: var(--brand-text); }
+.permx th.dan, .permx th.dan .xlink { color: var(--brand-text); }
+.permx thead .xlink { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; min-height: 32px; }
+.areaguide { margin: 10px 0 4px; border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 8px 12px; background: var(--sunk); }
+.areaguide summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.areaguide dl { margin: 6px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 18px; }
+.areaguide dt { font-weight: 700; } .areaguide dd { margin: 2px 0 0; font-size: 13px; color: var(--text-2); }
+@media (max-width: 767px) {
+  body.bn-money:not(.more-open) nav.tabs { grid-template-columns: repeat(6, 1fr); }
+  body.bn-money.bn-priv:not(.more-open) nav.tabs { grid-template-columns: repeat(7, 1fr); }
+  body.bn-money:not(.more-open) nav.tabs button[data-tab="money"]:not([hidden]), body.bn-priv:not(.more-open) nav.tabs button[data-tab="private"]:not([hidden]) { display: flex !important; }
+  body.bn-money nav.tabs [data-tab="money"] { order: 5; } body.bn-priv nav.tabs [data-tab="private"] { order: 6; } body.bn-money nav.tabs #tabMore { order: 7; }
+}
 /* נגישות: יעדי לחיצה, מיקוד ברור, תנועה מופחתת, דילוג לתוכן */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; }
 .btn.small { min-height: 30px; }
@@ -5672,6 +5683,22 @@ function applyBrand() {
    השרת אוכף את אותו דבר על האוספים (lib/crm/auth.ts — permsOf). */
 const AREAS = [['day', 'היום שלי'], ['leads', 'לידים'], ['tasks', 'משימות'], ['clients', 'לקוחות'], ['service', 'פניות'], ['lenders', 'גופים'], ['marketing', 'שיווק'], ['reports', 'דוחות'], ['settings', 'הגדרות'], ['home', 'לוח בקרה'], ['money', 'כספים'], ['books', 'הנה״ח']];
 const DAN_GRANT = ['home', 'money', 'books'];
+/* מה כוללת כל הרשאה — מוצג בטבלת ההרשאות (כפתור על כל עמודה) ובפירוט שמתחתיה */
+const AREA_INFO = {
+  day: { sees: 'המשימות שלו, מעקבי לידים להיום, ותמונת מצב שנבנית משאר ההרשאות שלו (מכירות — רק עם לידים, תפעול — רק עם לקוחות, "נכנס היום" — רק עם כספים).', note: 'פתוח לכולם, תמיד.' },
+  leads: { sees: 'רשימת הלידים ולוח הסטטוסים, כרטיס ליד, וואטסאפ וחיוג, שינוי סטטוס ותזכורת מעקב, הוספת ליד וייבוא.', note: 'מוקד רואה רק את הלידים שמשויכים אליו.' },
+  tasks: { sees: 'לוח המשימות: הוספה, סגירה, תזכורות ושיוך ללקוח.' },
+  clients: { sees: 'רשימת הלקוחות וכרטיס לקוח מלא — תהליך ושלבים, מסמכים, קליטה ודוח אשראי, סקר שמאים, ניתוח Claude, יומן.', note: 'כולל את הכסף של הלקוח עצמו: שכר טרחה, נגבה, צפי תשלום.' },
+  service: { sees: 'פניות שירות של לקוחות — פתוחות, דחופות וסגורות.' },
+  lenders: { sees: 'גופים ומימון (בפתרונות) / יזמים (בהשקעות): רשימה, אנשי קשר, תנאים.' },
+  marketing: { sees: 'עלות לפי קמפיין, משפך לידים, המרה ו-ROI, קמפיינים, העלאת קובץ; בהשקעות גם משפך ויעדים ומאגר כוורת.', note: 'כולל הוצאות פרסום. בלי ההרשאה השרת לא מוסר את הקמפיינים ואת מאגר כוורת.' },
+  reports: { sees: 'דוח שבועי וחודשי, מדדי הצלחה לצוות, רווחיות לפי פעילות, עמלות, נוכחות, יוצא (מיילים ויומן).', note: 'שים לב: כולל רווחיות ועמלות.' },
+  settings: { sees: 'סטטוסים, תסריט שיחה, כללי עמלות, בדיקת תקינות, וטבלה זו.', note: 'פתיחת משתמשים ושינוי הרשאות — רק למנהל מערכת שיש לו גם את ההרשאה הזו.' },
+  home: { sees: 'לוח הבקרה: רווח לחלוקה ותפעולי, פתוח לגביה, התראות ניהול, הלוחות האישיים.', note: 'כולו כסף — רק דן נותן.' },
+  money: { sees: 'רווח והפסד, צפי לפי תאריכים, תנועות, תזרים שבועי, מפת החודש, התחשבנות שותפים (33/33/33), הוצאות קבועות ומשתנות.', note: 'רק דן נותן. בלי ההרשאה השרת לא מוסר הוצאות, תשלומים מתוכננים ושכר. סנכרון דפי הבנק והאשראי — דן בלבד גם עם ההרשאה.' },
+  books: { sees: 'חשבוניות וקבלות, מע״מ ותקציב, בדיקת הוצאות, שכר, בדיקת עו״ש, שליחה לרו״ח.', note: 'רק דן נותן. השכר מוצג רק למי שיש לו גם כספים.' },
+  private: { sees: 'הפרייבט של דן.', note: 'דן בלבד, תמיד, ונפתח בסיסמה נפרדת. אי אפשר לתת.' },
+};
 const ROLE_AREAS = { admin: ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports', 'settings'], admin_re: ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports', 'settings'],
   partner: ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports'], center: ['day', 'leads', 'tasks'], team: ['day', 'leads', 'tasks', 'clients', 'service'] };
 function permsOf(u, role) {
@@ -5737,10 +5764,21 @@ function permMatrix(us) {
   const cols = AREAS.filter(([k]) => k !== 'day');
   const cell = (u, k) => { const on = permsOf(u, userRole(u)).includes(k), lock = !canManageUser(u) || (DAN_GRANT.includes(k) && !S.isDan);
     return '<td><input type="checkbox" data-perm="' + esc(normUser(u.username)) + '|' + k + '"' + (on ? ' checked' : '') + (lock ? ' disabled' : '') + ' aria-label="' + esc((u.label || u.username) + ' — ' + (AREAS.find((a) => a[0] === k) || [])[1]) + '"></td>'; };
-  return '<h3 class="sec">הרשאות לפי אזור</h3><div class="scroll"><table class="permx"><thead><tr><th scope="col">משתמש</th>' + cols.map(([k, l]) => '<th scope="col"' + (DAN_GRANT.includes(k) ? ' class="dan" title="רק דן נותן"' : '') + '>' + esc(l) + (DAN_GRANT.includes(k) ? ' 🔒' : '') + '</th>').join('') + '</tr></thead><tbody>' +
+  return '<h3 class="sec">הרשאות לפי אזור</h3><div class="scroll"><table class="permx"><thead><tr><th scope="col">משתמש</th>' + cols.map(([k, l]) => '<th scope="col"' + (DAN_GRANT.includes(k) ? ' class="dan"' : '') + '><button type="button" class="xlink" data-areainfo="' + k + '" title="' + esc(AREA_INFO[k].sees) + '" aria-label="' + esc(l) + ' — מה כוללת ההרשאה">' + esc(l) + (DAN_GRANT.includes(k) ? ' 🔒' : '') + ' ⓘ</button></th>').join('') + '</tr></thead><tbody>' +
     '<tr><th scope="row">דן</th>' + cols.map(() => '<td><input type="checkbox" checked disabled aria-label="דן — הכל"></td>').join('') + '</tr>' +
     us.map((u) => '<tr><th scope="row">' + esc(u.label || L.resp[u.resp] || u.username) + '<div class="hint">' + esc(ROLES[userRole(u)].label) + '</div></th>' + cols.map(([k]) => cell(u, k)).join('') + '</tr>').join('') +
-    '</tbody></table></div><p class="hint" style="margin:4px 0 12px">שינוי נשמר מיד. התפריט והדשבורד של המשתמש נבנים לפי הווי שלו; השרת חוסם גם את הנתונים עצמם. 🔒 = רק דן נותן (כסף). פרייבט וסנכרון הבנק — דן בלבד, תמיד. "היום שלי" פתוח לכולם.</p>';
+    '</tbody></table></div>' + areaGuide() + '<p class="hint" style="margin:4px 0 12px">שינוי נשמר מיד. התפריט והדשבורד של המשתמש נבנים לפי הווי שלו; השרת חוסם גם את הנתונים עצמם. 🔒 = רק דן נותן (כסף). פרייבט וסנכרון הבנק — דן בלבד, תמיד. "היום שלי" פתוח לכולם.</p>';
+}
+const areaLabel = (k) => k === 'private' ? 'פרייבט' : ({ day: 'היום שלי', service: 'פניות שירות', lenders: 'גופים ומימון', books: 'הנהלת חשבונות' })[k] || (AREAS.find((a) => a[0] === k) || [])[1] || k;
+function areaGuide() {
+  return '<details class="areaguide" open><summary>מה כוללת כל הרשאה?</summary><dl>' + [...AREAS.map((a) => a[0]), 'private'].map((k) => '<div><dt>' + esc(areaLabel(k)) + (DAN_GRANT.includes(k) || k === 'private' ? ' 🔒' : '') + '</dt><dd>' + esc(AREA_INFO[k].sees) + (AREA_INFO[k].note ? '<br><span class="hint">' + esc(AREA_INFO[k].note) + '</span>' : '') + '</dd></div>').join('') + '</dl></details>';
+}
+function areaInfo(k) {
+  const i = AREA_INFO[k]; if (!i) return;
+  const who = [{ label: 'דן', on: true }, ...(S.settings.users || []).map((u) => ({ label: u.label || L.resp[u.resp] || u.username, on: permsOf(u, userRole(u)).includes(k) }))];
+  drawer(areaLabel(k), '<p>' + esc(i.sees) + '</p>' + (i.note ? '<p class="hint">' + esc(i.note) + '</p>' : '') +
+    '<h3 class="sec">מי רואה עכשיו</h3><p>' + who.filter((x) => x.on).map((x) => esc(x.label)).join(' · ') + '</p>' +
+    (who.some((x) => !x.on) ? '<h3 class="sec">מי לא</h3><p class="hint">' + who.filter((x) => !x.on).map((x) => esc(x.label)).join(' · ') + '</p>' : ''), async () => null, '', 'סגור');
 }
 async function pwOk(pw) { const lk = S.settings.lock; if (!lk || !lk.hash) return true;
   if (window.__crmLogin) { try { await window.__crmLogin('', pw); return true; } catch (e) { if (e.code === 'rate_limited') toast(e.message); return false; } }
@@ -7525,6 +7563,7 @@ function render() {
   if (locked) { $('main').innerHTML = vLock(); const pw = $('lockFormPw'); if (pw) pw.focus(); return; }
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
+  document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
   const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
@@ -7572,6 +7611,7 @@ document.addEventListener('click', async (e) => {
   const d = el.dataset;
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
+    if (d.areainfo) return areaInfo(d.areainfo);
     if (d.d) { if (d.d !== 'all' && !(S.allowedDivs || DIVS).includes(d.d)) return; S.division = d.d; if (d.d !== 'all') setLastDiv(d.d); return render(); }
     if (d.go) { if (d.rep) S.f.rep = d.rep; const [tab, sub] = d.go.split(':'); if (sub && tab === 'tasks') { S.f.taskView = 'bucket'; S.f.taskBucket = sub; } else if (sub) S.f.money = sub; return go(tab); }
     if (d.attfix) { const a = S.attendance.get(d.attfix); if (!a || !S.isOwner) return; const loc = (iso) => iso ? locIso(iso).slice(0, 16) : '';
