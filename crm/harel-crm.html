@@ -536,17 +536,13 @@ table.leads.no-last .c-last { display: none; }
 
 /* ══ עיצוב v3 — שלב 1: טוקנים ומעטפת (docs/UI_REDESIGN.md, דן 15/10: "יותר חד, יותר חדשני") ══
    רק CSS: אין שינוי ב-data-*, ב-handlers, בכתיבות או בחישובים.
-   צבעי הוודאות (--actual / --committed / --expected / --open / --locked) לא נגעים — המותג החדש לידם, לא במקומם. */
+   המותג לפי החברה (--brand-strong / --brand-accent / --brand-soft / --brand-text / --brand-ink) מוגדר למעלה — כאן רק משתמשים בו.
+   צבעי הוודאות (--actual / --committed / --expected / --open / --locked) לא נגעים. */
 :root {
   --bg: #F2F4F7; --surface: #FFFFFF; --sunk: #EEF1F5; --border: #DDE2EA; --border-2: #C9D0DB;
-  --text: #0B1220; --text-2: #4F5868; --text-3: #6B7385;
-  --ink: #0B1220;
-  --brand-ink: #16233F;   /* ניווט */
-  --brand: #5B3FD6;       /* בחירה ופעולה ראשית */
-  --brand-hi: #5B3FFF;    /* סגול חשמלי — ריחוף/לחיצה על פעולה ראשית */
-  --brand-bg: #EFEBFF; --on-brand: #FFFFFF;
-  --nav-bg: var(--brand-ink); --nav-fg: #AEB8CC; --nav-fg-act: #FFFFFF; --nav-hover: rgba(255,255,255,.06); --nav-sel: rgba(255,255,255,.10); --nav-line: rgba(255,255,255,.08);
-  --nav-act: var(--brand-bg);
+  --text: #0B1220; --ink: #0B1220;
+  --nav-bg: var(--brand-ink); --nav-fg: #B4BDCE; --nav-fg-act: #FFFFFF; --nav-hover: rgba(255,255,255,.06); --nav-sel: rgba(255,255,255,.10); --nav-line: rgba(255,255,255,.10);
+  --on-accent: #0B1220;
   --radius-card: 10px; --radius-btn: 8px; --radius-chip: 5px;
   --shadow-card: 0 1px 0 rgba(11,18,32,.04);
   --shadow-pop: 0 16px 40px rgba(11,18,32,.22);
@@ -555,25 +551,20 @@ table.leads.no-last .c-last { display: none; }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A;
-    --text: #F1F4F9; --text-2: #A3ADBF; --text-3: #8892A6; --ink: #F1F4F9;
-    --brand-ink: #0D1526; --brand: #8B7BFF; --brand-hi: #A193FF; --brand-bg: #221B4A; --on-brand: #0B1220;
-    --nav-fg: #9AA5BA; --nav-act: var(--brand-bg);
+    --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9;
+    --nav-bg: #0A1120; --nav-fg: #A3ADBF;
     --shadow-card: 0 1px 0 rgba(0,0,0,.35); --shadow-pop: 0 16px 40px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
   }
 }
 :root[data-theme="dark"] {
-  --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A;
-  --text: #F1F4F9; --text-2: #A3ADBF; --text-3: #8892A6; --ink: #F1F4F9;
-  --brand-ink: #0D1526; --brand: #8B7BFF; --brand-hi: #A193FF; --brand-bg: #221B4A; --on-brand: #0B1220;
-  --nav-fg: #9AA5BA; --nav-act: var(--brand-bg);
+  --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9;
+  --nav-bg: #0A1120; --nav-fg: #A3ADBF;
   --shadow-card: 0 1px 0 rgba(0,0,0,.35); --shadow-pop: 0 16px 40px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
 }
 
 /* ── בסיס ── */
 body { margin: 0; background: var(--bg); color: var(--text); }
-:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-::selection { background: var(--brand-bg); }
+::selection { background: var(--brand-soft); }
 main { gap: 16px; }
 .hint, .kpi .sub, .lead .meta, .empty { font-size: 13px; }   /* טקסט משני: 13 ומעלה */
 h3.sec { font-size: 12.5px; color: var(--text-2); letter-spacing: .01em; }
@@ -583,52 +574,52 @@ h3.sec { font-size: 12.5px; color: var(--text-2); letter-spacing: .01em; }
 .card > header { margin-bottom: 12px; }
 .kpi .v { font-size: 28px; }
 .kpi.click { transition: border-color var(--t-fast), box-shadow var(--t-fast); }
-.kpi.click:hover { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg); }
-.dayhead, .lane, .file, .moneystrip, .qa, .ppanel, .tranche, .doccat, .dtile, .lead, .emailprev { border-radius: var(--radius-card); }
-.col { border-radius: var(--radius-card); }
+.kpi.click:hover { border-color: var(--brand-strong); box-shadow: 0 0 0 3px var(--brand-soft); }
+.dayhead, .lane, .file, .moneystrip, .qa, .ppanel, .tranche, .doccat, .dtile, .lead, .emailprev, .col { border-radius: var(--radius-card); }
 
-/* ── כפתור: רדיוס 8, ראשי בסגול ── */
+/* ── כפתור: רדיוס 8; הראשי בצבע החברה (מוגדר למעלה) ── */
 .btn { border-radius: var(--radius-btn); border-color: var(--border); font-weight: 500; transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
 .btn:hover { background: var(--sunk); border-color: var(--border-2); }
-.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-weight: 600; }
-.btn.primary:hover { background: var(--brand-hi); border-color: var(--brand-hi); opacity: 1; }
+.btn.primary { font-weight: 600; }
+.btn.primary:hover { box-shadow: 0 0 0 3px var(--brand-soft); }
 .btn.ghost:hover { border-color: transparent; }
 .btn.danger:hover { border-color: var(--open); }
-.xlink:hover { color: var(--brand); text-decoration-color: var(--brand); }
+.xlink:hover { color: var(--brand-text); text-decoration-color: var(--brand-accent); }
 
 /* ── שדות ── */
 input.f, select.f, textarea.f { box-sizing: border-box; background: var(--surface); border-color: var(--border); border-radius: var(--radius-btn); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
 input.f:hover, select.f:hover, textarea.f:hover { border-color: var(--border-2); }
-input.f:focus, select.f:focus, textarea.f:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg); }
-.check input, input.cb { accent-color: var(--brand); }
+input.f:focus, select.f:focus, textarea.f:focus { border-color: var(--brand-strong); }
+input.f:focus:not(:focus-visible), select.f:focus:not(:focus-visible), textarea.f:focus:not(:focus-visible) { outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+.check input, input.cb { accent-color: var(--brand-strong); }
 
 /* ── צ׳יפים: רדיוס 5 ── */
 .pill, .chip, .tag, .dchip, .rchip, .seg button, .steps span, .pstep, .scans a, .dflag { border-radius: var(--radius-chip); }
-.seg button[aria-pressed="true"], .dchip[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.seg button[aria-pressed="true"], .dchip[aria-pressed="true"] { background: var(--brand-strong); border-color: var(--brand-strong); color: var(--on-brand); }
 .seg button:not([aria-pressed="true"]):hover, .dchip:not([aria-pressed="true"]):hover { border-color: var(--border-2); color: var(--text); }
 
-/* ── טבלה: כותרת שקועה, שורה מסומנת בפס סגול בצד ── */
+/* ── טבלה: כותרת שקועה, שורה לחיצה מסומנת בפס בצבע החברה ── */
 thead th { background: var(--sunk); color: var(--text-2); font-weight: 600; border-bottom-color: var(--border); }
 thead th:first-child { border-start-start-radius: 6px; } thead th:last-child { border-start-end-radius: 6px; }
 tbody tr:hover { background: var(--sunk); }
-tbody tr.clickable:not([class*="lc-"]):hover > td:first-child { box-shadow: inset -3px 0 0 var(--brand); }
+tbody tr.clickable:not([class*="lc-"]):hover > td:first-child { box-shadow: inset -3px 0 0 var(--brand-accent); }
 
 /* ── מגירה, חלון, הודעה ── */
 .scrim { background: var(--scrim); }
-.drawer { border-start-end-radius: 0; box-shadow: var(--shadow-pop); }
+.drawer { box-shadow: var(--shadow-pop); }
 .drawer header { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .drawer.gsbox { border-radius: var(--radius-card); }
 .gsres button { border-radius: var(--radius-btn); }
-.gsres button:hover, .gsres button[aria-selected="true"] { background: var(--brand-bg); }
-.toast { background: var(--brand-ink); color: #fff; border-radius: var(--radius-btn); }
+.gsres button:hover, .gsres button[aria-selected="true"] { background: var(--brand-soft); }
+.toast { background: var(--nav-bg); color: #fff; border-radius: var(--radius-btn); }
 .notice { border-radius: var(--radius-card); }
 .badge { background: var(--open); color: #fff; }
 
-/* ── כותרת עליונה: שורת חיפוש כשורת פקודה (Ctrl K כבר פועל) ── */
+/* ── כותרת עליונה: חיפוש כשורת פקודה (Ctrl K כבר פועל) ── */
 header.top { background: var(--surface); border-bottom-color: var(--border); }
 .divs { border-radius: var(--radius-btn); }
 .divs button { border-radius: 6px; }
-.divs button[aria-pressed="true"] { color: var(--brand); }
+.divs button[aria-pressed="true"] { color: var(--brand-text); }
 .status { border-radius: var(--radius-chip); }
 .gsbtn { border-radius: var(--radius-btn); background: var(--sunk); border-color: var(--border); min-height: 34px; }
 .gsbtn:hover { border-color: var(--border-2); }
@@ -637,62 +628,56 @@ header.top { background: var(--surface); border-bottom-color: var(--border); }
   .gsbtn::after { content: "Ctrl K"; margin-inline-start: auto; direction: ltr; font: 600 11px/1 var(--font-num); color: var(--text-3); border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; background: var(--surface); }
 }
 
-/* ── ניווט צד (מחשב וטאבלט): דיו כהה, פס סגול לבחירה ── */
+/* ── ניווט צד (מחשב וטאבלט): דיו כהה של החברה, פס בצבע ההדגשה לבחירה ── */
 @media (min-width: 768px) {
   nav.tabs { background: var(--nav-bg); border-inline-end: 0; }
   nav.tabs button { position: relative; color: var(--nav-fg); border-radius: var(--radius-btn); transition: background var(--t-fast), color var(--t-fast); }
   nav.tabs button:hover { background: var(--nav-hover); color: var(--nav-fg-act); }
-  nav.tabs button[aria-selected="true"] { background: var(--nav-sel); color: var(--nav-fg-act); }
-  nav.tabs button[aria-selected="true"]::after { content: ""; position: absolute; inset-block: 8px; inset-inline-start: -12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-hi); }
-  nav.tabs #tabAdd, nav.tabs #tabAdd:hover { background: var(--brand); color: #fff; opacity: 1; }
-  nav.tabs #tabAdd:hover { background: var(--brand-hi); }
+  nav.tabs button[aria-selected="true"] { background: var(--nav-sel); color: var(--nav-fg-act) !important; box-shadow: none; }
+  nav.tabs button[aria-selected="true"]::after { content: ""; position: absolute; inset-block: 8px; inset-inline-start: -12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-accent); }
+  nav.tabs #tabAdd, nav.tabs #tabAdd:hover { background: var(--brand-accent); color: var(--on-accent); opacity: 1; }
+  nav.tabs #tabAdd:hover { filter: brightness(1.08); }
   nav.tabs .badge { background: var(--open); color: #fff; }
 }
 @media (min-width: 1024px) {
-  nav.tabs::before { color: #fff; border-bottom-color: var(--nav-line); font-family: var(--font-head); font-size: 22px; letter-spacing: 0; }
+  header.top .mark .brand { color: #fff; }
+  header.top .mark .brand .bt small { color: var(--nav-fg); }
+  nav.tabs::before { border-bottom-color: var(--nav-line); }
   nav.tabs button { padding: 8px 12px; font-size: 14px; }
   nav.tabs button[data-tab="books"], nav.tabs button[data-tab="lenders"] { margin-top: 14px; }
-  header.top { box-shadow: none; }
-}
-@media (min-width: 768px) and (max-width: 1023px) {
-  nav.tabs { padding-top: 16px; }
-  nav.tabs button[aria-selected="true"]::after { inset-inline-start: -12px; }
 }
 
-/* ── נייד: כותרת כהה, סרגל תחתון עם כפתור הוספה סגול במרכז ── */
+/* ── נייד: כותרת כהה של החברה, סרגל תחתון עם ➕ במרכז ── */
 @media (max-width: 767px) {
   header.top { background: var(--nav-bg); border-bottom: 0; color: #fff; }
+  header.top .mark .brand { color: #fff; }
+  header.top .mark .brand .bt small { color: var(--nav-fg); }
   header.top .divs { background: rgba(255,255,255,.08); }
-  header.top .divs button { color: var(--nav-fg); min-height: 32px; }
-  header.top .divs button[aria-pressed="true"] { background: var(--brand); color: #fff; box-shadow: none; }
+  header.top .divs button { color: var(--nav-fg); }
+  header.top .divs button[aria-pressed="true"] { background: var(--brand-accent); color: var(--on-accent); box-shadow: none; }
   header.top .gsbtn { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #fff; min-width: 40px; min-height: 40px; justify-content: center; }
   header.top .status { background: rgba(255,255,255,.08); color: var(--nav-fg); }
   header.top .who { color: var(--nav-fg); }
-  header.top .mark b { color: #fff; font-family: var(--font-head); font-size: 19px; }
   nav.tabs { background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(11,18,32,.07); }
   /* סדר: היום · לידים · ➕ · לקוחות · עוד ("עוד" נשאר — דרכו מגיעים לכל שאר המסכים, כולל כספים) */
   nav.tabs [data-tab="day"] { order: 1; } nav.tabs [data-tab="leads"] { order: 2; } #tabAdd { order: 3; } nav.tabs [data-tab="clients"] { order: 4; } #tabMore { order: 5; }
-  nav.tabs button[aria-selected="true"] { color: var(--brand); }
-  nav.tabs button[aria-selected="true"]:not(.navx)::after { content: ""; position: absolute; top: 0; inset-inline: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--brand); }
-  #tabAdd::after { background: var(--brand); border-radius: 12px; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 40%, transparent); }
+  nav.tabs button[aria-selected="true"]:not(.navx)::after { content: ""; position: absolute; top: 0; inset-inline: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--brand-accent); }
+  #tabAdd::before { background: var(--on-brand); }
+  #tabAdd::after { background: var(--brand-strong); border-radius: 12px; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand-strong) 35%, transparent); }
   body.more-open nav.tabs { border-radius: 14px 14px 0 0; }
   body.more-open nav.tabs button:not(.navx) { border-radius: var(--radius-card); }
-  body.more-open nav.tabs button[aria-selected="true"] { background: var(--brand-bg); }
+  body.more-open nav.tabs button[aria-selected="true"] { background: var(--brand-soft); }
   body.more-open nav.tabs button[aria-selected="true"]::after { display: none; }
   body.more-open::after, body.add-open::after { background: var(--scrim); }
   .card { padding: 14px; }
 }
 body.add-open #qadd { border-radius: 14px 14px 0 0; }
 #qadd button { border-radius: var(--radius-card); transition: border-color var(--t-fast), background var(--t-fast); }
-#qadd button:hover { border-color: var(--brand); background: var(--brand-bg); }
+#qadd button:hover { border-color: var(--brand-strong); background: var(--brand-soft); }
 @media (min-width: 768px) { body.add-open #qadd { border-radius: var(--radius-card); } body.add-open::after { background: var(--scrim); } }
 
-/* ── מגע: כל יעד 40px לפחות ── */
-@media (pointer: coarse) {
-  .btn, .seg button, .dchip, .gsbtn { min-height: 40px; }
-  .btn.small { min-height: 40px; padding-inline: 12px; }
-  input.f, select.f { min-height: 40px; }
-}
+/* ── מגע: גם צ׳יפים וחיפוש 40px לפחות (כפתורים ושדות — 44px, בשכבת הנגישות למעלה) ── */
+@media (pointer: coarse) { .seg button, .dchip, .gsbtn { min-height: 40px; } }
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
