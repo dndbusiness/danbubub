@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { writeDoc, type WriteOp } from '@/lib/crm/store'
 import { parsePath } from '@/lib/crm/docs.js'
-import { canWrite, crmSettings, effectiveSession, restoreSecrets } from '@/lib/crm/auth'
+import { canWrite, crmSettings, effectiveSession, guardPerms, restoreSecrets, sessionPerms } from '@/lib/crm/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,12 +13,14 @@ export async function POST(req: Request) {
   const p = parsePath(body.path)
   if (!p) return NextResponse.json({ code: 'invalid_argument', message: 'נתיב לא חוקי' }, { status: 400 })
   const s = await effectiveSession(req)
-  if (!canWrite(s, p[0])) return NextResponse.json({ code: s ? 'permission_denied' : 'unauthenticated', message: s ? 'אין הרשאה לכתוב כאן' : 'צריך להיכנס' }, { status: s ? 403 : 401 })
+  const stored = s && s.r !== 'owner' ? await crmSettings() : null
+  if (!canWrite(s, p[0], s ? sessionPerms(s, stored) : null)) return NextResponse.json({ code: s ? 'permission_denied' : 'unauthenticated', message: s ? 'אין הרשאה לכתוב כאן' : 'צריך להיכנס' }, { status: s ? 403 : 401 })
   let data = body.data
   // הגיבובים לא יצאו לדפדפן — מחזירים אותם לפני השמירה, כדי שכתיבה של ההגדרות לא תמחק סיסמאות
   if (p[0] === 'settings' && p[1] === 'main' && data && typeof data === 'object') {
     if (s!.r === 'center') return NextResponse.json({ code: 'permission_denied', message: 'אין הרשאה לשנות הגדרות' }, { status: 403 })
-    data = restoreSecrets(data as Record<string, unknown>, await crmSettings())
+    const cur = stored ?? await crmSettings()
+    data = guardPerms(restoreSecrets(data as Record<string, unknown>, cur), cur, s!)
   }
   try {
     const r = await writeDoc(body.path, body.op as WriteOp, data)
