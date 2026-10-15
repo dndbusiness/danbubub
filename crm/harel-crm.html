@@ -1,5 +1,5 @@
 <title>הר-אל CRM</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;500;600;700;800&family=Frank+Ruhl+Libre:wght@500;700&family=Space+Grotesk:wght@500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai label:has(#repFile), body.noai label:has(#repMore), body.noai label:has(#condScan) { display: none !important; }
@@ -18,6 +18,10 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
     --realestate: #0F766E; --realestate-bg: #F0FDFA;
     --dan: #1C6B58; --hadas: #8A3566; --nissim: #2A5A96;
     --radius-card: 12px; --radius-btn: 8px;
+    /* טיפוגרפיה — אפשרות ג׳ (דן, 15/10): כותרות בסריף, גוף נקי, מספרים טכנולוגיים */
+    --font-body: "Noto Sans Hebrew", Heebo, "Segoe UI", system-ui, sans-serif;
+    --font-head: "Frank Ruhl Libre", "Noto Sans Hebrew", Georgia, serif;
+    --font-num: "Space Grotesk", "Noto Sans Hebrew", system-ui, sans-serif;
     --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
     --shadow-pop: 0 12px 32px rgba(17,24,39,.18);
   }
@@ -58,7 +62,7 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
     --shadow-pop: 0 12px 32px rgba(0,0,0,.6);
   }
 
-  body { direction: rtl; background: var(--bg); color: var(--text); font-family: Heebo, "Segoe UI", system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+  body { direction: rtl; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
   .num { font-variant-numeric: tabular-nums; }
   button, input, select, textarea { font: inherit; color: inherit; }
 
@@ -341,6 +345,8 @@ h2 { font-size: 16px; letter-spacing: -.01em; }
 .kpi { gap: 6px; }
 .kpi h3 { font-size: 13px; }
 .kpi .v { font-size: 30px; letter-spacing: -.02em; }
+h1, h2 { font-family: var(--font-head); font-weight: 700; letter-spacing: 0; }
+.kpi .v, .moneystrip b { font-family: var(--font-num); font-weight: 600; letter-spacing: -.02em; }
 .grid2, .grid3, .grid4 { gap: 16px; }
 main { gap: 20px; }
 table { font-size: 13.5px; }
