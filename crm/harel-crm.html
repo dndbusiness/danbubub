@@ -866,6 +866,71 @@ function birthdaysCard() {
   return '<section class="card"><header><h2>ימי הולדת השבוע</h2><span class="pill muted">' + soon.length + '</span></header>' + soon.map((x) => '<div class="row" style="align-items:center;margin-bottom:4px"><span class="num" style="min-width:64px">' + (x.k === 0 ? 'היום' : x.k === 1 ? 'מחר' : dLabel(x.d)) + '</span><span class="grow">' + esc(x.who) + (x.age != null ? ' <span class="hint">· ' + x.age + '</span>' : '') + '</span><button class="chip client" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + ' ↗</button>' +
     (x.c.phone ? '<a class="btn small ghost" target="_blank" rel="noopener" href="https://wa.me/' + esc(String(x.who === x.c.name ? x.c.phone : x.c.spousePhone || x.c.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('מזל טוב ' + String(x.who).split(' ')[0] + '! מאחלים שנה נפלאה — הר-אל') + '">ברכה ↗</a>' : '') + '</div>').join('') + '</section>';
 }
+/* ═════════════ "היום שלי" לפי מי שנכנס (דן, 15/10) ═════════════
+   מכירות — לידים, יחס המרה היום והחודש עד חתימה ועד כסף · תפעול — איפה כל תיק עומד בתהליך, תקועים, שמאויות · הכל (דן) — שניהם + כסף.
+   ברירת המחדל לפי התפקיד; כל אחד יכול להחליף לעצמו (נשמר בדפדפן שלו). */
+const FOCUS = { sales: 'מכירות', ops: 'תפעול', all: 'הכל' };
+function dayFocus() { let v = S.f.focus; if (!v) { try { v = localStorage.getItem('harel-focus-' + (S.myKey || '')); } catch (e) { v = null; } }
+  if (FOCUS[v] && (v !== 'all' || S.isOwner)) return v; return S.isDan ? 'all' : S.isCenter || S.role === 'partner' ? 'sales' : 'ops'; }
+function convSnap(from, to, mine) {
+  const r = { in: 0, credit: 0, idle: 0, handled: 0, check: 0, signed: 0, paid: 0, collected: 0, ids: { in: [], handled: [], check: [], signed: [], paid: [] } };
+  live(S.leads).forEach((l) => { const d = dayOf(l.createdAt); if (d < from || d > to || !canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division) || (mine && l.resp !== S.myKey)) return;
+    const lv = convLevel(l); r.in++; r.ids.in.push(l.id); if (lv < 0) { r.credit++; return; } if (lv === 0) { r.idle++; return; }
+    r.handled++; r.ids.handled.push(l.id); if (lv >= 2) { r.check++; r.ids.check.push(l.id); }
+    if (lv === 3) { r.signed++; r.ids.signed.push(l.id); const m = leadRevenue(l); if (m.collected > 0) { r.paid++; r.ids.paid.push(l.id); r.collected += m.collected; } } });
+  r.collected = r2(r.collected); return r;
+}
+function focusPanel() {
+  const fc = dayFocus(), t0 = today(), m0 = t0.slice(0, 8) + '01', mine = S.isCenter || (!S.isOwner && live(S.leads).some((l) => l.resp === S.myKey)), money$ = S.isOwner || S.isPartner;
+  const seg = '<div class="seg" role="group" aria-label="מה להציג">' + Object.entries(FOCUS).filter(([k]) => S.isOwner || k !== 'all').map(([k, v]) => '<button data-focus="' + k + '" aria-pressed="' + (fc === k) + '">' + v + '</button>').join('') + '</div>';
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  let h = '';
+  if (fc === 'sales' || fc === 'all') {
+    const T = convSnap(t0, t0, mine), M = convSnap(m0, t0, mine);
+    const L0 = live(S.leads).filter((l) => (!mine || l.resp === S.myKey) && (S.division === 'all' || leadDiv(l) === S.division) && canSeeDiv(leadDiv(l)));
+    const fresh = L0.filter((l) => (l.stage || 'new') === 'new' && !l.dupOf).length, due = L0.filter((l) => leadDue(l, t0)).length;
+    const typeRows = [...LEAD_TYPES, 'אחר'].map((t) => { const r = { in: 0, handled: 0, check: 0, signed: 0, paid: 0, collected: 0 };
+      live(S.leads).forEach((l) => { const d = dayOf(l.createdAt); if (d < m0 || d > t0 || (LEAD_TYPES.includes(leadType(l)) ? leadType(l) : 'אחר') !== t || !canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division) || (mine && l.resp !== S.myKey)) return;
+        const lv = convLevel(l); if (lv < 0) return; r.in++; if (lv >= 1) r.handled++; if (lv >= 2) r.check++; if (lv === 3) { r.signed++; const mm = leadRevenue(l); if (mm.collected > 0) { r.paid++; r.collected += mm.collected; } } });
+      return [t, r]; }).filter(([, r]) => r.in);
+    let spend = 0; if (money$ && !mine) { const G = convMonth(t0.slice(0, 7), t0); Object.values(G).forEach((g) => { spend += g.tot.spendC || g.tot.spendL || 0; }); spend = r2(spend); }
+    h += '<h3 class="sec">מכירות' + (mine ? ' — הלידים שלך' : '') + '</h3><div class="grid4">' +
+      kpi('לטיפול עכשיו', '<span class="num">' + fresh + '</span>', 'חדשים' + (due ? ' · ועוד ' + due + ' מעקבים להיום' : ''), 'leads', fresh || due ? 'open' : '') +
+      kpi('היום', '<span class="num">' + T.in + '</span> נכנסו', 'טופלו ' + T.handled + ' · בדיקה ' + T.check + ' · חתמו ' + T.signed, 'leads') +
+      kpi('יחס המרה — החודש', pc(M.signed, M.handled), 'מטופל → חתימה · ' + M.signed + ' מתוך ' + M.handled + ' (נכנסו ' + (M.in - M.credit) + ')', 'leads', 'committed') +
+      kpi('בדיקה → חתימה', pc(M.signed, M.check), M.signed + ' מתוך ' + M.check + ' שהגיעו לבדיקה' + (money$ && M.paid ? ' · שילמו ' + M.paid + ' (' + plain(M.collected) + ')' : ''), 'leads') +
+      '</div>' +
+      (typeRows.length ? '<div class="scroll"><table><thead><tr><th>' + mLabel(t0.slice(0, 7)) + '</th><th>נכנסו</th><th>טופלו</th><th>בדיקה</th><th>חתמו</th><th>בדיקה → חתימה</th>' + (money$ ? '<th>שילמו</th>' : '') + '</tr></thead><tbody>' +
+        typeRows.map(([t, r]) => '<tr><td class="wide">' + esc(t) + '</td><td class="num">' + r.in + '</td><td class="num">' + r.handled + ' <small class="hint">' + pc(r.handled, r.in) + '</small></td><td class="num">' + r.check + ' <small class="hint">' + pc(r.check, r.handled) + '</small></td><td class="num"><b>' + r.signed + '</b></td><td class="num"><b>' + pc(r.signed, r.check) + '</b></td>' + (money$ ? '<td class="num">' + r.paid + (r.collected ? ' <small class="hint">' + plain(r2(r.collected)) + '</small>' : '') + '</td>' : '') + '</tr>').join('') +
+        '</tbody></table></div>' : '') +
+      (money$ && spend ? '<p class="hint" style="margin:6px 0 0">שיווק החודש: ' + plain(spend) + (M.signed ? ' · ' + plain(Math.round(spend / M.signed)) + ' לחתימה' : '') + (M.paid ? ' · ' + plain(Math.round(spend / M.paid)) + ' ללקוח שכבר שילם' : '') + ' — <button class="xlink" data-go="marketing">שיווק ←</button></p>' : '') +
+      '<p class="hint" style="margin:4px 0 0">הקבוצה = לידים שנכנסו היום / מתחילת החודש. "בדיקה" = הגיע לבדיקה (גם אם לא עבר). לזיכוי לא נספרים.</p>';
+  }
+  if (fc === 'ops' || fc === 'all') {
+    const open = live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && c.division !== 'realestate');
+    const groups = {}; open.forEach((c) => { const ty = procType(c), st = procSteps(c), cur = procCur(c), lab = (st.find((x) => x[0] === cur) || [])[1] || cur; const g = (groups[ty] = groups[ty] || {}); g[lab] = g[lab] || { n: 0, i: procIdx(c, cur) }; g[lab].n++; });
+    const stuck = stuckFiles().filter((c) => c.division !== 'realestate'), dan = open.filter((c) => (fileOf(c.id) || {}).needsDan);
+    const appr = open.filter((c) => c.apprSurvey && Object.keys(c.apprSurvey.sent || {}).length && !c.apprSurvey.chosen);
+    h += '<h3 class="sec">תפעול — איפה התיקים עומדים</h3><div class="grid4">' +
+      kpi('תיקים פתוחים', '<span class="num">' + open.length + '</span>', 'בתהליך', 'clients') +
+      kpi('תקועים', '<span class="num">' + stuck.length + '</span>', '3 ימי עבודה בלי תזוזה', 'clients', stuck.length ? 'open' : '') +
+      kpi('לאישור דן', '<span class="num">' + dan.length + '</span>', 'מחכים להחלטה', 'clients', dan.length ? 'expected' : '') +
+      kpi('שמאויות בסקר', '<span class="num">' + appr.length + '</span>', 'נשלח לשמאים, עוד לא נבחר', 'clients') +
+      '</div>' +
+      Object.entries(groups).map(([ty, g]) => '<div class="row" style="gap:6px;flex-wrap:wrap;margin:4px 0"><b style="min-width:70px">' + esc((PROC[ty] || {}).label || ty) + '</b>' +
+        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="pill committed" data-go="clients" title="לוח הלקוחות">' + esc(lab) + ' · ' + x.n + '</button>').join('') + '</div>').join('');
+  }
+  if (fc === 'all' && S.isOwner) {
+    const m = t0.slice(0, 7), open = (S.settings.monthOpen || {})[m], got = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + cashIn(t), 0));
+    const rest = monthExpect(m).filter((i) => i.date >= t0 || i.late), close = r2(got + rest.reduce((a, i) => a + i.amount, 0));
+    h += '<h3 class="sec">כסף — ' + mLabel(m) + '</h3><div class="grid4">' +
+      kpi('פתחנו את החודש עם', open ? money(open.total, { tone: 'committed' }) : '—', open ? 'נרשם ' + dLabel(dayOf(open.at)) : 'נרשם בפתיחת מסך הצפי', 'money:forecast') +
+      kpi('נכנס בפועל', money(got, { tone: 'actual' }), open && open.total ? pct(got, open.total) + '% מהצפי' : '', 'money:forecast') +
+      kpi('צפי סגירה', money(close, { tone: 'committed' }), 'בלי "לא לבנות על זה"', 'money:forecast') +
+      kpi('פתוח בלי תאריך', money(forecastItems(70).undated.reduce((a, i) => a + i.amount, 0), { tone: 'expected' }), 'קבע צפי בכרטיס הלקוח', 'money:forecast') + '</div>';
+  }
+  return '<section class="card"><header><h2>' + (fc === 'sales' ? 'המכירות שלך' : fc === 'ops' ? 'התפעול' : 'תמונת מצב') + '</h2><span class="grow"></span>' + seg + '</header>' + h + '</section>';
+}
 function vDay() {
   const me = S.me.id, t0 = today();
   const d = S.days.get(dayId()) || null;
@@ -892,13 +957,14 @@ function vDay() {
     (S.canTask ? '<button class="btn small ghost" data-act="mailMorning" title="אותו מייל שנשלח אוטומטית ב-08:00">תקציר בוקר למייל</button>' : '') + '</div>';
 
   if (S.f.closeStep) return head + vDayClose(cases, tasks);
+  const focus = focusPanel();
 
   const taskRow = (t) => { const c = t.clientId && S.clients.get(t.clientId);
     return '<label class="check" style="border-inline-start:4px solid ' + prioVar(t) + '"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + (t.time ? '<span class="hint num">' + esc(t.time) + '</span> ' : '') + esc(t.title) +
       (c ? ' · <button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '') + '</span>' +
       (t.priority === 'urgent' || t.priority === 'high' ? '<span class="pill open">' + L.priority[t.priority] + '</span>' : '') +
       '<span class="hint num">' + dLabel(t.due) + '</span></label>'; };
-  return head +
+  return head + focus +
     '<div class="grid4">' +
       kpi('משימות באיחור', '<span class="num">' + overdue.length + '</span>', 'עליך, מלפני היום' + (overdue.length ? ' · לחץ לכרטיסים' : ''), overdue.length ? 'tasks:late' : null, overdue.length ? 'open' : '') +
       kpi('להיום', '<span class="num">' + dueToday.length + '</span>', dueToday.length ? 'משימות עם יעד היום' : 'אין יעדים להיום', null) +
@@ -7351,6 +7417,7 @@ document.addEventListener('click', async (e) => {
       await logClient(c.id, 'שמאי נבחר: ' + a.name + (n(qt.price) ? ' · ' + plain(qt.price) : '') + (n(qt.days) ? ' · ' + qt.days + ' ימים' : '') + ' (מתוך ' + Object.values(sv.quotes || {}).filter((x) => n(x.price)).length + ' הצעות)').catch(() => {}); return toast('נבחר ' + a.name + ' — נכנס לשלב השמאות'); }
     if (d.apcopy) { const [cid, aid] = d.apcopy.split(':'), c = S.clients.get(cid), a = appraisers().find((x) => x.id === aid); if (c) { copyText(apprText(c, a), 'ההודעה הועתקה'); await apprMarkSent(c, aid); } return; }
     if (d.apdel) { if (!(S.canWrite || ['admin', 'admin_re'].includes(S.role))) return; const A = (S.settings.appraisers || []).map((a) => a.id === d.apdel ? { ...a, deletedAt: stamp() } : a); await write('settings/main', { appraisers: A }, 'update'); return toast('השמאי הוסר מהרשימה'); }
+    if (d.focus) { S.f.focus = d.focus; try { localStorage.setItem('harel-focus-' + (S.myKey || ''), d.focus); } catch (e) {} return render(); }
     if (d.pm) { if (d.pmdiv) S.division = d.pmdiv; S.f.pnlMonth = d.pm; S.f.money = 'pnl'; return S.view.tab === 'money' ? render() : go('money'); }
     if (d.pmode) { S.f.pnlMode = d.pmode; return render(); }
     if (d.money) { S.f.money = d.money; return render(); }
