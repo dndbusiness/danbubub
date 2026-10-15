@@ -2,7 +2,9 @@ import { describe, expect, it, beforeAll } from 'vitest'
 import { randomBytes } from 'node:crypto'
 import {
   canRead, canWrite, decodeSession, encodeSession, pwHash, restoreSecrets, sanitizeSettings, verifyLogin, SECRET_MARK, type CrmSession,
+  permsOf, sessionPerms, guardPerms, AREAS, DAN_GRANT,
 } from '@/lib/crm/auth'
+import { readFileSync } from 'node:fs'
 
 beforeAll(() => { process.env.SECRETS_KEY = 'test-secret-key' })
 
@@ -112,5 +114,47 @@ describe('ai queue — מה נכתב ומה יוצא לדפדפן', async () => 
     expect(canRead(owner, 'aiJobs')).toBe(true)
     expect(canWrite(owner, 'aiJobs')).toBe(false)
     expect(canWrite(owner, 'aiJobFiles')).toBe(false)
+  })
+})
+
+describe('הרשאות לפי אזור (דן, 15/10)', () => {
+  const sess = (r: CrmSession['r'], k = 'x'): CrmSession => ({ k, r, d: ['finance'], l: k, e: Date.now() + 1e6 })
+  it('ברירת מחדל: כספים / לוח בקרה / הנה״ח — דן בלבד', () => {
+    for (const r of ['admin', 'admin_re', 'partner', 'center'] as const) for (const k of DAN_GRANT) expect(permsOf({}, r)).not.toContain(k)
+    expect(permsOf(null, 'owner')).toEqual([...AREAS, 'private'])
+    expect(permsOf({}, 'center')).toEqual(['day', 'leads', 'tasks'])
+  })
+  it('וי במטריצה פותח / סוגר אזור; "היום שלי" תמיד פתוח, פרייבט אף פעם', () => {
+    const u = { perms: { marketing: false, money: true, day: false, private: true } as Record<string, boolean> }
+    const p = permsOf(u, 'admin')
+    expect(p).toContain('money'); expect(p).not.toContain('marketing'); expect(p).toContain('day'); expect(p).not.toContain('private')
+  })
+  it('השרת לא מוסר אוספי כספים / שיווק בלי האזור, וסנכרון הבנק רק לדן', () => {
+    const st = { users: [{ username: 'hadas', resp: 'hadas', role: 'admin' }, { username: 'h2', resp: 'h2', role: 'admin', perms: { money: true } }] }
+    const s1 = sess('admin', 'hadas'), s2 = sess('admin', 'h2')
+    expect(canRead(s1, 'expenses', sessionPerms(s1, st))).toBe(false)
+    expect(canRead(s2, 'expenses', sessionPerms(s2, st))).toBe(true)
+    expect(canWrite(s1, 'planned', sessionPerms(s1, st))).toBe(false)
+    expect(canRead(s1, 'transactions', sessionPerms(s1, st))).toBe(true)
+    expect(canRead(s2, 'stmts', sessionPerms(s2, st))).toBe(false)
+    expect(canRead(sess('owner', 'dan'), 'stmts', sessionPerms(sess('owner', 'dan'), null))).toBe(true)
+    expect(canRead(s1, 'campaigns', sessionPerms(s1, { users: [{ username: 'hadas', resp: 'hadas', role: 'admin', perms: { marketing: false } }] }))).toBe(false)
+  })
+  it('מי שאינו דן לא יכול לפתוח כספים דרך כתיבת ההגדרות', () => {
+    const stored = { users: [{ username: 'nissim', resp: 'nissim', role: 'partner', perms: { money: false } }] }
+    const inc = { users: [{ username: 'nissim', resp: 'nissim', role: 'partner', perms: { money: true, home: true, marketing: false } }] }
+    const out = guardPerms(inc, stored, sess('admin', 'hadas')) as { users: { perms: Record<string, boolean> }[] }
+    expect(out.users[0]!.perms).toEqual({ money: false, marketing: false })
+    expect(guardPerms(inc, stored, sess('owner', 'dan'))).toBe(inc)
+  })
+  it('אותה טבלה בדף ובשרת', () => {
+    const html = readFileSync('crm/harel-crm.html', 'utf8')
+    const a = html.indexOf('const AREAS = ['), b = html.indexOf('const userKey = (u)', a)
+    const code = html.slice(a, b)
+    const page = new Function(code + '; return { AREAS, DAN_GRANT, permsOf };')() as { AREAS: [string, string][]; DAN_GRANT: string[]; permsOf: (u: unknown, r: string) => string[] }
+    expect(page.AREAS.map((x) => x[0])).toEqual(AREAS)
+    expect(page.DAN_GRANT).toEqual(DAN_GRANT)
+    const cases: [Record<string, unknown> | null, CrmSession['r'] | 'team'][] = [[null, 'owner'], [{}, 'admin'], [{}, 'admin_re'], [{}, 'partner'], [{}, 'center'], [{}, 'team'], [{ perms: { money: true, leads: false } }, 'center']]
+    for (const [u, r] of cases) expect(page.permsOf(u, r)).toEqual(permsOf(u, r))
   })
 })

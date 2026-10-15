@@ -71,8 +71,8 @@ function sameHex(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y)
 }
 
-interface UserRec { username?: string; resp?: string; role?: string; divs?: string[]; label?: string; hash?: string; salt?: string; iter?: number }
-interface Settings { users?: UserRec[]; lock?: { hash?: string; salt?: string; iter?: number } }
+interface UserRec { username?: string; resp?: string; role?: string; divs?: string[]; label?: string; hash?: string; salt?: string; iter?: number; perms?: Record<string, boolean> }
+export interface Settings { users?: UserRec[]; lock?: { hash?: string; salt?: string; iter?: number } }
 
 /** כמו userRole / userDivs / userKey בדף */
 export function roleOf(u: UserRec): CrmRole {
@@ -85,6 +85,45 @@ export function divsOf(u: UserRec, role = roleOf(u)): string[] {
   if (role === 'partner') return ['finance']
   const d = (u.divs ?? []).filter((x) => DIVS.includes(x))
   return d.length ? d : ['finance']
+}
+
+/**
+ * הרשאות לפי אזור (דן, 15/10) — אותה טבלה כמו permsOf בדף (crm/harel-crm.html). וי לכל משתמש בכל אזור.
+ * כספים / לוח בקרה / הנהלת חשבונות — רק דן נותן; ברירת מחדל: דן בלבד. פרייבט וסנכרון הבנק (stmts) — דן בלבד, תמיד.
+ */
+export const AREAS = ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports', 'settings', 'home', 'money', 'books']
+export const DAN_GRANT = ['home', 'money', 'books']
+const CORE = ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports']
+const ROLE_AREAS: Record<string, string[]> = { admin: [...CORE, 'settings'], admin_re: [...CORE, 'settings'], partner: CORE, center: ['day', 'leads', 'tasks'], team: ['day', 'leads', 'tasks', 'clients', 'service'] }
+/** אוספים שאזור פותח: מי שאין לו את האזור לא מקבל אותם מהשרת ולא כותב אליהם */
+export const AREA_COLLS: Record<string, string[]> = { money: ['planned', 'expenses', 'payroll', 'reExpenses', 'rePlanned'], marketing: ['campaigns', 'kaveretPool'] }
+
+export function permsOf(u: UserRec | null | undefined, role: CrmRole | 'team'): string[] {
+  if (role === 'owner') return [...AREAS, 'private']
+  const set = new Set(ROLE_AREAS[role] ?? ROLE_AREAS.team), p = u?.perms ?? {}
+  for (const k of AREAS) if (k in p) { if (p[k]) set.add(k); else set.delete(k) }
+  set.add('day')
+  return AREAS.filter((k) => set.has(k))
+}
+const userKeyOf = (u: UserRec) => u.resp || normUser(u.username)
+/** ההרשאות של מי שנכנס — לפי רשומת המשתמש שלו בהגדרות (משתנה בלי כניסה מחדש) */
+export function sessionPerms(s: CrmSession | null, settings: Settings | null): string[] {
+  if (!s) return []
+  if (s.r === 'owner') return [...AREAS, 'private']
+  return permsOf((settings?.users ?? []).find((u) => userKeyOf(u) === s.k), s.r)
+}
+/**
+ * כתיבת ההגדרות ממי שאינו דן: את הווי של כספים / לוח בקרה / הנה״ח אי אפשר לשנות — חוזרים לערך השמור.
+ * (בלי זה מנהל מערכת היה פותח לעצמו את הכספים בקריאה ישירה ל-API.)
+ */
+export function guardPerms(incoming: Record<string, unknown>, stored: Settings | null, s: CrmSession): Record<string, unknown> {
+  if (s.r === 'owner' || !Array.isArray(incoming.users)) return incoming
+  const old = new Map((stored?.users ?? []).map((u) => [normUser(u.username), u]))
+  return { ...incoming, users: (incoming.users as UserRec[]).map((u) => {
+    const prev = old.get(normUser(u.username))?.perms ?? {}, perms: Record<string, boolean> = { ...(u.perms ?? {}) }
+    for (const k of DAN_GRANT) { if (k in prev) perms[k] = !!prev[k]; else delete perms[k] }
+    return { ...u, perms }
+  }) }
 }
 
 /** בדיקת סיסמה מול ההגדרות. בלי שם משתמש = דן (סיסמת הנעילה). מחזיר סשן או null. */
@@ -106,20 +145,23 @@ export function verifyLogin(settings: Settings, username: string, password: stri
 /** אין סיסמת נעילה מוגדרת = הדף לא נועל, ומי שעבר את שער המשרד הוא הבעלים (כמו קודם) */
 export const lockConfigured = (s: Settings) => !!(s.lock && s.lock.hash && s.lock.salt)
 
-export function canRead(s: CrmSession | null, coll: string): boolean {
+const areaBlocks = (coll: string, perms?: string[] | null) => !!perms && Object.entries(AREA_COLLS).some(([a, cs]) => cs.includes(coll) && !perms.includes(a))
+
+/** perms = sessionPerms(...) — בלי perms נבדק רק התפקיד (כמו קודם) */
+export function canRead(s: CrmSession | null, coll: string, perms?: string[] | null): boolean {
   if (coll === 'settings') return true
   if (SERVER_ONLY.includes(coll)) return false
   if (!s) return false
-  if (coll === 'private') return s.r === 'owner'
+  if (coll === 'private' || coll === 'stmts') return s.r === 'owner'
   if (s.r === 'center') return !OWNER_READ.includes(coll)
-  return true
+  return !areaBlocks(coll, perms)
 }
 
-export function canWrite(s: CrmSession | null, coll: string): boolean {
+export function canWrite(s: CrmSession | null, coll: string, perms?: string[] | null): boolean {
   if (!s || SERVER_WRITE.includes(coll)) return false
-  if (coll === 'private') return s.r === 'owner'
+  if (coll === 'private' || coll === 'stmts') return s.r === 'owner'
   if (s.r === 'center') return TEAM_WRITE.includes(coll)
-  return true
+  return !areaBlocks(coll, perms)
 }
 
 /** ההגדרות לדפדפן — בלי גיבובים ומלחים. הדף רואה רק שיש סיסמה. */
