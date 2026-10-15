@@ -1975,9 +1975,12 @@ async function leadPatch(id, patch, text, auto = false) {
   { const k0 = stKey(l), k1 = (('sub' in patch) ? patch.sub : l.sub) || (('stage' in patch) ? patch.stage : l.stage) || 'new'; /* היסטוריית סטטוסים — מאיפה, לאן, מתי ומי */
     if (('stage' in patch || 'sub' in patch) && k1 !== k0) patch = { ...patch, stAt: stamp(), stHist: [...(l.stHist || []), { from: k0, to: k1, at: stamp(), by: whoAmI() }].slice(-100) }; }
   if (patch.stage && patch.stage !== l.stage) { patch = { ...patch, stageAt: stamp(), ...(patch.stage === 'won' ? { wonAt: stamp() } : {}), ...(LEAD_CLOSED.includes(patch.stage) ? { followUp: null } : {}) }; }
+  /* תזכורת שהוכנסה ביד (fuManual) נבדלת ממעקב שהמערכת קבעה (אין מענה → מחר) — רק הראשונה נכנסת למשימות */
+  if ('followUp' in patch && !('fuManual' in patch)) patch = { ...patch, fuManual: false };
   const log = text ? [{ at: stamp(), by: S.me.id, who: whoAmI(), text, auto }, ...(l.log || [])].slice(0, 300) : undefined;
   await write('leads/' + id, { ...patch, ...(log ? { log } : {}), updatedAt: stamp() }, 'update');
   if ('resp' in patch || 'stage' in patch || 'dupOf' in patch) await leadTaskSync({ ...l, ...patch }).catch(() => {});
+  if ('followUp' in patch || 'resp' in patch || 'stage' in patch || 'dupOf' in patch) await leadFuTaskSync({ ...l, ...patch }).catch(() => {});
 }
 /* ליד כפול (הר-אל פתרונות): אותו טלפון באותה חברה.
    ליד "חדש" שאף אחד עוד לא נגע בו, ויש לו ליד קודם מ-90 הימים האחרונים → "ליד כפול · לזיכוי", עם קישור לליד הקיים ושורה ביומן של שניהם.
@@ -5047,14 +5050,19 @@ document.addEventListener('keydown', (e) => {
 /* ═════════════ משימה אוטומטית "ליד חדש — ליצור קשר" (WISE) ═════════════
    נפתחת כשליד חדש מוקצה לנציג, ונסגרת לבד כשהסטטוס זז מ"חדש" או כשהליד עובר לנציג אחר.
    rule_key = leadnew:<ליד>:<נציג> והוא גם מזהה המשימה — הקצאה חוזרת או שני דפדפנים לא יוצרים כפילות.
-   כבוי/דלוק בהגדרות ("משימה אוטומטית לליד חדש"). */
-const leadTaskOn = () => S.settings.leadNewTask !== false;
+   כבוי/דלוק בהגדרות ("משימה אוטומטית לליד חדש"), ולכל אחראי בנפרד:
+     auto      — משימה לכל ליד חדש (ברירת המחדל);
+     reminders — בלי משימה לליד חדש. משימה נפתחת רק כשהוא עצמו קובע תזכורת ("מעקב הבא") — ונסגרת כשהתזכורת בוטלה / הליד נסגר.
+   ניסים — reminders (דן, 15/10): הלידים שלו מנוהלים בסטטוסים, ורק תזכורת שהכניס נכנסת למשימות. */
+const LEAD_TASK_MODE_DEFAULT = { nissim: 'reminders' };
+const leadTaskMode = (resp) => ({ ...LEAD_TASK_MODE_DEFAULT, ...(S.settings.leadTaskModes || {}) })[resp] || 'auto';
+const leadTaskOn = (resp) => S.settings.leadNewTask !== false && (resp === undefined || leadTaskMode(resp) !== 'reminders');
 const LEAD_TASK_FRESH_DAYS = 2;
 async function leadTaskSync(l, create = true) {
   if (!l || !l.id || !S.canTask) return;
-  const want = leadTaskOn() && (l.stage || 'new') === 'new' && l.resp && !l.dupOf && !l.deletedAt ? 'leadnew:' + l.id + ':' + l.resp : null;
+  const want = leadTaskOn(l.resp) && (l.stage || 'new') === 'new' && l.resp && !l.dupOf && !l.deletedAt ? 'leadnew:' + l.id + ':' + l.resp : null;
   for (const t of live(S.tasks)) { if (t.leadId !== l.id || !String(t.ruleKey || '').startsWith('leadnew:') || t.status === 'done' || t.ruleKey === want) continue;
-    await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id, autoClosed: (l.stage || 'new') !== 'new' ? 'הליד טופל — ' + leadStageLabel(l) : 'הליד הועבר' }, 'update').catch(() => {}); }
+    await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id, autoClosed: (l.stage || 'new') !== 'new' ? 'הליד טופל — ' + leadStageLabel(l) : l.resp && leadTaskMode(l.resp) === 'reminders' ? 'בוטל — אצל ' + (L.resp[l.resp] || l.resp) + ' נפתחת משימה רק מתזכורת' : 'הליד הועבר' }, 'update').catch(() => {}); }
   if (!want || !create) return;
   const id = 'leadnew-' + slug(l.id + '|' + l.resp);
   if (S.tasks.has(id)) return;
@@ -5065,13 +5073,33 @@ async function leadTaskSync(l, create = true) {
 async function leadTaskSweep() {
   if (!S.canTask) return; const since = addDays(today(), -LEAD_TASK_FRESH_DAYS);
   const withTask = new Set(live(S.tasks).filter((t) => String(t.ruleKey || '').startsWith('leadnew:') && t.status !== 'done').map((t) => t.leadId));
-  for (const l of live(S.leads)) { if (withTask.has(l.id)) await leadTaskSync(l, false); else if (leadTaskOn() && l.resp && (l.stage || 'new') === 'new' && dayOf(l.createdAt) >= since) await leadTaskSync(l); }
+  for (const l of live(S.leads)) { if (withTask.has(l.id)) await leadTaskSync(l, false); else if (leadTaskOn(l.resp) && l.resp && (l.stage || 'new') === 'new' && dayOf(l.createdAt) >= since) await leadTaskSync(l); }
+  /* תזכורות: משימה שהליד שלה נסגר / הועבר / התזכורת בוטלה — נסגרת */
+  for (const t of live(S.tasks)) if (String(t.ruleKey || '').startsWith('leadfu:') && t.status !== 'done') await leadFuTaskSync(S.leads.get(t.leadId) || { id: t.leadId, deletedAt: stamp() });
+}
+/* תזכורת שהאחראי קבע לליד ("מעקב הבא") → משימה, אצל מי שבמצב "רק מתזכורת". אחת לכל ליד (rule_key = leadfu:<ליד>), מתעדכנת עם התאריך */
+async function leadFuTaskSync(l) {
+  if (!l || !l.id || !S.canTask) return;
+  const id = 'leadfu-' + slug(l.id), t = S.tasks.get(id), cur = t && !t.deletedAt ? t : null;
+  const closed = LEAD_CLOSED.includes(l.stage || 'new');
+  const want = !l.deletedAt && !l.dupOf && !closed && l.resp && l.followUp && l.fuManual && leadTaskMode(l.resp) === 'reminders';
+  if (!want) {
+    if (cur && cur.status !== 'done') await write('tasks/' + id, { status: 'done', doneAt: stamp(), doneBy: S.me.id, autoClosed: l.deletedAt ? 'הליד נמחק' : closed || l.dupOf ? 'הליד נסגר — ' + leadStageLabel(l) : !l.followUp || !l.fuManual ? 'התזכורת בוטלה' : 'הליד הועבר' }, 'update').catch(() => {});
+    return;
+  }
+  if (cur && cur.status !== 'done' && cur.due === l.followUp && cur.resp === l.resp) return;
+  const body = { ruleKey: 'leadfu:' + l.id, auto: true, leadId: l.id, title: 'תזכורת ליד: ' + (l.name || normPhone(l.phone) || ''), notes: [normPhone(l.phone), l.campaign || leadChannel(l)].filter(Boolean).join(' · '),
+    resp: l.resp, assigneeId: userOfResp(l.resp) || null, due: l.followUp, priority: 'high', status: 'open' };
+  await write('tasks/' + id, cur ? { ...body, doneAt: null, doneBy: null, autoClosed: null, updatedAt: stamp() } : { id, ...body, createdAt: stamp(), createdBy: S.me.id }, cur ? 'update' : 'set').catch(() => {});
 }
 function leadTaskCard() {
   const on = leadTaskOn(), n0 = live(S.tasks).filter((t) => String(t.ruleKey || '').startsWith('leadnew:') && t.status !== 'done').length;
   return '<section class="card"><header><h2>משימה אוטומטית לליד חדש</h2><span class="pill ' + (on ? 'actual' : 'muted') + '">' + (on ? 'פעיל' : 'כבוי') + '</span></header>' +
     '<label class="row" style="gap:8px"><input type="checkbox" class="cb" id="leadNewTask"' + (on ? ' checked' : '') + (S.isOwner && S.canWrite ? '' : ' disabled') + '> כשליד חדש מוקצה לנציג — נפתחת לו משימה "ליד חדש — ליצור קשר" להיום. נסגרת לבד כשהסטטוס משתנה.</label>' +
-    '<p class="hint" style="margin:6px 0 0">' + n0 + ' משימות כאלה פתוחות עכשיו.</p></section>';
+    '<p class="hint" style="margin:6px 0 0">' + n0 + ' משימות כאלה פתוחות עכשיו.</p>' +
+    '<h3 class="sec">לפי אחראי</h3><div class="row" style="gap:12px;flex-wrap:wrap">' + [...new Map([...Object.entries(L.resp), ...respEntries('finance'), ...respEntries('realestate')]).entries()].map(([k, v]) => '<label class="fl">' + esc(v) +
+      '<select class="f" data-ltmode="' + esc(k) + '"' + (S.isOwner && S.canWrite ? '' : ' disabled') + '><option value="auto"' + (leadTaskMode(k) === 'auto' ? ' selected' : '') + '>משימה לכל ליד חדש</option><option value="reminders"' + (leadTaskMode(k) === 'reminders' ? ' selected' : '') + '>רק כשקובע תזכורת</option></select></label>').join('') + '</div>' +
+    '<p class="hint" style="margin:6px 0 0">"רק כשקובע תזכורת" — הלידים נשארים בסטטוסים, ומשימה נפתחת רק כשהוא מכניס "מעקב הבא" בליד. סימון המשימה כבוצעה מוריד את התזכורת מהליד.</p></section>';
 }
 
 /* ── עמודות בטבלת הלידים — כל משתמש בוחר מה רואים (נשמר בדפדפן) ── */
@@ -7562,6 +7590,7 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.ctimport && el.files && el.files[0] && S.canWrite) { const f = el.files[0]; el.value = ''; return contactsImport(f); }
   if (el.dataset && el.dataset.rootcli !== undefined && S.rootMatch) { const m = S.rootMatch[+el.dataset.rootcli], c = S.clients.get(el.value); if (m && c) { m.c = c; m.tie = false; } return; }
   if (el.dataset && el.dataset.leadcol) { const h = new Set(leadHidden()); if (el.checked) h.delete(el.dataset.leadcol); else h.add(el.dataset.leadcol); S.f.leadHide = [...h]; try { localStorage.setItem('harel-leadcols', JSON.stringify(S.f.leadHide)); } catch (err) {} return render(); }
+  if (el.dataset && el.dataset.ltmode) { if (!S.isOwner) return; await write('settings/main', { leadTaskModes: { ...(S.settings.leadTaskModes || {}), [el.dataset.ltmode]: el.value } }, 'update'); toast((L.resp[el.dataset.ltmode] || el.dataset.ltmode) + ': ' + (el.value === 'reminders' ? 'משימה רק מתזכורת' : 'משימה לכל ליד חדש')); return leadTaskSweep().catch(() => {}); }
   if (el.id === 'leadNewTask') { if (!S.isOwner) return; await write('settings/main', { leadNewTask: el.checked }, 'update'); toast(el.checked ? 'משימה אוטומטית לליד חדש — פעיל' : 'משימה אוטומטית לליד חדש — כבוי'); if (el.checked) leadTaskSweep().catch(() => {}); return; }
   if (el.dataset && el.dataset.lsel) { if (el.checked) SEL.add(el.dataset.lsel); else SEL.delete(el.dataset.lsel); return render(); }
   if (el.dataset && el.dataset.lselall != null && el.matches('[data-lselall]')) { const ids = leadsFiltered().slice(0, S.f.leadLim || 120).map((l) => l.id); ids.forEach((id) => (el.checked ? SEL.add(id) : SEL.delete(id))); return render(); }
@@ -7625,6 +7654,8 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.taskdone) { const t = S.tasks.get(el.dataset.taskdone);
       if (!el.checked) return taskReopen(t);
       await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update');
+      /* תזכורת ליד שבוצעה — יורדת גם מהליד, כדי שלא תישאר "מעקב להיום" גם בלידים */
+      if (String(t.ruleKey || '').startsWith('leadfu:')) { const l = S.leads.get(t.leadId); if (l && l.followUp && l.fuManual) await leadPatch(l.id, { followUp: null, fuManual: false }, 'התזכורת בוצעה (משימה)', true).catch(() => {}); }
       if (el.checked && t.clientId) await logClient(t.clientId, 'בוצע: ' + t.title + ' · ' + (nameOf(S.me.id) || L.resp[taskResp(t)] || '')).catch(() => {});
       if (el.checked && t.clientId && !(n(t.repeatDays) > 0) && S.clients.get(t.clientId)) setTimeout(() => nextTaskDrawer(t), 50);
       if (el.checked && n(t.repeatDays) > 0 && !t.nextId) { const nid = uid(); await write('tasks/' + nid, { ...t, id: nid, status: 'open', doneAt: null, doneBy: null, due: addDays(today(), n(t.repeatDays)), carriedDays: 0, createdAt: stamp(), prevId: t.id, nextId: null }); await write('tasks/' + t.id, { nextId: nid }, 'update'); toast('המשימה חוזרת ב-' + dLabel(addDays(today(), n(t.repeatDays)))); }
@@ -7672,7 +7703,7 @@ document.addEventListener('change', async (e) => {
     if (el.id === 'fCommMonth') { S.f.commMonth = el.value; return render(); }
     if (el.dataset.leaddiv) { const l = S.leads.get(el.dataset.leaddiv); return leadPatch(l.id, { division: el.value }, 'חברה: ' + L.division[el.value], true); }
     if (el.dataset.leadresp) { const l = S.leads.get(el.dataset.leadresp); return leadPatch(l.id, { resp: el.value || null }, 'אחראי: ' + (L.resp[el.value] || 'ללא'), true); }
-    if (el.dataset.leadfollow) return leadPatch(el.dataset.leadfollow, { followUp: el.value || null }, el.value ? 'מעקב נקבע ל-' + dLabel(el.value) : 'המעקב בוטל', true);
+    if (el.dataset.leadfollow) return leadPatch(el.dataset.leadfollow, { followUp: el.value || null, fuManual: !!el.value }, el.value ? 'מעקב נקבע ל-' + dLabel(el.value) : 'המעקב בוטל', true);
     if (el.dataset.leadf && S.view.tab === 'lead') { const l = S.leads.get(S.view.clientId), k = el.dataset.leadf, v = el.value.trim(); if (!l || (l[k] || '') === v) return; return leadPatch(l.id, { [k]: v }, ({ name: 'שם', phone: 'טלפון', email: 'מייל', city: 'עיר' })[k] + ' עודכן: ' + v, true); }
     if (el.dataset.tstatus) { const x = S.tickets.get(el.dataset.tstatus); return write('tickets/' + x.id, { status: el.value, updatedAt: stamp(), closedAt: el.value === 'closed' ? (x.closedAt || stamp()) : null }, 'update'); }
     if (el.id === 'nissimPct') { await write('settings/main', { nissimPct: Number(el.value) }, 'update'); return toast('חלקו של ניסים עודכן'); }
