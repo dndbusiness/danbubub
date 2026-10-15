@@ -91,10 +91,10 @@ export function divsOf(u: UserRec, role = roleOf(u)): string[] {
  * הרשאות לפי אזור (דן, 15/10) — אותה טבלה כמו permsOf בדף (crm/harel-crm.html). וי לכל משתמש בכל אזור.
  * כספים / לוח בקרה / הנהלת חשבונות — רק דן נותן; ברירת מחדל: דן בלבד. פרייבט וסנכרון הבנק (stmts) — דן בלבד, תמיד.
  */
-export const AREAS = ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports', 'settings', 'home', 'money', 'books']
+export const AREAS = ['day', 'leads', 'export', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports', 'settings', 'home', 'money', 'books']
 export const DAN_GRANT = ['home', 'money', 'books']
 const CORE = ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports']
-const ROLE_AREAS: Record<string, string[]> = { admin: [...CORE, 'settings'], admin_re: [...CORE, 'settings'], partner: CORE, center: ['day', 'leads', 'tasks'], team: ['day', 'leads', 'tasks', 'clients', 'service'] }
+const ROLE_AREAS: Record<string, string[]> = { admin: ['day', 'leads', 'export', ...CORE.slice(2), 'settings'], admin_re: ['day', 'leads', 'export', ...CORE.slice(2), 'settings'], partner: CORE, center: ['day', 'leads', 'tasks'], team: ['day', 'leads', 'tasks', 'clients', 'service'] }
 /** אוספים שאזור פותח: מי שאין לו את האזור לא מקבל אותם מהשרת ולא כותב אליהם */
 export const AREA_COLLS: Record<string, string[]> = { money: ['planned', 'expenses', 'payroll', 'reExpenses', 'rePlanned'], marketing: ['campaigns', 'kaveretPool'] }
 
