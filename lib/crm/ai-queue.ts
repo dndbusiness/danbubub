@@ -18,7 +18,8 @@ export const SERVER_ONLY = ['aiJobFiles', 'aiQueue']
 /** אוספים שהדפדפן קורא אבל לא כותב ישירות */
 export const SERVER_WRITE = ['aiJobs', ...SERVER_ONLY]
 
-export const QUEUE_ALIVE_MS = 30 * 60e3
+/** המעבד חי = קרא לתור לאחרונה. החלון לפי קצב השגרה שהוא מדווח (כל 10 דק׳ / כל שעה): פי 2 + מרווח, לפחות 30 דק׳ */
+export const aliveMs = (everyMin: number) => Math.max(30, 2 * (Number(everyMin) || 10) + 10) * 60e3
 export const JOB_TIMEOUT_MS = 3 * 3600e3
 const CLAIM_STALE_MS = 30 * 60e3
 
@@ -45,8 +46,8 @@ async function getDoc<T>(coll: string, id: string): Promise<T | null> {
 }
 
 export async function queueAlive(now = Date.now()): Promise<boolean> {
-  const s = await getDoc<{ lastPoll?: string }>('aiQueue', 'status')
-  return !!s?.lastPoll && now - Date.parse(s.lastPoll) < QUEUE_ALIVE_MS
+  const s = await getDoc<{ lastPoll?: string; everyMin?: number }>('aiQueue', 'status')
+  return !!s?.lastPoll && now - Date.parse(s.lastPoll) < aliveMs(s.everyMin ?? 10)
 }
 
 export async function enqueue(s: CrmSession, req: { turns: Turn[]; system?: string; modelTier: string; json?: boolean; images: { media_type: string; data: string }[]; apply?: unknown; label?: string }): Promise<AiJob> {
@@ -64,8 +65,8 @@ export async function enqueue(s: CrmSession, req: { turns: Turn[]; system?: stri
 export const jobOf = (id: string) => getDoc<AiJob>('aiJobs', id)
 
 /** הבקשות שממתינות (וגם כאלה שנלקחו ונתקעו). כל קריאה = דופק: התור נחשב חי. */
-export async function pendingJobs(now = Date.now()): Promise<AiJob[]> {
-  await writeDoc('aiQueue/status', 'set', { lastPoll: new Date(now).toISOString() })
+export async function pendingJobs(now = Date.now(), everyMin = 10): Promise<AiJob[]> {
+  await writeDoc('aiQueue/status', 'set', { lastPoll: new Date(now).toISOString(), everyMin: Math.min(24 * 60, Math.max(1, Math.round(everyMin) || 10)) })
   const rows = await sql<{ data: AiJob }[]>`
     select data from crm_docs where coll = 'aiJobs' and deleted_at is null and data->>'status' in ('pending', 'working')
     order by data->>'createdAt' limit 50`

@@ -14,6 +14,8 @@ import path from 'node:path'
 
 const BASE = String(process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '')
 const KEY = process.env.APP_PASSWORD || '', SECRET = process.env.JOBS_SECRET || ''
+/** קצב השגרה בדקות — השרת מדליק את הכפתורים בדף לפי זה (פי 2 + מרווח) */
+const EVERY = Number(process.env.AI_QUEUE_EVERY_MIN) || 60
 if (!SECRET) { console.error('✗ חסר JOBS_SECRET'); process.exit(1) }
 
 let cookie = ''
@@ -49,11 +51,11 @@ function promptMd(j, imgs) {
 const [cmd, a1, a2] = process.argv.slice(2)
 try {
   if (cmd === 'list') {
-    const { jobs } = await api('/api/crm/ai-jobs')
+    const { jobs } = await api(`/api/crm/ai-jobs?every=${EVERY}`)
     console.log(jobs.length ? jobs.map((j) => `${j.id}  ${j.status}  ${j.label || ''}  תמונות:${j.images}`).join('\n') : 'אין בקשות בתור')
   } else if (cmd === 'pull') {
     const dir = path.resolve(a1 || 'ai-jobs')
-    const { jobs } = await api('/api/crm/ai-jobs')
+    const { jobs } = await api(`/api/crm/ai-jobs?every=${EVERY}`)
     if (!jobs.length) { console.log('אין בקשות בתור'); process.exit(0) }
     for (const j0 of jobs) {
       const c = await api('/api/crm/ai-jobs', { id: j0.id, action: 'claim' }).catch((e) => { console.log(`דילוג ${j0.id}: ${e.message}`); return null })

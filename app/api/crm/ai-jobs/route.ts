@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 /**
  * הצד של המעבד בתור הניתוחים (lib/crm/ai-queue.ts) — Claude על המנוי, דרך scripts/ai-queue.mjs.
  * רק הבעלים או השומר (JOBS_SECRET בכותרת x-crm-keeper).
- *   GET                 → הבקשות שממתינות (וזה גם הדופק שמדליק את התור בדף)
+ *   GET ?every=<דקות>   → הבקשות שממתינות (וזה גם הדופק שמדליק את התור בדף; every = קצב השגרה)
  *   GET ?id=…&files=1   → התמונות של בקשה
  *   POST {id, action: 'claim' | 'done' | 'fail', text?, message?}
  */
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   if (!(await owner(req))) return NextResponse.json({ code: 'permission_denied', message: 'רק לבעלים או לשומר' }, { status: 403 })
   const url = new URL(req.url), id = url.searchParams.get('id')
   if (id && url.searchParams.get('files')) return NextResponse.json({ files: await jobFiles(id) })
-  return NextResponse.json({ jobs: await pendingJobs() })
+  return NextResponse.json({ jobs: await pendingJobs(Date.now(), Number(url.searchParams.get('every')) || 10) })
 }
 
 export async function POST(req: Request) {

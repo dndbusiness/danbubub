@@ -93,7 +93,12 @@ describe('sanitizeSettings / restoreSecrets', () => {
 })
 
 describe('ai queue — מה נכתב ומה יוצא לדפדפן', async () => {
-  const { validApply, SERVER_ONLY } = await import('@/lib/crm/ai-queue')
+  const { validApply, SERVER_ONLY, aliveMs } = await import('@/lib/crm/ai-queue')
+  it('הכפתורים דלוקים לפי קצב השגרה: פי 2 + 10 דק׳, לפחות 30', () => {
+    expect(aliveMs(10)).toBe(30 * 60e3)
+    expect(aliveMs(60)).toBe(130 * 60e3)
+    expect(aliveMs(0)).toBe(30 * 60e3)
+  })
   const owner: CrmSession = { k: 'dan', r: 'owner', d: [], l: '', e: 0 }
   it('תשובה מהתור נכתבת רק לשדה הניתוח של הכר את הלקוח', () => {
     expect(validApply({ path: 'intakes/abc-1', field: 'ai' })).toEqual({ path: 'intakes/abc-1', field: 'ai' })
