@@ -1896,7 +1896,7 @@ const DEFAULT_SETS = { realestate: [
   finance: [{ key: 'new', label: 'חדש', base: 'new' }, { key: 'noanswer', label: 'אין מענה', base: 'noanswer' }, { key: 'fin_noanswer_week', label: 'אין מענה מעל שבוע', base: 'noanswer' },
     { key: 'followup', label: 'פולו אפ', base: 'followup', alias: ['פולואפ', 'פולו-אפ'] }, { key: 'checking', label: 'בבדיקה', base: 'checking', alias: ['עבר לבדיקה', 'בבדיקה'] }, { key: 'fin_waiting', label: 'ממתינה', base: 'checking', alias: ['ממתין'] },
     { key: 'fin_later', label: 'לחזור מאוחר יותר', base: 'followup' }, { key: 'thinking', label: 'רוצה לחשוב על זה', base: 'thinking', alias: ['חושב על זה'] },
-    { key: 'fin_agreement', label: 'נשלח הסכם — טרם חתם', base: 'proposal' }, { key: 'won', label: 'נסגר וחתם', base: 'won', alias: ['נסגר / חתם', 'חתם'] },
+    { key: 'fin_agreement', label: 'נשלח הסכם — טרם חתם', base: 'proposal' }, { key: 'won', label: 'נסגר וחתם', base: 'won', alias: ['נסגר / חתם', 'חתם'] }, { key: 'fin_signed_notrel', label: 'חתם / נבדק — לא רלוונטי', base: 'ineligible', alias: ['חתם ולא רלוונטי', 'נבדק ולא רלוונטי'] },
     { key: 'lost', label: 'לא רלוונטי', base: 'lost' }, { key: 'fin_fee_high', label: 'שכר טרחה גבוה', base: 'lost', alias: ['שכ"ט גבוה', 'שכט גבוה', 'שכ״ט גבוה'] }, { key: 'ineligible', label: 'לא זכאי', base: 'ineligible' },
     { key: 'invalid', label: 'מספר לא תקין · לזיכוי', base: 'invalid', alias: ['מספר לא תקין'] }, { key: 'fin_denies', label: 'מכחיש פנייה · לזיכוי', base: 'credit', alias: ['מכחיש פניה'] },
     { key: 'fin_arab', label: 'מגזר ערבי · לזיכוי', base: 'credit' }, { key: 'fin_noprop', label: 'אין נכס · לזיכוי', base: 'credit' }, { key: 'duplicate', label: 'ליד כפול · לזיכוי', base: 'duplicate' },
@@ -2189,7 +2189,7 @@ function costTable(rows, key, label) {
         '<td>' + money(r.collected, { tone: 'actual' }) + '</td><td>' + (roi == null ? '<span class="hint">—</span>' : '<span class="pill ' + (roi >= 0 ? 'actual' : 'open') + '">' + roi + '%</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>';
 }
 function vCost() {
-  return '<p class="hint">הוצאה = מה שהוזן בקמפיינים, ואם אין — עלות לליד מהטבלה של המשווק (רק לידים לחיוב). רלוונטי = לא לזיכוי, לא פסול, לא כפול, לא "לא רלוונטי" ולא "לא זכאי". נחתם = חתם / נפתח לקוח. בוצע = התיק הגיע לביצוע (בנדל״ן: חתם אצל היזם). כל מספר נפתח ללידים.</p>' +
+  return leadMonthHtml(today(), S.isOwner || S.isPartner) + '<h2 style="margin:18px 0 6px">מצטבר — כל הזמן</h2><p class="hint">הוצאה = מה שהוזן בקמפיינים, ואם אין — עלות לליד מהטבלה של המשווק (רק לידים לחיוב). רלוונטי = לא לזיכוי, לא פסול, לא כפול, לא "לא רלוונטי" ולא "לא זכאי". נחתם = חתם / נפתח לקוח. בוצע = התיק הגיע לביצוע (בנדל״ן: חתם אצל היזם). כל מספר נפתח ללידים.</p>' +
     '<section class="card"><header><h2>לפי קמפיין</h2></header>' + costTable(costRows('campaign'), 'campaign', 'קמפיין') + '</section>' +
     '<section class="card"><header><h2>לפי מקור / משווק</h2></header>' + costTable(costRows('marketer'), 'marketer', 'משווק') + '</section>' +
     '<section class="card"><header><h2>לפי פלטפורמה</h2></header>' + costTable(costRows('platform'), 'platform', 'פלטפורמה') + '</section>';
@@ -3001,7 +3001,7 @@ function vLeadsList(seg) {
       (S.division === 'realestate' ? kpi('פגישות זום החודש', '<span class="num">' + all.filter((l) => l.zoom && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + '</span>', all.filter((l) => l.zoom && l.zoom.attended && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + ' הגיעו בפועל', null, 'committed') + kpi('רכשו', '<span class="num">' + won.length + '</span>', 'מכל הלידים של הר-אל השקעות', null, 'actual') :
       kpi('חתמו', '<span class="num">' + won.length + '</span>', LEAD_TYPES.map((t) => { const b = all.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · '), null, 'actual') +
       (S.isOwner || S.isPartner ? kpi('עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'marketing') : kpi('לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', null))) + '</div>' +
-    (S.isCenter || S.division === 'realestate' || !canConv() ? '' : '<details class="card convbox"' + (S.f.convOpen ? ' open' : '') + '><summary><b>יחס המרה — החודש מול הקודם</b> <span class="hint">לחיצה לפתיחה</span></summary>' + leadMonthHtml() + '</details>') + (S.isOwner && w ? allocCard() : '') +
+    (S.isCenter || S.division === 'realestate' || !canConv() ? '' : '<details class="card convbox"' + (S.f.convOpen ? ' open' : '') + '><summary><b>יחס המרה — לפי חודש וקמפיין</b> <span class="hint">לחיצה לפתיחה</span></summary>' + leadMonthHtml() + '</details>') + (S.isOwner && w ? allocCard() : '') +
     viewChips() + '<section class="card"><div class="seg" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end"><label class="fl grow">חיפוש<input class="f" type="search" id="fLeadQ" value="' + esc(f.leadQ || '') + '" placeholder="שם, טלפון, עיר, הערה"></label></div>' +
       '<details class="lfilt"' + (innerWidth > 700 || f.leadType || f.leadChan || f.leadAd || f.leadResp || f.leadWhen ? ' open' : '') + '><summary class="hint">סינון ומיון' + ([f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length ? ' (' + [f.leadType, f.leadChan, f.leadAd, f.leadResp, f.leadWhen].filter(Boolean).length + ' פעילים)' : '') + '</summary><div class="row" style="align-items:flex-end">' +
@@ -3232,41 +3232,80 @@ const copyBtns = (ref, full) => '<button class="btn small" data-copyq="' + esc(r
 /* ── יחס המרה לפי חודש: מתחילת החודש עד היום מול החודש הקודם (מלא). חתמו מתוך הלידים שנכנסו בחודש, בלי לידים לזיכוי ── */
 const prevMonthOf = (m) => { const [y, mo] = m.split('-').map(Number); return mo === 1 ? (y - 1) + '-12' : y + '-' + String(mo - 1).padStart(2, '0'); };
 const leadCampKey = (l) => (l.campaign || 'ללא קמפיין') + ' · ' + (leadChannel(l) || 'אחר');
-function leadMonth(month, upto) {
-  const G = {}, z = (k) => ({ k, in: 0, base: 0, won: 0, signed: 0, spend: 0 });
-  const grp = (l) => { const t = leadType(l) || 'אחר', g = (G[t] = G[t] || { t, tot: z(t), rows: {} }), k = leadCampKey(l); return [g.tot, (g.rows[k] = g.rows[k] || z(k))]; };
-  live(S.leads).forEach((l) => {
-    const inM = String(l.createdAt || '').slice(0, 7) === month && (!upto || dayOf(l.createdAt) <= upto);
-    if (inM) for (const x of grp(l)) { x.in++; if (!isCredit(l)) x.base++; if (l.stage === 'won') x.won++; if (billableLead(l)) x.spend += leadCostOf(l); }
-    if (l.stage === 'won' && String(l.wonAt || '').slice(0, 7) === month && (!upto || dayOf(l.wonAt) <= upto)) for (const x of grp(l)) x.signed++;
-  });
-  return G;
-}
-/* לפי קטגוריה (נכסים / רכב / עסקים) — כל קטגוריה בנפרד, ובתוכה שורה לכל קמפיין. אין סה״כ כללי. */
-function leadMonthCompare(day = today()) {
-  const cur = day.slice(0, 7), prev = prevMonthOf(cur), A = leadMonth(cur, day), B = leadMonth(prev, null), pc = (r) => r && r.base ? Math.round(r.won / r.base * 1000) / 10 : null, z = { in: 0, base: 0, won: 0, signed: 0, spend: 0 };
-  const types = [...LEAD_TYPES, ...new Set([...Object.keys(A), ...Object.keys(B)])].filter((t, i, arr) => arr.indexOf(t) === i && (A[t] || B[t]));
-  const rows = [];
-  types.forEach((t) => {
-    const ga = A[t] || { tot: z, rows: {} }, gb = B[t] || { tot: z, rows: {} }, keys = [...new Set([...Object.keys(ga.rows), ...Object.keys(gb.rows)])].sort((x, y) => ((gb.rows[y] || z).in + (ga.rows[y] || z).in) - ((gb.rows[x] || z).in + (ga.rows[x] || z).in));
-    rows.push({ k: t, a: ga.tot, b: gb.tot, total: true, single: keys.length === 1 ? keys[0] : null });
-    if (keys.length > 1) keys.forEach((k) => rows.push({ k, a: ga.rows[k] || z, b: gb.rows[k] || z, sub: true }));
-  });
-  rows.forEach((r) => { r.pa = pc(r.a); r.pb = pc(r.b); r.diff = r.pa != null && r.pb != null ? Math.round((r.pa - r.pb) * 10) / 10 : null; });
-  return { cur, prev, day, rows };
-}
 /* מי רואה את טבלת יחס ההמרה (דן, 11/10: לפי משתמש) — דן והדס תמיד; ניסים כברירת מחדל; לאחרים רק אם סומן בהגדרות ← משתמשים */
 function canConv() { if (S.isDan || S.role === 'admin' || S.role === 'owner') return true; const u = S.loginAs && (S.settings.users || []).find((x) => normUser(x.username) === normUser(S.loginAs.username || '')); if (u && u.conv != null) return !!u.conv; return S.role === 'partner'; }
-function leadMonthHtml(day = today(), withCost = S.isOwner || S.isPartner, mail = false) {
-  const M = leadMonthCompare(day), cell = (x, p) => x.base ? '<b>' + p + '%</b> <small>(' + x.won + '/' + x.base + ')</small>' + (x.signed && x.signed !== x.won ? '<br><small>נחתמו בחודש: ' + x.signed + '</small>' : '') : (x.in ? x.in + ' לזיכוי' : '—');
-  const per = (x) => x.spend && x.won ? plain(Math.round(x.spend / x.won)) : x.spend ? plain(x.spend) + ' (אין חתומים)' : '—';
-  const head = ['קטגוריה / קמפיין', 'החודש עד ' + dLabel(day).slice(0, 5), mLabel(M.prev), 'שינוי'].concat(withCost ? ['עלות ללקוח החודש / קודם'] : []);
-  const diffTxt = (d) => d == null ? '—' : (d > 0 ? '+' : '') + d + ' נק׳';
-  const body = M.rows.map((r) => [r.total ? '<b>' + esc(r.k) + '</b>' + (r.single ? (mail ? '<br>' : '<div class="hint">') + esc(r.single) + (mail ? '' : '</div>') : '') : (mail ? '&nbsp;&nbsp;· ' : '<span class="hint">↳</span> ') + esc(r.k), cell(r.a, r.pa), cell(r.b, r.pb), mail ? diffTxt(r.diff) : (r.diff == null ? '—' : '<span class="pill ' + (r.diff > 0 ? 'actual' : r.diff < 0 ? 'open' : 'muted') + '">' + diffTxt(r.diff) + '</span>')].concat(withCost ? [per(r.a) + ' / ' + per(r.b)] : []));
-  const note = '(8/94) = 8 חתמו מתוך 94 לידים. יחס המרה = חתמו מתוך הלידים שנכנסו באותו חודש, בלי לידים לזיכוי (כחול / אדום / כפול). "נחתמו בחודש" = כל מי שחתם בחודש, גם מלידים ישנים.';
-  if (mail) return '<h3 style="font-size:14px;margin:14px 0 4px">יחס המרה לפי קטגוריה וקמפיין</h3>' + mailTable(head, body) + '<p style="color:#6B7280;font-size:12px">' + note + '</p>';
-  return '<section class="card"><header><h2>יחס המרה לפי קטגוריה וקמפיין</h2><span class="hint">' + mLabel(M.cur) + ' מתחילת החודש עד היום מול ' + mLabel(M.prev) + '</span></header><div class="scroll"><table><thead><tr>' + head.map((h, j) => '<th' + (j >= 3 ? ' class="hide-m"' : '') + '>' + h + '</th>').join('') + '</tr></thead><tbody>' +
-    body.map((r, i) => '<tr' + (M.rows[i].total ? ' class="tot"' : '') + '>' + r.map((c, j) => '<td class="' + (j ? 'num' : 'wide') + (j >= 3 ? ' hide-m' : '') + '">' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table></div><p class="hint" style="margin-top:6px">' + note + '</p></section>';
+/* ═════════════ יחס המרה לפי חודש קלנדרי (דן, 15/10) ═════════════
+   קבוצה = הלידים שנכנסו בחודש (מה-1 בחודש). לא נספרים ביחס: לזיכוי (כפול / מספר לא תקין / לזיכוי),
+   וחדש / אין מענה (עוד לא טופלו). "טופלו" = כל מי שדיברו איתו, התקדם או לא — זה המכנה.
+   שלבים: ליד → שיחה → בדיקה → סגירה. "בדיקה" = הגיע לבדיקה אי פעם (גם אם נפל אחר כך — לפי היסטוריית
+   הסטטוסים); "סגירה" = נסגר וחתם ונשאר כך. "חתם / נבדק — לא רלוונטי" = הגיע לבדיקה, לא נסגר.
+   בהשקעות: בדיקה = התקיימה פגישת זום, סגירה = רכש.
+   הוצאה: מה שהוזן לחודש בקמפיין (שיווק ← קמפיינים), ואם לא — עלות לליד מהטבלה של המשווק. */
+const CONV_LV = { new: 0, noanswer: 0, followup: 1, thinking: 1, contacted: 1, meeting: 1, lost: 1, ineligible: 1, checking: 2, proposal: 2, won: 3 };
+const CONV_SUB = { fin_noanswer_week: 0, fin_waiting: 2, fin_agreement: 2, fin_signed_notrel: 2 };
+function convLevel(l) {
+  if (isCredit(l)) return -1;
+  const div = leadDiv(l), cur = stKey(l);
+  if (div === 'realestate') { if ((l.stage || 'new') === 'won') return 3; if (['new', 'noanswer'].includes(l.stage || 'new') && !(l.stHist || []).length && !leadReach(l)) return 0; return leadReach(l) >= 2 ? 2 : (['new', 'noanswer'].includes(l.stage || 'new') ? 0 : 1); }
+  const lv = (k) => { if (k in CONV_SUB) return CONV_SUB[k]; const d = stageDefs(div).find((x) => x.key === k); const b = d ? d.base : k; return b in CONV_LV ? CONV_LV[b] : 1; };
+  let m = lv(cur); for (const h of l.stHist || []) if (h && h.to) m = Math.max(m, Math.min(2, lv(h.to)));
+  if (/נבדק|עבר לבדיקה|בבדיקה|אישור/.test(String(l.sheetStatus || ''))) m = Math.max(m, 2);
+  if (m === 3 && cur === 'fin_signed_notrel') m = 2;
+  if (l.clientId && cur !== 'fin_signed_notrel' && !['lost', 'ineligible'].includes(l.stage)) m = 3;
+  return m;
+}
+const convClosed = (l) => convLevel(l) === 3;
+/* הוצאה בחודש לקמפיין: קמפיינים בשיווק שמקושרים לשם הקמפיין של הליד (או באותו שם), שדה monthly */
+function campSpend(month, campName) {
+  return live(S.campaigns).filter((c) => [c.name, ...(c.leadCampaigns || [])].includes(campName)).reduce((a, c) => a + n((c.monthly || {})[month]), 0);
+}
+function convMonth(month, upto) {
+  const z = (k) => ({ k, in: 0, credit: 0, idle: 0, handled: 0, check: 0, closed: 0, spendL: 0, spendC: 0, fee: 0, collected: 0, camps: new Set(), ids: { in: [], credit: [], idle: [], handled: [], check: [], closed: [] } });
+  const G = {};
+  live(S.leads).forEach((l) => {
+    if (String(l.createdAt || '').slice(0, 7) !== month || (upto && dayOf(l.createdAt) > upto) || !canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division)) return;
+    const t = leadType(l) || 'אחר', g = (G[t] = G[t] || { t, tot: z(t), rows: {} }), k = leadCampKey(l), r = (g.rows[k] = g.rows[k] || z(k)), lv = convLevel(l), m = leadRevenue(l);
+    for (const x of [g.tot, r]) {
+      x.in++; x.ids.in.push(l.id); x.camps.add(l.campaign || '');
+      if (lv < 0) { x.credit++; x.ids.credit.push(l.id); } else if (lv === 0) { x.idle++; x.ids.idle.push(l.id); }
+      else { x.handled++; x.ids.handled.push(l.id); if (lv >= 2) { x.check++; x.ids.check.push(l.id); } if (lv === 3) { x.closed++; x.ids.closed.push(l.id); x.fee += m.fee; x.collected += m.collected; } }
+      if (billableLead(l)) x.spendL += leadCostOf(l);
+    }
+  });
+  Object.values(G).forEach((g) => { Object.values(g.rows).forEach((r) => { r.spendC = [...r.camps].reduce((a, c) => a + campSpend(month, c), 0); }); g.tot.spendC = [...g.tot.camps].reduce((a, c) => a + campSpend(month, c), 0); });
+  return G;
+}
+const convPct = (a, b) => b ? Math.round(a / b * 1000) / 10 : null;
+function leadMonthHtml(day = today(), withCost = S.isOwner || S.isPartner, mail = false, month = null) {
+  const m = month || S.f.convMonth || day.slice(0, 7), isCur = m === today().slice(0, 7), A = convMonth(m, isCur ? day : null), B = convMonth(prevMonthOf(m), null);
+  const types = [...LEAD_TYPES, ...Object.keys(A)].filter((t, i, arr) => arr.indexOf(t) === i && A[t]);
+  const rows = []; types.forEach((t) => { const g = A[t], keys = Object.keys(g.rows).sort((x, y) => g.rows[y].in - g.rows[x].in); rows.push({ r: g.tot, k: t, total: true, single: keys.length === 1 ? keys[0] : null, prev: (B[t] || {}).tot });
+    if (keys.length > 1) keys.forEach((k) => rows.push({ r: g.rows[k], k, prev: B[t] && B[t].rows[k] })); });
+  const pc = (a, b) => { const v = convPct(a, b); return v == null ? '—' : v + '%'; };
+  const drill = (row, b, v) => mail || !v ? String(v) : '<button class="xlink num" data-convdrill="' + esc(m + '|' + (row.total ? 'T:' + row.k : row.k) + '|' + b) + '">' + v + '</button>';
+  const spend = (r) => r.spendC || r.spendL, per = (x, sp) => sp && x ? plain(Math.round(sp / x)) : sp ? '<span class="hint">אין סגירות</span>' : '—';
+  const head = ['קמפיין', 'נכנסו', 'לא טופלו', 'טופלו', 'ליד → שיחה', 'שיחה → בדיקה', 'בדיקה → סגירה', 'סגירות', 'יחס סגירה', mLabel(prevMonthOf(m))].concat(withCost ? ['הוצאה', 'עלות ללקוח', 'שכ״ט / נגבה'] : []);
+  const body = rows.map(({ r, k, total, single, prev }) => [
+    (total ? '<b>' + esc(k) + '</b>' + (single ? (mail ? '<br>' : '<div class="hint">') + esc(single) + (mail ? '' : '</div>') : '') : (mail ? '&nbsp;&nbsp;· ' : '<span class="hint">↳</span> ') + esc(k)),
+    drill({ total, k }, 'in', r.in) + (r.credit ? ' <small class="hint">(' + r.credit + ' לזיכוי)</small>' : ''), drill({ total, k }, 'idle', r.idle), '<b>' + drill({ total, k }, 'handled', r.handled) + '</b>',
+    pc(r.handled, r.in - r.credit), pc(r.check, r.handled) + ' <small class="hint">(' + drill({ total, k }, 'check', r.check) + ')</small>', pc(r.closed, r.check),
+    '<b>' + drill({ total, k }, 'closed', r.closed) + '</b>', '<b>' + pc(r.closed, r.handled) + '</b>', prev && prev.handled ? pc(prev.closed, prev.handled) + ' <small class="hint">(' + prev.closed + '/' + prev.handled + ')</small>' : '—']
+    .concat(withCost ? [spend(r) ? plain(spend(r)) + (r.spendC ? '' : ' <small class="hint">לפי ליד</small>') : '—', per(r.closed, spend(r)), r.fee ? plain(r.fee) + ' / ' + plain(r.collected) : '—'] : []));
+  const note = 'הקבוצה = הלידים שנכנסו ב-' + mLabel(m) + (isCur ? ' (מה-1 בחודש עד היום)' : '') + '. לזיכוי לא נספרים. "לא טופלו" = חדש / אין מענה — לא במכנה. יחס סגירה = סגירות מתוך מי שטופל (התקדם או לא). "בדיקה" = הגיע לבדיקה אי פעם, גם אם נפל אחר כך. "חתם / נבדק — לא רלוונטי" נספר בבדיקה, לא בסגירה. ' + (withCost ? 'הוצאה = מה שהוזן לחודש בקמפיין (שיווק ← קמפיינים); "לפי ליד" = עלות לליד מהמשווק. ' : '') + 'כל מספר נפתח לרשימת הלידים.';
+  if (mail) return '<h3 style="font-size:14px;margin:14px 0 4px">יחס המרה — ' + mLabel(m) + '</h3>' + mailTable(head, body) + '<p style="color:#6B7280;font-size:12px">' + note + '</p>';
+  const hideFrom = 4;
+  return '<section class="card"><header><h2>יחס המרה לפי קמפיין — חודש קלנדרי</h2><span class="grow"></span><button class="btn small ghost" data-convm="-1" aria-label="חודש קודם">›</button><b class="num">' + mLabel(m) + '</b>' + (isCur ? '' : '<button class="btn small ghost" data-convm="1" aria-label="חודש הבא">‹</button>') + '</header>' +
+    '<div class="scroll"><table><thead><tr>' + head.map((h, j) => '<th' + (j >= hideFrom && j !== 8 ? ' class="hide-m"' : '') + '>' + h + '</th>').join('') + '</tr></thead><tbody>' +
+    body.map((r, i) => '<tr' + (rows[i].total ? ' class="tot"' : '') + '>' + r.map((c, j) => '<td class="' + (j ? 'num' : 'wide') + (j >= hideFrom && j !== 8 ? ' hide-m' : '') + '">' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
+    (rows.length ? '' : '<p class="empty">אין לידים בחודש הזה</p>') + '<p class="hint" style="margin-top:6px">' + note + '</p></section>';
+}
+/* drill-down של הדוח: הלידים שמרכיבים את המספר */
+function convDrill(key) {
+  const [m, g, b] = key.split('|'), A = convMonth(m, m === today().slice(0, 7) ? today() : null);
+  let r = null; if (g.startsWith('T:')) r = (A[g.slice(2)] || {}).tot; else Object.values(A).forEach((x) => { if (x.rows[g]) r = x.rows[g]; });
+  const ids = r ? r.ids[b] || [] : [], L0 = { in: 'נכנסו', credit: 'לזיכוי', idle: 'לא טופלו (חדש / אין מענה)', handled: 'טופלו', check: 'הגיעו לבדיקה', closed: 'נסגרו' }[b] || '';
+  $('layer').innerHTML = '<div class="scrim" id="gsScrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(L0) + '"><header><h2 class="grow">' + esc(L0) + ' <span class="hint">' + ids.length + ' · ' + esc(g.replace(/^T:/, '')) + ' · ' + mLabel(m) + '</span></h2><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header>' +
+    '<div class="gsres">' + (ids.length ? ids.map((id) => S.leads.get(id)).filter(Boolean).map((l) => dashRowHtml('lead', l)).join('') : '<p class="empty">אין</p>') + '</div></div></div>';
 }
 /* ── שיחות מכירה ביום: חדשות (נפתחו היום) · המשך (תיק "הכר את הלקוח" שעבדו עליו היום) · חתמו היום ── */
 function salesCalls(day = today()) {
@@ -4825,12 +4864,19 @@ function formLead() {
       if (d.platform.trim()) await ensureInList('platforms', d.platform.trim()); toast('הליד נוסף');
     });
 }
+/* החודשים בטופס: מתחילת הקמפיין (עד 24 אחורה) ועד החודש הנוכחי, מהחדש לישן */
+function campMonths(c) { const out = []; let m = today().slice(0, 7); const start = String((c && c.startDate) || addMonths(today(), -5)).slice(0, 7);
+  for (let i = 0; i < 24 && m >= start; i++) { out.push(m); m = prevMonthOf(m); } return out; }
 function formCampaign(c) {
   const isNew = !c; c = c || { startDate: today() };
   drawer(isNew ? 'קמפיין' : 'עריכת ' + c.name, fi('name', 'שם הקמפיין *', c.name || '', 'text', 'required', true) + fi('platform', 'פלטפורמה', c.platform || '', 'text', 'list="dlPlat"') + fi('marketer', 'משווק', c.marketer || '') +
-    fi('spend', 'הוצאה כוללת (₪)', c.spend || '', 'number', 'min="0" step="1"') + fi('startDate', 'התחלה', c.startDate || '', 'date') + fi('endDate', 'סיום', c.endDate || '', 'date') + dl('dlPlat', S.settings.platforms || []),
+    fi('spend', 'הוצאה כוללת (₪)', c.spend || '', 'number', 'min="0" step="0.01"') + fi('startDate', 'התחלה', c.startDate || '', 'date') + fi('endDate', 'סיום', c.endDate || '', 'date') + dl('dlPlat', S.settings.platforms || []) +
+    fi('leadCampaigns', 'הלידים שלו מגיעים בשם (מופרדים בפסיק)', (c.leadCampaigns || []).join(', '), 'text', 'list="dlLeadCamps"', true) + dl('dlLeadCamps', [...new Set(live(S.leads).map((l) => l.campaign).filter(Boolean))]) +
+    '<h3 class="sec full">הוצאה לפי חודש <span class="hint">— לחישוב עלות ללקוח בדוח יחס ההמרה</span></h3>' +
+    campMonths(c).map((mm) => fi('m_' + mm, mLabel(mm), (c.monthly || {})[mm] || '', 'number', 'min="0" step="0.01"')).join(''),
     async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; const id = isNew ? uid() : c.id;
-      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, division: c.division || screenDiv('mktDiv'), updatedAt: stamp() });
+      const monthly = { ...(c.monthly || {}) }; Object.keys(d).filter((k) => k.startsWith('m_')).forEach((k) => { const v = String(d[k]).trim(); if (v === '') delete monthly[k.slice(2)]; else monthly[k.slice(2)] = r2(v); });
+      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, division: c.division || screenDiv('mktDiv'), leadCampaigns: listOf(d.leadCampaigns), monthly, updatedAt: stamp() });
       if (d.platform.trim()) await ensureInList('platforms', d.platform.trim()); toast('נשמר'); });
 }
 function formLender(l, name) {
@@ -7022,6 +7068,8 @@ document.addEventListener('click', async (e) => {
     if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; return l ? copyText(l.url, 'הקישור הועתק') : null; }
     if (d.signstate) { S.f.signState = d.signstate; return render(); }
     if (d.signkind) { S.f.signKind = d.signkind; return render(); }
+    if (d.convm) { const cur = S.f.convMonth || today().slice(0, 7), nx = addMonths(cur + '-01', +d.convm).slice(0, 7); S.f.convMonth = nx > today().slice(0, 7) ? today().slice(0, 7) : nx; S.f.convOpen = true; return render(); }
+    if (d.convdrill) return convDrill(d.convdrill);
     if (d.dash !== undefined) { S.f.dash = d.dash || null; S.f.dashEdit = false; const x = dashCur(); if (x) S.f.dashRange = x.range || 'month'; return render(); }
     if (d.dashrange) { S.f.dashRange = d.dashrange; return render(); }
     if (d.dashshift) { dashShift(+d.dashshift); return render(); }
