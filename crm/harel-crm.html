@@ -315,6 +315,20 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
 table.leads tr[class*="lc-"] > td { background: var(--lc); } table.leads tr[class*="lc-"] > td:first-child { box-shadow: inset -4px 0 0 var(--lc-bar); }
 tr.lc-y { --lc: var(--lc-y); --lc-bar: var(--lc-y-bar); } tr.lc-o { --lc: var(--lc-o); --lc-bar: var(--lc-o-bar); } tr.lc-g { --lc: var(--lc-g); --lc-bar: var(--lc-g-bar); }
 tr.kept { opacity: .55; } tr.kept:hover { opacity: .85; }
+/* מפת החודש */
+.mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.mgrid .mh { font-size: 11px; color: var(--text-3); text-align: center; padding: 2px 0; }
+.mday { min-height: 74px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 4px 5px; display: flex; flex-direction: column; align-items: stretch; gap: 1px; text-align: start; font: inherit; color: inherit; cursor: pointer; }
+.mday:disabled { cursor: default; opacity: .7; }
+.mday.past { background: var(--sunk); }
+.mday.today { border: 2px solid var(--committed); }
+.mday .dn { font-size: 11px; color: var(--text-2); font-weight: 600; }
+.mday .mv { font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: ltr; text-align: end; }
+.mv.in { color: var(--actual); font-weight: 700; } .mv.fin { color: var(--committed); } .mv.out { color: var(--text); } .mv.fout { color: var(--text-3); } .mv.sg { color: var(--expected); font-weight: 600; }
+.lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-inline-end: 4px; vertical-align: -1px; }
+.lg.in { background: var(--actual); } .lg.fin { background: var(--committed); } .lg.out { background: var(--text); } .lg.fout { background: var(--text-3); } .lg.sg { background: var(--expected); }
+svg .hov:hover { fill: var(--sunk); fill-opacity: .6; }
+@media (max-width: 600px) { .mday { min-height: 58px; padding: 3px; } .mday .mv { font-size: 10px; } }
 tr.lc-b { --lc: var(--lc-b); --lc-bar: var(--lc-b-bar); } tr.lc-r { --lc: var(--lc-r); --lc-bar: var(--lc-r-bar); } tr.lc-p { --lc: var(--lc-p); --lc-bar: var(--lc-p-bar); } tr.lc-c { --lc: var(--lc-c); --lc-bar: var(--lc-c-bar); }
 .lcdot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-inline-end: 4px; background: var(--lc); box-shadow: inset 0 0 0 1px var(--lc-bar); }
 .lclegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-3); margin: 0 0 8px; }
@@ -546,7 +560,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
+const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -1684,9 +1698,9 @@ function tasksHead(all) {
 /* ═════════════════════════ כספים ═════════════════════════ */
 function vMoney() {
   const sub = S.f.money;
-  const tabs = '<div class="seg" role="group" aria-label="כספים">' + [['pnl', 'רווח והפסד'], ['forecast', 'צפי לפי תאריכים'], ['tx', 'תנועות'], ['cash', 'תזרים שבועי'], ['settle', S.division === 'realestate' ? 'התחשבנות שותפים' : 'התחשבנות'], ['fixed', 'הוצאות קבועות']]
+  const tabs = '<div class="seg" role="group" aria-label="כספים">' + [['pnl', 'רווח והפסד'], ['forecast', 'צפי לפי תאריכים'], ['tx', 'תנועות'], ['cash', 'תזרים שבועי'], ['month', 'מפת החודש'], ['settle', S.division === 'realestate' ? 'התחשבנות שותפים' : 'התחשבנות'], ['fixed', 'הוצאות']]
     .filter(([k]) => !S.isPartner || ['pnl', 'tx', 'settle'].includes(k)).map(([k, v]) => '<button data-money="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = (S.isPartner && !['pnl', 'tx', 'settle'].includes(sub) ? null : { pnl: vPnl, forecast: vForecast, tx: vTx, cash: vCash, settle: S.division === 'realestate' ? vSettleRE : vSettle, fixed: vFixed }[sub]) || vPnl;
+  const body = (S.isPartner && !['pnl', 'tx', 'settle'].includes(sub) ? null : { pnl: vPnl, forecast: vForecast, month: vMonthMap, tx: vTx, cash: vCash, settle: S.division === 'realestate' ? vSettleRE : vSettle, fixed: vExpenses }[sub]) || vPnl;
   return '<div class="row"><h1 class="grow">כספים</h1>' + tabs + '</div>' + (S.isPartner && ['settle', 'tx'].includes(sub) ? partnerBar() : '') + body() + (S.division === 'realestate' && (sub || 'pnl') === 'pnl' ? finShareCard() : '');
 }
 function vPnl() {
@@ -1795,6 +1809,190 @@ function vFixed() {
       '<td>' + (S.canWrite ? '<button class="btn small ghost" data-editexp="' + esc(e.id) + '">עריכה</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
       : '<p class="empty">התבנית ריקה. בלי הוצאות קבועות התזרים לא יודע מה יוצא בחודש הבא.</p>') + '</section>';
 }
+
+/* ═════════════ הוצאות: קבועות ומשתנות, וניתוח דפי בנק ואשראי (דן, 15/10) ═════════════
+   מעלים דף בנק / פירוט אשראי (PDF, צילום, CSV או אקסל) — בסוף החודש, או באמצע לדגימה שבועית.
+   כל שורה מסווגת: קבועה (לפי רשימת הקבועות), משתנה (עם קטגוריה), הכנסה, או תשלום כרטיס (מפורט בדף האשראי — לא נספר פעמיים).
+   קריאה של PDF / צילום = Claude מציע; הדף מסומן "ממתין לאישור" עד שאדם עובר על השורות (הנחיה 17). */
+const STMT_KIND = { bank: 'בנק (עו״ש)', card: 'כרטיס אשראי' };
+const STMT_CLS = { fixed: 'קבועה', var: 'משתנה', in: 'הכנסה / זיכוי', card: 'תשלום כרטיס (לא נספר)', skip: 'לא לספור' };
+const CARD_PAY_RX = /ישראכרט|מקס איט|max it|לאומי קארד|כאל|cal\b|ויזה|visa|אמריקן|דיינרס|כרטיס(י)? אשראי|חיוב כרטיס/i;
+const STMT_CATS = [['פרסום ושיווק', /facebook|meta|fb\s?\*|google ads|גוגל|פייסבוק|טיקטוק|tiktok|linkedin|לינקדאין/i], ['תוכנה ומנויים', /microsoft|adobe|apple|canva|zoom|notion|openai|anthropic|claude|wix|godaddy|monday|slack|dropbox|icloud|google\s?(workspace|one|cloud)/i],
+  ['תקשורת', /סלקום|פרטנר|בזק|הוט\b|hot\b|גולן|פלאפון|cellcom|partner|012|019/i], ['רכב ודלק', /פז\b|דלק|סונול|דור אלון|ten\b|yellow|רכב|חני|פנגו|cellopark|כביש 6|מוסך/i], ['אוכל ומסעדות', /מסעד|קפה|cafe|ארומה|וולט|wolt|תן ביס|10bis|סופר|שופרסל|רמי לוי|יוחננוף|מקדונלד|פיצ/i],
+  ['ביטוח', /ביטוח|מגדל|הפניקס|מנורה|איילון/i], ['עמלות ובנק', /עמל|ריבית|דמי ניהול/i], ['מיסים ורשויות', /מס הכנסה|מע"?מ|ביטוח לאומי|ארנונה|עירי/i], ['שכר ויועצים', /שכר|משכורת|רו"?ח|עו"?ד/i], ['משרד', /משרד|אופיס|office|ציוד|דפוס/i]];
+const normDesc = (s) => String(s || '').toLowerCase().replace(/["'׳״.,*\-_/\\()]/g, ' ').replace(/\d{4,}/g, ' ').replace(/\s+/g, ' ').trim();
+const stmtCat = (desc) => (STMT_CATS.find(([, re]) => re.test(desc || '')) || ['אחר'])[0];
+function fixedMatch(r) { const d = normDesc(r.desc); if (d.length < 2) return null;
+  return live(S.expenses).filter((e) => e.active !== false && inDiv(e)).find((e) => [e.match, e.name].filter(Boolean).some((k) => { const kk = normDesc(k); return kk.length >= 3 && (d.includes(kk) || kk.includes(d)); })) || null; }
+function stmtClassify(r, kind) {
+  if (r.manual) return r;
+  const e = r.amount < 0 ? fixedMatch(r) : null;
+  const cls = r.amount > 0 ? 'in' : kind === 'bank' && CARD_PAY_RX.test(r.desc || '') ? 'card' : e ? 'fixed' : 'var';
+  return { ...r, cls, exp: e ? e.id : null, cat: r.cat || (cls === 'fixed' && e ? (e.category || 'קבועות') : stmtCat(r.desc)) };
+}
+const stmtKey = (r) => r.date + '|' + Math.round(n(r.amount) * 100) + '|' + normDesc(r.desc).slice(0, 24);
+/* כל השורות מכל הדפים, בלי כפילות (דף שבועי ואחריו דף חודשי — אותה שורה נספרת פעם אחת) */
+function stmtRows(from, to) { const seen = new Set(), out = [];
+  for (const st of live(S.stmts).filter((x) => !x.division || inDiv(x))) for (const r of st.rows || []) { if (r.date < from || r.date > to) continue; const k = stmtKey(r); if (seen.has(k)) continue; seen.add(k); out.push({ ...stmtClassify(r, st.kind), sid: st.id, skind: st.kind, sstatus: st.status }); }
+  return out.sort((a, b) => String(b.date).localeCompare(a.date)); }
+const STMT_PROMPT = (kind, from, to, N) => 'זה ' + (kind === 'card' ? 'פירוט חיובים של כרטיס אשראי ישראלי' : 'דף חשבון בנק (עו״ש) ישראלי') + ' — עמודים ' + from + '–' + to + ' מתוך ' + N + '.\n' +
+  'חלץ את כל התנועות בעמודים האלה, אחת לאחת, בלי לדלג ובלי להמציא. לכל תנועה: date (YYYY-MM-DD; בישראל כותבים יום/חודש/שנה; אם חסרה שנה — לפי התקופה בדף), desc (שם בית העסק / תיאור הפעולה כפי שכתוב), amount — מספר בש״ח: ' +
+  (kind === 'card' ? 'כל חיוב שלילי (למשל -120.5), זיכוי חיובי. בעסקת תשלומים — סכום החיוב החודשי, לא סכום העסקה. בעסקה במט״ח — הסכום בש״ח.' : 'חובה / משיכה שלילי, זכות / הפקדה חיובי.') +
+  ' שורות סיכום, יתרות וכותרות — לא תנועות.\nהחזר JSON בלבד: {"rows":[{"date":"2026-10-03","desc":"…","amount":-120.5}],"period":"MM/YYYY אם מופיע","account":"4 ספרות אחרונות אם מופיעות"}';
+async function stmtImport(file, kind, label, say) {
+  let rows = null, status = 'file', meta = {};
+  if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) { rows = await sheetRowsOf(file); if (!rows) return; rows = rows.map((r) => ({ date: r.date, desc: r.desc, amount: kind === 'card' && r.amount > 0 && !/זיכוי/.test(r.desc) ? -r.amount : r.amount })); }
+  else {
+    const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('קריאת PDF / צילום צריכה את Claude — בתצוגה הזו אפשר להעלות CSV או אקסל');
+    const lim = await sample.limits().catch(() => null), P = await docPages(file, say), per = P.kind === 'img' ? Math.max(1, Math.min(4, (lim && lim.images && lim.images.maxCount) || 3)) : 3;
+    if (P.kind === 'img' && !(lim && lim.images)) return toast('קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט או CSV');
+    rows = [];
+    for (let i = 0; i < P.n; i += per) { const from = i + 1, to = Math.min(P.n, i + per); say('Claude קורא עמודים ' + from + '–' + to + ' מתוך ' + P.n + (window.__crmAiQueue ? ' · בתור, כמה דקות לכל מנה — השאר את הדף פתוח' : '') + '…');
+      const chunk = P.pages.slice(i, to), txt = P.kind === 'text' ? chunk.join('\n\n— עמוד —\n\n') : '';
+      const r = await sample.json(STMT_PROMPT(kind, from, to, P.n) + (txt ? '\n\nתוכן העמודים:\n' + txt.slice(0, 30000) : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, ...(P.kind === 'img' ? { images: chunk } : {}), ...aiSrv({ label: 'דף ' + (kind === 'card' ? 'אשראי' : 'בנק') + ' — עמודים ' + from + '–' + to }) });
+      (r && Array.isArray(r.rows) ? r.rows : []).forEach((x) => { const d = dateOf(x.date) || (/^\d{4}-\d{2}-\d{2}$/.test(String(x.date)) ? x.date : null), a = r2(n(x.amount)); if (d && a) rows.push({ date: d, desc: String(x.desc || '').trim().slice(0, 120), amount: a }); });
+      if (r && r.account) meta.account = String(r.account).slice(-4); }
+    status = 'proposal';
+  }
+  const seen = new Set(); rows = rows.filter((r) => { const k = stmtKey(r); if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return toast('לא נמצאו תנועות בקובץ');
+  const id = uid();
+  await write('stmts/' + id, { id, kind, label: label || STMT_KIND[kind] + (meta.account ? ' ' + meta.account : ''), file: file.name, status, rows: rows.map((r) => ({ date: r.date, desc: r.desc, amount: r.amount })), from: rows[0].date, to: rows[rows.length - 1].date, division: S.division === 'all' ? null : S.division, createdAt: stamp(), by: S.me.id });
+  say(rows.length + ' תנועות נקראו · ' + dLabel(rows[0].date) + '–' + dLabel(rows[rows.length - 1].date) + (status === 'proposal' ? ' · Claude קרא — עבור על השורות ואשר' : ''));
+  toast(rows.length + ' תנועות נכנסו לניתוח');
+}
+function expPeriod() { const p = S.f.expPeriod || 'month', t0 = today();
+  if (p === 'week') return { from: addDays(t0, -6), to: t0, prevFrom: addDays(t0, -13), prevTo: addDays(t0, -7), label: '7 הימים האחרונים', prevLabel: 'השבוע שלפני' };
+  const m = S.f.expMonth || t0.slice(0, 7), pm = prevMonthOf(m);
+  return { from: m + '-01', to: monthEnd(m + '-01'), prevFrom: pm + '-01', prevTo: monthEnd(pm + '-01'), label: mLabel(m), prevLabel: mLabel(pm), m }; }
+function vExpenses() {
+  const P = expPeriod(), R = stmtRows(P.from, P.to), Rp = stmtRows(P.prevFrom, P.prevTo), w = S.canWrite;
+  const out = (rs, c) => r2(rs.filter((r) => r.amount < 0 && (!c || r.cls === c) && !['card', 'skip', 'in'].includes(r.cls)).reduce((a, r) => a - r.amount, 0));
+  const tot = out(R), fix = out(R, 'fixed'), vr = out(R, 'var'), totP = out(Rp), inn = r2(R.filter((r) => r.cls === 'in').reduce((a, r) => a + r.amount, 0));
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const cats = {}; R.filter((r) => r.cls === 'var' && r.amount < 0).forEach((r) => { cats[r.cat] = r2((cats[r.cat] || 0) - r.amount); });
+  const catsP = {}; Rp.filter((r) => r.cls === 'var' && r.amount < 0).forEach((r) => { catsP[r.cat] = r2((catsP[r.cat] || 0) - r.amount); });
+  const catKeys = [...new Set([...Object.keys(cats), ...Object.keys(catsP)])].sort((a, b) => (cats[b] || 0) - (cats[a] || 0)), catMax = Math.max(1, ...catKeys.map((k) => Math.max(cats[k] || 0, catsP[k] || 0)));
+  const merch = {}; R.filter((r) => r.cls === 'var' && r.amount < 0).forEach((r) => { const k = normDesc(r.desc).split(' ').slice(0, 3).join(' ') || '—'; merch[k] = merch[k] || { k, d: r.desc, s: 0, c: 0 }; merch[k].s = r2(merch[k].s - r.amount); merch[k].c++; });
+  const fixedList = live(S.expenses).filter((e) => e.active !== false && inDiv(e)), fixedSeen = (e) => r2(R.filter((r) => r.cls === 'fixed' && r.exp === e.id).reduce((a, r) => a - r.amount, 0));
+  const pending = live(S.stmts).filter((x) => x.status === 'proposal');
+  const seg = '<div class="seg" role="group" aria-label="תקופה"><button data-expperiod="month" aria-pressed="' + (P.m ? 'true' : 'false') + '">חודש</button><button data-expperiod="week" aria-pressed="' + (!P.m) + '">דגימה שבועית</button></div>' +
+    (P.m ? '<button class="btn small ghost" data-expm="-1" aria-label="חודש קודם">›</button><b class="num">' + mLabel(P.m) + '</b><button class="btn small ghost" data-expm="1" aria-label="חודש הבא">‹</button>' : '');
+  const upload = w ? '<section class="card"><header><h2>העלאת דף</h2><span class="hint">בנק או אשראי · PDF, צילום, CSV או אקסל · דף שבועי ואחריו חודשי — לא נספר פעמיים</span></header><div class="row">' +
+      '<label class="fl">סוג<select class="f" id="stmtKind">' + Object.entries(STMT_KIND).map(([k, v]) => '<option value="' + k + '">' + v + '</option>').join('') + '</select></label>' +
+      '<label class="fl">שם (לא חובה)<input class="f" id="stmtLabel" placeholder="למשל ויזה 1234 / לאומי עסקי"></label>' +
+      '<label class="fl">קובץ<input type="file" class="f" id="stmtFile" accept=".pdf,.csv,.xlsx,.xls,image/*"></label></div><p class="hint" id="stmtSt" style="margin:6px 0 0">' + esc((S.stmtMsg || '')) + '</p></section>' : '';
+  const kp = '<div class="grid4">' +
+    kpi('יצא · ' + esc(P.label), money(-tot), totP ? (tot >= totP ? '▲ ' : '▼ ') + plain(Math.abs(r2(tot - totP))) + ' לעומת ' + esc(P.prevLabel) : 'אין נתונים ל' + esc(P.prevLabel), null) +
+    kpi('קבועות', money(-fix), pc(fix, tot) + ' מההוצאות · ' + R.filter((r) => r.cls === 'fixed').length + ' שורות', null) +
+    kpi('משתנות', money(-vr), pc(vr, tot) + ' מההוצאות · ' + R.filter((r) => r.cls === 'var').length + ' שורות', null) +
+    kpi('נכנס בדפים', money(inn, { tone: 'actual' }), 'הכנסות וזיכויים שבדפים', null) + '</div>';
+  const fixedCard = '<section class="card"><header><h2>קבועות מול הרשימה</h2><span class="hint">מה ירד בפועל מכל הוצאה קבועה ב' + esc(P.label) + '</span></header>' +
+    (fixedList.length ? '<div class="scroll"><table><thead><tr><th>הוצאה</th><th>ברשימה</th><th>ירד בפועל</th><th></th></tr></thead><tbody>' + fixedList.map((e) => { const exp = Math.abs(n(e.amount)), got = fixedSeen(e), due = P.m && (e.frequency || 'monthly') === 'monthly';
+      return '<tr><td class="wide">' + esc(e.name) + '</td><td>' + money(-exp, { tone: 'muted' }) + '</td><td>' + (got ? money(-got) : '—') + '</td><td>' + (got ? (Math.abs(got - exp) <= Math.max(5, exp * 0.03) ? '<span class="pill actual">✓ כמו ברשימה</span>' : '<span class="pill expected">' + (got > exp ? 'יותר' : 'פחות') + ' ב-' + plain(Math.abs(r2(got - exp))) + '</span>') : due && R.length ? '<span class="pill muted">לא נמצא בדפים</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      : '<p class="empty">אין עדיין רשימת קבועות. בשורה בדף — "קבע כקבועה".</p>') + '</section>';
+  const catCard = '<section class="card"><header><h2>משתנות לפי קטגוריה</h2><span class="hint">' + esc(P.label) + ' מול ' + esc(P.prevLabel) + '</span></header>' +
+    (catKeys.length ? catKeys.map((k) => { const a = cats[k] || 0, b = catsP[k] || 0, d = r2(a - b);
+      return '<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>' + esc(k) + '</span><span class="num">' + plain(a) + (b ? ' <small class="hint">' + (d > 0 ? '▲ ' : d < 0 ? '▼ ' : '') + plain(Math.abs(d)) + '</small>' : '') + '</span></div>' +
+        '<div style="height:6px;background:var(--sunk);border-radius:3px;position:relative" title="' + esc(k) + ': ' + plain(a) + ' · ' + esc(P.prevLabel) + ': ' + plain(b) + '"><i style="position:absolute;inset-inline-start:0;top:0;bottom:0;width:' + (a / catMax * 100) + '%;background:var(--text-2);border-radius:3px"></i>' + (b ? '<i style="position:absolute;top:-2px;bottom:-2px;inset-inline-start:calc(' + (b / catMax * 100) + '% - 1px);width:2px;background:var(--text)"></i>' : '') + '</div></div>'; }).join('') +
+      '<p class="hint" style="margin:6px 0 0">הפס = ' + esc(P.label) + ' · הקו הדק = ' + esc(P.prevLabel) + '</p>' : '<p class="empty">אין משתנות בתקופה — העלה דף.</p>') + '</section>';
+  const top = Object.values(merch).sort((a, b) => b.s - a.s).slice(0, 10);
+  const merchCard = top.length ? '<section class="card"><header><h2>איפה יצא הכי הרבה (משתנות)</h2></header><div class="scroll"><table><tbody>' + top.map((x) => '<tr><td class="wide">' + esc(x.d) + (x.c > 1 ? ' <small class="hint">×' + x.c + '</small>' : '') + '</td><td>' + money(-x.s) + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
+  const rowsCard = R.length ? '<details class="card" style="padding:14px 16px"' + (S.f.expRowsOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>כל השורות (' + R.length + ')</b>' + (pending.length ? ' <span class="pill expected">' + pending.length + ' דפים ממתינים לאישור</span>' : '') + '</summary><div class="scroll"><table><thead><tr><th>תאריך</th><th>תיאור</th><th>סכום</th><th>סוג</th><th>קטגוריה</th><th></th></tr></thead><tbody>' +
+      R.map((r) => '<tr><td class="num">' + dLabel(r.date) + '</td><td class="wide">' + esc(r.desc) + '<div class="hint">' + esc(STMT_KIND[r.skind] || '') + (r.sstatus === 'proposal' ? ' · מ-Claude, לא אושר' : '') + '</div></td><td>' + money(r.amount, { tone: r.amount > 0 ? 'actual' : undefined }) + '</td>' +
+        '<td>' + (w ? '<select class="f" data-stmtcls="' + esc(r.sid + '|' + stmtKey(r)) + '" style="padding:3px 6px">' + Object.entries(STMT_CLS).map(([k, v]) => '<option value="' + k + '"' + (r.cls === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>' : esc(STMT_CLS[r.cls])) + '</td>' +
+        '<td>' + (r.cls === 'var' && w ? '<select class="f" data-stmtcat="' + esc(r.sid + '|' + stmtKey(r)) + '" style="padding:3px 6px">' + [...STMT_CATS.map((c) => c[0]), 'אחר'].map((c) => '<option' + (r.cat === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select>' : esc(r.cat || '')) + '</td>' +
+        '<td>' + (w && r.amount < 0 && r.cls !== 'fixed' ? '<button class="btn small ghost" data-mkfixed="' + esc(r.sid + '|' + stmtKey(r)) + '">קבע כקבועה</button>' : '') + '</td></tr>').join('') + '</tbody></table></div></details>' : '';
+  const files = live(S.stmts).sort((a, b) => String(b.createdAt).localeCompare(a.createdAt)).slice(0, 12);
+  const filesCard = files.length ? '<section class="card"><header><h2>דפים שהועלו</h2></header><div class="scroll"><table><tbody>' + files.map((x) => '<tr><td class="wide"><b>' + esc(x.label || x.file) + '</b><div class="hint">' + esc(x.file || '') + ' · ' + (x.rows || []).length + ' שורות · ' + dLabel(x.from) + '–' + dLabel(x.to) + '</div></td><td>' +
+      (x.status === 'proposal' ? '<span class="pill expected">Claude קרא — ממתין לאישור</span>' : x.status === 'verified' ? '<span class="pill actual">אושר</span>' : '<span class="pill committed">מקובץ</span>') + '</td><td>' +
+      (w && x.status === 'proposal' ? '<button class="btn small" data-stmtok="' + esc(x.id) + '">עברתי על השורות — אשר</button>' : '') + (w ? '<button class="btn small ghost" data-stmtdel="' + esc(x.id) + '" aria-label="הסר את הדף">×</button>' : '') + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
+  return '<div class="row" style="gap:8px;align-items:center">' + seg + '</div>' + upload + kp + '<div class="grid2">' + fixedCard + catCard + '</div>' + merchCard + rowsCard + filesCard + vFixed();
+}
+const refSplit = (ref) => { const i = String(ref).indexOf('|'); return [ref.slice(0, i), ref.slice(i + 1)]; }; /* sid | מפתח השורה (שמכיל | בעצמו) */
+async function stmtRowPatch(ref, patch) { const [sid, key] = refSplit(ref), st = S.stmts.get(sid); if (!st) return;
+  const rows = (st.rows || []).map((r) => stmtKey(r) === key ? { ...r, ...patch, manual: true } : r); await write('stmts/' + sid, { rows, updatedAt: stamp() }, 'update'); }
+
+/* ═════════════ מפת החודש: כל יום — נכנס, יצא, נחתם · מצטבר · כמה צריך לנקות את השוטף · חתימות מול גביה (דן, 15/10) ═════════════ */
+function monthDays(m) { const out = []; for (let d = m + '-01'; d <= monthEnd(m + '-01'); d = addDays(d, 1)) out.push(d); return out; }
+function signMonthOf(c) { const d = c.signDate || (c.stage !== 'prospect' && !['lost', 'cancelled'].includes(c.status) ? dayOf(c.createdAt) : null); return d ? d.slice(0, 7) : null; }
+function dayFlows(m) {
+  const t0 = today(), D = {}, at = (d) => (D[d] = D[d] || { in: [], out: [], fin: [], fout: [], signed: [] });
+  live(S.transactions).filter((t) => monthOf(t.date) === m && inDiv(t)).forEach((t) => { if (t.nature === 'income') at(t.date).in.push({ amount: cashIn(t), label: cname(t.clientId) || t.counterparty || t.description || 'תקבול', cid: t.clientId });
+    else if (['expense', 'draw'].includes(t.nature)) at(t.date).out.push({ amount: Math.abs(cashIn(t)), label: t.counterparty || t.description || t.category || (t.nature === 'draw' ? 'משיכה' : 'הוצאה'), cid: t.clientId }); });
+  if (m >= t0.slice(0, 7)) forecastItems(70).items.filter((i) => monthOf(i.date) === m && i.date >= t0).forEach((i) => { const x = at(i.date); (i.amount > 0 ? x.fin : x.fout).push({ amount: Math.abs(i.amount), label: i.label, cid: i.cid, sure: i.sure }); });
+  live(S.clients).filter(inDiv).filter((c) => c.signDate && monthOf(c.signDate) === m).forEach((c) => at(c.signDate).signed.push({ amount: n(c.fee), label: c.name, cid: c.id }));
+  return D;
+}
+function clearCurrent(m) {
+  const t0 = today(), end = monthEnd(m + '-01'), F = forecastItems(70);
+  const outs = F.items.filter((i) => i.amount < 0 && i.date <= end && (i.date >= t0 || monthOf(i.date) === m)), ins = F.items.filter((i) => i.amount > 0 && i.date <= end && i.sure);
+  const ob = S.settings.openingBalance, owe = r2(-outs.reduce((a, i) => a + i.amount, 0)), come = r2(ins.reduce((a, i) => a + i.amount, 0)), bal = ob ? n(ob.amount) : null;
+  return { outs, ins, owe, come, bal, ob, gap: bal == null ? null : r2(bal + come - owe) };
+}
+function cohorts(m, back = 6) {
+  const months = []; let x = m; for (let i = 0; i < back; i++) { months.unshift(x); x = prevMonthOf(x); }
+  const inc = live(S.transactions).filter((t) => t.nature === 'income' && t.clientId && inDiv(t));
+  const rows = months.map((cm) => { const cs = live(S.clients).filter(inDiv).filter((c) => signMonthOf(c) === cm && n(c.fee) > 0), ids = new Set(cs.map((c) => c.id)), fee = r2(cs.reduce((a, c) => a + n(c.fee), 0));
+    const byM = {}; inc.filter((t) => ids.has(t.clientId) && (t.caseNo || 1) === ((S.clients.get(t.clientId) || {}).caseNo || 1)).forEach((t) => { const k = monthOf(t.date); byM[k] = r2((byM[k] || 0) + n(t.net)); });
+    return { cm, n: cs.length, fee, byM, toDate: r2(Object.entries(byM).filter(([k]) => k <= m).reduce((a, [, v]) => a + v, 0)) }; });
+  /* מקדם גביה: כמה אחוז מהחתום נכנס בחודש החתימה, בחודש שאחריו, וכו׳ — ממוצע משוקלל של קבוצות שכבר עברו את החודש הזה */
+  const coef = [0, 1, 2, 3].map((k) => { let f = 0, g = 0; rows.forEach((r) => { let mk = r.cm; for (let i = 0; i < k; i++) mk = addMonth(mk + '-01').slice(0, 7); if (mk >= today().slice(0, 7) || !r.fee) return; f += r.fee; g += r.byM[mk] || 0; }); return f ? g / f : null; });
+  const nextM = addMonth(today().slice(0, 7) + '-01').slice(0, 7);
+  const est = r2(rows.reduce((a, r) => { let k = 0, mk = r.cm; while (mk < nextM && k < 5) { mk = addMonth(mk + '-01').slice(0, 7); k++; } return a + (k <= 3 && coef[k] != null ? Math.max(0, r.fee * coef[k]) : 0); }, 0));
+  return { rows, coef, est, nextM };
+}
+function balanceChart(m, D) {
+  const days = monthDays(m), t0 = today(); let cum = 0; const pts = days.map((d) => { const x = D[d] || {}, s = (a) => (a || []).reduce((q, i) => q + i.amount, 0); cum = r2(cum + s(x.in) + s(x.fin) - s(x.out) - s(x.fout)); return { d, v: cum, fut: d > t0 }; });
+  const W = 640, H = 170, pl = 8, pr = 8, pt = 14, pb = 22, min = Math.min(0, ...pts.map((p) => p.v)), max = Math.max(1, ...pts.map((p) => p.v)), sx = (i) => pl + i * (W - pl - pr) / Math.max(1, days.length - 1), sy = (v) => pt + (max - v) * (H - pt - pb) / Math.max(1, max - min);
+  const path = (arr) => arr.map((p, i) => (i ? 'L' : 'M') + sx(days.indexOf(p.d)).toFixed(1) + ' ' + sy(p.v).toFixed(1)).join(' ');
+  const past = pts.filter((p) => !p.fut), fut = pts.filter((p, i) => p.fut || (i + 1 < pts.length && pts[i + 1].fut));
+  let s = '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + sy(0) + '" y2="' + sy(0) + '" stroke="var(--border)"/>';
+  if (past.length) s += '<path d="' + path(past) + '" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>';
+  if (fut.length > 1) s += '<path d="' + path(fut) + '" fill="none" stroke="var(--committed)" stroke-width="2" stroke-dasharray="5 4"/>';
+  const ti = days.indexOf(t0); if (ti >= 0) s += '<line x1="' + sx(ti) + '" x2="' + sx(ti) + '" y1="' + pt + '" y2="' + (H - pb) + '" stroke="var(--text-3)" stroke-dasharray="2 3"/>';
+  [0, Math.floor(days.length / 2), days.length - 1].forEach((i) => { s += '<text x="' + sx(i) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="var(--text-3)">' + days[i].slice(8) + '/' + days[i].slice(5, 7) + '</text>'; });
+  pts.forEach((p, i) => { s += '<rect x="' + (sx(i) - (W - pl - pr) / days.length / 2) + '" y="' + pt + '" width="' + ((W - pl - pr) / days.length) + '" height="' + (H - pt - pb) + '" fill="transparent" class="hov"><title>' + dLabel(p.d) + ' · מצטבר ' + plain(p.v) + (p.fut ? ' (צפי)' : '') + '</title></rect>'; });
+  const last = pts[pts.length - 1];
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="נכנס פחות יצא, מצטבר לאורך החודש — ' + plain(last.v) + ' בסוף החודש">' + s + '</svg>' +
+    '<p class="hint" style="margin:2px 0 0">קו מלא = בפועל עד היום · מקווקו = צפי (בלי "לא לבנות על זה") · מעבר עם העכבר על יום מראה את הסכום</p>';
+}
+function vMonthMap() {
+  const t0 = today(), m = S.f.mapMonth || t0.slice(0, 7), D = dayFlows(m), days = monthDays(m), s = (a) => r2((a || []).reduce((q, i) => q + i.amount, 0));
+  const dow0 = new Date(m + '-01T12:00:00Z').getUTCDay();
+  const cell = (d) => { const x = D[d] || {}, i1 = s(x.in), i2 = s(x.fin), o1 = s(x.out), o2 = s(x.fout), sg = s(x.signed), any = i1 || i2 || o1 || o2 || sg;
+    return '<button class="mday' + (d === t0 ? ' today' : '') + (d < t0 ? ' past' : '') + '" data-mday="' + d + '"' + (any ? '' : ' disabled') + ' aria-label="' + dLabel(d) + '"><span class="dn">' + Number(d.slice(8)) + '</span>' +
+      (i1 ? '<span class="mv in">+' + plain0(i1) + '</span>' : '') + (i2 ? '<span class="mv fin">+' + plain0(i2) + '</span>' : '') + (o1 ? '<span class="mv out">−' + plain0(o1) + '</span>' : '') + (o2 ? '<span class="mv fout">−' + plain0(o2) + '</span>' : '') + (sg ? '<span class="mv sg">✍ ' + plain0(sg) + '</span>' : '') + '</button>'; };
+  const grid = '<div class="mgrid">' + ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'].map((x) => '<div class="mh">' + x + '</div>').join('') + Array.from({ length: dow0 }, () => '<div></div>').join('') + days.map(cell).join('') + '</div>' +
+    '<div class="row hint" style="gap:12px;margin-top:6px;flex-wrap:wrap"><span><i class="lg in"></i>נכנס בפועל</span><span><i class="lg fin"></i>צפוי להיכנס</span><span><i class="lg out"></i>יצא</span><span><i class="lg fout"></i>צפוי לצאת</span><span><i class="lg sg"></i>✍ נחתם (שכ״ט)</span></div>';
+  const tot = (k) => r2(days.reduce((a, d) => a + s((D[d] || {})[k]), 0));
+  const C = clearCurrent(m), cur = m === t0.slice(0, 7);
+  const clearCard = cur ? '<section class="card"><header><h2>לנקות את השוטף — עד ' + dLabel(monthEnd(m + '-01')) + '</h2><span class="grow"></span>' + (S.canWrite ? '<button class="btn small" data-act="newPlanned">+ כניסה / יציאה צפויה</button>' : '') + '</header><div class="grid4">' +
+      kpi('צריך לשלם עד סוף החודש', money(-C.owe), C.outs.length + ' תשלומים: קבועות, שכר, מתוכננים', null) +
+      kpi('בטוח שייכנס עד אז', money(C.come, { tone: 'committed' }), C.ins.length + ' כניסות בטוחות', null) +
+      kpi('יתרה בבנק', C.bal == null ? '—' : money(C.bal), C.ob ? 'עודכן ' + dLabel(C.ob.date) + ' · מבדיקת עו״ש' : 'עדכן בהנהלת חשבונות ← בדיקת עו״ש', null) +
+      kpi(C.gap == null ? 'פער' : C.gap >= 0 ? 'נשאר אחרי הכל' : 'חסר כדי לנקות', C.gap == null ? '—' : money(C.gap, { tone: C.gap >= 0 ? 'actual' : 'open' }), 'יתרה + בטוח שייכנס − מה שצריך לשלם', null, C.gap != null && C.gap < 0 ? 'open' : '') + '</div>' +
+      (C.outs.length ? '<details style="margin-top:6px"><summary class="hint">מה צריך לשלם (' + C.outs.length + ')</summary><div class="scroll"><table><tbody>' + C.outs.map((i) => '<tr><td class="num">' + dLabel(i.date) + '</td><td class="wide">' + esc(i.label) + '</td><td>' + money(i.amount) + '</td></tr>').join('') + '</tbody></table></div></details>' : '') + '</section>' : '';
+  const K = cohorts(m), me = K.rows[K.rows.length - 1], gotM = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + n(t.net), 0));
+  const fromThis = r2(me.byM[m] || 0), fromPrev = r2(K.rows.slice(0, -1).reduce((a, r) => a + (r.byM[m] || 0), 0)), other = r2(gotM - fromThis - fromPrev);
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const cohortCard = '<section class="card"><header><h2>חתימות מול כסף שנכנס — ' + mLabel(m) + '</h2><span class="hint">לפני מע״מ</span></header><div class="grid4">' +
+      kpi('חתמתי החודש', money(me.fee, { tone: 'expected' }), me.n + ' עסקאות', null) +
+      kpi('נכנס בפועל', money(gotM, { tone: 'actual' }), 'כל התקבולים בחודש', null) +
+      kpi('מתוך החתימות של החודש', money(fromThis, { tone: 'actual' }), pc(fromThis, me.fee) + ' ממה שנחתם החודש', null) +
+      kpi('מחתימות קודמות', money(fromPrev, { tone: 'actual' }), pc(fromPrev, gotM) + ' מהכסף שנכנס' + (other > 1 ? ' · ועוד ' + plain(other) + ' בלי תאריך חתימה' : ''), null) + '</div>' +
+    '<div class="scroll"><table><thead><tr><th>חודש חתימה</th><th>נחתם</th><th>נכנס ב-' + mLabel(m) + '</th><th>% מהחתום</th><th>נכנס עד ' + mLabel(m) + '</th><th>% עד היום</th></tr></thead><tbody>' +
+      K.rows.slice().reverse().map((r) => '<tr' + (r.cm === m ? ' style="font-weight:700"' : '') + '><td>' + mLabel(r.cm) + ' <small class="hint">(' + r.n + ')</small></td><td>' + (r.fee ? plain(r.fee) : '—') + '</td><td>' + (r.byM[m] ? plain(r.byM[m]) : '—') + '</td><td>' + pc(r.byM[m] || 0, r.fee) + '</td><td>' + (r.toDate ? plain(r.toDate) : '—') + '</td><td>' + pc(r.toDate, r.fee) + '</td></tr>').join('') +
+    '</tbody></table></div>' +
+    '<p style="margin:8px 0 0"><b>מקדם גביה</b> <span class="hint">(ממוצע משוקלל של ' + K.rows.filter((r) => r.fee).length + ' חודשים)</span>: ' + ['בחודש החתימה', 'בחודש שאחרי', 'אחרי חודשיים', 'אחרי שלושה'].map((l, k) => l + ' ' + (K.coef[k] == null ? '—' : Math.round(K.coef[k] * 100) + '%')).join(' · ') + '</p>' +
+    '<p class="hint" style="margin:4px 0 0">' + (K.coef.slice(1).some((c) => c != null) ? 'לפי המקדם, מהחתימות שכבר יש — צפוי להיכנס ב-' + mLabel(K.nextM) + ' בערך ' + plain(K.est) + '. ' : 'עוד אין מספיק חודשים סגורים כדי לחשב מקדם לחודש שאחרי החתימה — זה יתמלא לבד עם כל חודש שנסגר. ') + 'הערכה בלבד: נשענת על ' + live(S.clients).filter((c) => c.signDate).length + ' לקוחות עם תאריך חתימה; לקוח בלי תאריך חתימה נספר לפי יום הפתיחה.</p></section>';
+  return '<div class="row" style="align-items:center;gap:8px"><button class="btn small ghost" data-mapm="-1" aria-label="חודש קודם">›</button><h2 style="margin:0" class="num">' + mLabel(m) + '</h2><button class="btn small ghost" data-mapm="1" aria-label="חודש הבא">‹</button>' + (m !== t0.slice(0, 7) ? '<button class="btn small ghost" data-mapm="0">היום</button>' : '') + '</div>' +
+    clearCard +
+    '<section class="card"><header><h2>כל יום בחודש</h2><span class="grow"></span><span class="hint num">נכנס ' + plain(r2(tot('in') + tot('fin'))) + ' · יצא ' + plain(r2(tot('out') + tot('fout'))) + ' · נחתם ' + plain(tot('signed')) + '</span></header>' + grid + '</section>' +
+    '<section class="card"><header><h2>מצטבר בחודש — נכנס פחות יצא</h2></header>' + balanceChart(m, D) + '</section>' +
+    cohortCard;
+}
+const plain0 = (v) => { const a = Math.abs(v); return a >= 10000 ? Math.round(a / 1000) + 'K' : a >= 1000 ? (Math.round(a / 100) / 10) + 'K' : String(Math.round(a)); };
 
 /* ═════════════════════════ שיווק ═════════════════════════ */
 function leadRevenue(l) { const c = l.clientId && S.clients.get(l.clientId); return c ? clientMoney(c) : { fee: 0, collected: 0 }; }
@@ -5382,7 +5580,7 @@ window.HAREL_JOBS = {
    דן (בעל הדף) עורך הכל. הצוות כותב רק משימות, תיקים מנוהלים, ימי עבודה, פניות, לידים ומיילים.
    ההרשאות נאכפות במסד (rules) — לא רק במסך. הנעילה בסיסמה היא שכבה נוספת על המכשיר:
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
-const OWNER_READ = ['transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool'];
+const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool'];
 const PARTNER_WRITE = ['clients', 'transactions'];
 const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
@@ -5907,24 +6105,7 @@ function vBooks() {
   return '<div class="row"><h1 class="grow">הנהלת חשבונות</h1>' + tabs + '</div>' + body;
 }
 async function parseBankFile(file) {
-  if (typeof XLSX === 'undefined') { toast('רכיב קריאת הקבצים לא נטען — נסה לרענן'); return; }
-  const buf = await file.arrayBuffer(), isCsv = /\.(csv|txt)$/i.test(file.name);
-  let wb;
-  if (isCsv) { let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1255').decode(buf); } wb = XLSX.read(text.replace(/^﻿/, ''), { type: 'string', raw: true }); }
-  else wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
-  const hi = rows.findIndex((r) => r.some((c) => /תאריך/.test(String(c))) && r.some((c) => /זכות|חובה|סכום/.test(String(c))));
-  if (hi < 0) { toast('לא זוהו עמודות תאריך וסכום בקובץ'); return; }
-  const head = rows[hi].map((h) => String(h).trim());
-  const col = (re) => head.findIndex((h) => re.test(h));
-  const cD = col(/^תאריך$|^תאריך הפעולה|^תאריך/), cDesc = col(/תיאור|פרטים|הפעולה|סוג תנועה/), cCr = col(/זכות/), cDr = col(/חובה/), cAmt = col(/^סכום/), cBal = col(/יתרה/);
-  const numv = (v) => typeof v === 'number' ? v : Number(String(v || '').replace(/[^\d.\-]/g, '')) || 0;
-  const out = [];
-  for (const r of rows.slice(hi + 1)) {
-    const d = r[cD] instanceof Date ? isoOf(r[cD]) : dateOf(r[cD]); if (!d) continue;
-    const amount = r2(cAmt >= 0 ? numv(r[cAmt]) : numv(r[cCr]) - Math.abs(numv(r[cDr]))); if (!amount) continue;
-    out.push({ date: d, desc: String(r[cDesc] ?? '').trim(), amount, balance: cBal >= 0 && r[cBal] !== '' ? numv(r[cBal]) : null });
-  }
+  const out = await sheetRowsOf(file); if (!out) return;
   const used = new Set();
   const txs = live(S.transactions);
   for (const x of out) {
@@ -5935,6 +6116,28 @@ async function parseBankFile(file) {
   const last = withBal[withBal.length - 1];
   S.bank = { fileName: file.name, rows: out.sort((a, b) => String(b.date).localeCompare(a.date)), lastBalance: last ? last.balance : null, lastDate: last ? last.date : null };
   render();
+}
+/* שורות מקובץ בנק / אשראי (CSV / אקסל): תאריך, תיאור, סכום (חובה = שלילי), יתרה */
+async function sheetRowsOf(file) {
+  if (typeof XLSX === 'undefined') { toast('רכיב קריאת הקבצים לא נטען — נסה לרענן'); return null; }
+  const buf = await file.arrayBuffer(), isCsv = /\.(csv|txt)$/i.test(file.name);
+  let wb;
+  if (isCsv) { let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1255').decode(buf); } wb = XLSX.read(text.replace(/^﻿/, ''), { type: 'string', raw: true }); }
+  else wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+  const hi = rows.findIndex((r) => r.some((c) => /תאריך/.test(String(c))) && r.some((c) => /זכות|חובה|סכום/.test(String(c))));
+  if (hi < 0) { toast('לא זוהו עמודות תאריך וסכום בקובץ'); return null; }
+  const head = rows[hi].map((h) => String(h).trim());
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const cD = col(/^תאריך$|^תאריך הפעולה|^תאריך/), cDesc = col(/תיאור|פרטים|הפעולה|סוג תנועה/), cCr = col(/זכות/), cDr = col(/חובה/), cAmt = col(/^סכום/), cBal = col(/יתרה/);
+  const numv = (v) => typeof v === 'number' ? v : Number(String(v || '').replace(/[^\d.\-]/g, '')) || 0;
+  const out = [];
+  for (const r of rows.slice(hi + 1)) {
+    const d = r[cD] instanceof Date ? isoOf(r[cD]) : dateOf(r[cD]); if (!d) continue;
+    const amount = r2(cAmt >= 0 ? numv(r[cAmt]) : numv(r[cCr]) - Math.abs(numv(r[cDr]))); if (!amount) continue;
+    out.push({ date: d, desc: String(r[cDesc] ?? '').trim(), amount, balance: cBal >= 0 && r[cBal] !== '' ? numv(r[cBal]) : null });
+  }
+  return out;
 }
 
 /* ═════════════════════════ פרייבט ═════════════════════════ */
@@ -7230,7 +7433,9 @@ function render() {
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
   const M0 = $('main'), y0 = window.scrollY, boxes0 = [...M0.querySelectorAll('.scroll, [data-keepscroll]')].map((b) => [b.scrollTop, b.scrollLeft]),
-    det0 = [...M0.querySelectorAll('details')].map((d) => d.open), view0 = S._lastView, view1 = S.view.tab + '|' + (S.view.clientId || '');
+    detKey = (d) => ((d.querySelector('summary') || {}).textContent || '').replace(/[\d,.()]+/g, '').trim().slice(0, 40),
+    det0 = Object.fromEntries([...M0.querySelectorAll('details')].map((d) => [detKey(d), d.open])), view0 = S._lastView,
+    view1 = [S.view.tab, S.view.clientId || '', S.f.money, S.f.books, S.f.rep, S.f.mkt, S.f.leadView, S.f.svc, S.f.taskView].join('|');
   /* טקסט שהקלדת ועוד לא נשמר (הערה, טיוטה) — לא נמחק כשהמסך מצטייר מחדש */
   const drafts0 = Object.fromEntries([...M0.querySelectorAll('textarea[id], input[id]:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden])')].filter((el) => el.value !== el.defaultValue).map((el) => [el.id, el.value]));
   S._lastView = view1;
@@ -7238,7 +7443,7 @@ function render() {
   /* אותו מסך — לא קופצים: הגלילה, טבלאות שגוללות לרוחב ו"פירוט" שפתחת נשארים כמו שהיו */
   if (view0 === view1) {
     const boxes1 = [...M0.querySelectorAll('.scroll, [data-keepscroll]')]; if (boxes1.length === boxes0.length) boxes1.forEach((b, i) => { b.scrollTop = boxes0[i][0]; b.scrollLeft = boxes0[i][1]; });
-    const det1 = [...M0.querySelectorAll('details')]; if (det1.length === det0.length) det1.forEach((d, i) => { if (d.open !== det0[i]) d.open = det0[i]; });
+    [...M0.querySelectorAll('details')].forEach((d) => { const k = detKey(d); if (k in det0 && d.open !== det0[k]) d.open = det0[k]; });
     if (Math.abs(window.scrollY - y0) > 1) window.scrollTo(0, y0);
   }
   if (view0 === view1) for (const [id, v] of Object.entries(drafts0)) { const el = $(id); if (el && el.value === el.defaultValue && el.value !== v) el.value = v; }
@@ -7417,6 +7622,16 @@ document.addEventListener('click', async (e) => {
       await logClient(c.id, 'שמאי נבחר: ' + a.name + (n(qt.price) ? ' · ' + plain(qt.price) : '') + (n(qt.days) ? ' · ' + qt.days + ' ימים' : '') + ' (מתוך ' + Object.values(sv.quotes || {}).filter((x) => n(x.price)).length + ' הצעות)').catch(() => {}); return toast('נבחר ' + a.name + ' — נכנס לשלב השמאות'); }
     if (d.apcopy) { const [cid, aid] = d.apcopy.split(':'), c = S.clients.get(cid), a = appraisers().find((x) => x.id === aid); if (c) { copyText(apprText(c, a), 'ההודעה הועתקה'); await apprMarkSent(c, aid); } return; }
     if (d.apdel) { if (!(S.canWrite || ['admin', 'admin_re'].includes(S.role))) return; const A = (S.settings.appraisers || []).map((a) => a.id === d.apdel ? { ...a, deletedAt: stamp() } : a); await write('settings/main', { appraisers: A }, 'update'); return toast('השמאי הוסר מהרשימה'); }
+    if (d.expperiod) { S.f.expPeriod = d.expperiod; return render(); }
+    if (d.expm) { const m = S.f.expMonth || today().slice(0, 7); S.f.expMonth = Number(d.expm) < 0 ? prevMonthOf(m) : addMonth(m + '-01').slice(0, 7); return render(); }
+    if (d.mapm != null && el.matches('[data-mapm]')) { const m = S.f.mapMonth || today().slice(0, 7); S.f.mapMonth = d.mapm === '0' ? null : Number(d.mapm) < 0 ? prevMonthOf(m) : addMonth(m + '-01').slice(0, 7); return render(); }
+    if (d.mday) { const x = dayFlows(d.mday.slice(0, 7))[d.mday] || {}, sec = (t, a, tone) => a && a.length ? '<h3 class="sec full">' + t + '</h3><div class="full">' + a.map((i) => '<div class="row" style="justify-content:space-between"><span>' + esc(i.label) + (i.sure === false ? ' <span class="pill expected">סביר</span>' : '') + '</span>' + money(i.amount, { tone }) + '</div>').join('') + '</div>' : '';
+      return drawer(dLabel(d.mday), sec('נכנס בפועל', x.in, 'actual') + sec('צפוי להיכנס', x.fin, 'committed') + sec('יצא', x.out) + sec('צפוי לצאת', x.fout, 'muted') + sec('נחתם (שכ״ט)', x.signed, 'expected'), async () => null, '', 'סגור'); }
+    if (d.stmtok && S.canWrite) { await write('stmts/' + d.stmtok, { status: 'verified', verifiedAt: stamp(), verifiedBy: S.me.id }, 'update'); return toast('הדף אושר'); }
+    if (d.stmtdel && S.canWrite) { await write('stmts/' + d.stmtdel, { deletedAt: stamp() }, 'update'); return toast('הדף הוסר מהניתוח'); }
+    if (d.mkfixed && S.canWrite) { const [sid, key] = refSplit(d.mkfixed), st = S.stmts.get(sid), r = st && (st.rows || []).find((x) => stmtKey(x) === key); if (!r) return;
+      const id = uid(); await write('expenses/' + id, { id, name: r.desc.slice(0, 60), match: normDesc(r.desc).split(' ').slice(0, 3).join(' '), amount: Math.abs(n(r.amount)), day: Number(r.date.slice(8)), frequency: 'monthly', active: true, division: S.division === 'all' ? 'finance' : S.division, category: r.cat || stmtCat(r.desc), createdAt: stamp(), createdBy: S.me.id, from: 'stmt' });
+      await stmtRowPatch(d.mkfixed, { cls: 'fixed', exp: id }); return toast('נוסף לרשימת הקבועות — מהחודש הבא מזוהה לבד'); }
     if (d.focus) { S.f.focus = d.focus; try { localStorage.setItem('harel-focus-' + (S.myKey || ''), d.focus); } catch (e) {} return render(); }
     if (d.pm) { if (d.pmdiv) S.division = d.pmdiv; S.f.pnlMonth = d.pm; S.f.money = 'pnl'; return S.view.tab === 'money' ? render() : go('money'); }
     if (d.pmode) { S.f.pnlMode = d.pmode; return render(); }
@@ -7781,6 +7996,10 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.ctimport && el.files && el.files[0] && S.canWrite) { const f = el.files[0]; el.value = ''; return contactsImport(f); }
   if (el.dataset && el.dataset.rootcli !== undefined && S.rootMatch) { const m = S.rootMatch[+el.dataset.rootcli], c = S.clients.get(el.value); if (m && c) { m.c = c; m.tie = false; } return; }
   if (el.dataset && el.dataset.leadcol) { const h = new Set(leadHidden()); if (el.checked) h.delete(el.dataset.leadcol); else h.add(el.dataset.leadcol); S.f.leadHide = [...h]; try { localStorage.setItem('harel-leadcols', JSON.stringify(S.f.leadHide)); } catch (err) {} return render(); }
+  if (el.id === 'stmtFile' && el.files && el.files[0] && S.canWrite) { const f = el.files[0]; el.value = ''; const say = (t) => { S.stmtMsg = t; const st = $('stmtSt'); if (st) st.textContent = t; };
+    try { await stmtImport(f, ($('stmtKind') || {}).value || 'bank', (($('stmtLabel') || {}).value || '').trim(), say); } catch (e) { say(e && e.code === 'cancelled' ? 'נעצר' : 'הקריאה נכשלה: ' + ((e && e.message) || '')); } return render(); }
+  if (el.dataset && el.dataset.stmtcls && S.canWrite) return stmtRowPatch(el.dataset.stmtcls, { cls: el.value });
+  if (el.dataset && el.dataset.stmtcat && S.canWrite) return stmtRowPatch(el.dataset.stmtcat, { cat: el.value, cls: 'var' });
   if (el.dataset && (el.dataset.apq || el.dataset.apqt) && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId); if (!c || !S.canTask) return; const sv = JSON.parse(JSON.stringify(c.apprSurvey || {}));
     if (el.dataset.apq) sv.q = { ...apprQ(c), [el.dataset.apq]: el.value.trim() };
     else { const [aid, f] = el.dataset.apqt.split(':'); sv.quotes = sv.quotes || {}; sv.quotes[aid] = { ...(sv.quotes[aid] || {}), [f]: el.value === '' ? null : n(el.value), at: stamp(), by: S.me.id }; }
