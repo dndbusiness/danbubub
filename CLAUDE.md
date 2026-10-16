@@ -133,3 +133,4 @@ node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs
 ## מצב נוכחי
 
 ראו `docs/STATUS.md`. שאלות פתוחות שחוסמות: `docs/OPEN_QUESTIONS.md`.
+המעבר מהדף ב-Claude: `docs/CUTOVER.md`.
