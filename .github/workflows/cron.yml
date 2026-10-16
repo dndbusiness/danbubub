@@ -1,0 +1,74 @@
+# חלק ג' של ה-ADDENDUM — הג'ובים המתוזמנים, כחלופה ל-Vercel Cron.
+# GitHub Actions רץ ב-UTC. ישראל: UTC+3 בקיץ (IDT), UTC+2 בחורף (IST).
+# הזמנים למטה מכוונים לקיץ; בחורף להזיז שעה אחורה (או להשאיר — הפרש של שעה לא מהותי לג'ובים האלה).
+# נדרש: secrets APP_BASE_URL ו-JOBS_SECRET במאגר.
+name: scheduled-jobs
+
+on:
+  schedule:
+    - cron: '30 3 * * *'      # 06:30 — day_close
+    - cron: '45 3 * * *'      # 06:45 — alerts_eval
+    - cron: '0 4 * * *'       # 07:00 — calendar_sync
+    - cron: '30 4 * * 0-5'    # 07:30 א'–ו' — daily_summary
+    - cron: '30 5 * * *'      # 08:30 — anchor_reminder
+    - cron: '*/15 * * * *'    # כל 15 דק' — gmail_scan + drive_intake_scan
+    - cron: '0 5 * * 5'       # ו' 08:00 — weekly_report
+    - cron: '0 5 1 * *'       # 1 לחודש 08:00 — pnl_draft
+    - cron: '0 5 12 * *'      # 12 לחודש 08:00 — pnl_final
+    - cron: '30 5 12 * *'     # 12 לחודש 08:30 — accountant_pack
+    - cron: '0 23 * * *'      # 02:00 — deal_decay
+    - cron: '0 0 * * *'       # 03:00 — db_backup
+    - cron: '0 6 * * 0'       # א' 09:00 — greeninvoice_import (ידני שבועי)
+    - cron: '30 6 * * 0'      # א' 09:30 — wise_import (ידני שבועי)
+    - cron: '0 6 27 * *'      # 27 לחודש 09:00 — payroll_reminder
+    - cron: '0 7 30,1,2,3 * *' # 30 ועד ה-3, 10:00 — accountant_payroll_send
+    - cron: '0 2 * * *'       # 05:00 — reports_to_drive (שכבה 2)
+    - cron: '0 1 * * 0'       # א' 04:00 — cold_backup (שכבה 3)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "שם הג'וב להרצה ידנית"
+        required: true
+        default: alerts_eval
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: הרצת הג׳ובים לפי השעה
+        env:
+          BASE: ${{ secrets.APP_BASE_URL }}
+          SECRET: ${{ secrets.JOBS_SECRET }}
+          CRON: ${{ github.event.schedule }}
+          MANUAL: ${{ github.event.inputs.job }}
+        run: |
+          set -euo pipefail
+          run_job() {
+            echo "→ $1"
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
+              -H "x-jobs-secret: $SECRET" "$BASE/api/jobs/$1")
+            cat /tmp/out.json; echo
+            [ "$code" = "200" ] || { echo "✗ $1 → HTTP $code"; exit 1; }
+          }
+          if [ -n "${MANUAL:-}" ]; then run_job "$MANUAL"; exit 0; fi
+          case "$CRON" in
+            '30 3 * * *')   run_job day_close ;;
+            '45 3 * * *')   run_job alerts_eval ;;
+            '0 4 * * *')    run_job calendar_sync ;;
+            '30 4 * * 0-5') run_job daily_summary ;;
+            '30 5 * * *')   run_job anchor_reminder ;;
+            '*/15 * * * *') run_job gmail_scan; run_job drive_intake_scan ;;
+            '0 5 * * 5')    run_job weekly_report ;;
+            '0 5 1 * *')    run_job pnl_draft ;;
+            '0 5 12 * *')   run_job pnl_final ;;
+            '30 5 12 * *')  run_job accountant_pack ;;
+            '0 23 * * *')   run_job deal_decay ;;
+            '0 0 * * *')    run_job db_backup ;;
+            '0 6 * * 0')    run_job greeninvoice_import ;;
+            '30 6 * * 0')   run_job wise_import ;;
+            '0 6 27 * *')   run_job payroll_reminder ;;
+            '0 7 30,1,2,3 * *') run_job accountant_payroll_send ;;
+            '0 2 * * *')    run_job reports_to_drive ;;
+            '0 1 * * 0')    run_job cold_backup ;;
+            *) echo "אין ג׳וב לתזמון $CRON" ;;
+          esac

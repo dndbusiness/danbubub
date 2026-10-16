@@ -1,0 +1,100 @@
+{
+  "_": "חלק ג' של ה-ADDENDUM — המקור היחיד לתזמוני הג'ובים (הנחיה 14). server-install.sh גוזר מכאן את /etc/cron.d/harel, ו-tests/jobs/schedules.test.ts מוודא ש-.github/workflows/cron.yml לא נפרד מכאן. Vercel Cron לא בשימוש: חשבון Hobby מוגבל ל-2 ג'ובים יומיים, ו-19 הג'ובים כאן רצים ב-GitHub Actions או ב-cron של השרת.",
+  "jobs": [
+    {
+      "name": "day_close",
+      "path": "/api/jobs/day_close",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "name": "alerts_eval",
+      "path": "/api/jobs/alerts_eval",
+      "schedule": "45 3 * * *"
+    },
+    {
+      "name": "calendar_sync",
+      "path": "/api/jobs/calendar_sync",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "name": "daily_summary",
+      "path": "/api/jobs/daily_summary",
+      "schedule": "30 4 * * 0-5"
+    },
+    {
+      "name": "anchor_reminder",
+      "path": "/api/jobs/anchor_reminder",
+      "schedule": "30 5 * * *"
+    },
+    {
+      "name": "gmail_scan",
+      "path": "/api/jobs/gmail_scan",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "name": "drive_intake_scan",
+      "path": "/api/jobs/drive_intake_scan",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "name": "weekly_report",
+      "path": "/api/jobs/weekly_report",
+      "schedule": "0 5 * * 5"
+    },
+    {
+      "name": "pnl_draft",
+      "path": "/api/jobs/pnl_draft",
+      "schedule": "0 5 1 * *"
+    },
+    {
+      "name": "pnl_final",
+      "path": "/api/jobs/pnl_final",
+      "schedule": "0 5 12 * *"
+    },
+    {
+      "name": "accountant_pack",
+      "path": "/api/jobs/accountant_pack",
+      "schedule": "30 5 12 * *"
+    },
+    {
+      "name": "deal_decay",
+      "path": "/api/jobs/deal_decay",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "name": "db_backup",
+      "path": "/api/jobs/db_backup",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "name": "greeninvoice_import",
+      "path": "/api/jobs/greeninvoice_import",
+      "schedule": "0 6 * * 0"
+    },
+    {
+      "name": "wise_import",
+      "path": "/api/jobs/wise_import",
+      "schedule": "30 6 * * 0"
+    },
+    {
+      "name": "payroll_reminder",
+      "path": "/api/jobs/payroll_reminder",
+      "schedule": "0 6 27 * *"
+    },
+    {
+      "name": "accountant_payroll_send",
+      "path": "/api/jobs/accountant_payroll_send",
+      "schedule": "0 7 30,1,2,3 * *"
+    },
+    {
+      "name": "reports_to_drive",
+      "path": "/api/jobs/reports_to_drive",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "name": "cold_backup",
+      "path": "/api/jobs/cold_backup",
+      "schedule": "0 1 * * 0"
+    }
+  ]
+}

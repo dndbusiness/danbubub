@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Design tokens — UIUX §2.1
+   UIUX הנחיה 21: "אין צבעים מקודדים בקומפוננטות." כל צבע במערכת מגיע מכאן.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #F7F8FA;
+  --surface: #FFFFFF;
+  --border: #E6E8EC;
+  --text: #111827;
+  --text-2: #6B7280;
+  --text-3: #9CA3AF;
+
+  /* ודאות היא צבע, לא טקסט (UIUX §1.2). קבועים בכל המערכת. */
+  --actual: #16A34A;        --actual-bg: #ECFDF5;
+  --committed: #2563EB;     --committed-bg: #EFF6FF;
+  --expected: #F59E0B;      --expected-bg: #FFFBEB;
+  --open: #DC2626;          --open-bg: #FEF2F2;
+  --locked: #6B7280;        --locked-bg: #F3F4F6;
+
+  /* פעילות — פס 3px בצד הכרטיס/השורה */
+  --div-realestate: #0F766E;
+  --div-finance: #7C3AED;
+  --div-shared: #64748B;
+  --div-private: #A16207;
+
+  --brand: #0F766E;
+  --danger-banner: #7F1D1D;
+
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+}
+
+/* מצב כהה — אותם tokens, ערכים הפוכים (UIUX §2.1) */
+.dark {
+  --bg: #0B0F17;
+  --surface: #111827;
+  --border: #1F2937;
+  --text: #F3F4F6;
+  --text-2: #9CA3AF;
+  --text-3: #6B7280;
+
+  --actual: #4ADE80;        --actual-bg: #052E16;
+  --committed: #60A5FA;     --committed-bg: #0C1E3A;
+  --expected: #FBBF24;      --expected-bg: #2E1F05;
+  --open: #F87171;          --open-bg: #3B0A0A;
+  --locked: #9CA3AF;        --locked-bg: #1F2937;
+
+  --div-realestate: #2DD4BF;
+  --div-finance: #A78BFA;
+  --div-shared: #94A3B8;
+  --div-private: #FACC15;
+
+  --brand: #2DD4BF;
+  --danger-banner: #991B1B;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.5);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-actual: var(--actual);
+  --color-actual-bg: var(--actual-bg);
+  --color-committed: var(--committed);
+  --color-committed-bg: var(--committed-bg);
+  --color-expected: var(--expected);
+  --color-expected-bg: var(--expected-bg);
+  --color-open: var(--open);
+  --color-open-bg: var(--open-bg);
+  --color-locked: var(--locked);
+  --color-locked-bg: var(--locked-bg);
+  --color-div-realestate: var(--div-realestate);
+  --color-div-finance: var(--div-finance);
+  --color-div-shared: var(--div-shared);
+  --color-div-private: var(--div-private);
+  --color-brand: var(--brand);
+  --color-danger-banner: var(--danger-banner);
+  --radius-card: var(--radius-card);
+  --radius-btn: var(--radius-btn);
+  --shadow-card: var(--shadow-card);
+  --font-sans: "Heebo", "Assistant", Arial, sans-serif;
+}
+
+html {
+  direction: rtl;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px; /* UIUX §2.2 — בסיס 14 */
+}
+
+body { margin: 0; min-height: 100dvh; }
+
+/* UIUX §2.2 — מספרים תמיד tabular, כדי שעמודות יתיישרו */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* UIUX §8 — focus ring ברור, גדלי טאפ ≥44px בנייד */
+:focus-visible { outline: 2px solid var(--committed); outline-offset: 2px; }
+@media (max-width: 767px) {
+  button, a[role="button"], [role="tab"] { min-height: 44px; }
+}
+
+/* UIUX §4.1 — skeleton, לא spinner */
+@keyframes pulse { 50% { opacity: .5; } }
+.skeleton { background: var(--locked-bg); border-radius: 6px; animation: pulse 1.6s ease-in-out infinite; }
