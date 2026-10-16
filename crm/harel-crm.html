@@ -1969,7 +1969,7 @@ function vExpenses() {
   const fixedCard = '<section class="card"><header><h2>קבועות מול הרשימה</h2><span class="hint">מה ירד בפועל מכל הוצאה קבועה ב' + esc(P.label) + '</span></header>' +
     (fixedList.length ? '<div class="scroll"><table><thead><tr><th>הוצאה</th><th>ברשימה</th><th>ירד בפועל</th><th></th></tr></thead><tbody>' + fixedList.map((e) => { const exp = Math.abs(n(e.amount)), got = fixedSeen(e), due = P.m && (e.frequency || 'monthly') === 'monthly';
       return '<tr><td class="wide">' + esc(e.name) + '</td><td>' + money(-exp, { tone: 'muted' }) + '</td><td>' + (got ? money(-got) : '—') + '</td><td>' + (got ? (Math.abs(got - exp) <= Math.max(5, exp * 0.03) ? '<span class="pill actual">✓ כמו ברשימה</span>' : '<span class="pill expected">' + (got > exp ? 'יותר' : 'פחות') + ' ב-' + plain(Math.abs(r2(got - exp))) + '</span>') : due && R.length ? '<span class="pill muted">לא נמצא בדפים</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>'
-      : '<p class="empty">' + (S.division === 'realestate' ? 'בהשקעות בדרך כלל אין הוצאות קבועות — הקבועות יושבות בפתרונות.' : 'אין עדיין רשימת קבועות. בשורה בדף — "קבע כקבועה".') + '</p>') +
+      : '<p class="empty">אין עדיין רשימת קבועות' + (S.division !== 'all' ? ' ב' + esc(L.division[S.division]) : '') + '. "+ הוצאה קבועה", או בשורה בדף — "קבע כקבועה".</p>') +
     /* הערכות שכר ומיסים (דן, 15/10): נכנסות לרשימה ולכן גם למפת החודש ול"לסגור את השוטף" */
     (w ? '<h3 class="sec">הערכות — שכר ומיסים</h3><p class="hint" style="margin:0 0 6px">סכום משוער לכל חודש — נספר בתזרים ובמפת החודש עד שהדף מהבנק מראה מה ירד בפועל.</p><div class="row">' +
       [['שכר עובדים — הערכה (כולל עלות מעביד)', 9, 'שכר'], ['ביטוח לאומי — מעסיק ועובדים', 15, 'מיסים'], ['מקדמות מס הכנסה', 15, 'מיסים'], ['מע״מ', 15, 'מיסים'], ['ביטוח לאומי — עצמאי (שותפים)', 15, 'מיסים'], ['פנסיה וקרנות — מעסיק', 15, 'שכר']]
@@ -3702,7 +3702,7 @@ async function pfParse(file) {
     else if (k && k.key && (stKey(l) !== k.key || (k.tries && n(l.tries) !== k.tries))) act = pfTouched(l) ? 'conflict' : 'update';
     out.push({ pfId, date, raw, k, ph, name, email: C.email >= 0 ? String(r[C.email] || '').trim() : '', city: C.area >= 0 ? String(r[C.area] || '').trim() : '', notes: C.notes >= 0 ? String(r[C.notes] || '').trim() : '', answers, lid: l && l.id, cur: l ? leadStageLabel(l) : '', act });
   }
-  S.pfImport = { file: file.name, rows: out, withConflicts: false }; S.view.tab === 'leads' ? render() : go('leads');
+  S.pfImport = { file: file.name, rows: out, withConflicts: false, sup: /alex|אלכס/i.test(file.name) ? 'אלכס' : 'אבינועם' }; S.view.tab === 'leads' ? render() : go('leads');
 }
 function pfCard() {
   const P = S.pfImport; if (!P) return '';
@@ -3715,21 +3715,24 @@ function pfCard() {
     (unk.length ? '<p class="hint" style="color:var(--open)">משוב שלא הכרתי — נשמר כטקסט בליד בלי לשנות סטטוס: ' + unk.map(esc).join(' · ') + '</p>' : '') +
     (c('conflict').length ? '<details><summary class="hint">מה שונה (' + c('conflict').length + ')</summary><div class="scroll"><table><thead><tr><th>שם</th><th>במערכת</th><th>בפלטפורמה</th></tr></thead><tbody>' + c('conflict').map((r) => '<tr class="clickable" data-lead="' + esc(r.lid) + '"><td>' + esc(r.name) + '</td><td>' + esc(r.cur) + '</td><td>' + esc(r.raw) + '</td></tr>').join('') + '</tbody></table></div></details>' +
       '<label class="check" style="border:0"><input type="checkbox" class="cb" id="pfConf"' + (P.withConflicts ? ' checked' : '') + '><span>לעדכן גם אותם לפי הפלטפורמה</span></label>' : '') +
-    '<div class="row" style="margin-top:8px"><button class="btn primary" data-act="pfApply">סנכרן</button><span class="hint">כל שינוי נרשם ביומן הליד: "מהפלטפורמה של אבינועם".</span></div></section>';
+    '<div class="row" style="margin-top:8px;align-items:flex-end"><label class="fl">ספק הלידים<select class="f" id="pfSup">' + ['אבינועם', 'אלכס'].map((x) => '<option' + ((P.sup || 'אבינועם') === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></label><button class="btn primary" data-act="pfApply">סנכרן</button><span class="hint">כל שינוי נרשם ביומן הליד עם שם הספק.</span></div></section>';
 }
 async function pfApply() {
-  const P = S.pfImport; if (!P) return; const withC = !!($('pfConf') && $('pfConf').checked), t30 = addDays(today(), -30); let up = 0, mk = 0; const jobs = [];
+  const P = S.pfImport; if (!P) return; const withC = !!($('pfConf') && $('pfConf').checked), t30 = addDays(today(), -30), sup = ($('pfSup') && $('pfSup').value) || 'אבינועם'; let up = 0, mk = 0; const jobs = [];
   const write0 = write; { const write = (...a) => { jobs.push(() => write0(...a)); return Promise.resolve(); };
   for (const r of P.rows) {
-    const note = 'מהפלטפורמה של אבינועם: ' + (r.raw || 'בלי משוב');
+    const note = 'מהקובץ של ' + sup + ': ' + (r.raw || 'בלי משוב');
     if (r.act === 'create') {
       const id = 'pf-' + (r.pfId || slug(r.ph + r.date)); if (S.leads.has(id)) continue;
       const base = { id, division: 'finance' }, k = r.k && r.k.key ? r.k.key : String(r.date).slice(0, 10) < t30 ? 'lost' : 'new', sp = stagePatch(base, k);
-      await write('leads/' + id, { id, name: r.name || r.ph, phone: r.ph, email: r.email || '', city: r.city || '', division: 'finance', ctype: 'נכסים', channel: 'אבינועם', marketer: 'אבינועם', platform: 'פלטפורמת אבינועם', campaign: 'כנגד נכס', source: 'platform',
-        stage: sp.stage, sub: sp.sub, ...(r.k && r.k.tries ? { tries: r.k.tries } : {}), ...(sp.stage === 'won' ? { wonAt: r.date } : {}), createdAt: r.date, pfId: r.pfId || null, pfStatus: r.raw || '', answers: r.answers, note: r.notes || '', resp: defaultResp('finance'),
+      await write('leads/' + id, { id, name: r.name || r.ph, phone: r.ph, email: r.email || '', city: r.city || '', division: 'finance', ctype: 'נכסים', channel: sup, marketer: sup, platform: sup, campaign: sup === 'אבינועם' ? 'כנגד נכס' : sup + ' — ספק לידים', source: 'platform',
+        stage: sp.stage, sub: sp.sub, ...(r.k && r.k.tries ? { tries: r.k.tries } : {}), ...(sp.stage === 'won' ? { wonAt: r.date } : {}), createdAt: r.date, pfId: r.pfId || null, pfStatus: r.raw || '', answers: r.answers, note: r.notes || '', resp: String(r.date).slice(0, 10) < t30 ? 'dan' : defaultResp('finance'),
         log: [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'יובא — ' + note + (!r.raw && k === 'lost' ? ' (ישן, בלי משוב — לא רלוונטי)' : ''), auto: true }], updatedAt: stamp() }).catch(() => null); mk++;
     } else if ((r.act === 'update' || (r.act === 'conflict' && withC)) && r.k && r.k.key) {
-      const l = S.leads.get(r.lid); if (!l) continue; const sp = stagePatch(l, r.k.key);
+      const l = S.leads.get(r.lid); if (!l) continue;
+      /* אותו אדם הגיע גם ממקור אחר (טבלה של משווק אחר, פייסבוק…) — הסטטוס שם חדש יותר: רק רושמים שהופיע גם אצל הספק הזה */
+      if (leadChannel(l) !== sup) { await write('leads/' + l.id, { pfId: r.pfId || l.pfId || null, pfStatus: r.raw, alsoFrom: sup, log: [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: 'מופיע גם בקובץ של ' + sup + ' (' + dLabel(String(r.date).slice(0, 10)) + '): ' + (r.raw || 'בלי משוב') + ' — הסטטוס כאן לא שונה', auto: true }, ...(l.log || [])].slice(0, 300), updatedAt: stamp() }, 'update').catch(() => null); continue; }
+      const sp = stagePatch(l, r.k.key);
       await write('leads/' + l.id, { stage: sp.stage, sub: sp.sub, ...(r.k.tries ? { tries: r.k.tries } : {}), ...(sp.stage === 'won' && l.stage !== 'won' ? { wonAt: stamp() } : {}), stAt: stamp(), stHist: [...(l.stHist || []), { from: stKey(l), to: r.k.key, at: stamp(), by: 'סנכרון' }].slice(-100),
         pfId: r.pfId || l.pfId || null, pfStatus: r.raw, log: [{ at: stamp(), by: S.me.id, who: 'סנכרון', text: note + ' — סטטוס ' + sp._label, auto: true }, ...(l.log || [])].slice(0, 300), updatedAt: stamp() }, 'update').catch(() => null); up++;
     } else if (r.lid && (r.raw || r.pfId)) { const l = S.leads.get(r.lid); if (l && (l.pfStatus !== r.raw || (r.pfId && l.pfId !== r.pfId))) await write('leads/' + l.id, { pfId: r.pfId || l.pfId || null, pfStatus: r.raw }, 'update').catch(() => null); }
@@ -3786,7 +3789,7 @@ function hueClass(hex) {
 }
 function rowFill(ws, row) { for (const c of 'BACDEFG') { const x = ws[c + row], f = x && x.s && x.s.fgColor; const rgb = f && (f.rgb || f.argb); if (rgb && !/^(FF)?FFFFFF$/i.test(rgb)) return String(rgb).toUpperCase().slice(-6); } return null; }
 /* ── מקור הסגירה של לקוח: קמפיין / שת״פ (למשל אלכס) / פרטי ── */
-const CLOSE_SRC = { campaign: 'קמפיין', coop: 'שת״פ', private: 'פרטי' };
+const CLOSE_SRC = { campaign: 'קמפיין / ספק לידים', referral: 'חבר מביא חבר', coop: 'שת״פ', private: 'פרטי' };
 function closeSrcOf(c) {
   if (c.closeSrc && c.closeSrc.kind) return { ...c.closeSrc, set: true };
   const l = (c.leadId && S.leads.get(c.leadId)) || live(S.leads).find((x) => x.clientId === c.id) || (c.phone && (leadsByPhone().get(normPhone(c.phone)) || [])[0]) || live(S.leads).find((x) => x.source === 'platform' && x.stage === 'won' && String(x.name || '').trim() === String(c.name || '').trim());
@@ -3796,7 +3799,7 @@ function closeSrcOf(c) {
 function closeSrcRow(c) {
   const s = closeSrcOf(c), w = S.canClient;
   return '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl">נסגר דרך<select class="f" data-csrc="' + esc(c.id) + '"' + (w ? '' : ' disabled') + '><option value="">' + (s && s.guess ? '(לפי הליד: ' + esc(CLOSE_SRC[s.kind]) + ')' : '— לא ידוע —') + '</option>' + Object.entries(CLOSE_SRC).map(([k, v]) => '<option value="' + k + '"' + (s && s.set && s.kind === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
-    '<label class="fl grow">פירוט (קמפיין / מי בשת״פ)<input class="f" data-csrcwho="' + esc(c.id) + '" value="' + esc((s && s.who) || '') + '"' + (w ? '' : ' disabled') + ' placeholder="למשל: אלכס"></label>' + (!s ? '<span class="pill open">חסר מקור</span>' : s.guess ? '<span class="pill expected">לפי הליד — אשר</span>' : '') + '</div>';
+    '<label class="fl grow">פירוט (איזה קמפיין / ספק, מי הביא, עם מי השת״פ)<input class="f" data-csrcwho="' + esc(c.id) + '" value="' + esc((s && s.who) || '') + '"' + (w ? '' : ' disabled') + ' placeholder="למשל: אלכס"></label>' + (!s ? '<span class="pill open">חסר מקור</span>' : s.guess ? '<span class="pill expected">לפי הליד — אשר</span>' : '') + '</div>' + (s && s.note ? '<p class="hint" style="margin:2px 0 0">' + esc(s.note) + '</p>' : '');
 }
 /* ── עמלות: כללים (הגדרות) + אירועים (פגישת זום שהתקיימה, סגירה מלאה) + עמלות ידניות על עסקה ── */
 const COMM_DEFAULT = [{ id: 'meet', target: 'role:center', div: 'realestate', event: 'meeting', amount: 100, label: 'פגישת זום שהתקיימה' }, { id: 'close', target: 'role:center', div: 'realestate', event: 'close', amount: 1500, label: 'סגירה מלאה — חתם אצל היזם ושילם' }];
