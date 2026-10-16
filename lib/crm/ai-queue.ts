@@ -14,7 +14,7 @@ import { writeDoc } from '@/lib/crm/store'
 import type { CrmSession } from '@/lib/crm/auth'
 
 /** אוספים שלא יוצאים לדפדפן ולא נכתבים ממנו — רק דרך ה-API של התור */
-export const SERVER_ONLY = ['aiJobFiles', 'aiQueue']
+export const SERVER_ONLY = ['aiJobFiles', 'aiQueue', 'aiSpend']
 /** אוספים שהדפדפן קורא אבל לא כותב ישירות */
 export const SERVER_WRITE = ['aiJobs', ...SERVER_ONLY]
 

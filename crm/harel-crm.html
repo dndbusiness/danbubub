@@ -7649,7 +7649,7 @@ function carCalc(x) {
 }
 function carMsg(x, c) {
   const v = x.car || {}, K = carCalc(x), B0 = (x.borrowers || [])[0] || {}, refi = v.purpose === 'refi' || K.lien > 0;
-  return ['שם לקוח: ' + ((c && c.name) || B0.name || ''), 'ת״ז: ' + (B0.idNumber || (c && c.idNumber) || ''), 'מס רכב: ' + (v.plate || ''), ...(carName(v) ? ['רכב: ' + carName(v)] : []),
+  return ['שם לקוח: ' + ((c && c.name) || B0.name || ''), 'ת״ז: ' + (B0.idNumber || (c && c.idNumber) || ''), 'מס רכב: ' + (v.plate || ''), ...(carName(v) ? ['רכב: ' + carName(v) + (n(v.km) ? ' · ' + fmt0.format(n(v.km)) + ' ק״מ' : '') + (n(v.hand) ? ' · יד ' + n(v.hand) : '')] : []),
     'משועבד ל: ' + (v.pledged === 'yes' ? (v.lienWho || '—') + (K.lien ? ' · יתרה ' + plain(K.lien) : '') : v.pledged === 'no' ? 'לא משועבד' : ''),
     'רוצה הלוואה בסכום: ' + (n(v.amount) ? plain(v.amount) : ''),
     ...(refi ? ['מרווח (החלפת אשראי): ' + (K.m != null ? plain(K.m) + ' (שווי ' + plain(K.value) + ' פחות מימון קיים ' + plain(K.lien) + ')' : '')] : [])].join('\n');
@@ -7665,14 +7665,14 @@ function carIntakeCard(x, w) {
     '<label class="fl full">הסיפור — דירוג האשראי, ההתנהלות, מה קרה<textarea class="f" rows="3" data-ik="story" placeholder="למשל: פיגור בהלוואה ב-2024, הוסדר. צריך לסגור את ההלוואה על הרכב ולהוריד החזר"' + dis + '>' + esc(x.story || '') + '</textarea></label>' +
     '<h3 class="sec">הרכב</h3><div class="row" style="align-items:flex-end">' + inp('car.plate', 'מספר רכב', v.plate, 'text', 'dir="ltr" inputmode="numeric" style="width:120px"') +
       (w && window.__harelServer ? '<button class="btn small" data-act="carLookup">' + (S._carLk ? 'שולף…' : 'שלוף ממשרד התחבורה') + '</button>' : '') + (v.plate ? '<button class="btn small ghost" data-carplate="1">העתק</button>' : '') + inp('car.maker', 'יצרן', v.maker, 'text') + inp('car.model', 'דגם', v.model, 'text') +
-      inp('car.year', 'שנתון', v.year, 'number', 'min="1990" max="2035" style="width:90px"') + sel('car.owner', 'רשום על שם', CAR_OWNER, v.owner) + '</div>' +
+      inp('car.year', 'שנתון', v.year, 'number', 'min="1990" max="2035" style="width:90px"') + inp('car.km', 'ק״מ', v.km, 'number', 'step="1000" style="width:110px"') + inp('car.hand', 'יד', v.hand, 'number', 'min="1" max="9" style="width:70px"') + sel('car.owner', 'רשום על שם', CAR_OWNER, v.owner) + '</div>' +
     (v.gov ? '<p class="hint" style="margin:0 0 6px">משרד התחבורה (' + dLabel(dayOf(v.gov.at)) + '): ' + esc([v.maker, v.model, v.trim, v.year, v.fuel, v.color].filter(Boolean).join(' · ')) + (v.onRoad ? ' · על הכביש מ-' + esc(v.onRoad) : '') + (v.testValidUntil ? ' · טסט עד ' + esc(dLabel(v.testValidUntil)) : '') +
       (v.ownership ? ' · בעלות: <span class="pill ' + (/ליסינג|השכרה/.test(v.ownership) ? 'open' : /חברה/.test(v.ownership) ? 'expected' : 'actual') + '">' + esc(v.ownership) + '</span>' : '') + '</p>' : '') +
     '<div class="row">' + sel('car.pledged', 'משועבד?', { no: 'לא משועבד', yes: 'משועבד' }, v.pledged) +
       (v.pledged === 'yes' ? inp('car.lienWho', 'משועבד ל-', v.lienWho, 'text') + inp('car.lien', 'יתרת ההלוואה', v.lien, 'number', 'step="1000"') + inp('car.lienMonthly', 'החזר חודשי', v.lienMonthly, 'number', 'step="100"') : '') + '</div>' +
     '<h3 class="sec">שווי הרכב</h3><div class="row">' + inp('car.valueClient', 'שווי לפי הלקוח', v.valueClient, 'number', 'step="1000"') + inp('car.value', 'שווי לפי בדיקה', v.value, 'number', 'step="1000"') +
       sel('car.valueSrc', 'נבדק ב', CAR_VALUE_SRC, v.valueSrc) + inp('car.valueLink', 'קישור למודעה / לבדיקה', v.valueLink, 'url', 'dir="ltr"') + '</div>' +
-    '<p class="hint" style="margin:0 0 6px">שווי מיידי אוטומטי דורש מנוי למחירון (לוי יצחק לעסקים או ספק). עד שיוחלט — מזינים את השווי מהבדיקה.</p>' +
+    carValBlock(x, w) +
     '<details><summary class="hint">בדיקה ידנית — לוי יצחק / יד 2 / משרד התחבורה</summary><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">' +
       '<a class="btn small" href="https://apps.apple.com/il/app/id1478184705"' + ext + '>לוי יצחק — האפליקציה ↗</a>' +
       '<a class="btn small" href="' + g('מחירון לוי יצחק ' + q) + '"' + ext + '>לוי יצחק לפי דגם ↗</a>' +
@@ -7694,6 +7694,38 @@ function carDealCard(x, cid, w) {
       '<div class="row"><button class="btn small primary" data-act="carMsgCopy">העתק הודעה</button><a class="btn small" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">שלח בוואטסאפ ↗</a></div></section>' +
     '<section class="card"><header><h2>הסכם לחתימה</h2></header><p class="hint" style="margin:-4px 0 8px">הסכם ההתקשרות עם השם, הת״ז, הרכב, הסכום ושכר הטרחה מהטופס. נשלח ללקוח קישור אישי לחתימה בטלפון. אם חסר פרט, נפתח הטופס בכרטיס ממולא עם מה שיש.</p>' +
       (w ? '<button class="btn primary" data-act="carSign">שלח הסכם לחתימה עם הפרטים</button>' : '') + '</section>';
+}
+/* שווי מיידי לפי מודעות יד 2 — Claude עם חיפוש, בשרת (תקרה 10 ₪ ליום). הצעה בלבד: אדם מאשר לפני שנרשם (הנחיה 17). */
+function carValStatus() {
+  if (!window.__harelServer || S.carValSt !== undefined) return S.carValSt; S.carValSt = null;
+  fetch('/api/crm/car/value', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.carValSt = j; render(); }).catch(() => { S.carValSt = { enabled: false }; });
+  return null;
+}
+function carValBlock(x, w) {
+  const v = x.car || {}, st = carValStatus(), cid = S.view.clientId, R = (S.carVal || {})[cid], ok = v.maker && v.model && v.year;
+  if (!window.__harelServer) return '<p class="hint" style="margin:0 0 6px">שווי מיידי לפי יד 2 עובד במערכת בשרת. כאן — מזינים את השווי מהבדיקה.</p>';
+  if (!st || !st.enabled) return '<p class="hint" style="margin:0 0 6px">' + (st ? 'שווי מיידי לפי יד 2 — עוד לא מחובר (חסר CAR_VALUE_API_KEY בשרת).' : '') + '</p>';
+  const head = '<div class="row" style="align-items:center;margin-bottom:6px">' + (w ? '<button class="btn primary small" data-act="carValue"' + (ok && !(R && R.loading) ? '' : ' disabled') + '>' + (R && R.loading ? 'בודק ביד 2…' : 'שווי מיידי לפי יד 2') + '</button>' : '') +
+    '<span class="hint">' + (ok ? '' : 'צריך יצרן, דגם ושנתון · ') + 'נוצל היום ' + n(st.spentIls).toFixed(2) + ' מתוך ' + n(st.capIls) + ' ₪</span></div>';
+  if (!R || R.loading) return head;
+  if (R.error) return head + '<p class="hint" style="color:var(--open);margin:0 0 6px">' + esc(R.error) + '</p>';
+  const V = R.valuation, conf = { high: ['ביטחון גבוה', 'actual'], medium: ['ביטחון בינוני', 'expected'], low: ['ביטחון נמוך', 'open'] }[V.confidence] || ['', 'muted'];
+  return head + '<div class="notice" style="display:block;margin:0 0 8px"><div class="row" style="align-items:center"><b>הצעה: ' + plain(V.mid) + '</b>' + (V.low && V.high ? '<span class="hint">טווח ' + plain(V.low) + ' – ' + plain(V.high) + '</span>' : '') + '<span class="pill ' + conf[1] + '">' + conf[0] + '</span></div>' +
+    (V.basis ? '<div class="hint">' + esc(V.basis) + '</div>' : '') + (V.note ? '<div class="hint">' + esc(V.note) + '</div>' : '') +
+    (V.listings.length ? '<ul style="margin:6px 0;padding-inline-start:18px">' + V.listings.map((l) => '<li>' + (l.url ? '<a href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(l.title || 'מודעה') + ' ↗</a>' : esc(l.title || 'מודעה')) + (l.price ? ' · ' + plain(l.price) : '') + [l.year, l.km && l.km + ' ק״מ', l.hand && 'יד ' + l.hand].filter(Boolean).map((t) => ' · ' + esc(String(t))).join('') + '</li>').join('') + '</ul>' : '') +
+    (w ? '<div class="row"><button class="btn small primary" data-act="carValueApply">רשום ' + plain(V.mid) + ' כשווי לפי בדיקה</button><button class="btn small ghost" data-act="carValueDrop">לא עכשיו</button><span class="hint">עלות הבדיקה ' + n(R.costIls).toFixed(2) + ' ₪</span></div>' : '') + '</div>';
+}
+async function carValue(cid) {
+  const v = intakeDoc(cid).car || {}; S.carVal = S.carVal || {}; S.carVal[cid] = { loading: true }; render();
+  let j; try { const r = await fetch('/api/crm/car/value', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ maker: v.maker, model: v.model, trim: v.trim, year: v.year, km: v.km, hand: v.hand, fuel: v.fuel }) }); j = await r.json(); } catch (e) { j = { ok: false, message: 'אין חיבור לשרת' }; }
+  S.carVal[cid] = j && j.ok ? { valuation: j.valuation, costIls: j.costIls } : { error: (j && j.message) || 'הבדיקה נכשלה' };
+  if (j && j.spentIls != null && S.carValSt) S.carValSt = { ...S.carValSt, spentIls: j.spentIls }; else S.carValSt = undefined;
+  render();
+}
+async function carValueApply(cid) {
+  const R = (S.carVal || {})[cid]; if (!R || !R.valuation) return; const V = R.valuation, x = JSON.parse(JSON.stringify(intakeDoc(cid)));
+  x.car = { ...(x.car || {}), value: V.mid, valueSrc: 'yad2', valueLink: ((V.listings || []).find((l) => l.url) || {}).url || (x.car || {}).valueLink || '', valueAi: { at: stamp(), by: S.me.id, low: V.low, mid: V.mid, high: V.high, basis: V.basis, listings: V.listings, costIls: R.costIls } };
+  await write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }); delete S.carVal[cid]; toast('נרשם שווי ' + plain(V.mid) + ' לפי יד 2'); render();
 }
 /* פרטי רכב לפי מספר רישוי — משרד התחבורה (data.gov.il, חינם) דרך השרת. נשמר מיד בתיק. בלי מחיר ובלי שעבודים — אלה בתשלום. */
 async function carLookup(cid, quiet) {
@@ -8849,6 +8881,9 @@ document.addEventListener('click', async (e) => {
         case 'carMsgCopy': { const id = S.view.clientId, who = intakeWho(id).c; return copyText(carMsg(intakeDoc(id), who), 'ההודעה הועתקה — הדבק בקבוצה'); }
         case 'carSign': return carSign(S.view.clientId);
         case 'carLookup': S._carLk = null; return carLookup(S.view.clientId);
+        case 'carValue': return carValue(S.view.clientId);
+        case 'carValueApply': return carValueApply(S.view.clientId);
+        case 'carValueDrop': if (S.carVal) delete S.carVal[S.view.clientId]; return render();
         case 'copyDocs': { const cc = intakeWho(S.view.clientId).c; return copyText(docsText(intakeDoc(S.view.clientId), cc ? cc.name : '')); }
         case 'docsToChecklist': { const cc = S.clients.get(S.view.clientId); if (!cc) return; const have = new Set((cc.checklist || []).map((i) => i.label));
           const add = intakeDocs(intakeDoc(cc.id)).map((d) => d.d + (d.who !== 'תיק' ? ' — ' + d.who : '')).filter((l) => !have.has(l)).map((label) => ({ label, status: 'pending' }));

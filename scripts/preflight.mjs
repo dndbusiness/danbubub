@@ -33,6 +33,7 @@ if (!process.env.GREEN_API_ID_INSTANCE || !process.env.GREEN_API_TOKEN) limit('G
 else ok('Green-API מוגדר')
 
 if (!process.env.ANTHROPIC_API_KEY) limit('ANTHROPIC_API_KEY לא מוגדר', 'בלעדיו חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים בלבד (ב.3)')
+if (!process.env.CAR_VALUE_API_KEY) limit('CAR_VALUE_API_KEY לא מוגדר', 'בלעדיו אין שווי מיידי לפי יד 2 בתיק רכב — מזינים ידנית (תקרה 10 ₪ ליום, אושר ע"י דן)')
 else ok('חילוץ LLM לחשבוניות זמין')
 
 if (!process.env.APP_BASE_URL) limit('APP_BASE_URL לא מוגדר', 'הקישורים במיילים, בוואטסאפ וביומן יצאו יחסיים')
