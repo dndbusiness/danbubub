@@ -695,7 +695,7 @@ function taskDiv(t) { if (t.division) return t.division; const d = cDiv(t.client
 const inRe = (k, x) => S[k] && S[k].has(x.id) ? 'realestate' : null;
 const DIV_OF = { clients: (x) => x.division || 'finance', leads: (x) => x.division || 'finance', transactions: (x) => x.division || inRe('reTx', x) || cDiv(x.clientId) || 'finance', expenses: (x) => x.division || inRe('reExpenses', x) || 'finance',
   planned: (x) => x.division || inRe('rePlanned', x) || cDiv(x.clientId) || 'finance', tasks: taskDiv, tickets: (x) => x.division || cDiv(x.clientId) || 'finance', files: (x) => cDiv(x.clientId || x.id) || 'finance',
-  intakes: (x) => cDiv(x.clientId) || lDiv(x.id) || 'finance', approvals: (x) => cDiv(x.clientId) || 'finance', lenders: (x) => x.kind === 'developer' ? 'realestate' : 'finance', campaigns: (x) => x.division || 'finance',
+  intakes: (x) => cDiv(x.clientId) || lDiv(x.id) || 'finance', approvals: (x) => x.division || cDiv(x.clientId) || 'finance', lenders: (x) => x.kind === 'developer' ? 'realestate' : 'finance', campaigns: (x) => x.division || 'finance',
   reTx: () => 'realestate', reExpenses: () => 'realestate', rePlanned: () => 'realestate', kaveretPool: () => 'realestate', attendance: (x) => x.div || 'finance' };
 const restricted = () => !S._all && !!(S.allowedDivs && S.allowedDivs.length < DIVS.length);
 /* חישוב שחייב את כל הנתונים (למשל החלק של שותפי נדל״ן ברווח של פתרונות) — מחזיר רק את התוצאה, בלי השורות */
@@ -1164,25 +1164,39 @@ async function saveAnswers() {
 }
 
 /* ═════════════════════════ לוח בקרה ═════════════════════════ */
-/* ── מחיקה באישור מנהל: מי שאינו דן מבקש, דן מאשר (המחיקה עצמה = סימון deletedAt, לא מחיקה פיזית) ── */
-function requestDelete(coll, id, label) {
-  drawer('בקשת מחיקה — לאישור דן', '<p style="margin:0 0 8px"><b>' + esc(label) + '</b></p>' + ft('reason', 'למה למחוק?', '') + '<p class="hint">דן יקבל את הבקשה בלוח הבקרה. עד שיאשר — הנתון נשאר.</p>', async (d) => {
+/* ── מחיקה: כולם יכולים לבקש. פתרונות — באישור דן; השקעות — באישור אביב (דן 16/10). דן מאשר בשתיהן.
+   מי שמאשר בחברה מוחק ישר (עם אישור בחלון). המחיקה = סימון deletedAt, לא מחיקה פיזית. ── */
+const delDivOf = (coll, doc) => (doc && doc.division) || (DIV_OF[coll] ? DIV_OF[coll](doc || {}) : 'finance') || 'finance';
+const canApproveDel = (div) => !!S.isDan || (div === 'realestate' && (S.role === 'admin_re' || S.myKey === 'aviv'));
+const delApprover = (div) => div === 'realestate' ? 'אביב' : 'דן';
+const delPending = (coll, id) => live(S.approvals).some((a) => a.kind === 'delete' && a.status === 'pending' && a.coll === coll && a.docId === id);
+async function deleteOrRequest(coll, doc, label, done, msg) {
+  const div = delDivOf(coll, doc);
+  if (!canApproveDel(div)) return requestDelete(coll, doc.id, label, div);
+  if (!confirm('למחוק: ' + label + '?\nהנתון מסומן כמחוק ולא נמחק פיזית.')) return;
+  await write(coll + '/' + doc.id, { deletedAt: stamp(), deletedBy: S.me.id }, 'update');
+  toast(msg || 'נמחק — מסומן, לא נמחק פיזית'); if (done) done();
+}
+function requestDelete(coll, id, label, div) {
+  div = div || delDivOf(coll, (S[coll] && S[coll].get && S[coll].get(id)) || {}); const ap = delApprover(div);
+  if (delPending(coll, id)) return toast('כבר ממתין לאישור ' + ap);
+  drawer('בקשת מחיקה — לאישור ' + ap, '<p style="margin:0 0 8px"><b>' + esc(label) + '</b></p>' + ft('reason', 'למה למחוק?', '') + '<p class="hint">' + ap + ' יקבל את הבקשה בלוח הבקרה. עד שיאשר — הנתון נשאר.</p>', async (d) => {
     const rid = uid(), who = (S.loginAs && S.loginAs.resp) || (S.isPartner ? 'nissim' : S.isOwner ? 'dan' : (respOf(S.me.id) || ''));
-    await write('approvals/' + rid, { id: rid, kind: 'delete', coll, docId: id, label, reason: String(d.reason || '').trim(), by: S.me.id, byResp: who, at: stamp(), status: 'pending' });
-    $('layer').innerHTML = ''; toast('נשלח לאישור דן');
+    await write('approvals/' + rid, { id: rid, kind: 'delete', coll, docId: id, label, division: div, reason: String(d.reason || '').trim(), by: S.me.id, byResp: who, at: stamp(), status: 'pending' });
+    $('layer').innerHTML = ''; toast('נשלח לאישור ' + ap);
   }, '', 'שלח לאישור');
 }
 async function decideApproval(aid, ok) {
-  const a = S.approvals.get(aid); if (!a || !S.isOwner) return;
+  const a = S.approvals.get(aid); if (!a || !canApproveDel(a.division || 'finance')) return;
   if (ok && a.kind === 'delete') await write(a.coll + '/' + a.docId, { deletedAt: stamp(), deletedBy: a.by, deleteApprovedBy: S.me.id }, 'update');
   await write('approvals/' + aid, { status: ok ? 'approved' : 'rejected', decidedAt: stamp(), decidedBy: S.me.id }, 'update');
   toast(ok ? 'אושר — ' + a.label + ' נמחק' : 'הבקשה נדחתה');
 }
 function approvalsCard() {
-  const P = live(S.approvals).filter((a) => a.status === 'pending').sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  if (!P.length || !S.isOwner) return '';
+  const P = live(S.approvals).filter((a) => a.status === 'pending' && canApproveDel(a.division || 'finance')).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  if (!P.length) return '';
   return '<section class="card"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
-    P.map((a) => '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.resp[a.byResp] || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
+    P.map((a) => '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
 }
 function partnerBar() {
@@ -1382,7 +1396,7 @@ function dashWidgetForm(d, i, type) {
 }
 function vHome() {
   const d = dashCur(); if (d) return dashTabs(d.id) + vDash(d);
-  return dashTabs('') + vHomeBase();
+  return dashTabs('') + approvalsCard() + vHomeBase();
 }
 function vHomeBase() {
   if (S.division === 'realestate') return vHomeRE();
@@ -1412,7 +1426,7 @@ function vHomeBase() {
   const team = teamStats(t0.slice(0, 7));
   return '<div class="row"><div class="grow"><h1>לוח בקרה</h1><p class="hint">' + (last.month ? 'החודש האחרון עם נתונים: ' + mLabel(last.month) : 'אין עדיין נתונים') + '</p></div>' +
     (S.canWrite ? '<button class="btn primary" data-act="newClient">+ לקוח</button><button class="btn" data-act="newTx">+ תנועה</button><button class="btn" data-act="newTask">+ משימה</button>' : '') + '</div>' +
-    approvalsCard() + todayRow() + (S.division !== 'finance' ? rePotentialCard(true) : '') + '<h3 class="sec">החודש</h3>' +
+    todayRow() + (S.division !== 'finance' ? rePotentialCard(true) : '') + '<h3 class="sec">החודש</h3>' +
     '<div class="grid4">' +
       kpi(distLabel() + ' · ' + mLabel(last.month) + (distDiv() === 'realestate' && reCard().length ? ' · לשותף ' + plain(reCard().slice(-1)[0].each) : ''), money(last.distributable, { tone: last.distributable < 0 ? 'open' : 'committed' }), 'תפעולי ' + money(last.operational, { tone: 'muted' }), 'money') +
       kpi('פתוח לגביה', money(openMoney, { tone: 'expected' }), owing.length + ' לקוחות חייבים · ' + openClients.length + ' תיקים פתוחים', 'clients') +
@@ -1678,7 +1692,7 @@ function vClient(id) {
           (S.canTask ? '<div class="row" style="margin-bottom:10px"><textarea class="f" id="noteText" rows="2" placeholder="שיחה, פגישה, מסמך שהתקבל…" aria-label="הערה"></textarea><button class="btn primary" data-act="addNote">הוסף ליומן</button></div>' : '') +
           ((c.log || []).length ? '<ul class="log">' + c.log.slice(0, 60).map((e) => '<li><time>' + dLabel(dayOf(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + (e.by ? ' <span class="hint">· ' + esc(nameOf(e.by)) + '</span>' : '') + '</span></li>').join('') + '</ul>'
             : '<p class="empty">היומן ריק.</p>') + '</section>' +
-        (w ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (S.isOwner ? 'העבר לארכיון' : 'בקש העברה לארכיון') + '</button></div>' : '') +
+        (S.canTask ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (canApproveDel(c.division || 'finance') ? 'מחק / העבר לארכיון' : 'בקש מחיקה — לאישור ' + delApprover(c.division || 'finance')) + '</button>' + (delPending('clients', c.id) ? '<span class="pill expected">ממתין לאישור מחיקה</span>' : '') + '</div>' : '') +
       '</div>' +
     '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + signCard(c) + planCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
@@ -4043,13 +4057,14 @@ function vLead(id) {
   const quick = isRE ? [noA, ...['re_later', 're_call_next', 're_zoom_set', 're_zoom_again', 're_feedback', 'lost', 'invalid', 'duplicate'].map((k) => stageDefs('realestate').find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])]
     : [noA, ...['followup', 'fin_waiting', 'fin_later', 'thinking', ...(leadType(l) === 'רכב' ? ['checking', 'fin_checked_inelig'] : []), 'fin_agreement', 'lost', 'fin_fee_high', 'ineligible', 'invalid', 'fin_denies', 'fin_arab', 'fin_noprop', 'duplicate'].map((k) => stageDefs(leadDiv(l)).find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])];
   const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ['בכוורת', (() => { const k = poolOf(l.phone); return k ? 'כרטיס ' + k.kid + ' · ' + k.name + (k.ok ? ' · אישר דיוור' : '') : l.kaveretId ? 'כרטיס ' + l.kaveretId : ''; })()], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
-  return '<div class="row"><button class="btn small' + (S.leadBack ? ' primary' : ' ghost') + '" data-leadback>' + (S.leadBack ? '↩ חזרה לרשימה — לאותו מקום' : '← לידים') + '</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) +
+  return '<div class="row"><button class="btn small' + (S.leadBack ? ' primary' : ' ghost') + '" data-leadback>' + (S.leadBack ? '↩ חזרה לרשימה — לאותו מקום' : '← לידים') + '</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) + (delPending('leads', l.id) ? '<span class="pill expected">ממתין לאישור מחיקה</span>' : '') +
     (l.callback && l.callback.on ? '<span class="pill expected">⏰ ' + esc(String(l.callback.at).slice(11, 16)) + '</span><button class="btn small ghost" data-cboff="' + esc(l.id) + '">בטל התראה</button>' : '') + '</div>' +
     '<section class="card"><div class="row" style="align-items:center">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">חייג ' + esc(normPhone(l.phone)) + '</a>' : '') +
       (waLink(l.phone) ? '<a class="btn" href="' + waLink(l.phone) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') + copyBtns('l:' + l.id, true) +
       '<span class="grow"></span>' + (c ? '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח ←</button>' : '') +
       (isRE ? '' : '<button class="btn" data-intake="' + esc(l.id) + '">' + (x ? 'המשך הכר את הלקוח' : 'הכר את הלקוח') + '</button>') +
-      (!c && S.canClient ? '<button class="btn" data-convert="' + esc(l.id) + '">' + (isRE ? 'נכנס לתהליך — פתח תיק לקוח' : 'חתם — פתח לקוח') + '</button>' : '') + '</div>' +
+      (!c && S.canClient ? '<button class="btn" data-convert="' + esc(l.id) + '">' + (isRE ? 'נכנס לתהליך — פתח תיק לקוח' : 'חתם — פתח לקוח') + '</button>' : '') +
+      (w ? '<button class="btn small danger ghost" data-leaddel="' + esc(l.id) + '">' + (canApproveDel(leadDiv(l)) ? 'מחק ליד' : 'בקש מחיקה — לאישור ' + delApprover(leadDiv(l))) + '</button>' : '') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end">' +
         '<label class="fl">סטטוס<select class="f" data-leadstage="' + esc(l.id) + '"' + (w ? '' : ' disabled') + '>' + stageOpts(l) + '</select></label>' +
         '<label class="fl">אחראי<select class="f" data-leadresp="' + esc(l.id) + '"' + (w && !S.isCenter ? '' : ' disabled') + '>' + leadRespOpts(l) + '</select></label>' +
@@ -5873,7 +5888,7 @@ function formTx(t, preset = {}) {
       if (body.clientId && isNew) await logClient(body.clientId, (d.nature === 'income' ? 'תקבול' : 'הוצאה') + ' ' + fmt0.format(amt) + ' ₪' + (body.description ? ' — ' + body.description : '')).catch(() => {});
       toast(isNew ? 'התנועה נשמרה' : 'נשמר');
     }, isNew ? '' : '<span class="grow"></span><button class="btn danger ghost" type="button" id="dvoid">' + (S.isOwner ? 'ביטול תנועה' : 'בקש מחיקה') + '</button>');
-  if (!isNew) $('dvoid').addEventListener('click', async () => { if (!S.isOwner) return requestDelete('transactions', t.id, (t.counterparty || t.description || 'תנועה') + ' · ' + plain(Math.abs(n(t.gross || t.net))) + ' · ' + dLabel(t.date));
+  if (!isNew) $('dvoid').addEventListener('click', async () => { if (!canApproveDel(delDivOf('transactions', t))) return requestDelete('transactions', t.id, (t.counterparty || t.description || 'תנועה') + ' · ' + plain(Math.abs(n(t.gross || t.net))) + ' · ' + dLabel(t.date));
     await write('transactions/' + t.id, { deletedAt: stamp(), deletedBy: S.me.id }, 'update'); $('layer').innerHTML = ''; toast('התנועה בוטלה — מסומנת, לא נמחקה'); });
 }
 /* סיום משימה על לקוח → מה המשימה הבאה ולמי. נרשם ביומן הלקוח ומעדכן את "הצעד הבא" */
@@ -8238,7 +8253,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: vDay, home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -8466,6 +8481,7 @@ document.addEventListener('click', async (e) => {
     if (d.pmode) { S.f.pnlMode = d.pmode; return render(); }
     if (d.money) { S.f.money = d.money; return render(); }
     if (d.approk) return decideApproval(d.approk, true);
+    if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
     if (d.repay != null && el.matches('[data-repay]')) return formTx(null, { nature: 'draw', division: 'realestate', vatMode: 'exempt', counterparty: d.repay, partner: d.repay, net: -n(d.amt), date: today(), description: 'התחשבנות ' + hMonth(S.f.reMonth || today().slice(0, 7)) });
     if (d.rereturn != null && el.matches('[data-rereturn]')) return formReturn(d.rereturn, d.amt);
@@ -8670,8 +8686,7 @@ document.addEventListener('click', async (e) => {
           await write('clients/' + c.id, { cnotes: [{ id: uid(), at: stamp(), by: S.me.id, who: whoAmI(), text: t.slice(0, 4000), pin }, ...(cur.cnotes || [])].slice(0, 200), updatedAt: stamp(), updatedBy: S.me.id }, 'update', { journal: true }); return toast(pin ? 'נוסף דגש חשוב' : 'ההערה נוספה'); }
         case 'addNote': { const t = $('noteText').value.trim(); if (!t) return; await logClient(c.id, t, false); return toast('נוסף ליומן'); }
         case 'addChk': { const t = $('chkNew').value.trim(); if (!t) return; await write('clients/' + c.id, { checklist: [...(c.checklist || []), { label: t, status: 'pending' }], updatedAt: stamp() }, 'update'); return; }
-        case 'archiveClient': if (!S.isOwner) return requestDelete('clients', c.id, 'לקוח: ' + c.name);
-          await write('clients/' + c.id, { deletedAt: stamp(), deletedBy: S.me.id }, 'update'); toast('הלקוח הועבר לארכיון — התנועות שלו נשארות'); return go('clients');
+        case 'archiveClient': return deleteOrRequest('clients', c, 'לקוח: ' + c.name, () => go('clients'), 'הלקוח הועבר לארכיון — התנועות שלו נשארות');
         case 'openDay': {
           const ex = S.days.get(dayId()) || {};
           await write('days/' + dayId(), { ...ex, userId: S.me.id, date: today(), openedAt: stamp() });
