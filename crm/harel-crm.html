@@ -391,6 +391,10 @@ tr.flash > td { animation: flashrow 2s ease-out; } @keyframes flashrow { 0% { bo
 #cbbar { position: fixed; top: 12px; inset-inline: 12px; z-index: 70; max-width: 720px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--expected-bg); border: 1px solid var(--expected); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
 #cbbar > .hint { flex: 1 1 auto; }
 .kv.wrap th, .kv.wrap td { white-space: normal; }
+/* שדות ותוויות לא דוחפים את המסך לרוחב בנייד (רשימת נמענים ארוכה, קישור ארוך בצ׳קליסט) */
+.fl select.f, .fl input.f { max-width: 100%; min-width: 0; }
+.fl { min-width: 0; max-width: 100%; }
+label.check span { overflow-wrap: anywhere; min-width: 0; }
 /* בזמן שמגירה פתוחה פס "מצב שכפול" (z 9999) מוסתר — אחרת הוא מכסה את כפתור השמירה */
 body:has(#layer .scrim) #mirrorBar { display: none !important; }
 body:has(#mirrorBar) #callbar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
@@ -1208,7 +1212,8 @@ function approvalsCard() {
   return '<section class="card"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
     P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>הגשה לביקורת:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
         '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
-        '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button></td><td><button class="btn small primary" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
+        '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
+          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
       '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
 }
@@ -2997,7 +3002,7 @@ function docsCard(c) {
     (w && cand.length ? '<div class="ppanel" style="margin:6px 0 10px"><b>נמצאו תיקיות קיימות בדרייב בשם הזה</b>' + cand.slice(0, 4).map((m) => '<div class="row" style="align-items:center;margin-top:6px"><span class="grow"><bdi>' + esc(m.f.title) + '</bdi> <span class="hint">ב' + esc(m.root) + (m.full ? '' : ' · התאמה חלקית') + '</span></span><button class="btn small" data-doclink="' + esc(m.f.id) + '">שייך</button></div>').join('') + '</div>' : '') +
     ((c.driveLinks || []).length ? '<p class="hint" style="margin:-2px 0 8px">משקף גם: ' + c.driveLinks.map((l) => '<a href="' + folderUrl(l.id) + '" target="_blank" rel="noopener"><bdi>' + esc(l.title || 'תיקייה') + '</bdi></a>' + (w ? ' <button class="xlink" data-docunlink="' + esc(l.id) + '" aria-label="הסר שיקוף">×</button>' : '')).join(' · ') + '</p>' : '') +
     (on ? chips + docViewer(c, files) + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
-    (w && on ? sendFundBox(c, files) : '') + '</section>';
+    (on && st && st.files && files.length ? docReviewPanel(c, files, S.canTask) : '') + (w && on ? sendFundBox(c, files) : '') + '</section>';
 }
 /* ── שיוך תיקיות קיימות: תיקיות-אב בדרייב (הגדרות) → תיקיית לקוח לפי שם ── */
 const NAME_STOP = new Set(['של', 'אבא', 'אמא', 'הלוואה', 'עסקית', 'עסקי', 'משכנתא', 'זוג', 'שם', 'לעדכן', 'טירת', 'כרמל']);
@@ -3073,7 +3078,7 @@ function sendFundBox(c, files) {
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
     (canApproveDel(c.division || 'finance') ? '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div>'
       : '<div class="row"><span class="hint grow">לפי הנוהל: נפתחת תיקיית הגשה חדשה עם עותקים של הקבצים, ו' + delApprover(c.division || 'finance') + ' עובר עליה בבקרה. רק אחרי אישור — המייל יוצא.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הכן לביקורת (' + sel.length + ' קבצים)</button></div>') +
-    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open' }[a.status] || 'muted') + '">' + ({ pending: 'ממתין לביקורת', approved: 'אושר ונשלח', rejected: 'הוחזר לתיקון' }[a.status] || a.status) + '</span><span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקייה ↗</a></div>').join('') + '</details>';
+    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open' }[a.status] || 'muted') + '">' + ({ pending: 'ממתין לביקורת', approved: 'אושר ונשלח', rejected: 'הוחזר לתיקון' }[a.status] || a.status) + '</span><span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקייה ↗</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
 }
 /* תמונה גדולה (צילום טלפון) → JPEG מוקטן לצד ארוך 2000px. מסמך נשאר קריא, והמשקל יורד פי 5-10 */
 async function shrinkImage(b64, mime) {
@@ -4668,6 +4673,77 @@ async function askDoc(file, prompt, stEl, label) {
   if (inp.images.length) { if (!lim || !lim.images) throw Object.assign(new Error('img'), { code: 'images_unavailable' }); inp.images = inp.images.slice(0, maxImg); }
   if (stEl) stEl.textContent = aiWait('Claude קורא… (עד דקה)');
   return sample.json(prompt + (inp.text ? '\n\nתוכן המסמך:\n' + inp.text : '\n\nהמסמך מצורף כתמונות עמודים.'), { modelTier: 'default', cache: false, ...(inp.images.length ? { images: inp.images } : {}), ...aiSrv({ label: label || 'קריאת מסמך' }) });
+}
+/* ═════ סקירת מסמכים + ניתוח תיק על בסיס המסמכים → PDF לאירוע (דן 16/10) ═════
+   כל מסמך נקרא בנפרד (Claude — הצעה בלבד, הנחיה 17): מה הוא, של מי, איזו תקופה, עובדות וסכומים, ומה בעייתי.
+   אחר כך ניתוח אחד של התיק על בסיס הסיכומים, ומה חסר מול רשימת המסמכים. נשמר ב-intakes/<id>.docReview,
+   ויוצא כ-PDF להורדה — ולתיקיית ההגשה כשהסקירה נעשית עבור הגשה. */
+const DOC_REVIEW_PROMPT = 'זה מסמך מתיק של לקוח שמבקש הלוואה/משכנתא בישראל. תאר מה יש בו — רק מה שכתוב, בלי לנחש. החזר JSON בלבד:\n' +
+  '{"type": "סוג המסמך (למשל תלוש שכר, דף עו״ש, נסח טאבו, ת״ז, דוח BDI, הסכם)", "owner": "על שם מי", "issuer": "מי הנפיק", "period": "תקופה / תאריך", "facts": ["עד 6 עובדות חשובות"], "amounts": ["סכומים חשובים עם הסבר, למשל: נטו 12,400 ₪"], "issues": ["מה בעייתי או חסר: לא קריא, ישן מ-3 חודשים, שם לא תואם, עמוד חסר"], "summary": "שורה אחת"}';
+async function docBlob(f) {
+  const gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || ''), p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id, ...(gNative ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }));
+  const b64 = p.content || p.data || p.base64Content || ''; if (!b64) throw new Error('לא ירד');
+  const mime = gNative ? 'application/pdf' : (p.mimeType || f.mimeType || 'application/octet-stream');
+  return new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type: mime });
+}
+async function docReview(c, files, opt = {}) {
+  if (S._revBusy) return toast('הסקירה כבר רצה'); if (!S.mcp) return toast('דרייב לא זמין בתצוגה הזו');
+  const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('Claude לא זמין בתצוגה הזו');
+  const list = files.filter((f) => !f.folderLink && /pdf|image|google-apps\.document/.test(f.mimeType || '') ).slice(0, 25); if (!list.length) return toast('אין מסמכים לסקירה (PDF או תמונה)');
+  S._revBusy = true; const items = [], set = (t) => { S.revStatus = { cid: c.id, text: t }; const el = document.querySelector('[data-revstatus]'); if (el) el.textContent = t; else render(); };
+  try {
+    for (const [i, f] of list.entries()) {
+      set('קורא מסמך ' + (i + 1) + ' מתוך ' + list.length + ': ' + f.title + (window.__crmAiQueue ? ' (בתור ל-Claude — כמה דקות לכל מסמך)' : ''));
+      try { const r = await askDoc(await docBlob(f), DOC_REVIEW_PROMPT, null, 'סקירת מסמך — ' + c.name + ' — ' + f.title);
+        items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), type: String(r.type || ''), owner: String(r.owner || ''), issuer: String(r.issuer || ''), period: String(r.period || ''), facts: (r.facts || []).map(String).slice(0, 6), amounts: (r.amounts || []).map(String).slice(0, 6), issues: (r.issues || []).map(String).slice(0, 6), summary: String(r.summary || '') }); }
+      catch (e) { items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), error: e && e.code === 'resource_exhausted' ? 'תקרת Claude להיום נגמרה' : 'לא נקרא' }); if (e && e.code === 'resource_exhausted') break; }
+    }
+    set('מנתח את התיק על בסיס ' + items.filter((x) => !x.error).length + ' מסמכים…');
+    const x = intakeDoc(c.id), need = intakeDocs(x).map((d) => d.d), m = clientMoney(c);
+    const prompt = 'אתה מנהל תיקים בחברת ייעוץ משכנתאות והלוואות בישראל. לפניך סיכום המסמכים שיש בתיק של ' + c.name + ' (' + (L.product[c.product] || c.product || '') + (c.baseAmount ? ', בקשה ' + plain(c.baseAmount) : '') + ').\n' +
+      'כתוב ניתוח תיק קצר בעברית, על בסיס המסמכים בלבד: 1. מה התמונה (הכנסות, נכס, התחייבויות — לפי מה שמופיע). 2. חוזקות. 3. אורות אדומים וסתירות בין מסמכים (שמות, סכומים, תאריכים). 4. מה חסר להגשה. 5. המלצה: האם התיק מוכן להגשה ומה לעשות לפני. בלי להמציא נתונים שלא מופיעים.\n\n' +
+      'מסמכים:\n' + items.map((it, i) => (i + 1) + '. ' + it.title + (it.error ? ' — ' + it.error : ' — ' + [it.type, it.owner, it.period].filter(Boolean).join(' · ') + '\n   ' + [...it.facts, ...it.amounts].join(' | ') + (it.issues.length ? '\n   בעיות: ' + it.issues.join(' | ') : ''))).join('\n') +
+      (need.length ? '\n\nרשימת המסמכים הנדרשים לפי "הכר את הלקוח": ' + need.join(', ') : '');
+    let analysis = ''; try { analysis = (await sample(prompt, { modelTier: 'default', cache: false, ...aiSrv({ label: 'ניתוח תיק לפי מסמכים — ' + c.name }) })).text || ''; } catch (e) { analysis = 'הניתוח לא הושלם: ' + ((e && e.message) || ''); }
+    const rev = { at: stamp(), by: S.me.id, items, analysis, scope: opt.scope || 'docs', ...(opt.approvalId ? { approvalId: opt.approvalId } : {}) };
+    await write('intakes/' + c.id, { ...JSON.parse(JSON.stringify(x)), id: c.id, clientId: c.id, docReview: rev, updatedAt: stamp() });
+    await logClient(c.id, 'סקירת מסמכים: ' + items.length + ' מסמכים נקראו, וניתוח תיק על בסיסם (Claude — הצעה לבדיקה)').catch(() => {});
+    S.revStatus = null; toast('הסקירה מוכנה — אפשר להוריד PDF'); render();
+    if (opt.folderId) await docReviewToDrive(c, opt.folderId, opt.approvalId).catch(() => toast('ה-PDF לא נשמר בתיקייה — אפשר להוריד ידנית'));
+  } finally { S._revBusy = false; }
+}
+function docReviewHtml(c) {
+  const R = (intakeDoc(c.id) || {}).docReview; if (!R) return '';
+  const td = 'padding:5px 6px;border-bottom:1px solid #EAECF0;font-size:12px;vertical-align:top';
+  const byCat = DOC_CATS.map(([k, l]) => [l, R.items.filter((it) => (it.cat || 'other') === k)]).filter(([, xs]) => xs.length);
+  return '<div dir="rtl" style="font-family:Arial,sans-serif;color:#101828;width:760px;padding:24px">' +
+    '<h1 style="font-size:20px;margin:0">סקירת מסמכים וניתוח תיק — ' + esc(c.name) + '</h1><div style="color:#667085;font-size:12px;margin:4px 0 14px">' + esc(L.division[c.division || 'finance']) + ' · ' + dLabel(dayOf(R.at)) + ' · ' + R.items.length + ' מסמכים · נקרא על ידי Claude — הצעה לבדיקה, לא מסמך רשמי</div>' +
+    '<h2 style="font-size:15px;margin:12px 0 6px">אילו מסמכים יש</h2><table style="width:100%;border-collapse:collapse">' + byCat.map(([l, xs]) => '<tr><td style="' + td + ';font-weight:700;width:120px">' + esc(l) + ' (' + xs.length + ')</td><td style="' + td + '">' + xs.map((it) => esc(it.title)).join(' · ') + '</td></tr>').join('') + '</table>' +
+    '<h2 style="font-size:15px;margin:16px 0 6px">מה יש בכל מסמך</h2>' + R.items.map((it, i) => '<div style="border:1px solid #EAECF0;border-radius:8px;padding:8px 10px;margin:0 0 8px;page-break-inside:avoid">' +
+      '<div style="font-weight:700;font-size:13px">' + (i + 1) + '. ' + esc(it.title) + ' <span style="color:#667085;font-weight:400">· ' + esc(catLabel(it.cat || 'other')) + '</span></div>' +
+      (it.error ? '<div style="color:#B42318;font-size:12px">' + esc(it.error) + '</div>' : '<div style="font-size:12px;color:#344054">' + esc([it.type, it.owner && 'על שם ' + it.owner, it.issuer, it.period].filter(Boolean).join(' · ')) + '</div>' + (it.summary ? '<div style="font-size:12px;margin-top:3px">' + esc(it.summary) + '</div>' : '') +
+        (it.facts.length || it.amounts.length ? '<ul style="margin:4px 0 0;padding-inline-start:18px;font-size:12px">' + [...it.facts, ...it.amounts].map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+        (it.issues.length ? '<div style="font-size:12px;color:#B54708;margin-top:3px">לבדוק: ' + it.issues.map(esc).join(' · ') + '</div>' : '')) + '</div>').join('') +
+    '<h2 style="font-size:15px;margin:16px 0 6px">ניתוח התיק על בסיס המסמכים</h2><div style="font-size:12.5px;line-height:1.6;white-space:pre-wrap">' + esc(R.analysis || '') + '</div></div>';
+}
+async function docReviewPdf(c) { const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(docReviewHtml(c)); } catch (e) { return toast('לא הצלחתי להכין PDF'); }
+  try { await dlc.save({ filename: 'סקירת-מסמכים-' + c.name + '-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); } }
+async function docReviewToDrive(c, folderId, approvalId) {
+  const bytes = await pdfFromHtml(docReviewHtml(c)); let bin = ''; const u8 = new Uint8Array(bytes); for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: 'סקירת מסמכים וניתוח תיק — ' + c.name + ' — ' + today() + '.pdf', base64Content: btoa(bin), contentMimeType: 'application/pdf', disableConversionToGoogleType: true, parentId: folderId }, { cache: false }));
+  const id = p.id || p.fileId; if (!id) throw new Error('no id');
+  if (approvalId) await write('approvals/' + approvalId, { reviewPdf: { id, title: p.title || 'סקירת מסמכים.pdf', at: stamp() } }, 'update');
+  toast('ה-PDF נשמר בתיקיית ההגשה');
+}
+function docReviewPanel(c, files, w) {
+  const R = (intakeDoc(c.id) || {}).docReview, busy = S.revStatus && S.revStatus.cid === c.id, sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id));
+  return '<details class="ppanel" style="margin-top:10px"' + (busy ? ' open' : '') + '><summary><b>סקירת מסמכים וניתוח תיק</b> <span class="hint">' + (R ? 'עודכן ' + dLabel(dayOf(R.at)) + ' · ' + R.items.length + ' מסמכים' : 'Claude קורא כל מסמך, מסכם מה יש בו, ומנתח את התיק על בסיסם') + '</span></summary>' +
+    (busy ? '<p class="hint" data-revstatus>' + esc(S.revStatus.text) + '</p>' : '') +
+    '<div class="row" style="margin-top:6px">' + (w ? '<button class="btn small primary" data-act="docReview"' + (busy ? ' disabled' : '') + '>' + (sel.length ? 'סקור ' + sel.length + ' מסמכים מסומנים' : 'סקור את כל המסמכים') + '</button>' : '') +
+      (R ? '<button class="btn small" data-act="docReviewPdf">הורד PDF</button>' : '') + '</div>' +
+    (R ? '<div style="margin-top:8px">' + R.items.map((it) => '<div class="hint" style="margin:2px 0"><b>' + esc(it.title) + '</b> — ' + esc(it.error || [it.type, it.owner, it.period].filter(Boolean).join(' · ') || it.summary) + (it.issues && it.issues.length ? ' <span class="pill expected">' + esc(it.issues[0]) + '</span>' : '') + '</div>').join('') +
+      (R.analysis ? '<h3 class="sec">ניתוח התיק</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.6">' + esc(R.analysis) + '</div>' : '') + '</div>' : '') + '</details>';
 }
 async function scanConditions(c, file) {
   const st = $('condScanSt'), box = $('condSug');
@@ -8766,6 +8842,7 @@ document.addEventListener('click', async (e) => {
     if (d.pmode) { S.f.pnlMode = d.pmode; return render(); }
     if (d.money) { S.f.money = d.money; return render(); }
     if (d.approk) return decideApproval(d.approk, true);
+    if (d.subreview) { const a = S.approvals.get(d.subreview), c2 = a && S.clients.get(a.clientId); if (!c2) return; return docReview(c2, (a.files || []).map((f) => ({ ...f, cat: docGuess(f.title) })), { scope: 'submission', folderId: a.folderId, approvalId: a.id }); }
     if (d.carplate) { const v = intakeDoc(S.view.clientId).car || {}; return copyText(String(v.plate || ''), 'מספר הרכב הועתק'); }
     if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
@@ -8949,6 +9026,8 @@ document.addEventListener('click', async (e) => {
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
         case 'fundPrepare': return fundPrepare(c);
+        case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
+        case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
           async (d) => { const m = String(d.url || '').match(/folders\/([\w-]{10,})/) || String(d.url || '').match(/[?&]id=([\w-]{10,})/) || String(d.url || '').match(/^([\w-]{20,})$/); if (!m) return 'זה לא נראה כמו קישור לתיקייה';
             let title = ''; if (S.mcp) { const md = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + m[1] + "'", pageSize: 1, excludeContentSnippets: true }, { cache: false }).catch(() => null)); if (!md.files) return 'אין גישה לתיקייה הזו בדרייב'; }
