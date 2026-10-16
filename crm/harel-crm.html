@@ -5754,7 +5754,7 @@ function vSettings() {
     '<div class="row">' + (s[key] || []).map((t) => '<span class="tag">' + esc(t) + (w ? ' <button data-rm="' + key + '" data-v="' + esc(t) + '" aria-label="הסר">×</button>' : '') + '</span>').join('') + (!(s[key] || []).length ? '<span class="hint">ריק</span>' : '') + '</div>' +
     (w ? '<div class="row" style="margin-top:10px"><input class="f grow" id="add_' + key + '" placeholder="הוסף…" aria-label="' + label + '"><button class="btn small" data-addto="' + key + '">הוסף</button></div>' : '') + '</section>';
   const team = live(S.team);
-  return '<h1>הגדרות</h1>' + healthCard() +
+  return '<h1>הגדרות</h1>' + healthCard() + aiBudgetCard() +
     '<section class="card"><header><h2>הצוות</h2><span class="grow"></span></header><p class="hint" style="margin:-4px 0 10px">מי שבצוות מופיע ברשימות האחראים, מקבל התראות למייל שרשום כאן כשמשייכים לו משימה, ומנהל יום עבודה משלו. מחפשים לפי שם מתוך הארגון; שם ומייל ממלאים פעם אחת לכל אחד — המיילים האוטומטיים (בוקר, ערב, התראות) נשלחים לפיהם, ובלי שם יופיע "חבר צוות".</p>' +
       '<div class="tlist">' + teamIds().map((id) => { const t = team.find((x) => x.userId === id) || {};
         return '<div class="trow"><div class="tname"><span class="who">' + avatar(id) + esc(nameOf(id)) + (id === S.me.id ? ' (את/ה)' : '') + '</span>' + (t.role ? '<span class="hint"> · ' + esc(t.role) + '</span>' : '') + '</div><div class="tfields">' +
@@ -7695,7 +7695,20 @@ function carDealCard(x, cid, w) {
     '<section class="card"><header><h2>הסכם לחתימה</h2></header><p class="hint" style="margin:-4px 0 8px">הסכם ההתקשרות עם השם, הת״ז, הרכב, הסכום ושכר הטרחה מהטופס. נשלח ללקוח קישור אישי לחתימה בטלפון. אם חסר פרט, נפתח הטופס בכרטיס ממולא עם מה שיש.</p>' +
       (w ? '<button class="btn primary" data-act="carSign">שלח הסכם לחתימה עם הפרטים</button>' : '') + '</section>';
 }
-/* שווי מיידי לפי מודעות יד 2 — Claude עם חיפוש, בשרת (תקרה 10 ₪ ליום). הצעה בלבד: אדם מאשר לפני שנרשם (הנחיה 17). */
+/* Claude API בתשלום — תקרה יומית אחת לכל המערכות (דן 16/10: 15 ₪). לדן בלבד, במערכת בשרת. */
+function aiBudgetCard() {
+  if (!window.__harelServer || !S.isDan) return '';
+  if (S.aiBud === undefined) { S.aiBud = null; fetch('/api/crm/ai-budget', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.aiBud = j; render(); }).catch(() => { S.aiBud = { error: true }; render(); }); }
+  const B = S.aiBud; if (!B) return '<section class="card"><header><h2>Claude API — ניצול</h2></header><p class="hint">טוען…</p></section>';
+  if (B.error || B.code) return '';
+  const t = B.today || { ils: 0, calls: 0, byFeature: {} }, pct = Math.min(100, Math.round(n(t.ils) / n(B.capIls) * 100)), month = (B.days || []).filter((d) => String(d.date).slice(0, 7) === today().slice(0, 7)), mSum = month.reduce((a, d) => a + n(d.ils), 0);
+  return '<section class="card"><header><h2>Claude API — ניצול</h2><span class="pill ' + (pct >= 90 ? 'open' : pct >= 60 ? 'expected' : 'actual') + '">היום ' + n(t.ils).toFixed(2) + ' מתוך ' + n(B.capIls) + ' ₪</span><span class="grow"></span><button class="btn small ghost" data-act="aiBudReload">רענן</button></header>' +
+    '<div style="height:8px;border-radius:4px;background:var(--surface-2,#eee);overflow:hidden;margin-bottom:8px"><div style="height:100%;width:' + pct + '%;background:var(--' + (pct >= 90 ? 'open' : pct >= 60 ? 'expected' : 'actual') + ')"></div></div>' +
+    '<p class="hint" style="margin:0 0 8px">תקרה אחת לכל השימוש בתשלום. מה שיכול לחכות כמה דקות עובר בתור על המנוי שלך (חינם)' + (B.queueAlive ? ' — התור פעיל' : ' — <b>התור לא פעיל כרגע</b>') + '. ' + (B.keyConfigured ? '' : '<b>אין מפתח API בשרת — אין שימוש בתשלום.</b>') + '</p>' +
+    '<table class="kv wrap"><tbody>' + Object.entries(B.features || {}).map(([k, label]) => { const f = (t.byFeature || {})[k] || { ils: 0, calls: 0 }; return '<tr><th>' + esc(label) + '</th><td>' + n(f.ils).toFixed(2) + ' ₪ <span class="hint">· ' + n(f.calls) + ' קריאות היום</span></td></tr>'; }).join('') +
+    '<tr><th>החודש עד היום</th><td><b>' + mSum.toFixed(2) + ' ₪</b> <span class="hint">· ' + month.length + ' ימים עם שימוש</span></td></tr></tbody></table></section>';
+}
+/* שווי מיידי לפי מודעות יד 2 — Claude עם חיפוש, בשרת (בתקרה המשותפת של Claude API). הצעה בלבד: אדם מאשר לפני שנרשם (הנחיה 17). */
 function carValStatus() {
   if (!window.__harelServer || S.carValSt !== undefined) return S.carValSt; S.carValSt = null;
   fetch('/api/crm/car/value', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.carValSt = j; render(); }).catch(() => { S.carValSt = { enabled: false }; });
@@ -7704,7 +7717,7 @@ function carValStatus() {
 function carValBlock(x, w) {
   const v = x.car || {}, st = carValStatus(), cid = S.view.clientId, R = (S.carVal || {})[cid], ok = v.maker && v.model && v.year;
   if (!window.__harelServer) return '<p class="hint" style="margin:0 0 6px">שווי מיידי לפי יד 2 עובד במערכת בשרת. כאן — מזינים את השווי מהבדיקה.</p>';
-  if (!st || !st.enabled) return '<p class="hint" style="margin:0 0 6px">' + (st ? 'שווי מיידי לפי יד 2 — עוד לא מחובר (חסר CAR_VALUE_API_KEY בשרת).' : '') + '</p>';
+  if (!st || !st.enabled) return '<p class="hint" style="margin:0 0 6px">' + (st ? 'שווי מיידי לפי יד 2 — עוד לא מחובר (חסר מפתח Claude API בשרת).' : '') + '</p>';
   const head = '<div class="row" style="align-items:center;margin-bottom:6px">' + (w ? '<button class="btn primary small" data-act="carValue"' + (ok && !(R && R.loading) ? '' : ' disabled') + '>' + (R && R.loading ? 'בודק ביד 2…' : 'שווי מיידי לפי יד 2') + '</button>' : '') +
     '<span class="hint">' + (ok ? '' : 'צריך יצרן, דגם ושנתון · ') + 'נוצל היום ' + n(st.spentIls).toFixed(2) + ' מתוך ' + n(st.capIls) + ' ₪</span></div>';
   if (!R || R.loading) return head;
@@ -8882,6 +8895,7 @@ document.addEventListener('click', async (e) => {
         case 'carSign': return carSign(S.view.clientId);
         case 'carLookup': S._carLk = null; return carLookup(S.view.clientId);
         case 'carValue': return carValue(S.view.clientId);
+        case 'aiBudReload': S.aiBud = undefined; return render();
         case 'carValueApply': return carValueApply(S.view.clientId);
         case 'carValueDrop': if (S.carVal) delete S.carVal[S.view.clientId]; return render();
         case 'copyDocs': { const cc = intakeWho(S.view.clientId).c; return copyText(docsText(intakeDoc(S.view.clientId), cc ? cc.name : '')); }

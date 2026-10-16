@@ -1,36 +1,17 @@
 /**
- * שווי רכב מיידי לפי מודעות יד 2 — Claude עם חיפוש באינטרנט (דן, 16/10: API מוגבל ב-10 ₪ ליום).
+ * שווי רכב מיידי לפי מודעות יד 2 — Claude עם חיפוש באינטרנט (דן, 16/10).
  * התוצאה היא הצעה בלבד (הנחיה 17): הדף מציג טווח + מודעות, ואדם מאשר לפני שזה נרשם בתיק.
- * תקרה יומית נשמרת ב-crm_docs (aiSpend/car-value-YYYY-MM-DD — שרת בלבד). החלקים הטהורים כאן נבדקים ב-tests/crm-car-value.test.ts.
+ * העלות נספרת בתקרה היומית המשותפת (lib/ai/budget.ts). החלקים הטהורים כאן נבדקים ב-tests/crm-car-value.test.ts.
  */
 import Anthropic from '@anthropic-ai/sdk'
+import type { UsageLike } from '@/lib/ai/budget'
 
 export const CAR_VALUE_MODEL = 'claude-sonnet-5-5'
-/** מחירי המודל לפי מיליון טוקנים (USD) — Sonnet 5.5: $2 קלט, $10 פלט, $0.20 קריאת מטמון */
-export const PRICE_USD = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }
-const envNum = (k: string, d: number, env: Record<string, string | undefined> = process.env) => { const v = Number(env[k]); return Number.isFinite(v) && v > 0 ? v : d }
-/** תשלום לכל חיפוש (USD) — לפי המחירון של Anthropic; ניתן לעדכון ב-CAR_VALUE_SEARCH_USD */
-export const searchUsd = (env?: Record<string, string | undefined>) => envNum('CAR_VALUE_SEARCH_USD', 0.01, env)
-export const usdIls = (env?: Record<string, string | undefined>) => envNum('USD_ILS', 3.7, env)
-export const dailyCapIls = (env?: Record<string, string | undefined>) => envNum('CAR_VALUE_DAILY_ILS', 10, env)
-/** הערכת עלות מקסימלית לבדיקה אחת — לא מתחילים בדיקה שעלולה לעבור את התקרה */
-export const MAX_CALL_ILS = 1.5
+/* העלות והתקרה — בתקרה המשותפת של כל ה-API (lib/ai/budget.ts, 15 ₪ ליום) */
 
 export interface CarQuery { maker?: string; model?: string; trim?: string; year?: number | null; km?: number | null; hand?: number | null; fuel?: string; plate?: string }
 export interface Listing { title: string; url: string; price: number | null; year: number | null; km: number | null; hand: number | null }
 export interface Valuation { low: number | null; mid: number | null; high: number | null; listings: Listing[]; basis: string; note: string; confidence: 'high' | 'medium' | 'low' }
-
-export interface UsageLike { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null; server_tool_use?: { web_search_requests?: number | null; web_fetch_requests?: number | null } | null }
-
-export function costIls(usages: UsageLike[], env?: Record<string, string | undefined>): number {
-  let usd = 0
-  for (const u of usages) {
-    usd += (u.input_tokens ?? 0) * PRICE_USD.input / 1e6 + (u.output_tokens ?? 0) * PRICE_USD.output / 1e6
-      + (u.cache_read_input_tokens ?? 0) * PRICE_USD.cacheRead / 1e6 + (u.cache_creation_input_tokens ?? 0) * PRICE_USD.cacheWrite / 1e6
-      + (u.server_tool_use?.web_search_requests ?? 0) * searchUsd(env)
-  }
-  return Math.round(usd * usdIls(env) * 100) / 100
-}
 
 export const carLabel = (q: CarQuery) => [q.maker, q.model, q.trim, q.year].filter(Boolean).join(' ')
 

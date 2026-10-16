@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { carValuePrompt, costIls, dailyCapIls, parseValuation, runCarValuation } from '@/lib/crm/car-value'
+import { carValuePrompt, parseValuation, runCarValuation } from '@/lib/crm/car-value'
 
 describe('car value', () => {
   it('prompt names the car and asks for yad2 + JSON only', () => {
@@ -15,11 +15,6 @@ describe('car value', () => {
     const v = parseValuation('{"listings": [{"url": "https://a", "price": 70000}, {"url": "https://b", "price": 90000}, {"url": "https://c", "price": 80000}]}')
     expect(v).toMatchObject({ low: 70000, mid: 80000, high: 90000, confidence: 'low' })
     expect(parseValuation('אין מודעות')).toBeNull()
-  })
-  it('computes cost in ILS from usage and search count', () => {
-    const env = { USD_ILS: '4', CAR_VALUE_SEARCH_USD: '0.01' }
-    expect(costIls([{ input_tokens: 100_000, output_tokens: 2_000, server_tool_use: { web_search_requests: 3 } }], env)).toBe(Math.round((0.2 + 0.02 + 0.03) * 4 * 100) / 100)
-    expect(dailyCapIls({})).toBe(10); expect(dailyCapIls({ CAR_VALUE_DAILY_ILS: '5' })).toBe(5)
   })
   it('resumes pause_turn and collects usage', async () => {
     let n = 0

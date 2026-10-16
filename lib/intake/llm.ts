@@ -32,7 +32,7 @@ const SYSTEM = `אתה מחלץ שדות ממסמכי הנהלת חשבונות 
 "סה"כ לתשלום" הוא gross. אם יש רק gross ומע"מ 18% — אל תמציא net. confidence = עד כמה אתה בטוח שהשדות נכונים.`
 
 /** מקבל טקסט (מ-pdf-parse) או PDF גולמי (לסרוקים) ומחזיר הצעה. */
-export async function proposeWithClaude(input: { text?: string; pdf?: Buffer; fileName?: string }, client: Anthropic = new Anthropic()): Promise<Extracted> {
+export async function proposeWithClaude(input: { text?: string; pdf?: Buffer; fileName?: string }, client: Anthropic = new Anthropic(), onUsage?: (model: string, usage: unknown) => void): Promise<Extracted> {
   const content: Anthropic.ContentBlockParam[] = []
   if (input.pdf) content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: input.pdf.toString('base64') } })
   content.push({ type: 'text', text: `קובץ: ${input.fileName ?? ''}\n${input.text ? `טקסט המסמך:\n${input.text.slice(0, 20_000)}` : 'המסמך מצורף.'}` })
@@ -45,6 +45,7 @@ export async function proposeWithClaude(input: { text?: string; pdf?: Buffer; fi
     system: SYSTEM,
     messages: [{ role: 'user', content }],
   })
+  onUsage?.(res.model, res.usage)
   if (res.stop_reason === 'refusal' || !res.parsed_output) throw new Error(`ה-LLM לא החזיר שדות (${res.stop_reason})`)
   const p = res.parsed_output
   return {
