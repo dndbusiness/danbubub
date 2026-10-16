@@ -11,6 +11,7 @@ import { storeFile } from '@/lib/files'
 import { classifyIntake, extractByRules, extractByTemplate, findSupplier, intakeFileName, learnTemplate, type Extracted, type KnownSupplier } from './extract'
 import { pdfToText } from './pdf'
 import { llmAvailable, proposeWithClaude } from './llm'
+import { costIls, reserve, settle, type UsageLike } from '@/lib/ai/budget'
 import { INVOICE_MATCH, matchTarget } from '@/lib/match/invoices'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
@@ -65,7 +66,11 @@ export async function processIntakeFile(input: IntakeInput, opts: { useLlm?: boo
     // ב.3: LLM רק למסמך לא מוכר / ביטחון נמוך, ותמיד כהצעה (הנחיה 17).
     if ((opts.useLlm ?? true) && llmAvailable() && (!supplier || extracted.confidence < 0.6)) {
       try {
-        const llm = await proposeWithClaude(needsOcr ? { pdf: input.buf, fileName: input.fileName } : { text, fileName: input.fileName })
+        /* תקרה יומית משותפת ל-Claude API (lib/ai/budget.ts) */
+        const rv = await reserve('invoice'); if (!rv.ok) throw new Error(rv.message)
+        let spent = 0
+        const llm = await proposeWithClaude(needsOcr ? { pdf: input.buf, fileName: input.fileName } : { text, fileName: input.fileName }, undefined, (m, u) => { spent = costIls(m, [u as UsageLike]) })
+          .finally(() => settle(rv.r, spent).catch(() => null))
         extracted = { ...llm, supplierId: supplier?.id ?? llm.supplierId, supplierName: supplier?.name ?? llm.supplierName, warnings: [...extracted.warnings, ...llm.warnings] }
       } catch (e) { extracted.warnings.push(`LLM: ${(e as Error).message}`) }
     }

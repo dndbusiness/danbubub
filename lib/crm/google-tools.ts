@@ -210,6 +210,8 @@ export function driveQuery(q: string): string {
 }
 
 const CAL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+/** יומן של מישהו אחר (האנליסט) — לפי המייל שלו, כמו calendarId בכלי של claude.ai. ברירת מחדל: היומן הראשי */
+export const calUrl = (calendarId?: unknown) => calendarId ? `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(String(calendarId))}/events` : CAL
 const TZ = 'Asia/Jerusalem'
 
 /** "2026-10-14T09:00:00" בשעון ישראל → RFC3339 עם ההיסט של אותו רגע (קיץ +03:00, חורף +02:00). */
@@ -238,7 +240,7 @@ export async function calendarTool(tool: string, input: ToolInput, token: string
   switch (tool) {
     case 'list_events':
     case 'search_events': {
-      const u = new URL(CAL)
+      const u = new URL(calUrl(input.calendarId))
       u.searchParams.set('singleEvents', 'true'); u.searchParams.set('timeZone', TZ)
       u.searchParams.set('maxResults', String(Math.min(Math.max(Number(input.pageSize) || 50, 1), 250)))
       if (input.startTime) u.searchParams.set('timeMin', ilTime(String(input.startTime)))
@@ -255,8 +257,12 @@ export async function calendarTool(tool: string, input: ToolInput, token: string
       const body = {
         summary: String(input.summary), start: at(input.startTime), end: at(input.endTime ?? input.startTime),
         ...(input.description ? { description: String(input.description) } : {}), ...(input.location ? { location: String(input.location) } : {}),
+        // משתתפים (הלקוח, המתאם) — מקבלים הזמנה מגוגל
+        ...(Array.isArray(input.attendees) && input.attendees.length ? { attendees: (input.attendees as { email?: unknown; displayName?: unknown }[]).filter((a) => a && /@/.test(String(a.email))).map((a) => ({ email: String(a.email), ...(a.displayName ? { displayName: String(a.displayName) } : {}) })) } : {}),
       }
-      const e = await g(token, CAL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, fetchImpl) as unknown as GEvent
+      const url = new URL(calUrl(input.calendarId))
+      if (Array.isArray(input.attendees) && input.attendees.length) url.searchParams.set('sendUpdates', 'all')
+      const e = await g(token, url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, fetchImpl) as unknown as GEvent
       return evOut(e)
     }
     default: throw new ToolError('tool_not_found', `Calendar: הכלי ${tool} לא ממומש בשרת`)

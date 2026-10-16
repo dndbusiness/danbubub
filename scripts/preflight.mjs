@@ -32,7 +32,7 @@ else ok('מפתחות OAuth של גוגל מוגדרים')
 if (!process.env.GREEN_API_ID_INSTANCE || !process.env.GREEN_API_TOKEN) limit('Green-API לא מוגדר', 'בלעדיו התראות וואטסאפ ותזכורות גביה ממתינות ב-outbox')
 else ok('Green-API מוגדר')
 
-if (!process.env.ANTHROPIC_API_KEY) limit('ANTHROPIC_API_KEY לא מוגדר', 'בלעדיו חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים בלבד (ב.3)')
+if (!process.env.ANTHROPIC_API_KEY) limit('ANTHROPIC_API_KEY לא מוגדר', 'בלעדיו: אין שווי רכב מיידי, ניתוחים רק בתור על המנוי, וחילוץ חשבונית של ספק לא מוכר לפי כללים בלבד (ב.3). עם המפתח — תקרה של 15 ₪ ליום לכל השימוש (AI_DAILY_ILS)')
 else ok('חילוץ LLM לחשבוניות זמין')
 
 if (!process.env.APP_BASE_URL) limit('APP_BASE_URL לא מוגדר', 'הקישורים במיילים, בוואטסאפ וביומן יצאו יחסיים')

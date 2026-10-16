@@ -103,10 +103,14 @@ psql "$PGURL" -f db/tests/000_guarantees.sql   # 26 ההבטחות המבניו�
 | `APP_BASE_URL` | ✔ | הקישורים במיילים, בוואטסאפ וביומן יוצאים שבורים |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | אין מייל, יומן, דרייב וסריקת חשבוניות (ב.1–ב.4) |
 | `GREEN_API_ID_INSTANCE` / `GREEN_API_TOKEN` | — | התראות ותזכורות וואטסאפ ממתינות ב-`outbox` |
-| `ANTHROPIC_API_KEY` | — | חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים (ב.3), וב-CRM אין ניתוחי Claude (סריקת דוח אשראי, הכר את הלקוח) — הכפתורים מוסתרים. **תשלום לפי שימוש — החלטה של דן** |
+| `ANTHROPIC_API_KEY` | — | Claude API בתשלום. **דן אישר 16/10: תקרה יומית אחת, 15 ₪, לכל המערכות יחד** (`lib/ai/budget.ts`). מה שיכול לחכות (ניתוח תיק) הולך לתור על המנוי. מה שהדף מחכה לו (שווי רכב לפי יד 2, דוח אשראי, מילוי שדות, סריקה) וחילוץ חשבונית של ספק לא מוכר — דרך ה-API, בתוך התקרה. נגמרה התקרה → התור, ואם אין תור → הודעה. בלי המפתח: הכל בתור, ושווי מיידי כבוי |
+| `AI_DAILY_ILS` | 15 | התקרה היומית בש״ח לכל השימוש בתשלום ב-Claude API |
+| `USD_ILS` / `AI_SEARCH_USD` | 3.7 / 0.01 | שער ועלות חיפוש לחישוב התקרה — לעדכן לפי המחירון. מומלץ גם תקרת חיוב חודשית בקונסול של Anthropic, כגיבוי |
 | `CRON_SECRET` | — | רק אם משתמשים ב-Vercel Cron (Vercel מגדיר אותו לבד) |
 | `CHROMIUM_PACK_URL` | — | הפקת PDF ב-Vercel נכשלת (ראו §3) |
 | `APP_PASSWORD` | — | **האתר פתוח לכל מי שיש לו הכתובת** (ראו §7) |
+| `LEADS_API_KEY` | — | אין קליטת לידים ממערכות חיצוניות. `POST <APP_BASE_URL>/api/crm/inbound/leads` עם כותרת `x-api-key` (או `?key=`) — JSON או טופס: name, phone, email, campaign, source, ad, city, division, type, notes; כל שדה אחר נשמר כתשובה. `openssl rand -hex 24` |
+| `VOICENTER_SECRET` | — | שיחות מוויאסנטר לא נרשמות. בוויאסנטר ← CDR / Webhook: `<APP_BASE_URL>/api/crm/inbound/voicenter?key=<הערך>`. מתחת לדקה = הרמה, מעל = אפקטיבית. נציג → משתמש: `settings.voicenterReps` |
 | `SIGN_SECRET` | — | חתימה דיגיטלית: מפתח לעמוד ההדפסה הפנימי של ההסכם. ריק = נגזר מ-`APP_PASSWORD`. `openssl rand -hex 32` |
 
 > **חתימה דיגיטלית:** הלקוח פותח `<APP_BASE_URL>/s/<token>` בלי סיסמה — `middleware.ts` משאיר פתוחים רק את `/s` ו-`/api/s`. הטוקן בקישור הוא ההרשאה; ב-DB נשמר רק ה-hash שלו.
