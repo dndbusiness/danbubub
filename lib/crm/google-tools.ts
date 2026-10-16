@@ -145,6 +145,16 @@ export async function driveTool(tool: string, input: ToolInput, token: string, f
         { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body }, fetchImpl)
       return { id: r.id, viewUrl: r.webViewLink, title: r.name, fileSize: r.size }
     }
+    case 'copy_file': {
+      // עותק של קובץ לתיקייה אחרת (תיקיית הגשה לביקורת) — המקור לא זז
+      const id = encodeURIComponent(String(input.fileId ?? ''))
+      if (!id) throw new ToolError('invalid_argument', 'Drive: חסר fileId')
+      const meta: Record<string, unknown> = {}
+      if (input.title) meta.name = String(input.title)
+      if (input.parentId) meta.parents = [String(input.parentId)]
+      const r = await g(token, `${DRIVE}/${id}/copy?fields=id,name,mimeType,webViewLink&supportsAllDrives=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) }, fetchImpl) as { id: string; name: string; mimeType: string; webViewLink?: string }
+      return { id: r.id, title: r.name, mimeType: r.mimeType, viewUrl: r.webViewLink ?? null }
+    }
     case 'download_file_content': {
       const id = encodeURIComponent(String(input.fileId))
       const meta = await g(token, `${DRIVE}/${id}?fields=id,name,mimeType&supportsAllDrives=true`, {}, fetchImpl) as { id: string; name: string; mimeType: string }

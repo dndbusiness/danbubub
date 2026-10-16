@@ -19,7 +19,7 @@ export type CrmRole = 'owner' | 'admin' | 'admin_re' | 'partner' | 'center'
 export interface CrmSession { k: string; r: CrmRole; d: string[]; l: string; e: number }
 
 /** אוספים שהמוקד לא קורא ולא כותב — כמו OWNER_READ בדף */
-export const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool']
+export const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills']
 /** מה המוקד כן כותב — כמו TEAM_WRITE בדף */
 export const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations']
 /** סימן במקום גיבוב שלא נשלח לדפדפן */
@@ -96,7 +96,7 @@ export const DAN_GRANT = ['home', 'money', 'books']
 const CORE = ['day', 'leads', 'tasks', 'clients', 'service', 'lenders', 'marketing', 'reports']
 const ROLE_AREAS: Record<string, string[]> = { admin: ['day', 'leads', 'export', ...CORE.slice(2), 'settings'], admin_re: ['day', 'leads', 'export', ...CORE.slice(2), 'settings'], partner: CORE, center: ['day', 'leads', 'tasks'], team: ['day', 'leads', 'tasks', 'clients', 'service'] }
 /** אוספים שאזור פותח: מי שאין לו את האזור לא מקבל אותם מהשרת ולא כותב אליהם */
-export const AREA_COLLS: Record<string, string[]> = { money: ['planned', 'expenses', 'payroll', 'reExpenses', 'rePlanned'], marketing: ['campaigns', 'kaveretPool'] }
+export const AREA_COLLS: Record<string, string[]> = { money: ['planned', 'expenses', 'payroll', 'reExpenses', 'rePlanned', 'leadBills'], marketing: ['campaigns', 'kaveretPool'] }
 
 export function permsOf(u: UserRec | null | undefined, role: CrmRole | 'team'): string[] {
   if (role === 'owner') return [...AREAS, 'private']

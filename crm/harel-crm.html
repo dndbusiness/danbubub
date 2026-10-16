@@ -391,6 +391,10 @@ tr.flash > td { animation: flashrow 2s ease-out; } @keyframes flashrow { 0% { bo
 #cbbar { position: fixed; top: 12px; inset-inline: 12px; z-index: 70; max-width: 720px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--expected-bg); border: 1px solid var(--expected); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
 #cbbar > .hint { flex: 1 1 auto; }
 .kv.wrap th, .kv.wrap td { white-space: normal; }
+/* שדות ותוויות לא דוחפים את המסך לרוחב בנייד (רשימת נמענים ארוכה, קישור ארוך בצ׳קליסט) */
+.fl select.f, .fl input.f { max-width: 100%; min-width: 0; }
+.fl { min-width: 0; max-width: 100%; }
+label.check span { overflow-wrap: anywhere; min-width: 0; }
 /* בזמן שמגירה פתוחה פס "מצב שכפול" (z 9999) מוסתר — אחרת הוא מכסה את כפתור השמירה */
 body:has(#layer .scrim) #mirrorBar { display: none !important; }
 body:has(#mirrorBar) #callbar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
@@ -788,7 +792,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'valuations'];
+const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'leadBills', 'valuations'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -1339,6 +1343,16 @@ function requestDelete(coll, id, label, div) {
 }
 async function decideApproval(aid, ok) {
   const a = S.approvals.get(aid); if (!a || !canApproveDel(a.division || 'finance')) return;
+  if (a.kind === 'submission') {
+    const c = S.clients.get(a.clientId); if (!c) return toast('הלקוח לא נמצא');
+    if (!ok) { const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח)', '') ; if (note === null) return; await write('approvals/' + aid, { status: 'rejected', note: note.trim(), decidedAt: stamp(), decidedBy: S.me.id }, 'update'); await logClient(c.id, 'ההגשה ל' + a.bank + ' הוחזרה לתיקון' + (note.trim() ? ': ' + note.trim() : '')).catch(() => {}); return toast('הוחזר לתיקון'); }
+    if (!S.mcp) return toast('צריך חיבור לגוגל כדי לשלוח');
+    if (!confirm('לשלוח עכשיו ל' + a.bank + ' (' + (a.to || []).join(', ') + ') עם ' + (a.files || []).length + ' קבצים?')) return;
+    const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files: a.files || [] });
+    if (!r || !r.sent) return; /* fundSend כבר הודיע מה נכשל — הבקשה נשארת ממתינה */
+    await write('approvals/' + aid, { status: 'approved', sentAt: stamp(), decidedAt: stamp(), decidedBy: S.me.id, partial: !!r.partial }, 'update');
+    return logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה ונשלחה (' + (a.files || []).length + ' קבצים מתיקיית הביקורת)').catch(() => {});
+  }
   if (ok && a.kind === 'delete') await write(a.coll + '/' + a.docId, { deletedAt: stamp(), deletedBy: a.by, deleteApprovedBy: S.me.id }, 'update');
   await write('approvals/' + aid, { status: ok ? 'approved' : 'rejected', decidedAt: stamp(), decidedBy: S.me.id }, 'update');
   toast(ok ? 'אושר — ' + a.label + ' נמחק' : 'הבקשה נדחתה');
@@ -1347,7 +1361,11 @@ function approvalsCard() {
   const P = live(S.approvals).filter((a) => a.status === 'pending' && canApproveDel(a.division || 'finance')).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   if (!P.length) return '';
   return '<section class="card"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
-    P.map((a) => '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
+    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>הגשה לביקורת:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
+        '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
+        '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
+          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
+      '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
 }
 function partnerBar() {
@@ -1801,11 +1819,11 @@ function vClient(id) {
         (w ? sel('cResp', 'אחראי', [['', 'בלי אחראי'], ...(() => { const es = respEntries(c.division || 'finance'); return c.resp && !es.some(([k]) => k === c.resp) ? [...es, [c.resp, L.resp[c.resp] || c.resp]] : es; })()], c.resp || '') + sel('cApproval', 'אישור', Object.entries(L.approval), c.approval || 'pending') + sel('cStage', 'שלב', STAGE_ORDER.map((k) => [k, L.stage[k]]), c.stage) +
         sel('cStatus', 'סטטוס', Object.entries(L.status), c.status) + '<button class="btn" data-act="editClient">עריכה</button><button class="btn primary" data-intake="' + esc(c.id) + '">הכר את הלקוח</button>' + (S.isOwner && ['won', 'lost', 'cancelled'].includes(c.status) ? '<button class="btn" data-act="newDeal">+ עסקה חדשה ללקוח</button>' : '') : respChip(c.resp) + approvalPill(c) + '<span class="pill committed">' + (L.stage[c.stage] || '') + '</span>') + '</div>' +
       (c.status === 'hold' ? '<div class="notice warn" style="margin-top:8px"><b>בהשהייה</b><span>' + esc(c.holdReason || 'לא נכתבה סיבה') + (w ? ' <button class="xlink" data-act="holdReason">עדכן סיבה</button>' : '') + '</span></div>' : '') +
-      closeSrcRow(c) + clientPins(c) + ((c.history || []).length ? '<div class="hint" style="margin-top:6px">עסקה ' + (c.caseNo || 1) + ' של הלקוח · קודמות: ' + c.history.map((h) => 'עסקה ' + h.no + ' — ' + esc(L.status[h.status] || h.status) + (h.closedAt ? ' ' + dLabel(h.closedAt) : '') + (S.isOwner ? ' · נגבה ' + plain(h.collected) : '')).join(' | ') + '</div>' : '') +
+      closeSrcRow(c) + payWhenRow(c, w) + clientPins(c) + ((c.history || []).length ? '<div class="hint" style="margin-top:6px">עסקה ' + (c.caseNo || 1) + ' של הלקוח · קודמות: ' + c.history.map((h) => 'עסקה ' + h.no + ' — ' + esc(L.status[h.status] || h.status) + (h.closedAt ? ' ' + dLabel(h.closedAt) : '') + (S.isOwner ? ' · נגבה ' + plain(h.collected) : '')).join(' | ') + '</div>' : '') +
     '</div>' + fundCard(c, w) + apprSurveyCard(c, S.canTask) + procCard(c) +
     (!S.isOwner ? '' : '<div class="moneystrip">' +
       '<div><span>שכר טרחה</span><b>' + money(m.fee) + '</b></div><div><span>נגבה</span><b>' + money(m.collected, { tone: 'actual' }) + '</b></div>' +
-      '<div><span>פתוח לגביה</span><b>' + money(m.open, { tone: m.open ? 'expected' : 'muted' }) + '</b>' + (m.open > 0 && w ? '<span class="row" style="gap:4px;flex-wrap:nowrap;margin-top:4px"><input class="f" type="date" data-paydate="' + esc(c.id) + '" value="' + esc(c.expectedPayDate || '') + '" aria-label="מתי צפוי להיכנס" title="מתי צפוי להיכנס" style="min-width:0;padding:4px 6px"><select class="f" data-payconf="' + esc(c.id) + '" aria-label="כמה לבנות על זה" style="min-width:0;padding:4px 6px"><option value="">כמה לבנות?</option>' + Object.entries(PAY_CONF).map(([k, v]) => '<option value="' + k + '"' + (c.payConf === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></span>' : c.expectedPayDate ? '<span>צפוי ' + dLabel(c.expectedPayDate) + (payConfOf(c) ? ' · ' + PAY_CONF[c.payConf] : '') + '</span>' : '') + '</div>' +
+      '<div><span>פתוח לגביה</span><b>' + money(m.open, { tone: m.open ? 'expected' : 'muted' }) + '</b>' + (false ? '<span class="row" style="gap:4px;flex-wrap:nowrap;margin-top:4px"><input class="f" type="date" data-paydate="' + esc(c.id) + '" value="' + esc(c.expectedPayDate || '') + '" aria-label="מתי צפוי להיכנס" title="מתי צפוי להיכנס" style="min-width:0;padding:4px 6px"><select class="f" data-payconf="' + esc(c.id) + '" aria-label="כמה לבנות על זה" style="min-width:0;padding:4px 6px"><option value="">כמה לבנות?</option>' + Object.entries(PAY_CONF).map(([k, v]) => '<option value="' + k + '"' + (c.payConf === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></span>' : c.expectedPayDate ? '<span>צפוי ' + dLabel(c.expectedPayDate) + (payConfOf(c) ? ' · ' + PAY_CONF[c.payConf] : '') + '</span>' : '') + '</div>' +
       '<div><span>הוצאות ישירות</span><b>' + money(m.direct) + '</b></div><div><span>תרומה נטו</span><b>' + money(m.net, { tone: m.net < 0 ? 'open' : 'committed' }) + '</b></div>' +
     '</div>') +
     '<div class="grid2">' +
@@ -3099,18 +3117,34 @@ function docTile(f, w, sel) {
     '<div class="hint dmeta"><span class="num">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</span>' + (f.sub ? ' · <bdi>' + esc(f.sub) + '</bdi>' : '') + '</div>' +
     (w && !f.folderLink ? '<select class="f small" data-docmove="' + esc(f.id) + '" aria-label="קטגוריה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === f.cat ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : '') + '</div>';
 }
+/* צפייה במסמכים בתוך הכרטיס (דן 16/10): קטגוריה אחת — כל המסמכים שלה זה אחר זה; או כל המסמכים יחד, לפי קטגוריות */
+const docPrevUrl = (f) => f.mimeType === 'application/vnd.google-apps.document' ? 'https://docs.google.com/document/d/' + f.id + '/preview' : f.mimeType === 'application/vnd.google-apps.spreadsheet' ? 'https://docs.google.com/spreadsheets/d/' + f.id + '/preview' : 'https://drive.google.com/file/d/' + f.id + '/preview';
+function docViewer(c, files) {
+  const V = S.docView; if (!V || V.cid !== c.id) return '';
+  const list = (V.cat === 'all' ? DOC_CATS.flatMap(([k]) => files.filter((f) => f.cat === k)) : files.filter((f) => f.cat === V.cat)).filter((f) => !f.folderLink);
+  const title = V.cat === 'all' ? 'כל המסמכים יחד' : catLabel(V.cat) + ' — כולם יחד';
+  let lastCat = '';
+  return '<div class="ppanel docview" style="margin:8px 0 12px"><div class="row" style="align-items:center;position:sticky;top:0;background:var(--surface,#fff);z-index:2;padding:4px 0"><b class="grow">' + esc(title) + ' <span class="hint num">' + list.length + '</span></b>' +
+      (V.cat !== 'all' ? '<button class="btn small ghost" data-docview="all">כל המסמכים</button>' : '') + '<button class="btn small" data-docview="">סגור תצוגה</button></div>' +
+    (list.length ? '<div class="hint" style="margin:4px 0 8px">' + list.map((f, i) => '<button class="xlink" data-docjump="' + i + '"><bdi>' + esc(f.title) + '</bdi></button>').join(' · ') + '</div>' +
+      list.map((f, i) => { const head = V.cat === 'all' && f.cat !== lastCat ? '<h3 class="sec" style="margin-top:14px">' + esc(catLabel(f.cat)) + '</h3>' : ''; lastCat = f.cat;
+        return head + '<div id="dv-' + i + '" style="margin:10px 0"><div class="row" style="align-items:center"><b class="grow">' + docName(f.title) + '</b><a class="btn small ghost" href="' + esc(f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view')) + '" target="_blank" rel="noopener">פתח בדרייב ↗</a></div>' +
+          '<iframe src="' + esc(docPrevUrl(f)) + '" loading="lazy" title="' + esc(f.title) + '" style="width:100%;height:70vh;border:1px solid var(--line,#e4e7ec);border-radius:8px;background:#fff" allow="autoplay"></iframe></div>'; }).join('')
+      : '<p class="empty">אין מסמכים כאן.</p>') + '</div>';
+}
 function docsCard(c) {
   if (!S.isOwner) return ''; const st = (S.docRes || {})[c.id], w = S.canWrite, on = hasDocs(c); if (on && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
   const files = (st && st.files) || [], sel = (S.docSel = S.docSel || new Set()), cur = (S.f.docCat = S.f.docCat || 'all'), cnt = (k) => files.filter((f) => f.cat === k).length;
   const cand = (c.driveLinks || []).length || (st && st.files && st.files.length) || (on && !(st && st.files)) ? [] : rootMatches(c); /* רק כשאין עדיין מסמכים */
   const chips = '<div class="dchips" role="group" aria-label="סוג מסמך"><button class="dchip" data-doccat="all" aria-pressed="' + (cur === 'all') + '">הכל <span class="num">' + files.length + '</span></button>' +
-    DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') + '</div>';
+    DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') +
+    (files.length ? '<button class="btn small" data-docview="all" style="margin-inline-start:auto">פתח את כל המסמכים יחד</button>' : '') + '</div>';
   const upl = (k) => w && S.mcp ? '<label class="btn small ghost" style="cursor:pointer">+ העלאה ל' + catLabel(k) + '<input type="file" multiple hidden data-docup="' + k + '"></label>' : '';
   const body = cur === 'all'
-    ? DOC_CATS.filter(([k]) => cnt(k)).map(([k, l]) => '<div class="dsec"><div class="row" style="align-items:center"><b class="grow">' + l + ' <span class="hint num">' + cnt(k) + '</span></b>' + upl(k) + '</div><div class="dgrid">' + files.filter((f) => f.cat === k).map((f) => docTile(f, w, sel)).join('') + '</div></div>').join('') +
+    ? DOC_CATS.filter(([k]) => cnt(k)).map(([k, l]) => '<div class="dsec"><div class="row" style="align-items:center"><b class="grow">' + l + ' <span class="hint num">' + cnt(k) + '</span></b><button class="btn small ghost" data-docview="' + k + '">הצג את כולם יחד</button>' + upl(k) + '</div><div class="dgrid">' + files.filter((f) => f.cat === k).map((f) => docTile(f, w, sel)).join('') + '</div></div>').join('') +
       (st && st.files && !files.length ? '<p class="empty">התיקייה ריקה.</p>' : '') +
       (w && S.mcp && st && st.files ? '<div class="row" style="align-items:center;margin-top:8px"><span class="hint">העלאה ישירה לדרייב:</span><select class="f small" id="docUpCat" aria-label="קטגוריה להעלאה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '">' + l + '</option>').join('') + '</select><label class="btn small" style="cursor:pointer">בחר קבצים<input type="file" multiple hidden data-docup="@pick"></label></div>' : '')
-    : '<div class="row" style="align-items:center;margin-bottom:6px"><b class="grow">' + catLabel(cur) + '</b>' + upl(cur) + '</div>' + (cnt(cur) ? '<div class="dgrid">' + files.filter((f) => f.cat === cur).map((f) => docTile(f, w, sel)).join('') + '</div>' : '<p class="empty">אין מסמכים בקטגוריה הזו.</p>');
+    : '<div class="row" style="align-items:center;margin-bottom:6px"><b class="grow">' + catLabel(cur) + '</b>' + (cnt(cur) ? '<button class="btn small ghost" data-docview="' + cur + '">הצג את כולם יחד</button>' : '') + upl(cur) + '</div>' + (cnt(cur) ? '<div class="dgrid">' + files.filter((f) => f.cat === cur).map((f) => docTile(f, w, sel)).join('') + '</div>' : '<p class="empty">אין מסמכים בקטגוריה הזו.</p>');
   if (st && st.files) setTimeout(thumbsKick, 30);
   return '<section class="card docs"><header><h2>מסמכי לקוח</h2>' + (st && st.files ? '<span class="pill muted">' + files.length + '</span>' : '') + '<span class="grow"></span>' +
       (c.driveFolder ? '<a class="btn small ghost" href="' + folderUrl(c.driveFolder) + '" target="_blank" rel="noopener">דרייב ↗</a>' : '') + (on ? '<button class="btn small ghost" data-act="docsReload">' + (st && st.loading ? 'טוען…' : 'רענן') + '</button>' : (S.mcp && w ? '<button class="btn small" data-act="mkFolder">פתח תיקייה בדרייב</button>' : '')) +
@@ -3118,8 +3152,8 @@ function docsCard(c) {
     (st && st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') + (!S.mcp ? '<p class="hint">דרייב לא זמין בתצוגה הזו.</p>' : !on ? '<p class="hint">עוד אין תיקייה בדרייב ללקוח הזה.</p>' : '') +
     (w && cand.length ? '<div class="ppanel" style="margin:6px 0 10px"><b>נמצאו תיקיות קיימות בדרייב בשם הזה</b>' + cand.slice(0, 4).map((m) => '<div class="row" style="align-items:center;margin-top:6px"><span class="grow"><bdi>' + esc(m.f.title) + '</bdi> <span class="hint">ב' + esc(m.root) + (m.full ? '' : ' · התאמה חלקית') + '</span></span><button class="btn small" data-doclink="' + esc(m.f.id) + '">שייך</button></div>').join('') + '</div>' : '') +
     ((c.driveLinks || []).length ? '<p class="hint" style="margin:-2px 0 8px">משקף גם: ' + c.driveLinks.map((l) => '<a href="' + folderUrl(l.id) + '" target="_blank" rel="noopener"><bdi>' + esc(l.title || 'תיקייה') + '</bdi></a>' + (w ? ' <button class="xlink" data-docunlink="' + esc(l.id) + '" aria-label="הסר שיקוף">×</button>' : '')).join(' · ') + '</p>' : '') +
-    (on ? chips + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
-    (w && on ? sendFundBox(c, files) : '') + '</section>';
+    (on ? chips + docViewer(c, files) + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
+    (on && st && st.files && files.length ? docReviewPanel(c, files, S.canTask) : '') + (w && on ? sendFundBox(c, files) : '') + '</section>';
 }
 /* ── שיוך תיקיות קיימות: תיקיות-אב בדרייב (הגדרות) → תיקיית לקוח לפי שם ── */
 const NAME_STOP = new Set(['של', 'אבא', 'אמא', 'הלוואה', 'עסקית', 'עסקי', 'משכנתא', 'זוג', 'שם', 'לעדכן', 'טירת', 'כרמל']);
@@ -3193,7 +3227,9 @@ function sendFundBox(c, files) {
     '<label class="fl">נושא<input class="f" id="fundSubj" value="' + esc('הגשת תיק — ' + c.name + ' — ' + co) + '"></label>' +
     '<label class="fl">גוף המייל<textarea class="f" id="fundBody" rows="5">' + esc('שלום,\n\nמצורפים המסמכים של ' + c.name + (c.baseAmount ? ' לבקשה בסך ' + plain(c.baseAmount) : '') + '.\nנשמח לבדיקה ולתשובה.\n\nבברכה,\n' + (S.loginAs && S.loginAs.label || 'דן') + '\n' + co) + '</textarea></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
-    '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div></details>';
+    (canApproveDel(c.division || 'finance') ? '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div>'
+      : '<div class="row"><span class="hint grow">לפי הנוהל: נפתחת תיקיית הגשה חדשה עם עותקים של הקבצים, ו' + delApprover(c.division || 'finance') + ' עובר עליה בבקרה. רק אחרי אישור — המייל יוצא.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הכן לביקורת (' + sel.length + ' קבצים)</button></div>') +
+    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open' }[a.status] || 'muted') + '">' + ({ pending: 'ממתין לביקורת', approved: 'אושר ונשלח', rejected: 'הוחזר לתיקון' }[a.status] || a.status) + '</span><span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקייה ↗</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
 }
 /* תמונה גדולה (צילום טלפון) → JPEG מוקטן לצד ארוך 2000px. מסמך נשאר קריא, והמשקל יורד פי 5-10 */
 async function shrinkImage(b64, mime) {
@@ -3202,15 +3238,15 @@ async function shrinkImage(b64, mime) {
     const cv = document.createElement('canvas'); cv.width = Math.round(bm.width * k); cv.height = Math.round(bm.height * k); const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bm, 0, 0, cv.width, cv.height);
     const out = cv.toDataURL('image/jpeg', 0.82).split(',')[1]; return out && out.length < b64.length ? out : null; } catch (e) { return null; } }
 const FUND_PART_MAX = window.__harelServer ? 2.5e6 : 4e6; /* בשרת: תקרת בקשה של 4.5MB ב-Vercel, וה-base64 מנפח בשליש */ /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
-async function fundSend(c) {
+async function fundSend(c, O) {
   if (S._fundBusy) return toast('השליחה כבר בדרך — רגע');
-  const pick = ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
-  const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+  const pick = O ? O.pick || '' : ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
+  const extra = (O ? (O.extra || []).join(',') : (($('fundMail') || {}).value || '')).split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])], to = tos.join(', ');
   if (!tos.length) return toast('בחר נמען או כתוב מייל');
-  const st = (S.docRes || {})[c.id] || {}, ids = [...(S.docSel || new Set())].filter((id) => (st.files || []).some((f) => f.id === id)); if (!ids.length) return toast('סמן מסמכים');
-  const subj = ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body = ($('fundBody') || {}).value || '', wantSub = ($('fundSub') || {}).checked;
-  S._fundBusy = true; const btn = document.querySelector('[data-act="fundSend"]'); if (btn) { btn.disabled = true; btn.textContent = 'מכין קבצים…'; }
+  const st = O ? { files: O.files || [] } : (S.docRes || {})[c.id] || {}, ids = O ? st.files.map((f) => f.id) : [...(S.docSel || new Set())].filter((id) => (st.files || []).some((f) => f.id === id)); if (!ids.length) return toast('סמן מסמכים');
+  const subj = O ? O.subj : ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body = O ? O.body || '' : ($('fundBody') || {}).value || '', wantSub = O ? !!O.wantSub : ($('fundSub') || {}).checked;
+  S._fundBusy = true; const btn = O ? null : document.querySelector('[data-act="fundSend"]'); if (btn) { btn.disabled = true; btn.textContent = 'מכין קבצים…'; }
   try {
     const att = [];
     for (const [i, id] of ids.entries()) { const f = st.files.find((x) => x.id === id), gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || '');
@@ -3244,8 +3280,41 @@ async function fundSend(c) {
     await logClient(c.id, 'נשלח ל' + bank + ' (' + to + '): ' + subj + (parts.length > 1 ? ' · ' + sent + '/' + parts.length + ' מיילים' : '') + ' · ' + done.join(', ')).catch(() => {});
     const cur = S.clients.get(c.id) || c;
     if (wantSub && sent && (l || !ct || ['bank', 'fund', 'developer'].includes(ct.cat)) && !(cur.submissions || []).some((x) => x.bank === bank)) await write('clients/' + c.id, { submissions: [...(cur.submissions || []), { bank, status: 'submitted', amount: cur.baseAmount || null, at: stamp(), sentDocs: done }], updatedAt: stamp() }, 'update');
-    if (!bad.length && !queue.length) { S.docSel = new Set(); toast('נשלח ל' + bank + ' — ' + att.length + ' קבצים' + (sent > 1 ? ' ב-' + sent + ' מיילים' : '')); } else S.docSel = new Set(bad.map((nm) => (st.files.find((f) => f.title === nm || f.title.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg' === nm) || {}).id).filter(Boolean));
+    if (!bad.length && !queue.length) { if (!O) S.docSel = new Set(); toast('נשלח ל' + bank + ' — ' + att.length + ' קבצים' + (sent > 1 ? ' ב-' + sent + ' מיילים' : '')); } else if (!O) S.docSel = new Set(bad.map((nm) => (st.files.find((f) => f.title === nm || f.title.replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.jpg' === nm) || {}).id).filter(Boolean));
+    return { sent, files: done, bank, partial: !!(bad.length || queue.length) };
   } finally { S._fundBusy = false; render(); } }
+/* ═════ הגשה לביקורת (דן 16/10, נוהל): מי שאינו המאשר לא שולח ישר לגוף מימון.
+   "הכן לביקורת" → תיקייה חדשה בדרייב בתוך תיקיית הלקוח ("הגשה — <גוף> — <תאריך> (לביקורת)") עם עותקים של הקבצים שסומנו,
+   ובקשה ב"ממתין לאישורך" (בקרה). המאשר עובר על התיקייה, ואז "אשר ושלח" — המייל יוצא עם העותקים. "החזר לתיקון" — עם הערה. ═════ */
+async function driveCopy(f, parentId) {
+  if (window.__harelServer) { const p = drivePayload(await S.mcp.callTool('Google Drive', 'copy_file', { fileId: f.id, parentId, title: f.title }, { cache: false })); return p.id ? { id: p.id, title: p.title || f.title, mimeType: p.mimeType || f.mimeType } : null; }
+  const gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || ''), d = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id, ...(gNative ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }));
+  const b64 = d.content || d.data || d.base64Content || ''; if (!b64) return null; const mime = gNative ? 'application/pdf' : (d.mimeType || f.mimeType || 'application/octet-stream'), title = gNative && !/\.pdf$/i.test(f.title) ? f.title + '.pdf' : f.title;
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title, base64Content: b64, contentMimeType: mime, disableConversionToGoogleType: true, parentId }, { cache: false }));
+  return p.id || p.fileId ? { id: p.id || p.fileId, title, mimeType: mime } : null;
+}
+async function fundPrepare(c) {
+  if (S._fundBusy) return toast('רגע — עוד מכין'); if (!S.mcp) return toast('דרייב לא זמין בתצוגה הזו'); if (!c.driveFolder) return toast('אין ללקוח תיקייה בדרייב');
+  const pick = ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
+  const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+  const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])]; if (!tos.length) return toast('בחר נמען או כתוב מייל');
+  const st = (S.docRes || {})[c.id] || {}, files = (st.files || []).filter((f) => (S.docSel || new Set()).has(f.id) && !f.folderLink); if (!files.length) return toast('סמן מסמכים');
+  const bank = l ? l.name : ct ? (ct.org || ct.name) : tos[0], div = c.division || 'finance', ap = delApprover(div);
+  S._fundBusy = true; const btn = document.querySelector('[data-act="fundPrepare"]'); if (btn) { btn.disabled = true; btn.textContent = 'פותח תיקייה…'; }
+  try {
+    const fold = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: 'הגשה — ' + bank + ' — ' + dLabel(today()) + ' (לביקורת)', mimeType: 'application/vnd.google-apps.folder', parentId: c.driveFolder }, { cache: false }));
+    const fid = fold.id || fold.fileId; if (!fid) return toast('לא הצלחתי לפתוח תיקייה בדרייב');
+    const copies = [], miss = [];
+    for (const [i, f] of files.entries()) { if (btn) btn.textContent = 'משכפל ' + (i + 1) + '/' + files.length + '…'; const x = await driveCopy(f, fid).catch(() => null); if (x) copies.push(x); else miss.push(f.title); }
+    if (!copies.length) return toast('לא הצלחתי לשכפל קבצים');
+    const rid = uid(), who = (S.loginAs && S.loginAs.resp) || respOf(S.me.id) || '';
+    await write('approvals/' + rid, { id: rid, kind: 'submission', clientId: c.id, division: div, label: 'הגשה ל' + bank + ' — ' + c.name, bank, pick, extra, to: tos, subj: ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body: ($('fundBody') || {}).value || '', wantSub: !!($('fundSub') || {}).checked,
+      files: copies, srcIds: files.map((f) => f.id), folderId: fid, folderUrl: fold.viewUrl || folderUrl(fid), by: S.me.id, byResp: who, at: stamp(), status: 'pending' });
+    await logClient(c.id, 'הוכנה הגשה ל' + bank + ' — ' + copies.length + ' קבצים בתיקיית ביקורת. ממתינה לאישור ' + ap + (miss.length ? ' · לא שוכפלו: ' + miss.join(', ') : '')).catch(() => {});
+    S.docSel = new Set(); toast('נשלח לביקורת של ' + ap + ' — ' + copies.length + ' קבצים בתיקייה חדשה' + (miss.length ? ' (' + miss.length + ' לא שוכפלו)' : ''));
+  } finally { S._fundBusy = false; render(); }
+}
+function subsOfClient(c) { return live(S.approvals).filter((a) => a.kind === 'submission' && a.clientId === c.id).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 5); }
 function dayExtras() {
   const t0 = today(); let h = viewHomeCard() + reDayCard();
   if (S.isCenter) { const mine = live(S.leads).filter((l) => l.resp === S.myKey), due = mine.filter((l) => leadDue(l, t0) || (l.stage || 'new') === 'new'), m = t0.slice(0, 7), cm = commRows().filter((x) => x.who === S.myKey && x.month === m);
@@ -4756,6 +4825,77 @@ async function askDoc(file, prompt, stEl, label) {
   if (stEl) stEl.textContent = aiWait('Claude קורא… (עד דקה)');
   return sample.json(prompt + (inp.text ? '\n\nתוכן המסמך:\n' + inp.text : '\n\nהמסמך מצורף כתמונות עמודים.'), { modelTier: 'default', cache: false, ...(inp.images.length ? { images: inp.images } : {}), ...aiSrv({ label: label || 'קריאת מסמך' }) });
 }
+/* ═════ סקירת מסמכים + ניתוח תיק על בסיס המסמכים → PDF לאירוע (דן 16/10) ═════
+   כל מסמך נקרא בנפרד (Claude — הצעה בלבד, הנחיה 17): מה הוא, של מי, איזו תקופה, עובדות וסכומים, ומה בעייתי.
+   אחר כך ניתוח אחד של התיק על בסיס הסיכומים, ומה חסר מול רשימת המסמכים. נשמר ב-intakes/<id>.docReview,
+   ויוצא כ-PDF להורדה — ולתיקיית ההגשה כשהסקירה נעשית עבור הגשה. */
+const DOC_REVIEW_PROMPT = 'זה מסמך מתיק של לקוח שמבקש הלוואה/משכנתא בישראל. תאר מה יש בו — רק מה שכתוב, בלי לנחש. החזר JSON בלבד:\n' +
+  '{"type": "סוג המסמך (למשל תלוש שכר, דף עו״ש, נסח טאבו, ת״ז, דוח BDI, הסכם)", "owner": "על שם מי", "issuer": "מי הנפיק", "period": "תקופה / תאריך", "facts": ["עד 6 עובדות חשובות"], "amounts": ["סכומים חשובים עם הסבר, למשל: נטו 12,400 ₪"], "issues": ["מה בעייתי או חסר: לא קריא, ישן מ-3 חודשים, שם לא תואם, עמוד חסר"], "summary": "שורה אחת"}';
+async function docBlob(f) {
+  const gNative = /^application\/vnd\.google-apps\./.test(f.mimeType || ''), p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id, ...(gNative ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }));
+  const b64 = p.content || p.data || p.base64Content || ''; if (!b64) throw new Error('לא ירד');
+  const mime = gNative ? 'application/pdf' : (p.mimeType || f.mimeType || 'application/octet-stream');
+  return new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type: mime });
+}
+async function docReview(c, files, opt = {}) {
+  if (S._revBusy) return toast('הסקירה כבר רצה'); if (!S.mcp) return toast('דרייב לא זמין בתצוגה הזו');
+  const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('Claude לא זמין בתצוגה הזו');
+  const list = files.filter((f) => !f.folderLink && /pdf|image|google-apps\.document/.test(f.mimeType || '') ).slice(0, 25); if (!list.length) return toast('אין מסמכים לסקירה (PDF או תמונה)');
+  S._revBusy = true; const items = [], set = (t) => { S.revStatus = { cid: c.id, text: t }; const el = document.querySelector('[data-revstatus]'); if (el) el.textContent = t; else render(); };
+  try {
+    for (const [i, f] of list.entries()) {
+      set('קורא מסמך ' + (i + 1) + ' מתוך ' + list.length + ': ' + f.title + (window.__crmAiQueue ? ' (בתור ל-Claude — כמה דקות לכל מסמך)' : ''));
+      try { const r = await askDoc(await docBlob(f), DOC_REVIEW_PROMPT, null, 'סקירת מסמך — ' + c.name + ' — ' + f.title);
+        items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), type: String(r.type || ''), owner: String(r.owner || ''), issuer: String(r.issuer || ''), period: String(r.period || ''), facts: (r.facts || []).map(String).slice(0, 6), amounts: (r.amounts || []).map(String).slice(0, 6), issues: (r.issues || []).map(String).slice(0, 6), summary: String(r.summary || '') }); }
+      catch (e) { items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), error: e && e.code === 'resource_exhausted' ? 'תקרת Claude להיום נגמרה' : 'לא נקרא' }); if (e && e.code === 'resource_exhausted') break; }
+    }
+    set('מנתח את התיק על בסיס ' + items.filter((x) => !x.error).length + ' מסמכים…');
+    const x = intakeDoc(c.id), need = intakeDocs(x).map((d) => d.d), m = clientMoney(c);
+    const prompt = 'אתה מנהל תיקים בחברת ייעוץ משכנתאות והלוואות בישראל. לפניך סיכום המסמכים שיש בתיק של ' + c.name + ' (' + (L.product[c.product] || c.product || '') + (c.baseAmount ? ', בקשה ' + plain(c.baseAmount) : '') + ').\n' +
+      'כתוב ניתוח תיק קצר בעברית, על בסיס המסמכים בלבד: 1. מה התמונה (הכנסות, נכס, התחייבויות — לפי מה שמופיע). 2. חוזקות. 3. אורות אדומים וסתירות בין מסמכים (שמות, סכומים, תאריכים). 4. מה חסר להגשה. 5. המלצה: האם התיק מוכן להגשה ומה לעשות לפני. בלי להמציא נתונים שלא מופיעים.\n\n' +
+      'מסמכים:\n' + items.map((it, i) => (i + 1) + '. ' + it.title + (it.error ? ' — ' + it.error : ' — ' + [it.type, it.owner, it.period].filter(Boolean).join(' · ') + '\n   ' + [...it.facts, ...it.amounts].join(' | ') + (it.issues.length ? '\n   בעיות: ' + it.issues.join(' | ') : ''))).join('\n') +
+      (need.length ? '\n\nרשימת המסמכים הנדרשים לפי "הכר את הלקוח": ' + need.join(', ') : '');
+    let analysis = ''; try { analysis = (await sample(prompt, { modelTier: 'default', cache: false, ...aiSrv({ label: 'ניתוח תיק לפי מסמכים — ' + c.name }) })).text || ''; } catch (e) { analysis = 'הניתוח לא הושלם: ' + ((e && e.message) || ''); }
+    const rev = { at: stamp(), by: S.me.id, items, analysis, scope: opt.scope || 'docs', ...(opt.approvalId ? { approvalId: opt.approvalId } : {}) };
+    await write('intakes/' + c.id, { ...JSON.parse(JSON.stringify(x)), id: c.id, clientId: c.id, docReview: rev, updatedAt: stamp() });
+    await logClient(c.id, 'סקירת מסמכים: ' + items.length + ' מסמכים נקראו, וניתוח תיק על בסיסם (Claude — הצעה לבדיקה)').catch(() => {});
+    S.revStatus = null; toast('הסקירה מוכנה — אפשר להוריד PDF'); render();
+    if (opt.folderId) await docReviewToDrive(c, opt.folderId, opt.approvalId).catch(() => toast('ה-PDF לא נשמר בתיקייה — אפשר להוריד ידנית'));
+  } finally { S._revBusy = false; }
+}
+function docReviewHtml(c) {
+  const R = (intakeDoc(c.id) || {}).docReview; if (!R) return '';
+  const td = 'padding:5px 6px;border-bottom:1px solid #EAECF0;font-size:12px;vertical-align:top';
+  const byCat = DOC_CATS.map(([k, l]) => [l, R.items.filter((it) => (it.cat || 'other') === k)]).filter(([, xs]) => xs.length);
+  return '<div dir="rtl" style="font-family:Arial,sans-serif;color:#101828;width:760px;padding:24px">' +
+    '<h1 style="font-size:20px;margin:0">סקירת מסמכים וניתוח תיק — ' + esc(c.name) + '</h1><div style="color:#667085;font-size:12px;margin:4px 0 14px">' + esc(L.division[c.division || 'finance']) + ' · ' + dLabel(dayOf(R.at)) + ' · ' + R.items.length + ' מסמכים · נקרא על ידי Claude — הצעה לבדיקה, לא מסמך רשמי</div>' +
+    '<h2 style="font-size:15px;margin:12px 0 6px">אילו מסמכים יש</h2><table style="width:100%;border-collapse:collapse">' + byCat.map(([l, xs]) => '<tr><td style="' + td + ';font-weight:700;width:120px">' + esc(l) + ' (' + xs.length + ')</td><td style="' + td + '">' + xs.map((it) => esc(it.title)).join(' · ') + '</td></tr>').join('') + '</table>' +
+    '<h2 style="font-size:15px;margin:16px 0 6px">מה יש בכל מסמך</h2>' + R.items.map((it, i) => '<div style="border:1px solid #EAECF0;border-radius:8px;padding:8px 10px;margin:0 0 8px;page-break-inside:avoid">' +
+      '<div style="font-weight:700;font-size:13px">' + (i + 1) + '. ' + esc(it.title) + ' <span style="color:#667085;font-weight:400">· ' + esc(catLabel(it.cat || 'other')) + '</span></div>' +
+      (it.error ? '<div style="color:#B42318;font-size:12px">' + esc(it.error) + '</div>' : '<div style="font-size:12px;color:#344054">' + esc([it.type, it.owner && 'על שם ' + it.owner, it.issuer, it.period].filter(Boolean).join(' · ')) + '</div>' + (it.summary ? '<div style="font-size:12px;margin-top:3px">' + esc(it.summary) + '</div>' : '') +
+        (it.facts.length || it.amounts.length ? '<ul style="margin:4px 0 0;padding-inline-start:18px;font-size:12px">' + [...it.facts, ...it.amounts].map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+        (it.issues.length ? '<div style="font-size:12px;color:#B54708;margin-top:3px">לבדוק: ' + it.issues.map(esc).join(' · ') + '</div>' : '')) + '</div>').join('') +
+    '<h2 style="font-size:15px;margin:16px 0 6px">ניתוח התיק על בסיס המסמכים</h2><div style="font-size:12.5px;line-height:1.6;white-space:pre-wrap">' + esc(R.analysis || '') + '</div></div>';
+}
+async function docReviewPdf(c) { const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(docReviewHtml(c)); } catch (e) { return toast('לא הצלחתי להכין PDF'); }
+  try { await dlc.save({ filename: 'סקירת-מסמכים-' + c.name + '-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); } }
+async function docReviewToDrive(c, folderId, approvalId) {
+  const bytes = await pdfFromHtml(docReviewHtml(c)); let bin = ''; const u8 = new Uint8Array(bytes); for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: 'סקירת מסמכים וניתוח תיק — ' + c.name + ' — ' + today() + '.pdf', base64Content: btoa(bin), contentMimeType: 'application/pdf', disableConversionToGoogleType: true, parentId: folderId }, { cache: false }));
+  const id = p.id || p.fileId; if (!id) throw new Error('no id');
+  if (approvalId) await write('approvals/' + approvalId, { reviewPdf: { id, title: p.title || 'סקירת מסמכים.pdf', at: stamp() } }, 'update');
+  toast('ה-PDF נשמר בתיקיית ההגשה');
+}
+function docReviewPanel(c, files, w) {
+  const R = (intakeDoc(c.id) || {}).docReview, busy = S.revStatus && S.revStatus.cid === c.id, sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id));
+  return '<details class="ppanel" style="margin-top:10px"' + (busy ? ' open' : '') + '><summary><b>סקירת מסמכים וניתוח תיק</b> <span class="hint">' + (R ? 'עודכן ' + dLabel(dayOf(R.at)) + ' · ' + R.items.length + ' מסמכים' : 'Claude קורא כל מסמך, מסכם מה יש בו, ומנתח את התיק על בסיסם') + '</span></summary>' +
+    (busy ? '<p class="hint" data-revstatus>' + esc(S.revStatus.text) + '</p>' : '') +
+    '<div class="row" style="margin-top:6px">' + (w ? '<button class="btn small primary" data-act="docReview"' + (busy ? ' disabled' : '') + '>' + (sel.length ? 'סקור ' + sel.length + ' מסמכים מסומנים' : 'סקור את כל המסמכים') + '</button>' : '') +
+      (R ? '<button class="btn small" data-act="docReviewPdf">הורד PDF</button>' : '') + '</div>' +
+    (R ? '<div style="margin-top:8px">' + R.items.map((it) => '<div class="hint" style="margin:2px 0"><b>' + esc(it.title) + '</b> — ' + esc(it.error || [it.type, it.owner, it.period].filter(Boolean).join(' · ') || it.summary) + (it.issues && it.issues.length ? ' <span class="pill expected">' + esc(it.issues[0]) + '</span>' : '') + '</div>').join('') +
+      (R.analysis ? '<h3 class="sec">ניתוח התיק</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.6">' + esc(R.analysis) + '</div>' : '') + '</div>' : '') + '</details>';
+}
 async function scanConditions(c, file) {
   const st = $('condScanSt'), box = $('condSug');
   try {
@@ -5296,13 +5436,70 @@ async function scanUpload(scope, key, file) {
 /* שיווק — כל חברה בנפרד (דן, 11/10). ב"הכל" בוחרים חברה בתוך המסך */
 const screenDiv = (key) => { const md = DIVS.filter(canSeeDiv); return S.division !== 'all' ? S.division : md.includes(S.f[key]) ? S.f[key] : md[0]; };
 const divSeg = (key, cur) => S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? '<div class="seg" role="group" aria-label="חברה" style="margin:0 0 12px">' + DIVS.filter(canSeeDiv).map((d) => '<button data-scrdiv="' + key + '|' + d + '" aria-pressed="' + (d === cur) + '">' + L.division[d] + '</button>').join('') + '</div>' : '';
+/* ═════ חשבון לידים (דן 16/10): כמה אני חייב לכל ספק לידים, לפי קטגוריה (נכסים / רכב / עסקים / נדל״ן — כל אחת לחוד).
+   חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום על החשבון (למשל 7,000 לאבינועם)
+   נרשם ונוכה — נשאר רק הפער. התשלום עד ה-15 בחודש שאחרי. בסוף: יחס המרה לכל קטגוריה. כל מספר נפתח לרשימת הלידים. ═════ */
+const billCat = (l) => leadDiv(l) === 'realestate' ? 'נדל״ן' : (LEAD_TYPES.includes(leadType(l)) ? leadType(l) : 'אחר');
+const billMonthOf = (l) => String(dayOf(l.createdAt) || '').slice(0, 7);
+const billDueOf = (m) => addMonth(m + '-01').slice(0, 7) + '-15';
+function leadBill(month, div) {
+  const sup = {}, mk = (name) => (sup[name] = sup[name] || { name, cats: {}, in: 0, credit: 0, billable: 0, charge: 0, ids: [] });
+  for (const l of live(S.leads)) {
+    if (billMonthOf(l) !== month || leadDiv(l) !== div) continue;
+    const src = l.source === 'sheet' ? srcOfLead(l) : null, price = n(src && src.costPerLead); if (!price) continue;
+    const S1 = mk(src.marketer || 'אבינועם'), cat = billCat(l), r = (S1.cats[cat] = S1.cats[cat] || { cat, price, in: 0, credit: 0, billable: 0, charge: 0, ids: { in: [], credit: [], billable: [] } });
+    const cr = isCredit(l) && creditOf(l) !== 'rejected';
+    r.in++; r.ids.in.push(l.id); if (cr) { r.credit++; r.ids.credit.push(l.id); } else { r.billable++; r.charge = r2(r.charge + price); r.ids.billable.push(l.id); }
+  }
+  const pays = live(S.leadBills).filter((p) => p.month === month && (p.division || 'finance') === div);
+  pays.forEach((p) => mk(p.supplier));
+  Object.values(sup).forEach((S1) => { const cs = Object.values(S1.cats); ['in', 'credit', 'billable'].forEach((k) => { S1[k] = cs.reduce((a, r) => a + r[k], 0); }); S1.charge = r2(cs.reduce((a, r) => a + r.charge, 0));
+    S1.pays = pays.filter((p) => p.supplier === S1.name).sort((a, b) => String(a.date).localeCompare(String(b.date))); S1.paid = r2(S1.pays.reduce((a, p) => a + n(p.amount), 0)); S1.due = r2(S1.charge - S1.paid); });
+  const ads = {}; live(S.campaigns).filter((c) => (c.division || 'finance') === div).forEach((c) => { const v = n((c.monthly || {})[month]); if (!v) return;
+    const L1 = live(S.leads).find((l) => [c.name, ...(c.leadCampaigns || [])].includes(l.campaign)), cat = L1 ? billCat(L1) : div === 'realestate' ? 'נדל״ן' : 'אחר';
+    (ads[cat] = ads[cat] || { cat, amount: 0, camps: [] }).amount = r2(ads[cat].amount + v); ads[cat].camps.push(c.name); });
+  return { sup: Object.values(sup).sort((a, b) => b.charge - a.charge), ads: Object.values(ads), due: billDueOf(month) };
+}
+function vLeadBill(div) {
+  if (!(S.isOwner && S.can('money'))) return '<p class="empty">חשבון הלידים — לבעלים בלבד.</p>';
+  const t0 = today(), cur = t0.slice(0, 7), months = Array.from({ length: 6 }, (_, i) => addMonths(cur + '-01', -i).slice(0, 7)), m = S.f.billM && months.includes(S.f.billM) ? S.f.billM : cur;
+  const B = leadBill(m, div), C = convMonth(m, m === cur ? t0 : null), ids = (S._billIds = {}), drill = (key, title, list) => { ids[key] = { title, list }; return '<button class="xlink num" data-billdrill="' + esc(key) + '">' + list.length + '</button>'; };
+  const sel = '<div class="seg" role="group" aria-label="חודש">' + months.slice().reverse().map((x) => '<button data-billm="' + x + '" aria-pressed="' + (x === m) + '">' + esc(mLabel(x)) + '</button>').join('') + '</div>';
+  const supCards = B.sup.map((S1) => { const st = S1.due > 0 ? ['open', 'לתשלום ' + plain(S1.due) + ' עד ' + dLabel(B.due)] : S1.due < 0 ? ['actual', 'יתרת זכות ' + plain(-S1.due)] : ['actual', S1.charge ? 'שולם במלואו' : '—'];
+    return '<section class="card"><header><h2>' + esc(S1.name) + '</h2><span class="pill ' + st[0] + '">' + st[1] + '</span>' + (m === cur ? '<span class="hint">החודש עוד לא נסגר — נכון להיום</span>' : '') + '<span class="grow"></span>' +
+      (S.canWrite ? '<button class="btn small" data-billpay="' + esc(S1.name) + '">+ תשלום על החשבון</button>' : '') + '</header>' +
+      '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>לזיכוי</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
+        Object.values(S1.cats).sort((a, b) => b.charge - a.charge).map((r) => '<tr><td class="wide">' + esc(r.cat) + '</td><td>' + drill(S1.name + '|' + r.cat + '|in', S1.name + ' · ' + r.cat + ' · נכנסו', r.ids.in) + '</td><td>' + drill(S1.name + '|' + r.cat + '|cr', S1.name + ' · ' + r.cat + ' · לזיכוי', r.ids.credit) + '</td><td>' + drill(S1.name + '|' + r.cat + '|b', S1.name + ' · ' + r.cat + ' · לחיוב', r.ids.billable) + '</td><td>' + plain(r.price) + '</td><td><b>' + money(r.charge) + '</b></td></tr>').join('') +
+        '<tr class="tot"><td>סה״כ חיוב ' + esc(mLabel(m)) + '</td><td class="num">' + S1.in + '</td><td class="num">' + S1.credit + '</td><td class="num">' + S1.billable + '</td><td></td><td><b>' + money(S1.charge) + '</b></td></tr>' +
+        S1.pays.map((p) => '<tr><td colspan="5" class="wide">שולם על החשבון · ' + dLabel(p.date) + (p.note ? ' · ' + esc(p.note) : '') + (S.canWrite ? ' <button class="xlink" data-billpaydel="' + esc(p.id) + '" aria-label="מחק תשלום">מחק</button>' : '') + '</td><td>' + money(-n(p.amount), { tone: 'actual' }) + '</td></tr>').join('') +
+        '<tr class="tot"><td colspan="5">' + (S1.due >= 0 ? 'נשאר לשלם (עד ' + dLabel(B.due) + ')' : 'יתרת זכות — שולם יותר מהחיוב') + '</td><td><b>' + money(Math.abs(S1.due), { tone: S1.due > 0 ? 'open' : 'actual' }) + '</b></td></tr>' +
+      '</tbody></table></div></section>'; }).join('');
+  const ads = B.ads.length ? '<section class="card"><header><h2>פרסום ששולם ישירות (קמפיינים)</h2></header><div class="scroll"><table><thead><tr><th>קטגוריה</th><th>קמפיינים</th><th>הוצאה ' + esc(mLabel(m)) + '</th></tr></thead><tbody>' +
+    B.ads.map((a) => '<tr><td>' + esc(a.cat) + '</td><td class="wide">' + a.camps.map(esc).join(' · ') + '</td><td>' + money(a.amount) + '</td></tr>').join('') + '</tbody></table></div><p class="hint" style="margin:6px 0 0">מהשדה "הוצאה לפי חודש" בשיווק ← קמפיינים.</p></section>' : '';
+  const cats = Object.values(C).filter((g) => g.tot.in).sort((a, b) => b.tot.in - a.tot.in), cost = (t) => r2(B.sup.reduce((a, S1) => a + n((S1.cats[t] || {}).charge), 0) + n((B.ads.find((x) => x.cat === t) || {}).amount));
+  const conv = '<section class="card"><header><h2>יחס המרה לפי קטגוריה · ' + esc(mLabel(m)) + '</h2></header>' + (cats.length ? '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>נכנסו</th><th>לזיכוי</th><th>טופלו</th><th>בדיקה</th><th>נסגרו</th><th>טופל → סגירה</th><th>עלות</th><th>עלות לסגירה</th></tr></thead><tbody>' +
+    cats.map((g) => { const T = g.tot, k = (b) => '<button class="xlink num" data-convdrill="' + esc(m + '|T:' + g.t + '|' + b) + '">' + T.ids[b].length + '</button>', cc = cost(g.t === 'אחר' ? 'אחר' : g.t);
+      return '<tr><td class="wide">' + esc(g.t) + '</td><td>' + k('in') + '</td><td>' + k('credit') + '</td><td>' + k('handled') + '</td><td>' + k('check') + '</td><td><b>' + k('closed') + '</b></td><td><b>' + (T.handled ? Math.round(T.closed / T.handled * 1000) / 10 + '%' : '—') + '</b></td><td>' + (cc ? money(cc) : '—') + '</td><td>' + (cc && T.closed ? plain(Math.round(cc / T.closed)) : '—') + '</td></tr>'; }).join('') +
+    '</tbody></table></div>' : '<p class="empty">אין לידים בחודש הזה.</p>') + '<p class="hint" style="margin:6px 0 0">לפי התאריך של הליד בטבלה. טופלו = מי שדיברו איתו; לזיכוי ועוד לא טופלו לא נספרים ביחס.</p></section>';
+  return '<div class="row" style="align-items:center;margin-bottom:8px"><h2 class="grow" style="margin:0">חשבון לידים · ' + esc(L.division[div]) + '</h2>' + sel + '</div>' +
+    '<p class="hint" style="margin:0 0 10px">חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום לספק — עד ה-15 בחודש שאחרי (' + dLabel(B.due) + ').</p>' +
+    (supCards || '<p class="empty">אין לידים בתשלום לליד בחודש הזה' + (live(S.leadBills).length ? '' : ' (מחיר לליד מוגדר בהגדרות ← טבלאות לידים)') + '.</p>') + ads + conv;
+}
+function billPayForm(supplier, div) {
+  const m = S.f.billM || today().slice(0, 7);
+  drawer('תשלום על החשבון — ' + supplier, fi('amount', 'סכום ששולם (₪)', '', 'number', 'min="0" step="1"') + fi('date', 'תאריך התשלום', today(), 'date') + fi('month', 'על חשבון החודש', m, 'month') + fi('note', 'הערה', '', 'text'), async (d) => {
+    const amount = r2(d.amount); if (!(amount > 0)) return 'צריך סכום';
+    const id = uid(); await write('leadBills/' + id, { id, supplier, division: div, month: d.month || m, amount, date: d.date || today(), note: (d.note || '').trim(), createdAt: stamp(), by: S.me.id });
+    toast('נרשם תשלום של ' + plain(amount) + ' ל' + supplier);
+  }, '', 'שמור');
+}
 function vMarketing() { const d = screenDiv('mktDiv'); S._divOnly = d; try { return divSeg('mktDiv', d) + vMarketingDiv(d); } finally { S._divOnly = null; } }
 function vMarketingDiv(mDiv) {
   const sub = mDiv !== 'realestate' && S.f.mkt === 'pool' ? 'funnel' : S.f.mkt;
-  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['cost', 'עלות לפי קמפיין'], ['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(mDiv === 'realestate' ? [['refunnel', 'משפך ויעדים'], ['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = { cost: vCost, funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool, refunnel: vReFunnel }[sub] || vCost;
+  const tabs = '<div class="seg" role="group" aria-label="שיווק">' + [['cost', 'עלות לפי קמפיין'], ['funnel', 'משפך לידים'], ['roi', 'המרה ו-ROI'], ['campaigns', 'קמפיינים'], ['import', 'העלאת קובץ'], ...(S.isOwner && S.can('money') ? [['bill', 'חשבון לידים']] : []), ...(mDiv === 'realestate' ? [['refunnel', 'משפך ויעדים'], ['pool', 'מאגר כוורת']] : [])].map(([k, v]) => '<button data-mkt="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+  const body = { cost: vCost, funnel: vFunnel, roi: vRoi, campaigns: vCampaigns, import: vImport, pool: vPool, refunnel: vReFunnel, bill: () => vLeadBill(mDiv) }[sub] || vCost;
   return '<div class="row"><h1 class="grow">שיווק · ' + L.division[mDiv] + '</h1>' + tabs + (S.canTask ? '<button class="btn primary" data-act="newLead">+ ליד</button>' : '') + '</div>' +
-    (leadSources().some((x) => (x.division || 'finance') === mDiv) ? leadSheetCard() : '') + body();
+    (sub !== 'bill' && leadSources().some((x) => (x.division || 'finance') === mDiv) ? leadSheetCard() : '') + body();
 }
 /* ═════ נדל״ן — משפך ויעדים (דן, 11/10): ליד → זום שהתקיים → פגישה פרונטלית → סגירה (חתם אצל היזם),
    יחסי המרה לפי מחזור לידים, פעילות בתקופה, יעד זום, דוח פגישות יומי וניצולת לידים. כל מספר נפתח לרשימה. ═════ */
@@ -6480,7 +6677,7 @@ window.HAREL_JOBS = {
    דן (בעל הדף) עורך הכל. הצוות כותב רק משימות, תיקים מנוהלים, ימי עבודה, פניות, לידים ומיילים.
    ההרשאות נאכפות במסד (rules) — לא רק במסך. הנעילה בסיסמה היא שכבה נוספת על המכשיר:
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
-const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool'];
+const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills'];
 const PARTNER_WRITE = ['clients', 'transactions'];
 const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
@@ -6947,6 +7144,18 @@ async function mailAutoFiles(c) { S._mailAuto = S._mailAuto || {}; if (S._mailAu
 /* ═════════════════════════ צפי תשלומים וכניסות לפי תאריכים ═════════════════════════ */
 /* כמה לבנות על הכסף של לקוח (דן, 15/10): בטוח · סביר · "לא לבנות על זה" — עסקה חלשה. נכנס = ברכה, אבל לא בתזרים ולא בצפי */
 const PAY_CONF = { sure: 'בטוח', likely: 'סביר', low: 'לא לבנות על זה' };
+/* "מתי לדעתי ייכנס הכסף" (דן 16/10): בראש הכרטיס, לבעלים, ניתן לעריכה תמיד — גם לפני שנקבע שכ״ט. נכנס לתזרים.
+   סכום ריק = יתרת השכ״ט הפתוחה כולל מע״מ; סכום שהוזן גובר עליה. */
+const payExpAmt = (c) => { const o = clientMoney(c).open; return n(c.expectedPayAmount) > 0 ? n(c.expectedPayAmount) : o > 0 ? r2(o * (c.vatExempt ? 1 : 1 + VATR())) : 0; };
+function payWhenRow(c, w) {
+  if (!S.isOwner || ['lost', 'cancelled'].includes(c.status)) return '';
+  const o = clientMoney(c).open, ph = o > 0 ? r2(o * (c.vatExempt ? 1 : 1 + VATR())) : '';
+  return '<div class="ppanel" style="margin-top:8px;padding:8px 10px"><div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap"><b style="align-self:center">מתי ייכנס הכסף?</b>' +
+    '<label class="fl" style="flex:0 1 150px">תאריך משוער<input class="f" type="date" data-paydate="' + esc(c.id) + '" value="' + esc(c.expectedPayDate || '') + '"' + (w ? '' : ' disabled') + '></label>' +
+    '<label class="fl" style="flex:0 1 150px">סכום לבנק (כולל מע״מ)<input class="f num" type="number" min="0" step="500" data-payamt="' + esc(c.id) + '" value="' + esc(c.expectedPayAmount ?? '') + '" placeholder="' + esc(ph ? fmt0.format(ph) : 'סכום') + '"' + (w ? '' : ' disabled') + '></label>' +
+    '<label class="fl" style="flex:0 1 140px">כמה לבנות<select class="f" data-payconf="' + esc(c.id) + '"' + (w ? '' : ' disabled') + '><option value="">—</option>' + Object.entries(PAY_CONF).map(([k, v]) => '<option value="' + k + '"' + (c.payConf === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
+    '<span class="hint" style="align-self:center">' + (c.expectedPayDate && payExpAmt(c) ? 'בתזרים: ' + plain(payExpAmt(c)) + ' ב-' + dLabel(c.expectedPayDate) + (payConfOf(c) === 'low' ? ' — לא נספר (לא לבנות)' : '') : 'ממלאים תאריך — ונכנס לתזרים') + '</span></div></div>';
+}
 const payConfOf = (c) => PAY_CONF[c && c.payConf] ? c.payConf : null;
 function forecastItems(days = 120) {
   const t0 = today(), end = addDays(t0, days), all = [], undated0 = [], low = [];
@@ -6955,8 +7164,8 @@ function forecastItems(days = 120) {
     const insts = ['lost', 'cancelled', 'hold'].includes(c.status) ? [] : (c.installments || []).filter((i) => !i.paid);
     /* צפי = כסף בבנק: פעימה +מע״מ נכנסת ×1.18; יתרת שכ״ט (נטו) נכנסת עם מע״מ. */
     insts.forEach((i) => (i.due ? items : undated).push({ date: i.due, amount: instCash(i), label: c.name + ' — ' + (i.note || 'פעימה') + (instVat(i) === 'plus' ? ' (' + plain(i.amount) + ' + מע״מ)' : ''), cid: c.id, sure: true }));
-    const o = clientMoney(c).open - insts.reduce((a, i) => a + instNet(i), 0);
-    if (o > 0 && !['cancelled', 'lost', 'hold'].includes(c.status)) (c.expectedPayDate ? items : undated).push({ date: c.expectedPayDate || null, amount: r2(o * (c.vatExempt ? 1 : 1 + VATR())), label: c.name + ' — יתרת שכ״ט (כולל מע״מ)', cid: c.id, sure: payConfOf(c) ? payConfOf(c) === 'sure' : c.approval === 'approved' || c.approval === 'finished' || c.status === 'won' });
+    const o = clientMoney(c).open - insts.reduce((a, i) => a + instNet(i), 0), ea = n(c.expectedPayAmount);
+    if ((o > 0 || ea > 0) && !['cancelled', 'lost', 'hold'].includes(c.status)) (c.expectedPayDate ? items : undated).push({ date: c.expectedPayDate || null, amount: ea > 0 ? ea : r2(o * (c.vatExempt ? 1 : 1 + VATR())), label: c.name + (ea > 0 ? ' — צפי לפי דן' : ' — יתרת שכ״ט (כולל מע״מ)'), cid: c.id, sure: payConfOf(c) ? payConfOf(c) === 'sure' : c.approval === 'approved' || c.approval === 'finished' || c.status === 'won' });
     if (c.fundDue && !c.fundDue.done && n(c.fundDue.amount)) items.push({ date: c.fundDue.date || t0, amount: -n(c.fundDue.amount), label: c.name + ' — להעביר ל' + (c.fundDue.fund || 'קרן'), cid: c.id, sure: true });
   });
   live(S.planned).filter((p) => !p.division || inDiv(p)).forEach((p) => items.push({ date: p.date, amount: n(p.amount) * (p.direction === 'out' ? -1 : 1), label: (p.label || (p.direction === 'out' ? 'תשלום מתוכנן' : 'תקבול מתוכנן')) + (p.kind && PLAN_KIND[p.kind] && !String(p.label || '').includes(PLAN_KIND[p.kind]) ? ' · ' + PLAN_KIND[p.kind] : ''), sure: p.sure !== false, planned: p.id }));
@@ -6965,6 +7174,9 @@ function forecastItems(days = 120) {
     const step = e.frequency === 'quarterly' ? 3 : e.frequency === 'yearly' ? 12 : 1;
     for (let d = t0.slice(0, 8) + String(Math.min(28, e.day || 1)).padStart(2, '0'), k = 0; d <= end; d = addMonth(d), k++) if (d >= t0 && k % step === 0) items.push({ date: d, amount: -Math.abs(n(e.amount)), label: e.name, sure: true, fixed: true });
   });
+  /* חשבון לידים: היתרה לספק ב-15 בחודש שאחרי (החודש הנוכחי — נכון להיום) */
+  if (S.isOwner) DIVS.filter((dv) => inDiv({ division: dv })).forEach((dv) => [addMonths(t0.slice(0, 7) + '-01', -1).slice(0, 7), t0.slice(0, 7)].forEach((m) => leadBill(m, dv).sup.forEach((s1) => {
+    if (s1.due > 0) items.push({ date: billDueOf(m) < t0 ? t0 : billDueOf(m), amount: -s1.due, label: 'לידים — ' + s1.name + ' · ' + mLabel(m) + (m === t0.slice(0, 7) ? ' (נכון להיום)' : ''), sure: m !== t0.slice(0, 7) }); })));
   const card = nissimCard(), last = card[card.length - 1];
   if (last && last.transfer > 0 && S.division !== 'realestate') items.push({ date: addMonth(last.month + '-10'), amount: -last.transfer, label: 'העברה לניסים', sure: true });
   return { items: all.filter((i) => i.date && i.date <= end).sort((a, b) => String(a.date).localeCompare(b.date)), undated: undated0, low: low.filter((i) => i.amount > 0), t0, end };
@@ -9013,6 +9225,8 @@ document.addEventListener('click', async (e) => {
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
+    if (d.docjump !== undefined) { const t = document.getElementById('dv-' + d.docjump); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     if (d.reper !== undefined && el.matches('[data-reper]')) { S.f.reP = d.reper; S.reDrillOpen = null; return render(); }
     if (d.rewho !== undefined && el.matches('[data-rewho]')) { S.f.reWho = d.rewho; S.reDrillOpen = null; return render(); }
     if (d.redrill !== undefined && el.matches('[data-redrill]')) { S.reDrillOpen = d.redrill || null; render(); if (d.redrill) setTimeout(() => { const x = document.querySelectorAll('main section.card'); x[x.length - 1].scrollIntoView({ behavior: 'smooth' }); }, 30); return; }
@@ -9037,6 +9251,10 @@ document.addEventListener('click', async (e) => {
     if (d.signkind) { S.f.signKind = d.signkind; return render(); }
     if (d.convm) { const cur = S.f.convMonth || today().slice(0, 7), nx = addMonths(cur + '-01', +d.convm).slice(0, 7); S.f.convMonth = nx > today().slice(0, 7) ? today().slice(0, 7) : nx; S.f.convOpen = true; return render(); }
     if (d.convdrill) return convDrill(d.convdrill);
+    if (d.billm) { S.f.billM = d.billm; return render(); }
+    if (d.billpay) return billPayForm(d.billpay, screenDiv('mktDiv'));
+    if (d.billpaydel) { if (!S.canWrite || !confirm('למחוק את רישום התשלום?')) return; await write('leadBills/' + d.billpaydel, { deletedAt: stamp(), deletedBy: S.me.id }, 'update'); return toast('נמחק — מסומן, לא נמחק פיזית'); }
+    if (d.billdrill) { const x = (S._billIds || {})[d.billdrill]; if (!x) return; $('layer').innerHTML = '<div class="scrim" id="gsScrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(x.title) + '"><header><h2 class="grow">' + esc(x.title) + ' <span class="hint">' + x.list.length + '</span></h2><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header><div class="gsres">' + (x.list.length ? x.list.map((id) => S.leads.get(id)).filter(Boolean).map((l) => dashRowHtml('lead', l)).join('') : '<p class="empty">אין</p>') + '</div></div></div>'; return; }
     if (d.dash !== undefined) { S.f.dash = d.dash || null; S.f.dashEdit = false; const x = dashCur(); if (x) S.f.dashRange = x.range || 'month'; return render(); }
     if (d.dashrange) { S.f.dashRange = d.dashrange; return render(); }
     if (d.dashshift) { dashShift(+d.dashshift); return render(); }
@@ -9160,6 +9378,7 @@ document.addEventListener('click', async (e) => {
     if (d.pmode) { S.f.pnlMode = d.pmode; return render(); }
     if (d.money) { S.f.money = d.money; return render(); }
     if (d.approk) return decideApproval(d.approk, true);
+    if (d.subreview) { const a = S.approvals.get(d.subreview), c2 = a && S.clients.get(a.clientId); if (!c2) return; return docReview(c2, (a.files || []).map((f) => ({ ...f, cat: docGuess(f.title) })), { scope: 'submission', folderId: a.folderId, approvalId: a.id }); }
     if (d.carplate) { const v = intakeDoc(S.view.clientId).car || {}; return copyText(String(v.plate || ''), 'מספר הרכב הועתק'); }
     if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
@@ -9342,6 +9561,9 @@ document.addEventListener('click', async (e) => {
         case 'calSearch': return calSearch(c);
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
+        case 'fundPrepare': return fundPrepare(c);
+        case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
+        case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
           async (d) => { const m = String(d.url || '').match(/folders\/([\w-]{10,})/) || String(d.url || '').match(/[?&]id=([\w-]{10,})/) || String(d.url || '').match(/^([\w-]{20,})$/); if (!m) return 'זה לא נראה כמו קישור לתיקייה';
             let title = ''; if (S.mcp) { const md = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + m[1] + "'", pageSize: 1, excludeContentSnippets: true }, { cache: false }).catch(() => null)); if (!md.files) return 'אין גישה לתיקייה הזו בדרייב'; }
@@ -9543,6 +9765,9 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.apq) sv.q = { ...apprQ(c), [el.dataset.apq]: el.value.trim() };
     else { const [aid, f] = el.dataset.apqt.split(':'); sv.quotes = sv.quotes || {}; sv.quotes[aid] = { ...(sv.quotes[aid] || {}), [f]: el.value === '' ? null : n(el.value), at: stamp(), by: S.me.id }; }
     await write('clients/' + c.id, { apprSurvey: sv, updatedAt: stamp() }, 'update'); return; }
+  if (el.dataset && el.dataset.payamt) { const id = el.dataset.payamt, c = S.clients.get(id); if (!c || !S.canClient) return; const v = el.value === '' ? null : r2(el.value);
+    await write('clients/' + id, { expectedPayAmount: v, updatedAt: stamp() }, 'update', { journal: true });
+    await logClient(id, v ? 'צפי סכום לבנק: ' + plain(v) : 'צפי הסכום בוטל — לפי יתרת השכ״ט').catch(() => {}); return toast(v ? 'נשמר — ' + plain(v) : 'לפי יתרת השכ״ט'); }
   if (el.dataset && (el.dataset.paydate || el.dataset.payconf)) { const id = el.dataset.paydate || el.dataset.payconf, c = S.clients.get(id); if (!c || !S.canClient) return;
     const patch = el.dataset.paydate ? { expectedPayDate: el.value || null } : { payConf: el.value || null };
     await write('clients/' + id, { ...patch, updatedAt: stamp() }, 'update', { journal: true });
