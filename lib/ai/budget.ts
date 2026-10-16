@@ -29,6 +29,7 @@ export const FEATURES = {
   sample: { label: 'ניתוח מיידי מהדף (דוח אשראי, מילוי שדות, סריקה)', maxIls: 2.5 },
   intake_analysis: { label: 'ניתוח תיק (כשהתור על המנוי לא זמין)', maxIls: 3 },
   invoice: { label: 'חילוץ חשבונית של ספק לא מוכר', maxIls: 0.5 },
+  property_value: { label: 'שווי נכס — חיפוש עסקאות ומודעות (רק כשהתור לא חי ו-PROPERTY_VALUE_PAID=1)', maxIls: 2.5 },
 } as const
 export type Feature = keyof typeof FEATURES
 

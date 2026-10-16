@@ -21,7 +21,7 @@ export interface CrmSession { k: string; r: CrmRole; d: string[]; l: string; e: 
 /** אוספים שהמוקד לא קורא ולא כותב — כמו OWNER_READ בדף */
 export const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool']
 /** מה המוקד כן כותב — כמו TEAM_WRITE בדף */
-export const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance']
+export const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations']
 /** סימן במקום גיבוב שלא נשלח לדפדפן */
 export const SECRET_MARK = 'srv'
 

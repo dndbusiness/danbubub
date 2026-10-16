@@ -707,6 +707,12 @@ body.add-open #qadd { border-radius: 14px 14px 0 0; }
 
 /* ── מגע: גם צ׳יפים וחיפוש 40px לפחות (כפתורים ושדות — 44px, בשכבת הנגישות למעלה) ── */
 @media (pointer: coarse) { .seg button, .dchip, .gsbtn { min-height: 40px; } }
+/* הערכת שווי — המגירה הרחבה (בלי צבעים: הכל מה-tokens) */
+.valbody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.valbody > section { min-width: 0; margin: 0; }
+.valbody li { overflow-wrap: anywhere; }
+.valbody .seg button { white-space: nowrap; }
+.valdr footer { flex-wrap: wrap; }
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
@@ -782,7 +788,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned'];
+const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'valuations'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -6476,7 +6482,7 @@ window.HAREL_JOBS = {
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
 const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool'];
 const PARTNER_WRITE = ['clients', 'transactions'];
-const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance'];
+const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
 /* ── תפקידים והרשאות לפי חברה (דן, 09/10) ──────────────────────────────────
    owner = דן · admin = מנהל מערכת בשתי החברות (הדס) · admin_re = מנהל מערכת הר-אל השקעות בלבד (אביב)
@@ -7885,6 +7891,391 @@ async function carValueApply(cid) {
   x.car = { ...(x.car || {}), value: V.mid, valueSrc: 'yad2', valueLink: ((V.listings || []).find((l) => l.url) || {}).url || (x.car || {}).valueLink || '', valueAi: { at: stamp(), by: S.me.id, low: V.low, mid: V.mid, high: V.high, basis: V.basis, listings: V.listings, costIls: R.costIls } };
   await write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }); delete S.carVal[cid]; toast('נרשם שווי ' + plain(V.mid) + ' לפי יד 2'); render();
 }
+/* ══ הערכת שווי — מנוע (פונקציות טהורות; נבדק ב-tests/crm-valuation.test.ts. אפיון: docs/HAREL_VALUATION_SPEC.md) ══ */
+const VAL_TYPE_HE = { apartment: 'דירה', garden: 'דירת גן', penthouse: 'גג / פנטהאוז', cottage: 'קוטג׳ / דו-משפחתי', house: 'בית פרטי', land: 'מגרש', commercial: 'מסחרי / משרד' };
+/* צמוד קרקע, מגרש ומסחרי: ₪ למ״ר בנוי לא מספיק (במבחן מול שמאות — 15% מתחת). מוצג, אבל בביטחון נמוך ובהפניה לבדיקה מעמיקה */
+const VAL_DEEP_TYPES = ['cottage', 'house', 'land', 'commercial'];
+/* מגבלות אחוז מימון לפי סוג ההלוואה — ⚠ לאמת מול הוראת בנק ישראל העדכנית לפני שימוש */
+const VAL_LTV = { single: ['דירה יחידה', 75], replace: ['דירה חלופית', 70], invest: ['דירה להשקעה / נוספת', 50], any: ['משכנתא לכל מטרה', 50] };
+/* שאלות ההמשך: אחוז התאמה לכל תשובה, ו-spread = אי-ודאות (באחוזים) כל עוד לא נענתה. ערכי התחלה — ⚠ לכייל מול שמאויות (אפיון 8.4) */
+const VAL_Q = [
+  { k: 'finish', q: 'רמת גמר / שיפוץ', spread: 5, opts: [['none', 'לא שופץ', 0], ['std', 'שיפוץ רגיל', 2], ['high', 'שופץ ברמה גבוהה (משודרג)', 5], ['needs', 'דרוש שיפוץ', -6]] },
+  { k: 'building', q: 'מצב הבניין', spread: 3, opts: [['new', 'חדש / משופץ', 2], ['kept', 'מתוחזק', 0], ['poor', 'ירוד', -4]] },
+  { k: 'parking', q: 'חניה', spread: 3, when: (s) => !['house', 'cottage', 'land'].includes(s.type), opts: [['reg', 'רשומה בטאבו', 4], ['unreg', 'לא רשומה', 2], ['none', 'אין', 0]] },
+  { k: 'mamad', q: 'ממ״ד', spread: 2, when: (s) => s.type !== 'land', opts: [['yes', 'יש', 3], ['no', 'אין', 0]] },
+  { k: 'elevator', q: 'מעלית', spread: 3, when: (s) => n(s.floor) >= 3 && ['apartment', 'penthouse'].includes(s.type), opts: [['yes', 'יש', 0], ['no', 'אין', -3]] },
+  { k: 'balcony', q: 'מרפסת', spread: 2, when: (s) => ['apartment', 'penthouse'].includes(s.type), opts: [['none', 'אין', 0], ['small', 'עד 10 מ״ר', 1.5], ['large', 'מעל 10 מ״ר', 3], ['sun', 'מרפסת שמש', 4]] },
+  { k: 'view', q: 'נוף / כיווני אוויר', spread: 2, opts: [['none', 'רגיל', 0], ['partial', '3 כיוונים / נוף חלקי', 1], ['open', 'נוף פתוח', 3]] },
+  { k: 'storage', q: 'מחסן', spread: 1, when: (s) => !['house', 'cottage', 'land'].includes(s.type), opts: [['yes', 'יש', 1], ['no', 'אין', 0]] },
+  { k: 'nuisance', q: 'מטרד ידוע (כביש ראשי, קו מתח, אזור תעשייה)', spread: 3, opts: [['none', 'אין', 0], ['mild', 'קל', -2], ['severe', 'משמעותי', -6]] },
+];
+const valNum = (v) => { if (v === '' || v == null) return null; const x = Number(String(v).replace(/[^\d.\-]/g, '')); return Number.isFinite(x) ? x : null; };
+const valStreet = (a) => String(a || '').split(',')[0].replace(/["׳״'`]/g, '').replace(/\d+[א-ת]?/g, '').replace(/\s+/g, ' ').trim();
+const valHouse = (a) => { const m = String(a || '').split(',')[0].match(/(\d+)/); return m ? m[1] : ''; };
+function valRing(s, d) {
+  if (s.gush && s.helka && d.gush && d.helka && String(s.gush) === String(d.gush) && String(s.helka) === String(d.helka)) return 0;
+  const ss = valStreet(s.address), ds = valStreet(d.address);
+  if (ss && ds && ss === ds) return valHouse(s.address) && valHouse(s.address) === valHouse(d.address) ? 0 : 1;
+  return 2;
+}
+const VAL_RING_HE = ['אותו בניין', 'אותו רחוב', 'אזור / שכונה'];
+function valQuant(sorted, p) { if (!sorted.length) return null; const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo); }
+const valMonths = (a, b) => (Date.parse(b) - Date.parse(a)) / 2629746000;
+/**
+ * s: {address, type, rooms, area, floor, kind:'second'|'new'|'', gush, helka}
+ * deals: [{date, address, rooms, area, floor, price, kind, share, gush, helka, off}] — רק שורות שאדם אישר
+ * o: {asOf: 'YYYY-MM-DD' (חובה), indexPctYear: הצמדה שנתית באחוזים (ברירת מחדל 0), minN: 5}
+ */
+function valCompute(s, deals, o) {
+  const asOf = o.asOf, r = (valNum(o.indexPctYear) || 0) / 100, minN = o.minN || 5, area = valNum(s.area), rooms = valNum(s.rooms);
+  const excluded = [], cand = [];
+  (deals || []).forEach((d0, i) => {
+    const d = { ...d0, i, price: valNum(d0.price), area: valNum(d0.area), rooms: valNum(d0.rooms), floor: valNum(d0.floor), share: d0.share == null || d0.share === '' ? 1 : valNum(d0.share) };
+    const age = d.date ? valMonths(d.date, asOf) : null;
+    const why = d.off ? 'הוצאה ידנית' : !d.price ? 'אין מחיר' : !d.date || age == null || isNaN(age) ? 'אין תאריך' : age > 36 ? 'ישנה מ-36 חודשים' : age < -1 ? 'תאריך עתידי' : d.share != null && d.share < 1 ? 'חלק מנכס' :
+      s.kind && d.kind && s.kind !== d.kind ? (d.kind === 'new' ? 'חדש מקבלן (הנכס יד שנייה)' : 'יד שנייה (הנכס חדש)') :
+      rooms && d.rooms && Math.abs(d.rooms - rooms) > 1 ? 'חדרים מחוץ ל-±1' : area && d.area && Math.abs(d.area - area) / area > 0.25 ? 'שטח מחוץ ל-±25%' : '';
+    if (why) excluded.push({ i, why }); else cand.push({ ...d, ring: valRing(s, d), age, adj: Math.round(d.price * Math.pow(1 + r, Math.max(0, age) / 12)) });
+  });
+  let ring = 2; for (let k = 0; k <= 2; k++) if (cand.filter((d) => d.ring <= k).length >= minN) { ring = k; break; }
+  let pool = cand.filter((d) => d.ring <= ring); cand.filter((d) => d.ring > ring).forEach((d) => excluded.push({ i: d.i, why: 'רחוק יותר (' + VAL_RING_HE[d.ring] + ') — יש מספיק קרובות' }));
+  const sqm = !!area && pool.length > 0 && pool.filter((d) => d.area).length >= Math.ceil(pool.length * 0.7);
+  if (sqm) pool.filter((d) => !d.area).forEach((d) => excluded.push({ i: d.i, why: 'אין שטח' }));
+  pool = pool.filter((d) => !sqm || d.area).map((d) => ({ ...d, x: sqm ? d.adj / d.area : d.adj }));
+  const med0 = valQuant(pool.map((d) => d.x).sort((a, b) => a - b), 0.5);
+  const keep = [];
+  pool.forEach((d) => { if (med0 && Math.abs(d.x / med0 - 1) > 0.4) excluded.push({ i: d.i, why: 'חריגה של מעל 40% מהחציון (חלק מנכס / עסקה לא בשוק?)' }); else keep.push(d); });
+  let xs = keep.map((d) => d.x).sort((a, b) => a - b);
+  if (xs.length >= 4) { /* רוחב מינימלי 5% מהחציון — כשרוב העסקאות זהות, IQR=0 היה פוסל כל עסקה שונה במעט */
+    const q1 = valQuant(xs, 0.25), q3 = valQuant(xs, 0.75), iq = Math.max(q3 - q1, 0.05 * valQuant(xs, 0.5)), lo = q1 - 1.5 * iq, hi = q3 + 1.5 * iq;
+    for (let j = keep.length - 1; j >= 0; j--) if (keep[j].x < lo || keep[j].x > hi) { excluded.push({ i: keep[j].i, why: 'חריג סטטיסטי (1.5×IQR)' }); keep.splice(j, 1); }
+    xs = keep.map((d) => d.x).sort((a, b) => a - b); }
+  const N = xs.length, p25 = valQuant(xs, 0.25), med = valQuant(xs, 0.5), p75 = valQuant(xs, 0.75), mult = sqm ? area : 1, rnd = (v) => v == null ? null : Math.round(v * mult / 1000) * 1000;
+  const spread = p25 ? p75 / p25 : null, deep = VAL_DEEP_TYPES.includes(s.type), warns = [];
+  let confidence = !N ? 'none' : N >= 8 && ring <= 1 && spread <= 1.2 ? 'high' : N < 4 || spread > 1.35 ? 'low' : 'medium';
+  if (deep && N) { confidence = 'low'; warns.push('צמוד קרקע / מגרש / מסחרי: השווי תלוי בעיקר בקרקע ובזכויות — ₪ למ״ר בנוי לא מספיק. נדרשת בדיקה מעמיקה.'); }
+  if (N && N < 4) warns.push('פחות מ-4 עסקאות — ההערכה חלשה. כדאי להוסיף עסקאות.');
+  if (N && !sqm && area) warns.push('לרוב העסקאות אין שטח — החישוב לפי מחיר עסקה ולא לפי מ״ר.');
+  if (!r) warns.push('בלי הצמדה למדד: עסקאות ישנות לא עודכנו למחיר של היום.');
+  const fl = keep.map((d) => d.floor).filter((f) => f != null).sort((a, b) => a - b), sf = valNum(s.floor);
+  const floorPct = sf != null && fl.length >= 3 && ['apartment'].includes(s.type) ? Math.max(-6, Math.min(6, Math.round((sf - valQuant(fl, 0.5)) * 1.5 * 10) / 10)) : 0;
+  return { used: keep.map((d) => ({ i: d.i, ring: d.ring, adj: d.adj, x: Math.round(d.x) })), excluded, ring, n: N, mode: sqm ? 'sqm' : 'price', p25: p25 && Math.round(p25), med: med && Math.round(med), p75: p75 && Math.round(p75),
+    value: rnd(med), low: rnd(p25), high: rnd(p75), spread: spread && Math.round(spread * 100) / 100, confidence, floorPct, deep, warns };
+}
+/** שאלות ההמשך שרלוונטיות לנכס, לפי סדר ההשפעה (spread). answers: {k: key|'unknown'} */
+function valQuestions(s) { return VAL_Q.filter((q) => !q.when || q.when(s)).sort((a, b) => b.spread - a.spread); }
+/** השווי אחרי התשובות: שלבי מפל, והטווח — רחב יותר בכל שאלה פתוחה (חצי מה-spread שלה), כך שכל תשובה מצמצמת אותו */
+function valFinal(base, s, answers) {
+  if (!base || !base.value) return null;
+  const steps = []; if (base.floorPct) steps.push({ k: 'floor', label: 'קומה ' + s.floor + ' מול חציון הקומות בעסקאות', pct: base.floorPct });
+  let open = 0;
+  valQuestions(s).forEach((q) => { const a = (answers || {})[q.k], o = q.opts.find((x) => x[0] === a);
+    if (!o) { open += q.spread / 2; return; } if (o[2]) steps.push({ k: q.k, label: q.q + ': ' + o[1], pct: o[2] }); });
+  const pct = Math.round(steps.reduce((t, x) => t + x.pct, 0) * 10) / 10, f = 1 + pct / 100, ext = open / 100, k = (v) => Math.round(v / 1000) * 1000;
+  return { steps, pct, open: Math.round(open * 10) / 10, value: k(base.value * f), low: k(base.low * f * (1 - ext)), high: k(base.high * f * (1 + ext)) };
+}
+/** אחוז מימון: שמרני — מול הגבול התחתון של הטווח */
+function valLtv(loan, fin, type) {
+  const L = valNum(loan); if (!L || !fin || !fin.low) return null; const lim = (VAL_LTV[type] || VAL_LTV.single)[1];
+  return { onLow: Math.round(L / fin.low * 1000) / 10, onMid: Math.round(L / fin.value * 1000) / 10, limit: lim, over: L / fin.low * 100 > lim, equity: Math.max(0, Math.round((L - fin.low * lim / 100) / 1000) * 1000) };
+}
+/** הדבקת טבלת עסקאות (מ-nadlan.gov.il, משמאות, מדירובוט): שורה = עסקה. מחזיר הצעות — אדם מאשר */
+function valParseDeals(text) {
+  const out = [];
+  String(text || '').split(/\n+/).forEach((line) => {
+    const L = line.replace(/₪|ש״ח|ש"ח|NIS/g, ' ').trim(); if (!L) return;
+    let date = ''; const dm = L.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/) || null, im = L.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (im) date = im[0]; else if (dm) { const y = dm[3].length === 2 ? '20' + dm[3] : dm[3]; date = y + '-' + dm[2].padStart(2, '0') + '-' + dm[1].padStart(2, '0'); }
+    const rest = L.replace(im ? im[0] : dm ? dm[0] : '\u0000', ' ');
+    const nums = (rest.match(/\d[\d,]*(?:\.\d+)?/g) || []).map((x) => Number(x.replace(/,/g, ''))).filter((x) => Number.isFinite(x));
+    const price = nums.filter((x) => x >= 100000 && x < 200000000).sort((a, b) => b - a)[0]; if (!price || !date) return;
+    const small = nums.filter((x) => x !== price && x < 100000);
+    const rooms = small.find((x) => x >= 1 && x <= 12 && (x % 1 === 0.5 || x <= 8)) ?? null;
+    const area = small.find((x) => x >= 20 && x <= 1000 && x !== rooms) ?? null;
+    const addr = (rest.match(/[א-ת][א-ת"׳״'\s.\-]+\d*[א-ת]?/) || [''])[0].replace(/\s+/g, ' ').trim();
+    out.push({ date, address: addr, rooms, area, floor: null, price, kind: /חדש|קבלן/.test(L) ? 'new' : '', src: 'הדבקה' });
+  });
+  return out;
+}
+/* זהה ל-lib/crm/property-value.ts (בדיקת זהות ב-tests/crm-valuation.test.ts) */
+function valSearchPrompt(s) {
+  const what = [VAL_TYPE_HE[s.type || ''] || 'נכס', s.rooms ? s.rooms + ' חדרים' : '', s.area ? s.area + ' מ״ר' : '', s.floor != null && String(s.floor) !== '' ? 'קומה ' + s.floor : '', s.kind === 'new' ? 'חדש מקבלן' : s.kind === 'second' ? 'יד שנייה' : ''].filter(Boolean).join(' · ');
+  return [
+    '## חיפוש ברשת: מותר (קריאה בלבד)',
+    'בקשה זו מתירה להשתמש בחיפוש באינטרנט ובקריאת דפים — לקריאה בלבד. אסור לשלוח טפסים, להירשם או לפעול בשום אתר.',
+    '',
+    'משימה: לאסוף נתוני שוק לנכס בישראל, לצורך הערכת שווי פנימית של יועץ משכנתאות.',
+    'הנכס: ' + (s.address || '—') + (s.gush ? ' · גוש ' + s.gush + (s.helka ? ' חלקה ' + s.helka : '') : '') + ' · ' + (what || '—') + '.',
+    '',
+    'חפש, לפי סדר החשיבות:',
+    '1. עסקאות שבוצעו (מכירות רשומות ברשות המסים) בבניין, ברחוב ובשכונה — 36 החודשים האחרונים. מקורות: nadlan.gov.il, ודפי עסקאות באתרים שמציגים את נתוני רשות המסים (מדלן, אתרי שמאים ותיווך). עסקה = תאריך, כתובת, חדרים, שטח, קומה, מחיר, ואם ידוע: חדש מקבלן או יד שנייה.',
+    '2. מודעות למכירה עכשיו של נכסים דומים באזור (יד2, מדלן, אתרי תיווך) — מחיר מבוקש בלבד.',
+    '3. פרויקטים חדשים של יזמים באזור ומחירם (למ״ר או לדירה).',
+    '4. גורמים שיכולים להשפיע על השווי: התחדשות עירונית (תמ״א 38, פינוי-בינוי), תב״ע חדשה, תחבורה (רכבת קלה / תחנה), מטרדים, הפקעות.',
+    '5. משפט אחד על מצב השוק באזור (מגמת מחירים, קצב עסקאות), רק אם יש לך מקור.',
+    '',
+    'כללים: אל תמציא עסקאות, מחירים, כתובות או קישורים — רק מה שראית בפועל בתוצאות או בדפים. לכל שורה צרף את הקישור שבו ראית אותה. אם לא מצאת — החזר רשימה ריקה וכתוב מה חסר ב-note. מחיר מבוקש אינו עסקה — אל תכניס מודעות לרשימת העסקאות.',
+    '',
+    'החזר JSON בלבד, בלי טקסט לפניו או אחריו, במבנה:',
+    '{"deals":[{"date":"YYYY-MM-DD","address":"רחוב מספר, עיר","rooms":מספר או null,"area":מספר או null,"floor":מספר או null,"price":מספר,"kind":"second|new|","url":"https://…","src":"שם המקור"}],',
+    ' "listings":[{"title":"…","address":"…","price":מספר,"rooms":מספר או null,"area":מספר או null,"floor":מספר או null,"date":"YYYY-MM-DD או ריק","url":"https://…","src":"יד2 / מדלן / …"}],',
+    ' "developers":[{"project":"…","developer":"…","ppsqm":מספר או null,"price":מספר או null,"rooms":מספר או null,"area":מספר או null,"url":"https://…"}],',
+    ' "factors":[{"text":"…","dir":"up|down|risk","url":"https://…"}],',
+    ' "market":"משפט אחד או ריק","note":"מה לא נמצא / הסתייגויות"}',
+    'מחירים בש״ח, מספרים שלמים.',
+  ].join('\n');
+}
+function valCleanSearch(j) {
+  const o = j && typeof j === 'object' ? j : {}, arr = (k) => (Array.isArray(o[k]) ? o[k] : []).filter((x) => x && typeof x === 'object');
+  const num = (v, min, max) => { const x = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^\d.]/g, '')); return Number.isFinite(x) && x >= min && x <= max ? x : null; };
+  const url = (v) => { const u = String(v ?? '').trim(); return /^https:\/\/[^\s"'<>]+$/.test(u) ? u.slice(0, 500) : ''; };
+  const date = (v) => { const m = String(v ?? '').match(/(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : ''; };
+  const txt = (v, k) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, k), kind = (v) => (v === 'second' || v === 'new' ? v : '');
+  const deals = arr('deals').map((d) => ({ date: date(d.date), address: txt(d.address, 120), rooms: num(d.rooms, 1, 20), area: num(d.area, 15, 2000), floor: num(d.floor, -2, 80), price: Math.round(num(d.price, 50000, 200000000) ?? 0), kind: kind(d.kind), url: url(d.url), src: txt(d.src, 60) }))
+    .filter((d) => d.price && d.date && d.url).slice(0, 40);
+  const listings = arr('listings').map((d) => ({ title: txt(d.title, 140), address: txt(d.address, 120), price: Math.round(num(d.price, 50000, 200000000) ?? 0), rooms: num(d.rooms, 1, 20), area: num(d.area, 15, 2000), floor: num(d.floor, -2, 80), date: date(d.date), url: url(d.url), src: txt(d.src, 40) }))
+    .filter((d) => d.price && d.url).slice(0, 20);
+  const developers = arr('developers').map((d) => ({ project: txt(d.project, 100), developer: txt(d.developer, 80), ppsqm: num(d.ppsqm, 2000, 300000), price: num(d.price, 50000, 200000000), rooms: num(d.rooms, 1, 20), area: num(d.area, 15, 2000), url: url(d.url) }))
+    .filter((d) => (d.ppsqm || d.price) && d.url && d.project).slice(0, 12);
+  const factors = arr('factors').map((d) => ({ text: txt(d.text, 240), dir: ['up', 'down', 'risk'].includes(String(d.dir)) ? d.dir : 'risk', url: url(d.url) }))
+    .filter((d) => d.text && d.url).slice(0, 12);
+  return { deals, listings, developers, factors, market: txt(o.market, 300), note: txt(o.note, 400) };
+}
+/* ══ סוף מנוע הערכת שווי ══ */
+/* ══ הערכת שווי — מסך (מגירה רחבה מתוך "הנכס והבקשה"). אפיון: docs/HAREL_VALUATION_SPEC.md.
+   חיפוש: התור של Claude על המנוי (חינם, תוך דקות). כל שורה שמגיעה מהחיפוש או מהדבקה = הצעה; אדם מאשר לפני שהיא נכנסת לחישוב (הנחיה 17).
+   נשמר ב-valuations/<id>. "רשום בתיק" כותב את השווי ל-intakes/<id>.property.value (מקור: הערכה) — לא נוגע בשום שדה אחר. ══ */
+const VAL_CONF = { high: ['ביטחון גבוה', 'actual'], medium: ['ביטחון בינוני', 'expected'], low: ['ביטחון נמוך', 'open'], none: ['אין מספיק עסקאות', 'muted'] };
+const VAL_FROM_IK = { apartment: 'apartment', house: 'house', contractor: 'apartment', land: 'land', commercial: 'commercial', yosh: 'apartment', other: 'apartment' };
+const VAL_DIR = { up: ['מעלה ערך', 'actual'], down: ['מוריד ערך', 'open'], risk: ['לבדוק', 'expected'] };
+function valLatest(refId) { return live(S.valuations).filter((v) => v.refId === refId).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0] || null; }
+function valStatus() {
+  if (!window.__harelServer || S.valSt !== undefined) return S.valSt; S.valSt = null;
+  fetch('/api/crm/property/value', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.valSt = j; if (S.val && S.val.open) valPaint(); }).catch(() => { S.valSt = { queue: false, paid: false }; });
+  return null;
+}
+function valOpen(refId) {
+  if (S.val && S.val.refId === refId && !S.val.saved) { S.val.open = true; return valPaint(); } /* חוזרים למה שהיה פתוח (גם אם חיפוש עוד רץ) */
+  const prev = valLatest(refId);
+  if (prev) { S.val = JSON.parse(JSON.stringify(prev)); S.val.open = true; S.val.saved = false; S.val.search = null; return valPaint(); }
+  const { c } = intakeWho(refId), x = intakeDoc(refId), P = x.property || {}, p = (c && c.prop) || {}, R = x.request || {};
+  S.val = { id: uid(), refId, open: true, s: { address: p.address || '', type: VAL_FROM_IK[P.type] || 'apartment', kind: P.type === 'contractor' ? 'new' : 'second', rooms: p.rooms ?? '', area: '', floor: p.floor ?? '', gush: p.gush || '', helka: p.helka || '' },
+    deals: [], listings: [], developers: [], factors: [], market: '', note: '', answers: {}, idx: '', loan: R.amount || '', ltvType: 'single', search: null };
+  valPaint();
+}
+function valCalc(V) {
+  const ok = V.deals.map((d, i) => ({ d, i })).filter((o) => o.d.ok);
+  const base = valCompute(V.s, ok.map((o) => o.d), { asOf: today(), indexPctYear: V.idx });
+  const used = new Map(base.used.map((u) => [ok[u.i].i, u])), out = new Map(base.excluded.map((e) => [ok[e.i].i, e.why]));
+  const fin = valFinal(base, V.s, V.answers), ltv = fin ? valLtv(V.loan, fin, V.ltvType) : null;
+  return { base, fin, ltv, used, out };
+}
+function valPaint() {
+  const V = S.val; if (!V || !V.open) return;
+  /* שדה בפוקוס בתוך המגירה: blur קודם (ה-change שלו נשמר ומצייר), ורק אז מחליפים את ה-HTML — אחרת הדפדפן זורק בהחלפה */
+  const ae = document.activeElement; if (ae && ae !== document.body && $('layer').contains(ae)) { ae.blur(); if (S.val !== V || !V.open) return; }
+  const w = S.canTask, K = valCalc(V), B = K.base, F = K.fin, st = valStatus(), dis = w ? '' : ' disabled';
+  const inp = (k, label, val, type = 'number', attrs = '') => '<label class="fl">' + label + '<input class="f' + (type === 'number' ? ' num' : '') + '" type="' + type + '" data-vs="' + k + '" value="' + esc(val ?? '') + '" ' + attrs + dis + '></label>';
+  const sel = (k, label, opts, val, attr = 'data-vs') => '<label class="fl">' + label + '<select class="f" ' + attr + '="' + k + '"' + dis + '>' + Object.entries(opts).map(([a, b]) => '<option value="' + a + '"' + (String(val) === a ? ' selected' : '') + '>' + esc(Array.isArray(b) ? b[0] : b) + '</option>').join('') + '</select></label>';
+  const a = encodeURIComponent(V.s.address || ''), ext = ' target="_blank" rel="noopener"', g = (q) => 'https://www.google.com/search?q=' + encodeURIComponent(q);
+  const lnk = (u, t) => u ? '<a href="' + esc(u) + '"' + ext + '>' + esc(t || 'מקור') + ' ↗</a>' : '';
+  const S0 = V.search || {};
+
+  const subj = '<section class="card"><header><h2>הנכס</h2></header><div class="row">' + '<label class="fl full">כתובת (רחוב מספר, עיר)<input class="f" type="text" data-vs="address" value="' + esc(V.s.address) + '"' + dis + '></label></div><div class="row">' +
+    sel('type', 'סוג', VAL_TYPE_HE, V.s.type) + sel('kind', 'יד שנייה / חדש', { second: 'יד שנייה', new: 'חדש מקבלן', '': 'לא ידוע' }, V.s.kind) +
+    inp('rooms', 'חדרים', V.s.rooms, 'number', 'step="0.5" style="width:70px"') + inp('area', 'שטח (מ״ר)', V.s.area, 'number', 'style="width:80px"') + inp('floor', 'קומה', V.s.floor, 'number', 'style="width:70px"') +
+    inp('gush', 'גוש', V.s.gush, 'text', 'inputmode="numeric" dir="ltr" style="width:80px"') + inp('helka', 'חלקה', V.s.helka, 'text', 'inputmode="numeric" dir="ltr" style="width:70px"') + '</div>' +
+    (V.s.address ? '<div class="row" style="gap:6px;flex-wrap:wrap"><a class="btn small" href="https://www.google.com/maps/search/?api=1&query=' + a + '"' + ext + '>המפה ותמונת הרחוב ↗</a><a class="btn small" href="https://www.nadlan.gov.il/"' + ext + '>עסקאות — רשות המסים ↗</a>' +
+      '<a class="btn small" href="' + g('site:yad2.co.il ' + V.s.address) + '"' + ext + '>מודעות ביד 2 ↗</a><a class="btn small" href="' + g('פרויקט חדש ' + V.s.address.split(',').slice(-1)[0] + ' מחיר למ״ר') + '"' + ext + '>פרויקטים של יזמים ↗</a></div>' : '') + '</section>';
+
+  const srch = '<section class="card"><header><h2>חיפוש נתוני שוק</h2><span class="grow"></span>' +
+    (w && window.__harelServer ? (S0.busy ? '<button class="btn small ghost" type="button" data-va="valStop">עצור</button>' : '<button class="btn small primary" type="button" data-va="valSearch"' + (String(V.s.address || '').trim().length < 4 ? ' disabled' : '') + '>חפש עסקאות, מודעות ויזמים</button>') : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 6px">' + (!window.__harelServer ? 'החיפוש עובד במערכת בשרת. כאן — מוסיפים או מדביקים עסקאות ידנית (למטה).' : !st ? '' :
+      st.queue ? 'Claude על המנוי מחפש ברשות המסים, ביד 2, במדלן ובפרויקטים של יזמים — חינם, תוך כמה דקות.' : st.paid ? 'התור על המנוי לא פעיל — החיפוש ירוץ דרך ה-API בתשלום (בתוך התקרה היומית ' + n(st.capIls) + ' ₪).' : '<b>התור של Claude על המנוי לא פעיל כרגע</b> — אפשר להוסיף או להדביק עסקאות ידנית.') +
+    ' כל מה שחוזר מסומן "ממתין לאישור" ולא נכנס לחישוב עד שמאשרים מול הקישור.</p>' +
+    (S0.busy ? '<p class="notice" style="margin:0">' + esc(S0.msg || 'מחפש…') + '</p>' : S0.err ? '<p class="hint" style="color:var(--open);margin:0">' + esc(S0.err) + '</p>' :
+      S0.done ? '<p class="hint" style="margin:0">החיפוש החזיר ' + S0.deals + ' עסקאות, ' + S0.listings + ' מודעות, ' + S0.devs + ' פרויקטים, ' + S0.factors + ' גורמים' + (S0.cost ? ' · עלות ' + n(S0.cost).toFixed(2) + ' ₪' : '') + '.' + (V.note ? ' ' + esc(V.note) : '') + '</p>' : '') + '</section>';
+
+  const pend = V.deals.filter((d) => !d.ok).length;
+  const cell = (i, k, v, st2 = 'width:80px', t = 'number') => '<input class="f' + (t === 'number' ? ' num' : '') + '" type="' + t + '" data-vd="' + i + ':' + k + '" value="' + esc(v ?? '') + '" style="' + st2 + '" aria-label="' + k + '"' + dis + '>';
+  const dealsT = '<section class="card"><header><h2>עסקאות להשוואה</h2><span class="pill ' + (B.n ? 'actual' : 'muted') + '">' + B.n + ' בחישוב</span>' + (pend ? '<span class="pill expected">' + pend + ' ממתינות לאישור</span>' : '') + '<span class="grow"></span>' +
+      (w && pend ? '<button class="btn small" type="button" data-va="valOkAll">אשר את כל הממתינות</button>' : '') + '</header>' +
+    (V.deals.length ? '<div class="scroll"><table><thead><tr><th>תאריך</th><th>כתובת</th><th>חד׳</th><th>מ״ר</th><th>קומה</th><th>מחיר</th><th>₪ למ״ר</th><th>מקור</th><th>מצב</th><th></th></tr></thead><tbody>' +
+      V.deals.map((d, i) => { const u = K.used.get(i), why = K.out.get(i), ppm = n(d.price) && n(d.area) ? Math.round(n(d.price) / n(d.area)) : null;
+        const stt = !d.ok ? '<span class="pill expected">ממתין לאישור</span>' : u ? '<span class="pill actual">בחישוב · ' + VAL_RING_HE[u.ring] + '</span>' : '<span class="pill open" title="' + esc(why || '') + '">הוצאה</span> <span class="hint">' + esc(why || '') + '</span>';
+        return '<tr>' + '<td>' + cell(i, 'date', d.date, 'width:130px', 'date') + '</td><td>' + cell(i, 'address', d.address, 'width:170px', 'text') + '</td><td>' + cell(i, 'rooms', d.rooms, 'width:56px') + '</td><td>' + cell(i, 'area', d.area, 'width:64px') + '</td><td>' + cell(i, 'floor', d.floor, 'width:52px') +
+          '</td><td>' + cell(i, 'price', d.price, 'width:110px') + '</td><td class="num">' + (ppm ? plain(ppm) : '—') + '</td><td>' + (lnk(d.url, d.src || 'מקור') || esc(d.src || 'ידני')) + (d.kind === 'new' ? ' <span class="hint">חדש</span>' : '') + '</td><td>' + stt + '</td><td style="white-space:nowrap">' +
+          (w ? (!d.ok ? '<button class="btn small primary" type="button" data-va="valOk" data-vi="' + i + '">אשר</button>' : '<button class="btn small ghost" type="button" data-va="valOff" data-vi="' + i + '">' + (d.off ? 'החזר' : 'הוצא') + '</button>') + '<button class="btn small ghost" type="button" data-va="valRm" data-vi="' + i + '" aria-label="הסר">✕</button>' : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' : '<p class="empty">עוד אין עסקאות. מחפשים למעלה, או מוסיפים / מדביקים כאן.</p>') +
+    (w ? '<details' + (V.deals.length ? '' : ' open') + '><summary class="hint">הוספה ידנית / הדבקת טבלה</summary><div class="row" style="margin-top:6px">' +
+      ['date:תאריך:date:130', 'address:כתובת:text:170', 'rooms:חד׳:number:60', 'area:מ״ר:number:70', 'floor:קומה:number:60', 'price:מחיר:number:110'].map((x) => { const [k, l, t, wd] = x.split(':'); return '<label class="fl">' + l + '<input class="f' + (t === 'number' ? ' num' : '') + '" type="' + t + '" id="valN_' + k + '" style="width:' + wd + 'px"></label>'; }).join('') +
+      '<label class="fl">קישור<input class="f" type="url" id="valN_url" dir="ltr" style="width:160px" placeholder="https://"></label><button class="btn small primary" type="button" data-va="valAdd">הוסף</button></div>' +
+      '<label class="fl full">הדבקה — שורה לכל עסקה (מרשות המסים, משמאות, מאקסל)<textarea class="f" id="valPaste" rows="4" placeholder="12/03/2025  הרצל 10, קריית ים  4  92  1,950,000"></textarea></label>' +
+      '<button class="btn small" type="button" data-va="valPaste">קרא את השורות</button></details>' : '') + '</section>';
+
+  const conf = VAL_CONF[B.confidence] || VAL_CONF.none;
+  const res = '<section class="card"><header><h2>שווי לפי העסקאות</h2><span class="pill ' + conf[1] + '">' + conf[0] + '</span></header>' +
+    (B.value ? '<table class="kv wrap"><tbody><tr><th>שווי (חציון)</th><td><b>' + plain(B.value) + '</b></td></tr><tr><th>טווח (רבעון תחתון – עליון)</th><td>' + plain(B.low) + ' – ' + plain(B.high) + '</td></tr>' +
+      (B.mode === 'sqm' ? '<tr><th>₪ למ״ר</th><td>' + plain(B.med) + ' <span class="hint">· ' + plain(B.p25) + ' – ' + plain(B.p75) + ' · × ' + n(V.s.area) + ' מ״ר</span></td></tr>' : '') +
+      '<tr><th>בסיס</th><td>' + B.n + ' עסקאות · ' + VAL_RING_HE[B.ring] + ' · ' + (B.mode === 'sqm' ? 'לפי מ״ר' : 'לפי מחיר עסקה') + (B.spread ? ' · פיזור ' + B.spread : '') + '</td></tr></tbody></table>' :
+      '<p class="empty">צריך לפחות עסקה מאושרת אחת (רצוי 5 ומעלה) כדי לחשב.</p>') +
+    '<div class="row" style="align-items:end"><label class="fl">הצמדה שנתית למחירי הדירות %<input class="f num" type="number" step="0.1" data-vx="idx" value="' + esc(V.idx) + '" style="width:90px"' + dis + '></label><span class="hint">ממדד מחירי הדירות של הלמ״ס או מגמה מקומית. ריק = עסקאות ישנות לא מעודכנות.</span></div>' +
+    (B.warns.length ? '<ul class="hint" style="margin:6px 0 0;padding-inline-start:18px">' + B.warns.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '') + '</section>';
+
+  const qs = valQuestions(V.s);
+  const ques = '<section class="card"><header><h2>שאלות על הנכס</h2>' + (F ? '<span class="hint">פתוחות: <bdi dir="ltr">±' + F.open + '%</bdi></span>' : '') + '</header><p class="hint" style="margin:-4px 0 8px">כל תשובה מזיזה את השווי ומצמצמת את הטווח. "לא ידוע" משאיר את הטווח רחב.</p>' +
+    qs.map((q) => '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><b style="min-width:150px">' + esc(q.q) + '</b><div class="seg" role="group" aria-label="' + esc(q.q) + '">' +
+      [...q.opts, ['', 'לא ידוע', 0]].map((o) => '<button type="button" data-vq="' + q.k + ':' + o[0] + '" aria-pressed="' + ((V.answers[q.k] || '') === o[0]) + '"' + dis + '>' + esc(o[1]) + (o[2] ? ' <bdi class="hint" dir="ltr">' + (o[2] > 0 ? '+' : '−') + Math.abs(o[2]) + '%</bdi>' : '') + '</button>').join('') + '</div></div>').join('') + '</section>';
+
+  const fin = F ? '<section class="card" style="border-inline-start:4px solid var(--committed)"><header><h2>ההערכה</h2><span class="pill ' + conf[1] + '">' + conf[0] + '</span></header><table class="kv wrap"><tbody>' +
+    '<tr><th>שווי לפי העסקאות</th><td>' + plain(B.value) + '</td></tr>' + F.steps.map((x) => '<tr><th>' + esc(x.label) + '</th><td><bdi dir="ltr">' + (x.pct > 0 ? '+' : '−') + Math.abs(x.pct) + '%</bdi> <span class="hint">· ' + plain(Math.round(B.value * x.pct / 100 / 1000) * 1000) + '</span></td></tr>').join('') +
+    '<tr class="tot"><th>הערכת שווי</th><td><b>' + plain(F.value) + '</b></td></tr><tr><th>טווח</th><td>' + plain(F.low) + ' – ' + plain(F.high) + (F.open ? ' <span class="hint">· כולל ±' + F.open + '% על שאלות פתוחות</span>' : '') + '</td></tr></tbody></table>' +
+    '<p class="hint" style="margin:6px 0 0">הערכה פנימית לצורך תכנון — לא שמאות. גוף מממן יבקש שמאי.</p></section>' : '';
+
+  const mk = (arr, kind, row) => arr.length ? arr.map((x, i) => '<li><label class="check" style="display:inline-flex"><input type="checkbox" data-vm="' + kind + ':' + i + '"' + (x.ok ? ' checked' : '') + dis + '><span>נבדק</span></label> ' + row(x) + '</li>').join('') : '';
+  const L = mk(V.listings, 'listings', (x) => lnk(x.url, x.title || x.address || 'מודעה') + ' · ' + plain(x.price) + [x.rooms && x.rooms + ' חד׳', x.area && x.area + ' מ״ר', x.area && plain(Math.round(x.price / x.area)) + ' למ״ר', x.src].filter(Boolean).map((t) => ' · ' + esc(String(t))).join(''));
+  const D = mk(V.developers, 'developers', (x) => lnk(x.url, x.project) + (x.developer ? ' · ' + esc(x.developer) : '') + (x.ppsqm ? ' · ' + plain(x.ppsqm) + ' למ״ר' : '') + (x.price ? ' · ' + plain(x.price) : '') + (x.rooms ? ' · ' + x.rooms + ' חד׳' : ''));
+  const Fa = mk(V.factors, 'factors', (x) => '<span class="pill ' + (VAL_DIR[x.dir] || VAL_DIR.risk)[1] + '">' + (VAL_DIR[x.dir] || VAL_DIR.risk)[0] + '</span> ' + esc(x.text) + ' ' + lnk(x.url, 'מקור'));
+  const mkt = V.market || L || D || Fa ? '<section class="card"><header><h2>מצב השוק סביב הנכס</h2></header>' + (V.market ? '<p style="margin:0 0 8px">' + esc(V.market) + '</p>' : '') +
+    (L ? '<h3 class="sec">מודעות למכירה — מחיר מבוקש, לא עסקה</h3><ul style="margin:0 0 8px;padding-inline-start:18px">' + L + '</ul>' : '') +
+    (D ? '<h3 class="sec">פרויקטים חדשים של יזמים</h3><ul style="margin:0 0 8px;padding-inline-start:18px">' + D + '</ul>' : '') +
+    (Fa ? '<h3 class="sec">מה יכול להשפיע</h3><ul style="margin:0;padding-inline-start:18px">' + Fa + '</ul>' : '') +
+    '<p class="hint" style="margin:6px 0 0">מגיע מחיפוש — לא נכנס לחישוב. מסמנים "נבדק" אחרי פתיחת הקישור, ורק מה שנבדק נכנס לדוח.</p></section>' : '';
+
+  const T = K.ltv;
+  const ltv = '<section class="card"><header><h2>אחוז מימון</h2></header><div class="row">' + '<label class="fl">סכום ההלוואה<input class="f num" type="number" step="10000" data-vx="loan" value="' + esc(V.loan) + '"' + dis + '></label>' +
+    sel('ltvType', 'סוג', VAL_LTV, V.ltvType, 'data-vx') + '</div>' +
+    (T ? '<table class="kv wrap"><tbody><tr><th>מול הגבול התחתון של הטווח</th><td><b>' + T.onLow + '%</b> ' + (T.over ? '<span class="pill open">מעל ' + T.limit + '%</span>' : '<span class="pill actual">עד ' + T.limit + '%</span>') + '</td></tr><tr><th>מול ההערכה</th><td>' + T.onMid + '%</td></tr>' +
+      (T.over ? '<tr><th>חסר הון עצמי (שמרני)</th><td>' + plain(T.equity) + '</td></tr>' : '') + '</tbody></table><p class="hint" style="margin:4px 0 0">⚠ המגבלות לפי סוג — לאמת מול הוראת בנק ישראל העדכנית. בחוץ-בנקאי הגבולות של כל גוף.</p>' : '<p class="hint" style="margin:0">מזינים סכום, ומופיע אחוז המימון מול השווי.</p>') + '</section>';
+
+  const d0 = document.querySelector('#layer .drawer'), top = d0 ? d0.scrollTop : 0;
+  $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer valdr" style="width:min(980px,100%)" role="dialog" aria-modal="true" aria-label="הערכת שווי">' +
+    '<header><h2 class="grow">הערכת שווי' + (V.s.address ? ' — ' + esc(V.s.address) : '') + '</h2>' + (V.savedAt ? '<span class="hint">נשמר ' + dLabel(dayOf(V.savedAt)) + '</span>' : '') + '<button class="btn small ghost" type="button" data-va="valClose" aria-label="סגור">✕</button></header>' +
+    '<div class="valbody">' + subj + srch + dealsT + res + ques + fin + mkt + ltv + '</div>' +
+    '<footer>' + (w ? '<button class="btn primary" type="button" data-va="valSave">שמור</button>' + (F ? '<button class="btn" type="button" data-va="valApply">רשום ' + plain(F.value) + ' כשווי הנכס בתיק</button>' : '') : '') +
+      (F ? '<button class="btn" type="button" data-va="valPdf">דוח PDF</button>' : '') + '<button class="btn ghost" type="button" data-va="valClose">סגור</button></footer></div></div>';
+  const d1 = document.querySelector('#layer .drawer'); if (d1) d1.scrollTop = top;
+  $('scrim').addEventListener('click', (e) => { if (e.target.id === 'scrim') valClose(); });
+}
+function valClose() { if (S.val) S.val.open = false; $('layer').innerHTML = ''; }
+function valParseJson(t) {
+  const s = String(t || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  try { return JSON.parse(s); } catch (e) { /* הגוש הראשון */ }
+  const a = s.indexOf('{'), z = s.lastIndexOf('}'); return JSON.parse(s.slice(a, z + 1));
+}
+function valTake(o, cost) {
+  const V = S.val; if (!V) return; const R = valCleanSearch(o), key = (d) => d.date + '|' + Math.round(n(d.price)) + '|' + valStreet(d.address) + valHouse(d.address), have = new Set(V.deals.map(key));
+  const nd = R.deals.filter((d) => !have.has(key(d))).map((d) => ({ ...d, ok: false, from: 'search' }));
+  V.deals.push(...nd); V.listings = R.listings.map((x) => ({ ...x, ok: false })); V.developers = R.developers.map((x) => ({ ...x, ok: false })); V.factors = R.factors.map((x) => ({ ...x, ok: false }));
+  V.market = R.market; V.note = R.note; V.search = { done: true, deals: nd.length, listings: R.listings.length, devs: R.developers.length, factors: R.factors.length, cost: cost || 0 };
+  if (V.open) valPaint(); else toast('הערכת שווי: תוצאות החיפוש הגיעו — ' + nd.length + ' עסקאות ממתינות לאישור');
+}
+async function valSearch() {
+  const V = S.val; if (!V || (V.search && V.search.busy)) return; const vid = V.id;
+  V.search = { busy: true, msg: 'שולח…' }; valPaint();
+  let j; try { const r = await fetch('/api/crm/property/value', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(V.s) }); j = await r.json(); } catch (e) { j = { ok: false, message: 'אין חיבור לשרת' }; }
+  if (!S.val || S.val.id !== vid) return;
+  if (!j || !j.ok) { S.val.search = { err: (j && j.message) || 'החיפוש נכשל' }; S.valSt = undefined; return valPaint(); }
+  if (j.result) return valTake(j.result, j.costIls);
+  const job = j.job; S.val.search = { busy: true, job, msg: 'נשלח ל-Claude על המנוי — התשובה מגיעה תוך כמה דקות. אפשר לסגור את החלון ולהמשיך לעבוד; כשהיא תגיע תופיע הודעה.' }; valPaint();
+  for (let k = 0; k < 150; k++) {
+    await new Promise((ok) => setTimeout(ok, 4000));
+    if (!S.val || S.val.id !== vid || !S.val.search || S.val.search.job !== job) return;
+    let s; try { s = await (await fetch('/api/crm/sample?job=' + encodeURIComponent(job), { cache: 'no-store' })).json(); } catch (e) { continue; }
+    if (!S.val || S.val.id !== vid || !S.val.search || S.val.search.job !== job) return;
+    if (s.status === 'done') { let o; try { o = valParseJson(s.text); } catch (e) { S.val.search = { err: 'התשובה לא הגיעה כ-JSON תקין. אפשר לנסות שוב.' }; return valPaint(); } return valTake(o); }
+    if (s.status === 'error' || s.status === 'cancelled' || s.code) { S.val.search = { err: s.error || s.message || 'החיפוש נכשל' }; return valPaint(); }
+  }
+  S.val.search = { err: 'לא התקבלה תשובה תוך 10 דקות. אפשר לנסות שוב.' }; valPaint();
+}
+function valStop() { const V = S.val, job = V && V.search && V.search.job; if (job) fetch('/api/crm/sample?job=' + encodeURIComponent(job), { method: 'DELETE' }).catch(() => {}); if (V) V.search = null; valPaint(); }
+function valDoc(V, K) {
+  const c = intakeWho(V.refId).c, B = K.base, F = K.fin, clean = (a) => (a || []).map((x) => { const y = { ...x }; Object.keys(y).forEach((k) => y[k] === undefined && delete y[k]); return y; });
+  return { id: V.id, refId: V.refId, clientId: V.refId, division: (c && c.division) || 'finance', s: { ...V.s }, deals: clean(V.deals), listings: clean(V.listings), developers: clean(V.developers), factors: clean(V.factors), market: V.market || '', note: V.note || '',
+    answers: { ...V.answers }, idx: V.idx ?? '', loan: V.loan ?? '', ltvType: V.ltvType || 'single', asOf: today(),
+    result: F ? { value: F.value, low: F.low, high: F.high, base: B.value, confidence: B.confidence, n: B.n, ring: B.ring, mode: B.mode, ppsqm: B.mode === 'sqm' ? B.med : null } : null,
+    createdAt: V.createdAt || stamp(), createdBy: V.createdBy || S.me.id, updatedAt: stamp(), by: S.me.id };
+}
+async function valSave(quiet) {
+  const V = S.val; if (!V) return; const doc = valDoc(V, valCalc(V));
+  await write('valuations/' + V.id, doc); V.createdAt = doc.createdAt; V.createdBy = doc.createdBy; V.savedAt = doc.updatedAt;
+  if (!quiet) { toast('ההערכה נשמרה'); valPaint(); }
+  return doc;
+}
+async function valApply() {
+  const V = S.val; if (!V) return; const doc = await valSave(true); if (!doc.result) return;
+  const x = JSON.parse(JSON.stringify(intakeDoc(V.refId)));
+  x.property = { ...(x.property || {}), value: doc.result.value, source: 'estimate', valuationId: V.id, valuationAt: doc.updatedAt, valuationRange: [doc.result.low, doc.result.high] };
+  await write('intakes/' + V.refId, { ...x, id: V.refId, clientId: V.refId, updatedAt: stamp(), by: S.me.id, createdAt: x.createdAt || stamp(), createdBy: x.createdBy || S.me.id });
+  toast('נרשם שווי ' + plain(doc.result.value) + ' (הערכה) בתיק'); valClose(); render();
+}
+function valReportHtml(V, K) {
+  const B = K.base, F = K.fin, T = K.ltv, m = (v) => '<span style="direction:ltr;unicode-bidi:isolate;white-space:nowrap">' + fmt0.format(v) + ' ₪</span>', cell = 'padding:5px 6px;border-bottom:1px solid #EAECF0;font-size:12px;text-align:right';
+  const h = (t) => '<h3 style="font-size:15px;margin:16px 0 6px">' + esc(t) + '</h3>', conf = (VAL_CONF[B.confidence] || VAL_CONF.none)[0], c = intakeWho(V.refId).c;
+  const row = (a, b) => '<tr><td style="' + cell + ';color:#475467;width:42%">' + a + '</td><td style="' + cell + '">' + b + '</td></tr>';
+  const okL = (a) => (a || []).filter((x) => x.ok);
+  return '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:24px 28px;background:#fff">' +
+    '<h2 style="margin:0 0 4px;font-size:20px">הערכת שווי — ' + esc(V.s.address || '') + '</h2><div style="color:#475467;font-size:12px">' + esc(c ? c.name || '' : '') + ' · ' + dLabel(today()) + ' · ' + esc(VAL_TYPE_HE[V.s.type] || '') + [V.s.rooms && V.s.rooms + ' חד׳', V.s.area && V.s.area + ' מ״ר', V.s.floor !== '' && V.s.floor != null && 'קומה ' + V.s.floor, V.s.gush && 'גוש ' + V.s.gush + (V.s.helka ? ' חלקה ' + V.s.helka : '')].filter(Boolean).map((t) => ' · ' + esc(String(t))).join('') + '</div>' +
+    '<div style="margin:14px 0;padding:12px 14px;border:1px solid #D0D5DD;border-radius:10px"><div style="font-size:13px;color:#475467">הערכת שווי · ' + conf + '</div><div style="font-size:26px;font-weight:700">' + m(F.value) + '</div><div style="font-size:13px">טווח ' + m(F.low) + ' – ' + m(F.high) + '</div></div>' +
+    h('איך הגענו לזה') + '<table style="width:100%;border-collapse:collapse">' + row('שווי לפי ' + B.n + ' עסקאות (' + VAL_RING_HE[B.ring] + ')', m(B.value) + (B.mode === 'sqm' ? ' · ' + m(B.med) + ' למ״ר' : '')) + F.steps.map((x) => row(esc(x.label), '<span dir="ltr" style="unicode-bidi:isolate">' + (x.pct > 0 ? '+' : '−') + Math.abs(x.pct) + '%</span>')).join('') + row('<b>הערכה</b>', '<b>' + m(F.value) + '</b>') + '</table>' +
+    (B.warns.length ? '<ul style="font-size:12px;color:#475467;margin:6px 0;padding-inline-start:18px">' + B.warns.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '') +
+    h('העסקאות שבחישוב') + '<table style="width:100%;border-collapse:collapse"><tr>' + ['תאריך', 'כתובת', 'חד׳', 'מ״ר', 'קומה', 'מחיר', '₪ למ״ר'].map((t) => '<th style="' + cell + ';font-weight:700">' + t + '</th>').join('') + '</tr>' +
+      V.deals.filter((d, i) => K.used.has(i)).map((d) => '<tr>' + [dLabel(d.date), esc(d.address), d.rooms ?? '', d.area ?? '', d.floor ?? '', m(n(d.price)), d.area ? m(Math.round(n(d.price) / n(d.area))) : ''].map((t) => '<td style="' + cell + '">' + t + '</td>').join('') + '</tr>').join('') + '</table>' +
+    (V.market || okL(V.listings).length || okL(V.developers).length || okL(V.factors).length ? h('השוק סביב הנכס') + (V.market ? '<p style="font-size:12.5px;margin:0 0 6px">' + esc(V.market) + '</p>' : '') +
+      '<ul style="font-size:12px;margin:0;padding-inline-start:18px">' + okL(V.listings).map((x) => '<li>מודעה: ' + esc(x.title || x.address) + ' · מבוקש ' + m(x.price) + '</li>').join('') + okL(V.developers).map((x) => '<li>יזם: ' + esc(x.project) + (x.ppsqm ? ' · ' + m(x.ppsqm) + ' למ״ר' : '') + (x.price ? ' · ' + m(x.price) : '') + '</li>').join('') + okL(V.factors).map((x) => '<li>' + esc((VAL_DIR[x.dir] || VAL_DIR.risk)[0]) + ': ' + esc(x.text) + '</li>').join('') + '</ul>' : '') +
+    (T ? h('אחוז מימון') + '<table style="width:100%;border-collapse:collapse">' + row('הלוואה מבוקשת', m(n(V.loan))) + row('מול הגבול התחתון', T.onLow + '% (גבול ' + T.limit + '%)') + (T.over ? row('חסר הון עצמי', m(T.equity)) : '') + '</table>' : '') +
+    '<p style="font-size:11px;color:#667085;margin-top:16px">הערכה פנימית של הר-אל לצורך תכנון מימון, מבוססת על עסקאות שדווחו לרשות המסים ועל תשובות הלקוח. אינה שמאות ואינה מחליפה שמאי מקרקעין.</p></div>';
+}
+async function valPdf() {
+  const V = S.val; if (!V) return; const K = valCalc(V); if (!K.fin) return;
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(valReportHtml(V, K)); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'הערכת-שווי-' + String(V.s.address || '').replace(/[\\/:*?"<>|,]+/g, ' ').trim().slice(0, 40) + '-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
+}
+/** הבלוק בכרטיס "הנכס והבקשה" — מחליף את שורת דירובוט (הקישור נשאר להשוואה) */
+function valIntakeBlock(cid, w) {
+  const L = valLatest(cid), r = L && L.result, cf = r && (VAL_CONF[r.confidence] || VAL_CONF.none);
+  return '<div class="row" style="align-items:center;gap:8px;margin:0 0 8px">' + '<button class="btn small' + (w ? ' primary' : '') + '" type="button" data-va="valOpen">' + (L ? 'הערכת השווי' : 'הערכת שווי — עסקאות, שאלות וטווח') + '</button>' +
+    (r ? '<span>' + plain(r.value) + ' <span class="hint">' + plain(r.low) + ' – ' + plain(r.high) + ' · ' + dLabel(dayOf(L.updatedAt)) + '</span></span><span class="pill ' + cf[1] + '">' + cf[0] + '</span>' : '') +
+    (S.val && S.val.refId === cid && S.val.search && S.val.search.busy ? '<span class="hint">מחפש…</span>' : '') +
+    '<span class="hint">להשוואה: <a href="https://www.dirobot.co.il/calculator" target="_blank" rel="noopener">דירובוט ↗</a> — ושמאי במידת הצורך.</span></div>';
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-va],[data-vq]'); if (!b || !S.ready) return;
+  if (b.dataset.vq) { if (!S.val || !S.canTask) return; const [k, v] = b.dataset.vq.split(':'); if (v) S.val.answers[k] = v; else delete S.val.answers[k]; return valPaint(); }
+  const V = S.val, i = Number(b.dataset.vi);
+  try {
+    switch (b.dataset.va) {
+      case 'valOpen': return valOpen(S.view.clientId);
+      case 'valClose': return valClose();
+      case 'valSearch': return valSearch();
+      case 'valStop': return valStop();
+      case 'valOk': if (V && V.deals[i]) V.deals[i].ok = true; return valPaint();
+      case 'valOkAll': if (V) V.deals.forEach((d) => { d.ok = true; }); return valPaint();
+      case 'valOff': if (V && V.deals[i]) V.deals[i].off = !V.deals[i].off; return valPaint();
+      case 'valRm': if (V) V.deals.splice(i, 1); return valPaint();
+      case 'valAdd': { if (!V) return; const g = (k) => ($('valN_' + k) || {}).value || '', d = { date: g('date'), address: g('address').trim(), rooms: valNum(g('rooms')), area: valNum(g('area')), floor: valNum(g('floor')), price: valNum(g('price')), kind: '', url: /^https:\/\//.test(g('url')) ? g('url').trim() : '', src: 'ידני', ok: true };
+        if (!d.price || !d.date) return toast('צריך לפחות תאריך ומחיר'); V.deals.push(d); return valPaint(); }
+      case 'valPaste': { if (!V) return; const rows = valParseDeals(($('valPaste') || {}).value || ''); if (!rows.length) return toast('לא זוהו עסקאות — צריך תאריך ומחיר בכל שורה');
+        V.deals.push(...rows.map((d) => ({ ...d, url: '', ok: false }))); toast(rows.length + ' עסקאות זוהו — לבדוק ולאשר כל שורה'); return valPaint(); }
+      case 'valSave': return valSave();
+      case 'valApply': return valApply();
+      case 'valPdf': return valPdf();
+    }
+  } catch (err) { /* write() כבר הציג הודעה */ }
+});
+/* שינוי בשדה (blur) קורה בלחיצת העכבר על כפתור — ציור מחדש מיד היה מעלים את הכפתור לפני ה-click. מחכים לשחרור */
+let valPtr = false, valPend = false;
+document.addEventListener('pointerdown', () => { valPtr = true; }, true);
+document.addEventListener('pointerup', () => { valPtr = false; if (valPend) setTimeout(() => { valPend = false; valPaint(); }, 0); }, true);
+const valSoon = () => { if (valPtr) valPend = true; else valPaint(); };
+document.addEventListener('change', (e) => {
+  const el = e.target; if (!el || !el.dataset || !S.val || !S.val.open) return; const V = S.val;
+  if (el.dataset.vs) { const k = el.dataset.vs; V.s[k] = ['rooms', 'area', 'floor'].includes(k) ? (el.value === '' ? '' : valNum(el.value)) : el.value; return valSoon(); }
+  if (el.dataset.vd) { const [i, k] = el.dataset.vd.split(':'), d = V.deals[Number(i)]; if (!d) return; d[k] = ['rooms', 'area', 'floor', 'price'].includes(k) ? valNum(el.value) : el.value; return valSoon(); }
+  if (el.dataset.vx) { V[el.dataset.vx] = el.value; return valSoon(); }
+  if (el.dataset.vm) { const [k, i] = el.dataset.vm.split(':'), x = (V[k] || [])[Number(i)]; if (x) x.ok = el.checked; }
+});
 /* פרטי רכב לפי מספר רישוי — משרד התחבורה (data.gov.il, חינם) דרך השרת. נשמר מיד בתיק. בלי מחיר ובלי שעבודים — אלה בתשלום. */
 async function carLookup(cid, quiet) {
   const v0 = intakeDoc(cid).car || {}, plate = String(v0.plate || '').replace(/\D/g, '');
@@ -8244,7 +8635,7 @@ function vIntake(cid) {
     (Object.keys((B[i] || {}).emps || {}).filter((k) => B[i].emps[k] && k !== B[i].emp).length ? '<div class="row">' + Object.keys(B[i].emps).filter((k) => B[i].emps[k] && k !== B[i].emp).map((k) => inp('borrowers.' + i + '.incomes.' + k, 'הכנסה נטו — ' + IK.emp[k], (B[i].incomes || {})[k], 'number', 'step="100" style="width:110px"')).join('') + '</div>' : '');
   const KD = x.kind, propSec = () => '<section class="card"><header><h2>הנכס והבקשה</h2><span class="grow"></span>' + scanBtn('intake', 'property', 'סריקת שמאות / נסח') + '</header>' + scanList(x, 'property') + '<div class="row">' + pick('track', 'מסלול', IK.track, x.track || 'nonbank') + pick('property.type', 'סוג בטוחה', IK.prop, P.type) + inp('property.value', 'שווי הנכס', P.value, 'number', 'step="10000"') +
       pick('property.source', 'מקור השווי', { estimate: 'הערכה', appraisal: 'שמאות קיימת' }, P.source) + inp('property.liens', 'הלוואות על הנכס שנשארות', P.liens, 'number', 'step="10000"') + '</div>' +
-      '<p class="hint" style="margin:0 0 8px">הערכת שווי אונליין: <a href="https://www.dirobot.co.il/calculator" target="_blank" rel="noopener">דירובוט ↗</a> — ושמאי במידת הצורך.</p><div class="row">' +
+      valIntakeBlock(cid, w) + '<div class="row">' +
       inp('request.amount', 'סכום מבוקש (כולל סילוקים)', R.amount, 'number', 'step="10000"') + pick('request.purpose', 'מטרת ההלוואה', IK.purpose, R.purpose) + inp('request.years', 'תקופה (שנים)', R.years, 'number', 'style="width:80px"') +
       inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + chk('request.balloon', 'בלון', R.balloon) +
       (R.balloon ? pick('request.balloonMonths', 'תקופת בלון', { 12: 'שנה', 18: 'שנה וחצי', 24: 'שנתיים' }, String(R.balloonMonths || '')) : '') + '</div></section>';
