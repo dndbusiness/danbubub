@@ -4114,6 +4114,7 @@ async function ikSave(el) {
   if (el.dataset.ik.startsWith('contact.') && !S.clients.get(cid) && S.leads.get(cid)) await write('leads/' + cid, { [el.dataset.ik.slice(8)]: v || '', updatedAt: stamp() }, 'update');
   const b = $('ikSaved'); if (b) b.textContent = 'נשמר ' + new Date().toTimeString().slice(0, 5);
   if (el.tagName === 'SELECT') render(); /* בחירה שפותחת שדות (משועבד, סוג שכ״ט…) — מיד */
+  if (el.dataset.ik === 'car.plate') carLookup(cid, true);
 }
 async function taskReopen(t) {
   if (!t) return; const cur = S.tasks.get(t.id) || t;
@@ -7662,19 +7663,22 @@ function carIntakeCard(x, w) {
     '<div class="row">' + inp('borrowers.0.idNumber', 'ת״ז', B0.idNumber, 'text', 'inputmode="numeric" dir="ltr" style="width:120px"') + inp('contact.address', 'כתובת (להסכם)', (x.contact || {}).address, 'text') + sel('credit.bdi', 'דירוג אשראי (BDI)', IK.bdi, cr.bdi) +
       sel('car.purpose', 'מטרת ההלוואה', CAR_PURPOSE, v.purpose) + inp('car.amount', 'סכום מבוקש', v.amount, 'number', 'step="1000"') + '</div>' +
     '<label class="fl full">הסיפור — דירוג האשראי, ההתנהלות, מה קרה<textarea class="f" rows="3" data-ik="story" placeholder="למשל: פיגור בהלוואה ב-2024, הוסדר. צריך לסגור את ההלוואה על הרכב ולהוריד החזר"' + dis + '>' + esc(x.story || '') + '</textarea></label>' +
-    '<h3 class="sec">הרכב</h3><div class="row">' + inp('car.plate', 'מספר רכב', v.plate, 'text', 'dir="ltr" inputmode="numeric" style="width:120px"') + inp('car.maker', 'יצרן', v.maker, 'text') + inp('car.model', 'דגם', v.model, 'text') +
+    '<h3 class="sec">הרכב</h3><div class="row" style="align-items:flex-end">' + inp('car.plate', 'מספר רכב', v.plate, 'text', 'dir="ltr" inputmode="numeric" style="width:120px"') +
+      (w && window.__harelServer ? '<button class="btn small" data-act="carLookup">' + (S._carLk ? 'שולף…' : 'שלוף ממשרד התחבורה') + '</button>' : '') + (v.plate ? '<button class="btn small ghost" data-carplate="1">העתק</button>' : '') + inp('car.maker', 'יצרן', v.maker, 'text') + inp('car.model', 'דגם', v.model, 'text') +
       inp('car.year', 'שנתון', v.year, 'number', 'min="1990" max="2035" style="width:90px"') + sel('car.owner', 'רשום על שם', CAR_OWNER, v.owner) + '</div>' +
+    (v.gov ? '<p class="hint" style="margin:0 0 6px">משרד התחבורה (' + dLabel(dayOf(v.gov.at)) + '): ' + esc([v.maker, v.model, v.trim, v.year, v.fuel, v.color].filter(Boolean).join(' · ')) + (v.onRoad ? ' · על הכביש מ-' + esc(v.onRoad) : '') + (v.testValidUntil ? ' · טסט עד ' + esc(dLabel(v.testValidUntil)) : '') +
+      (v.ownership ? ' · בעלות: <span class="pill ' + (/ליסינג|השכרה/.test(v.ownership) ? 'open' : /חברה/.test(v.ownership) ? 'expected' : 'actual') + '">' + esc(v.ownership) + '</span>' : '') + '</p>' : '') +
     '<div class="row">' + sel('car.pledged', 'משועבד?', { no: 'לא משועבד', yes: 'משועבד' }, v.pledged) +
       (v.pledged === 'yes' ? inp('car.lienWho', 'משועבד ל-', v.lienWho, 'text') + inp('car.lien', 'יתרת ההלוואה', v.lien, 'number', 'step="1000"') + inp('car.lienMonthly', 'החזר חודשי', v.lienMonthly, 'number', 'step="100"') : '') + '</div>' +
     '<h3 class="sec">שווי הרכב</h3><div class="row">' + inp('car.valueClient', 'שווי לפי הלקוח', v.valueClient, 'number', 'step="1000"') + inp('car.value', 'שווי לפי בדיקה', v.value, 'number', 'step="1000"') +
       sel('car.valueSrc', 'נבדק ב', CAR_VALUE_SRC, v.valueSrc) + inp('car.valueLink', 'קישור למודעה / לבדיקה', v.valueLink, 'url', 'dir="ltr"') + '</div>' +
-    '<div class="row" style="gap:6px;flex-wrap:wrap">' + (v.plate ? '<button class="btn small" data-carplate="1">העתק מספר רכב</button>' : '') +
+    '<p class="hint" style="margin:0 0 6px">שווי מיידי אוטומטי דורש מנוי למחירון (לוי יצחק לעסקים או ספק). עד שיוחלט — מזינים את השווי מהבדיקה.</p>' +
+    '<details><summary class="hint">בדיקה ידנית — לוי יצחק / יד 2 / משרד התחבורה</summary><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">' +
       '<a class="btn small" href="https://apps.apple.com/il/app/id1478184705"' + ext + '>לוי יצחק — האפליקציה ↗</a>' +
       '<a class="btn small" href="' + g('מחירון לוי יצחק ' + q) + '"' + ext + '>לוי יצחק לפי דגם ↗</a>' +
       '<a class="btn small" href="' + g('site:yad2.co.il ' + (q || 'רכב')) + '"' + ext + '>מודעות ביד 2 ↗</a>' +
       '<a class="btn small" href="https://www.gov.il/he/Departments/DynamicCollectors/private-and-commercial-vehicles"' + ext + '>משרד התחבורה — לפי מספר רכב ↗</a>' +
-      (v.valueLink ? '<a class="btn small ghost" href="' + esc(v.valueLink) + '"' + ext + '>הבדיקה שנשמרה ↗</a>' : '') + '</div>' +
-    '<p class="hint" style="margin:6px 0 0">בלוי יצחק מזינים את מספר הרכב או בוחרים יצרן, דגם ושנה. ביד 2 בודקים 2–3 מודעות דומות (שנה, יד, ק״מ). את השווי שנמצא מכניסים ב"שווי לפי בדיקה", ואת הקישור לידו.</p></section>';
+      (v.valueLink ? '<a class="btn small ghost" href="' + esc(v.valueLink) + '"' + ext + '>הבדיקה שנשמרה ↗</a>' : '') + '</div></details></section>';
 }
 function carDealCard(x, cid, w) {
   const v = x.car || {}, K = carCalc(x), c = intakeWho(cid).c, msg = carMsg(x, c), tone = (m) => ({ tone: m < 0 ? 'open' : 'committed' });
@@ -7690,6 +7694,20 @@ function carDealCard(x, cid, w) {
       '<div class="row"><button class="btn small primary" data-act="carMsgCopy">העתק הודעה</button><a class="btn small" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">שלח בוואטסאפ ↗</a></div></section>' +
     '<section class="card"><header><h2>הסכם לחתימה</h2></header><p class="hint" style="margin:-4px 0 8px">הסכם ההתקשרות עם השם, הת״ז, הרכב, הסכום ושכר הטרחה מהטופס. נשלח ללקוח קישור אישי לחתימה בטלפון. אם חסר פרט, נפתח הטופס בכרטיס ממולא עם מה שיש.</p>' +
       (w ? '<button class="btn primary" data-act="carSign">שלח הסכם לחתימה עם הפרטים</button>' : '') + '</section>';
+}
+/* פרטי רכב לפי מספר רישוי — משרד התחבורה (data.gov.il, חינם) דרך השרת. נשמר מיד בתיק. בלי מחיר ובלי שעבודים — אלה בתשלום. */
+async function carLookup(cid, quiet) {
+  const v0 = intakeDoc(cid).car || {}, plate = String(v0.plate || '').replace(/\D/g, '');
+  if (!window.__harelServer) return quiet ? null : toast('שליפה לפי מספר רכב עובדת במערכת בשרת');
+  if (!/^\d{5,8}$/.test(plate)) return quiet ? null : toast('מספר רכב לא תקין');
+  if (S._carLk === plate) return; S._carLk = plate;
+  let j; try { const r = await fetch('/api/crm/car?plate=' + plate, { cache: 'no-store' }); j = await r.json(); } catch (e) { j = { ok: false, message: 'אין חיבור לשרת' }; }
+  S._carLk = null;
+  if (!j || !j.ok) return toast((j && j.message) || 'הרכב לא נמצא');
+  const c = j.car, x = JSON.parse(JSON.stringify(intakeDoc(cid)));
+  x.car = { ...(x.car || {}), maker: c.maker || x.car.maker || '', model: c.model || x.car.model || '', trim: c.trim || '', year: c.year || x.car.year || null, ownership: c.ownership || '', fuel: c.fuel || '', color: c.color || '', testValidUntil: c.testValidUntil || '', onRoad: c.onRoad || '', gov: { at: stamp(), plate } };
+  await write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id });
+  toast('משרד התחבורה: ' + [c.maker, c.model, c.year].filter(Boolean).join(' ')); render();
 }
 async function carSign(cid) {
   const { c, lead } = intakeWho(cid); if (!c) return;
@@ -7718,6 +7736,7 @@ function carCheck(x, C) {
   if (age == null) add('check', 'חסרה שנת הרכב'); else if (age > CAR_RULES.maxAge) add('no', 'רכב בן ' + age + ' שנים — מעל ' + CAR_RULES.maxAge); else add('ok', 'רכב בן ' + age + ' שנים (עד ' + CAR_RULES.maxAge + ')');
   if (!value) add('check', 'חסר שווי לפי בדיקה'); else if (amount > value * CAR_RULES.maxLtv) add('no', 'הסכום ' + plain(amount) + ' מעל שווי המחירון ' + plain(value) + ' — אפשר עד ' + plain(Math.floor(value * CAR_RULES.maxLtv))); else if (amount) add('ok', 'הסכום ' + Math.round(amount / value * 100) + '% משווי המחירון');
   if (lien) { if (amount && amount < lien) add('no', 'הסכום לא מכסה את סגירת השעבוד (' + plain(lien) + ')'); else add('ok', 'השעבוד הקיים (' + plain(lien) + (v.lienWho ? ', ' + v.lienWho : '') + ') נסגר מההלוואה' + (amount ? ' — ללקוח נשארים ' + plain(amount - lien) : '')); }
+  if (/ליסינג|השכרה/.test(v.ownership || '')) add('no', 'במשרד התחבורה הבעלות: ' + v.ownership); else if (/חברה/.test(v.ownership || '')) add('check', 'במשרד התחבורה הבעלות: ' + v.ownership + ' — לבדוק שהחברה של הלקוח');
   if (!v.owner) add('check', 'לסמן על שם מי הרכב רשום'); else if (v.owner === 'other') add('no', 'הרכב לא רשום על שם הלקוח'); else add('ok', CAR_OWNER[v.owner]);
   if (months > CAR_RULES.maxMonths) add('no', 'תקופה ' + months + ' חודשים — מעל ' + CAR_RULES.maxMonths);
   if (cr.bdi === 'bad') add('no', 'BDI שלילי');
@@ -8829,6 +8848,7 @@ document.addEventListener('click', async (e) => {
         case 'copyAI': return copyText(((intakeDoc(S.view.clientId).ai) || {}).text || '');
         case 'carMsgCopy': { const id = S.view.clientId, who = intakeWho(id).c; return copyText(carMsg(intakeDoc(id), who), 'ההודעה הועתקה — הדבק בקבוצה'); }
         case 'carSign': return carSign(S.view.clientId);
+        case 'carLookup': S._carLk = null; return carLookup(S.view.clientId);
         case 'copyDocs': { const cc = intakeWho(S.view.clientId).c; return copyText(docsText(intakeDoc(S.view.clientId), cc ? cc.name : '')); }
         case 'docsToChecklist': { const cc = S.clients.get(S.view.clientId); if (!cc) return; const have = new Set((cc.checklist || []).map((i) => i.label));
           const add = intakeDocs(intakeDoc(cc.id)).map((d) => d.d + (d.who !== 'תיק' ? ' — ' + d.who : '')).filter((l) => !have.has(l)).map((label) => ({ label, status: 'pending' }));
