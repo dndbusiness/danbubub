@@ -1252,7 +1252,7 @@ function focusPanel() {
       kpi('שמאויות בסקר', '<span class="num">' + appr.length + '</span>', 'נשלח לשמאים, עוד לא נבחר', 'clients') +
       '</div>' +
       /* עיצוב v3 — תיקים לפי שלב: עמודה לכל שלב, הגובה לפי מספר התיקים (אותו מספר ואותו מעבר ללוח הלקוחות) */
-      Object.entries(groups).map(([ty, g]) => { const top = Math.max(1, ...Object.values(g).map((x) => x.n));
+      Object.entries(groups).map(([ty, g], _i, all) => { const top = Math.max(1, ...all.flatMap(([, gg]) => Object.values(gg).map((x) => x.n))); /* סקלה אחת לכל התהליכים — תיק אחד לא נראה כמו שלושה */
         return '<div class="stages"><b class="stt">' + esc((PROC[ty] || {}).label || ty) + '</b><div class="stbars">' +
         Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><i aria-hidden="true"></i><b class="num">' + x.n + '</b><span>' + esc(lab) + '</span></button>').join('') + '</div></div>'; }).join('');
   }
