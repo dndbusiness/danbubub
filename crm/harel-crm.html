@@ -717,6 +717,88 @@ body.add-open #qadd { border-radius: 14px 14px 0 0; }
 .valbody li { overflow-wrap: anywhere; }
 .valbody .seg button { white-space: nowrap; }
 .valdr footer { flex-wrap: wrap; }
+
+/* ══ עיצוב v3 — שלב 2: היום שלי ובית (docs/UI_REDESIGN.md) ══
+   אריח גיבור כהה, משפך מחובר עם אחוז על כל חץ, סדר היום, תיקים לפי שלב. בנייד: כותרת כהה, אריחי המספרים כהים, תור עם פס צבע.
+   המותג מהחברה (--nav-bg = הדיו של החברה). בתוך האריח הכהה צבעי הוודאות הם הגוונים של המצב הכהה — אותה משמעות, ניגודיות על רקע כהה. */
+/* ── כותרת היום: ברכה בסריף, בלי מסגרת ── */
+.dayhead { background: transparent; border: 0; box-shadow: none; padding: 2px 0 0; }
+.dayhead .big { font-family: var(--font-head); font-size: 30px; font-weight: 700; line-height: 1.2; }
+/* ── בנטו: האריח הראשון הוא אריח הגיבור הכהה ── */
+.bento.hero1 > .kpi:first-child { background: var(--nav-bg); border-color: var(--nav-line); color: #fff;
+  --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #A3ADBF; --sunk: rgba(255,255,255,.08); --border: rgba(255,255,255,.14);
+  --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; --locked: #9CA3AF; }
+.bento.hero1 > .kpi:first-child h3 { color: var(--nav-fg); }
+.bento.hero1 > .kpi:first-child .v { font-size: 44px; line-height: 1.05; letter-spacing: -.03em; }
+.bento.hero1 > .kpi.click:first-child:hover { border-color: var(--brand-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-accent) 35%, transparent); }
+@media (min-width: 1024px) {
+  .grid4.bento.tall { grid-template-columns: 1.3fr 1fr 1fr 1fr; }
+  .bento.tall.hero1 > .kpi:first-child { grid-row: span 2; justify-content: center; }
+  .bento.tall.hero1 > .kpi:first-child .v { font-size: 64px; }
+  .bento.tall > .funnel { grid-column: 2 / -1; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .grid4.bento.tall { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .bento.tall.hero1 > .kpi:first-child { grid-column: 1 / -1; }
+}
+/* במצב כהה הדיו כמעט שחור כמו הכרטיסים — האריח הכהה מקבל גוון של צבע ההדגשה של החברה כדי שיבלוט */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bento.hero1 > .kpi:first-child { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
+:root[data-theme="dark"] .bento.hero1 > .kpi:first-child { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); }
+@media (max-width: 767px) and (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bento.tall > .kpi { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
+@media (max-width: 767px) { :root[data-theme="dark"] .bento.tall > .kpi { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
+/* ── משפך מחובר: שלב · אחוז · שלב ── */
+.funnel { grid-column: 1 / -1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+.funnel h3.sec { margin: 0 0 6px; }
+.fsteps { display: flex; align-items: stretch; min-width: 0; }
+.fstep { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; font: inherit; text-align: start; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-inline-width: 0; cursor: pointer; transition: background var(--t-fast); }
+.fstep:first-child { border-inline-start-width: 1px; border-start-start-radius: var(--radius-btn); border-end-start-radius: var(--radius-btn); }
+.fstep:last-child { border-inline-end-width: 1px; border-start-end-radius: var(--radius-btn); border-end-end-radius: var(--radius-btn); }
+.fstep:hover { background: var(--sunk); }
+.fstep > span { font-size: 13px; color: var(--text-2); }
+.fstep > b { font: 600 24px/1.1 var(--font-num); letter-spacing: -.02em; }
+.fstep.expected { background: var(--expected-bg); } .fstep.expected > b { color: var(--expected); }
+.fstep.actual { background: var(--actual-bg); } .fstep.actual > b { color: var(--actual); }
+.farrow { flex: none; display: flex; align-items: center; padding: 0 7px; font: 600 12px/1 var(--font-num); color: var(--brand-text); background: var(--brand-soft); border-block: 1px solid var(--border); white-space: nowrap; }
+.farrow::after { content: " ←"; }
+/* ── תיקים לפי שלב: עמודה לכל שלב ── */
+.stages { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 2px; min-width: 0; }
+.stages .stt { font-size: 13px; }
+.stbars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(68px, 112px); justify-content: start; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.stbar { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 3px; height: 112px; min-width: 0; padding: 0; font: inherit; color: var(--text); background: none; border: 0; border-radius: var(--radius-chip); cursor: pointer; }
+.stbar i { display: block; height: calc(var(--h) * .62); min-height: 4px; background: var(--brand-strong); border-radius: 4px 4px 0 0; transition: filter var(--t-fast); }
+.stbar:hover i { filter: brightness(1.15); }
+.stbar b { font: 600 15px/1 var(--font-num); text-align: center; }
+.stbar span { font-size: 13px; line-height: 1.2; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
+/* ── סדר היום: שורה = יעד לחיצה; פס הדחיפות בצד כבר בשורה ── */
+.agenda label.check { min-height: 44px; padding-inline-start: 10px; }
+/* ── בית — "דורש טיפול": פס בצבע של אותו טון כמו התגית בשורה ── */
+.attn tr:has(.pill.open) > td:first-child { box-shadow: inset -3px 0 0 var(--open); }
+.attn tr:has(.pill.expected) > td:first-child { box-shadow: inset -3px 0 0 var(--expected); }
+/* ── נייד: כותרת כהה, אריחי המספרים כהים, המשפך אנכי, התור ככרטיסים עם פס צבע ── */
+@media (max-width: 767px) {
+  main > .dayhead:first-child { margin: -16px -16px 0; padding: 14px 16px 18px; background: var(--nav-bg); color: #fff; border-radius: 0 0 18px 18px; }
+  main > .dayhead:first-child .hint { color: var(--nav-fg); }
+  main > .dayhead:first-child .btn.ghost { color: #fff; border-color: rgba(255,255,255,.22); }
+  main > .dayhead:first-child .btn.primary { background: var(--brand-accent); border-color: var(--brand-accent); color: var(--on-accent); }
+  .dayhead .big { font-size: 24px; }
+  .grid4.bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bento.hero1 > .kpi:first-child { grid-column: 1 / -1; }
+  .bento.tall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .bento.tall > .kpi { background: var(--nav-bg); border-color: var(--nav-line); color: #fff; padding: 10px;
+    --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #A3ADBF; --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; }
+  .bento.tall > .kpi h3 { color: var(--nav-fg); font-size: 12.5px; }
+  .bento.tall > .kpi:not(:first-child) .v { font-size: 22px; }
+  .bento.tall > .kpi .sub { font-size: 12px; overflow-wrap: anywhere; }
+  .bento.tall.hero1 > .kpi:first-child .v { font-size: 40px; }
+  .fsteps { flex-direction: column; }
+  .fstep { flex-direction: row; justify-content: space-between; align-items: center; border-inline-width: 1px; border-radius: var(--radius-btn); }
+  .fstep > b { font-size: 20px; }
+  .farrow { align-self: flex-start; background: none; border: 0; padding: 3px 12px; }
+  .farrow::after { content: " ↓"; }
+  .agenda label.check { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-btn); margin-bottom: 6px; padding: 10px 12px; }
+  .agenda h3.sec { margin-top: 12px; }
+}
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
@@ -1142,11 +1224,15 @@ function focusPanel() {
         const lv = convLevel(l); if (lv < 0) return; r.in++; if (lv >= 1) r.handled++; if (lv >= 2) r.check++; if (lv === 3) { r.signed++; const mm = leadRevenue(l); if (mm.collected > 0) { r.paid++; r.collected += mm.collected; } } });
       return [t, r]; }).filter(([, r]) => r.in);
     let spend = 0; if (money$ && !mine) { const G = convMonth(t0.slice(0, 7), t0); Object.values(G).forEach((g) => { spend += g.tot.spendC || g.tot.spendL || 0; }); spend = r2(spend); }
-    h += '<h3 class="sec">מכירות' + (mine ? ' — הלידים שלך' : '') + '</h3><div class="grid4">' +
+    h += '<h3 class="sec">מכירות' + (mine ? ' — הלידים שלך' : '') + '</h3><div class="grid4 bento hero1 tall">' +
       kpi('לטיפול עכשיו', '<span class="num">' + fresh + '</span>', 'חדשים' + (due ? ' · ועוד ' + due + ' מעקבים להיום' : ''), 'leads', fresh || due ? 'open' : '') +
       kpi('היום', '<span class="num">' + T.in + '</span> נכנסו', 'טופלו ' + T.handled + ' · בדיקה ' + T.check + ' · חתמו ' + T.signed, 'leads') +
       kpi('יחס המרה — החודש', pc(M.signed, M.handled), 'מטופל → חתימה · ' + M.signed + ' מתוך ' + M.handled + ' (נכנסו ' + (M.in - M.credit) + ')', 'leads', 'committed') +
       kpi('בדיקה → חתימה', pc(M.signed, M.check), M.signed + ' מתוך ' + M.check + ' שהגיעו לבדיקה' + (money$ && M.paid ? ' · שילמו ' + M.paid + ' (' + plain(M.collected) + ')' : ''), 'leads') +
+      /* עיצוב v3 — משפך מחובר: אותם מספרים של החודש (M) ואותו pc(), אחוז ההמרה על כל חץ; כל שלב פותח את הלידים כמו הכרטיסים */
+      '<div class="funnel" role="group" aria-label="משפך החודש — מליד ועד כסף"><h3 class="sec">החודש · מליד ועד כסף · ' + mLabel(t0.slice(0, 7)) + '</h3><div class="fsteps">' +
+        [['נכנסו', M.in - M.credit, ''], ['טופלו', M.handled, pc(M.handled, M.in - M.credit)], ['בדיקה', M.check, pc(M.check, M.handled)], ['חתמו', M.signed, pc(M.signed, M.check), 'expected'], ...(money$ ? [['שילמו', M.paid, pc(M.paid, M.signed), 'actual']] : [])]
+          .map(([t, v, p, tone]) => (p ? '<span class="farrow num" aria-hidden="true">' + p + '</span>' : '') + '<button class="fstep' + (tone ? ' ' + tone : '') + '" data-go="leads"' + (p ? ' aria-label="' + t + ' ' + v + ' · המרה ' + p + '"' : '') + '><span>' + t + '</span><b class="num">' + v + '</b></button>').join('') + '</div></div>' +
       '</div>' +
       (typeRows.length ? '<div class="scroll"><table><thead><tr><th>' + mLabel(t0.slice(0, 7)) + '</th><th>נכנסו</th><th>טופלו</th><th>בדיקה</th><th>חתמו</th><th>בדיקה → חתימה</th>' + (money$ ? '<th>שילמו</th>' : '') + '</tr></thead><tbody>' +
         typeRows.map(([t, r]) => '<tr><td class="wide">' + esc(t) + '</td><td class="num">' + r.in + '</td><td class="num">' + r.handled + ' <small class="hint">' + pc(r.handled, r.in) + '</small></td><td class="num">' + r.check + ' <small class="hint">' + pc(r.check, r.handled) + '</small></td><td class="num"><b>' + r.signed + '</b></td><td class="num"><b>' + pc(r.signed, r.check) + '</b></td>' + (money$ ? '<td class="num">' + r.paid + (r.collected ? ' <small class="hint">' + plain(r2(r.collected)) + '</small>' : '') + '</td>' : '') + '</tr>').join('') +
@@ -1159,14 +1245,16 @@ function focusPanel() {
     const groups = {}; open.forEach((c) => { const ty = procType(c), st = procSteps(c), cur = procCur(c), lab = (st.find((x) => x[0] === cur) || [])[1] || cur; const g = (groups[ty] = groups[ty] || {}); g[lab] = g[lab] || { n: 0, i: procIdx(c, cur) }; g[lab].n++; });
     const stuck = stuckFiles().filter((c) => c.division !== 'realestate'), dan = open.filter((c) => (fileOf(c.id) || {}).needsDan);
     const appr = open.filter((c) => c.apprSurvey && Object.keys(c.apprSurvey.sent || {}).length && !c.apprSurvey.chosen);
-    h += '<h3 class="sec">תפעול — איפה התיקים עומדים</h3><div class="grid4">' +
+    h += '<h3 class="sec">תפעול — איפה התיקים עומדים</h3><div class="grid4 bento' + (fc === 'ops' ? ' hero1' : '') + '">' +
       kpi('תיקים פתוחים', '<span class="num">' + open.length + '</span>', 'בתהליך', 'clients') +
       kpi('תקועים', '<span class="num">' + stuck.length + '</span>', '3 ימי עבודה בלי תזוזה', 'clients', stuck.length ? 'open' : '') +
       kpi('לאישור דן', '<span class="num">' + dan.length + '</span>', 'מחכים להחלטה', 'clients', dan.length ? 'expected' : '') +
       kpi('שמאויות בסקר', '<span class="num">' + appr.length + '</span>', 'נשלח לשמאים, עוד לא נבחר', 'clients') +
       '</div>' +
-      Object.entries(groups).map(([ty, g]) => '<div class="row" style="gap:6px;flex-wrap:wrap;margin:4px 0"><b style="min-width:70px">' + esc((PROC[ty] || {}).label || ty) + '</b>' +
-        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="pill committed" data-go="clients" title="לוח הלקוחות">' + esc(lab) + ' · ' + x.n + '</button>').join('') + '</div>').join('');
+      /* עיצוב v3 — תיקים לפי שלב: עמודה לכל שלב, הגובה לפי מספר התיקים (אותו מספר ואותו מעבר ללוח הלקוחות) */
+      Object.entries(groups).map(([ty, g]) => { const top = Math.max(1, ...Object.values(g).map((x) => x.n));
+        return '<div class="stages"><b class="stt">' + esc((PROC[ty] || {}).label || ty) + '</b><div class="stbars">' +
+        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><i aria-hidden="true"></i><b class="num">' + x.n + '</b><span>' + esc(lab) + '</span></button>').join('') + '</div></div>'; }).join('');
   }
   if (fc === 'all' && S.isOwner) {
     const m = t0.slice(0, 7), open = (S.settings.monthOpen || {})[m], got = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + cashIn(t), 0));
@@ -1225,13 +1313,13 @@ function vDay() {
     (rem.length ? '<section class="card"><header><h2>תזכורות יומיות</h2><span class="pill open">' + rem.length + '</span><span class="hint">חוזרות כל יום עד שמסמנים בכרטיס</span></header>' +
       rem.map((x) => '<div class="check"><span class="grow"><button class="xlink" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + '</button> — ' + esc(x.text) + '</span><span class="pill ' + (x.kind === 'fund' ? 'open' : 'expected') + '">' + (x.kind === 'fund' ? 'קרן' : 'פעימה') + '</span></div>').join('') + '</section>' : '') +
     '<div class="grid2">' +
-      '<section class="card"><header><h2>סדר היום</h2><span class="grow"></span><button class="btn small ghost" data-go="tasks">לוח הצוות ←</button>' + (S.canTask ? '<button class="btn small" data-act="newTask">+ משימה</button>' : '') + '</header>' +
+      '<section class="card agenda"><header><h2>סדר היום</h2><span class="grow"></span><button class="btn small ghost" data-go="tasks">לוח הצוות ←</button>' + (S.canTask ? '<button class="btn small" data-act="newTask">+ משימה</button>' : '') + '</header>' +
         (overdue.length ? '<h3 class="sec" style="color:var(--open)">באיחור</h3>' + overdue.map(taskRow).join('') : '') +
         (dueToday.length ? '<h3 class="sec">היום</h3>' + dueToday.map(taskRow).join('') : '') +
         (!overdue.length && !dueToday.length ? '<p class="empty">אין משימות להיום.' + (later.length ? ' יש ' + later.length + ' משימות פתוחות להמשך.' : '') + '</p>' : '') +
         (later.length && (overdue.length || dueToday.length) ? '<p class="hint" style="margin-top:8px">ועוד ' + later.length + ' משימות פתוחות להמשך — <button class="xlink" data-go="tasks">כל המשימות</button></p>' : '') +
       '</section>' +
-      '<section class="card"><header><h2>לקוחות שמחכים לך</h2><span class="pill ' + (follow.length ? 'expected' : 'actual') + '">' + follow.length + '</span></header>' +
+      '<section class="card agenda"><header><h2>לקוחות שמחכים לך</h2><span class="pill ' + (follow.length ? 'expected' : 'actual') + '">' + follow.length + '</span></header>' +
         (follow.length ? '<div class="scroll"><table><tbody>' + follow.map((c) => '<tr class="clickable" data-client="' + esc(c.id) + '"><td class="wide"><b>' + esc(c.name) + '</b><div class="hint">' + esc(c.nextAction.text) + '</div></td><td class="num">' + dLabel(c.nextAction.date) + '</td></tr>').join('') + '</tbody></table></div>'
           : '<p class="empty">אין מעקבים להיום.</p>') +
         (tickets.length ? '<h3 class="sec">פניות שירות פתוחות שלך</h3>' + tickets.map((x) => { const c = x.clientId && S.clients.get(x.clientId);
@@ -1400,7 +1488,7 @@ function vHomeRE() {
   const tLate = tasks.filter((t) => t.due && t.due < t0);
   return '<div class="row"><div class="grow"><h1>הר-אל השקעות נדל״ן</h1><p class="hint">לוח בקרה נפרד — בלי הר-אל פתרונות · ' + (last.month ? 'החודש האחרון עם נתונים: ' + mLabel(last.month) : 'אין עדיין נתונים') + '</p></div>' +
     (S.canWrite ? '<button class="btn primary" data-act="newClient">+ עסקה</button><button class="btn" data-act="newTx">+ תנועה</button>' : '') + (S.canTask ? '<button class="btn" data-act="newTask">+ משימה</button>' : '') + '</div>' +
-    '<div class="grid4">' +
+    '<div class="grid4 bento hero1">' +
       kpi('רווח לחלוקה 33/33/33 · ' + mLabel(last.month), money(last.distributable, { tone: last.distributable < 0 ? 'open' : 'committed' }), (lr ? 'לכל שותף ' + plain(lr.each) + ' · ' : '') + 'תפעולי ' + plain(last.operational), 'money') +
       kpi('כניסות צפויות', money(eSum, { tone: 'committed' }), E.length + ' כניסות · יזמים, פעימות, יתרות' + (eLate.length ? ' · ' + eLate.length + ' באיחור' : ''), null) +
       kpi('פוטנציאל — שכ״ט', money(potSum, { tone: 'expected' }), pot.length + ' עסקאות בתהליך · לפני מע״מ', null) +
@@ -1596,14 +1684,14 @@ function vHomeBase() {
   return '<div class="row"><div class="grow"><h1>לוח בקרה</h1><p class="hint">' + (last.month ? 'החודש האחרון עם נתונים: ' + mLabel(last.month) : 'אין עדיין נתונים') + '</p></div>' +
     (S.canWrite ? '<button class="btn primary" data-act="newClient">+ לקוח</button><button class="btn" data-act="newTx">+ תנועה</button><button class="btn" data-act="newTask">+ משימה</button>' : '') + '</div>' +
     todayRow() + (S.division !== 'finance' ? rePotentialCard(true) : '') + '<h3 class="sec">החודש</h3>' +
-    '<div class="grid4">' +
+    '<div class="grid4 bento hero1">' +
       kpi(distLabel() + ' · ' + mLabel(last.month) + (distDiv() === 'realestate' && reCard().length ? ' · לשותף ' + plain(reCard().slice(-1)[0].each) : ''), money(last.distributable, { tone: last.distributable < 0 ? 'open' : 'committed' }), 'תפעולי ' + money(last.operational, { tone: 'muted' }), 'money') +
       kpi('פתוח לגביה', money(openMoney, { tone: 'expected' }), owing.length + ' לקוחות חייבים · ' + openClients.length + ' תיקים פתוחים', 'clients') +
       kpi('התחשבנות עם ניסים', money(nl ? nl.closing : 0, { tone: 'committed' }), nl && nl.transfer ? 'להעביר ' + money(nl.transfer, { tone: 'open' }) + ' עד ה-10' : 'אין העברה פתוחה', 'money') +
       kpi('דורש טיפול', '<span class="num">' + attn.length + '</span>', overdue.length + ' באיחור · ' + tickets.length + ' פניות פתוחות · ' + noOwner.length + ' בלי אחראי', null) +
     '</div>' +
     '<div class="grid2">' +
-      '<section class="card"><header><h2>דורש טיפול</h2><span class="pill ' + (attn.length ? 'open' : 'actual') + '">' + attn.length + '</span></header>' +
+      '<section class="card attn"><header><h2>דורש טיפול</h2><span class="pill ' + (attn.length ? 'open' : 'actual') + '">' + attn.length + '</span></header>' +
         (attn.length ? '<div class="scroll"><table><tbody>' + attn.slice(0, 14).map((a, i) =>
           '<tr class="clickable" data-attn="' + i + '"><td><span class="pill ' + a.tone + '">' + a.what + '</span></td><td class="wide">' + esc(a.text) + '</td><td class="num">' + dLabel(a.when) + '</td></tr>').join('') + '</tbody></table></div>'
           : '<p class="empty">הכל מטופל.</p>') + '</section>' +
