@@ -13,12 +13,13 @@ import { greenInvoiceImportJob } from '@/lib/jobs/greeninvoice'
 import { wiseImportJob } from '@/lib/jobs/wise'
 import { accountantPayrollSendJob, payrollReminderJob } from '@/lib/jobs/payroll'
 import { coldBackupJob, reportsToDriveJob } from '@/lib/jobs/backup'
+import { crmMirrorJob } from '@/lib/jobs/crm-mirror'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * הפעלת ג'וב מחלק ג' של ה-ADDENDUM דרך HTTP — כך ה-cron (Supabase / GitHub Actions / crontab)
- * מריץ את אותו קוד שהמסך מריץ. מוגן ב-JOBS_SECRET (header `x-jobs-secret` או `?secret=`).
+ * מריץ את אותו קוד שהמסך מריץ. מוגן ב-JOBS_SECRET (header `x-jobs-secret`; לא בכתובת — כתובות נשמרות ביומני גישה).
  *   POST /api/jobs/day_close?date=YYYY-MM-DD
  */
 const JOBS = {
@@ -41,6 +42,7 @@ const JOBS = {
   accountant_payroll_send: (d: string) => accountantPayrollSendJob(d),
   reports_to_drive: (d: string) => reportsToDriveJob(d),
   cold_backup: (d: string) => coldBackupJob(d),
+  crm_mirror: (d: string) => crmMirrorJob(d),
 } as const
 
 const eq = (a: string, b: string) => {
@@ -49,7 +51,7 @@ const eq = (a: string, b: string) => {
 }
 
 /**
- * הרשאה: `x-jobs-secret` / `?secret=` (ה-cron שלנו), או `Authorization: Bearer $CRON_SECRET`
+ * הרשאה: `x-jobs-secret` (ה-cron שלנו), או `Authorization: Bearer $CRON_SECRET`
  * (הפורמט ש-Vercel Cron שולח). בלי סוד מוגדר — רק בפיתוח.
  */
 function authorized(req: Request): boolean {
@@ -57,7 +59,7 @@ function authorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET
   if (!secret && !cronSecret) return process.env.NODE_ENV !== 'production'
   const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
-  const given = req.headers.get('x-jobs-secret') ?? new URL(req.url).searchParams.get('secret') ?? ''
+  const given = req.headers.get('x-jobs-secret') ?? ''
   return (Boolean(secret) && (eq(given, secret!) || eq(bearer, secret!))) || (Boolean(cronSecret) && eq(bearer, cronSecret!))
 }
 

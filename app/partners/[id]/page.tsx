@@ -2,8 +2,9 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronRight, Lock } from 'lucide-react'
 import { Topbar } from '@/components/shell/topbar'
-import { PinGate } from '@/components/pin-gate'
-import { pinConfigured, verifyPin } from '@/app/actions/pin'
+import { LockedSkeleton, PinGate, PinNotConfigured } from '@/components/pin-gate'
+import { verifyPin } from '@/app/actions/pin'
+import { pinConfigured, pinUnlockedUntil } from '@/lib/pin'
 import { activeAlertCount } from '@/lib/queries/common'
 import { investorLoans, partnerById, partnerDraws, partnerPositions, partnerYears, realEstateMonths } from '@/lib/queries/partners'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
@@ -29,10 +30,12 @@ export default async function PartnerPage({ params, searchParams }: { params: Pr
   const requested = typeof sp.year === 'string' ? sp.year : null
   const year = (requested && years.includes(requested) ? requested : years[0]) ?? period.slice(0, 4)
 
-  const [positions, draws, months, loans, alerts, configured] = await Promise.all([
-    partnerPositions(year), partnerDraws(year, id), realEstateMonths(year), investorLoans(),
-    activeAlertCount(), pinConfigured('partners'),
-  ])
+  const until = await pinUnlockedUntil('partners')
+  const [alerts, configured] = await Promise.all([activeAlertCount(), pinConfigured('partners')])
+  // הנתונים נטענים רק כשהאזור פתוח (עוגייה חתומה בשרת)
+  const [positions, draws, months, loans] = until
+    ? await Promise.all([partnerPositions(year), partnerDraws(year, id), realEstateMonths(year), investorLoans()])
+    : [[], [], [], []] as [Awaited<ReturnType<typeof partnerPositions>>, Awaited<ReturnType<typeof partnerDraws>>, Awaited<ReturnType<typeof realEstateMonths>>, Awaited<ReturnType<typeof investorLoans>>]
   const mine = positions.find((p) => p.partner_id === id) ?? null
   const loan = loans.find((l) => l.partner_id === id) ?? null
 
@@ -54,16 +57,14 @@ export default async function PartnerPage({ params, searchParams }: { params: Pr
         </div>
 
         {!configured ? (
-          <div className="bg-expected-bg text-expected rounded-[var(--radius-card)] p-4 text-sm">
-            לא הוגדר קוד גישה לאזור זה. להגדרה: <code dir="ltr" className="font-mono">node scripts/set-pin.mjs partners ****</code>
-          </div>
+          <PinNotConfigured />
         ) : (
-          <PinGate area="partners" areaLabel={`החלק של ${partner.name}`} verify={verify}>
-            <PartnerCard
+          <PinGate area="partners" areaLabel={`החלק של ${partner.name}`} verify={verify} unlockedUntil={until}>
+            {!until ? <LockedSkeleton /> : <PartnerCard
               year={year} years={years.length ? years : [year]} partnerId={id} name={partner.name}
               payMethod={partner.pay_method} position={mine} draws={draws} months={months} loan={loan}
               partnerCount={positions.length}
-            />
+            />}
           </PinGate>
         )}
       </main>

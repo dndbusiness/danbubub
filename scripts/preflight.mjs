@@ -16,6 +16,7 @@ const limit = (m, how) => R.limit.push({ m, how })
 const ok = (m) => R.ok.push(m)
 
 // ── סביבה ──────────────────────────────────────────────────────────────────
+if (process.env.POSTGRES_URL) process.env.DATABASE_URL = process.env.POSTGRES_URL /* החיבור של Vercel ל-Supabase גובר — כמו lib/db.ts */
 if (!process.env.DATABASE_URL) block('DATABASE_URL לא מוגדר', 'Supabase → Connection string (pooler), או ./scripts/dev-db.sh start')
 else ok('DATABASE_URL מוגדר')
 
@@ -31,7 +32,7 @@ else ok('מפתחות OAuth של גוגל מוגדרים')
 if (!process.env.GREEN_API_ID_INSTANCE || !process.env.GREEN_API_TOKEN) limit('Green-API לא מוגדר', 'בלעדיו התראות וואטסאפ ותזכורות גביה ממתינות ב-outbox')
 else ok('Green-API מוגדר')
 
-if (!process.env.ANTHROPIC_API_KEY) limit('ANTHROPIC_API_KEY לא מוגדר', 'בלעדיו חילוץ חשבונית של ספק לא מוכר נשאר לפי כללים בלבד (ב.3)')
+if (!process.env.ANTHROPIC_API_KEY) limit('ANTHROPIC_API_KEY לא מוגדר', 'בלעדיו: אין שווי רכב מיידי, ניתוחים רק בתור על המנוי, וחילוץ חשבונית של ספק לא מוכר לפי כללים בלבד (ב.3). עם המפתח — תקרה של 15 ₪ ליום לכל השימוש (AI_DAILY_ILS)')
 else ok('חילוץ LLM לחשבוניות זמין')
 
 if (!process.env.APP_BASE_URL) limit('APP_BASE_URL לא מוגדר', 'הקישורים במיילים, בוואטסאפ וביומן יצאו יחסיים')
@@ -44,7 +45,7 @@ if (process.env.VERCEL && !process.env.CHROMIUM_PACK_URL && !process.env.CHROMIU
 
 // ── DB ─────────────────────────────────────────────────────────────────────
 if (process.env.DATABASE_URL) {
-  const sql = postgres(process.env.DATABASE_URL, { max: 1, idle_timeout: 5 })
+  const sql = postgres(process.env.DATABASE_URL, { max: 1, idle_timeout: 5, ...(/:6543\b|pooler\.supabase/.test(process.env.DATABASE_URL) ? { prepare: false } : {}) })
   try {
     const [{ tables, views }] = await sql`
       select (select count(*)::int from information_schema.tables where table_schema='public' and table_type='BASE TABLE') as tables,

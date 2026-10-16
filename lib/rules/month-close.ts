@@ -91,7 +91,7 @@ export function computeMonthCloseChecklist(f: MonthCloseFacts): MonthCloseItem[]
       key: 'gaps_report_sent', blocking: false,
       label: 'קובץ פערים נשלח',
       done: Boolean(f.gapsReportAt),
-      detail: f.gapsReportAt ? `נשלח ${f.gapsReportAt.slice(0, 10)}` : 'דוח הפערים (4.3) נבנה בשלב 6',
+      detail: f.gapsReportAt ? `נשלח ${f.gapsReportAt.slice(0, 10)}` : 'עוד לא נשלח — מסך הפערים ← "שלח לרו״ח"',
     },
   ]
 }

@@ -2,12 +2,12 @@
  * Gmail — ADDENDUM ב.1: שליחה (ב.4, ב.7) וקריאה (ב.3). רק בניית הבקשות; הטוקן מגיע מ-lib/google/store.ts.
  */
 
-export interface MailMessage { to: string[]; subject: string; html: string; from?: string; attachments?: { fileName: string; mimeType: string; content: Buffer }[] }
+export interface MailMessage { to: string[]; cc?: string[]; subject: string; html: string; from?: string; attachments?: { fileName: string; mimeType: string; content: Buffer }[] }
 
 /** RFC 2822 עם UTF-8 (נושא ב-base64 encoded-word) — נדרש לעברית. */
 export function buildMime(m: MailMessage): string {
   const subject = `=?UTF-8?B?${Buffer.from(m.subject, 'utf8').toString('base64')}?=`
-  const headers = [`To: ${m.to.join(', ')}`, m.from ? `From: ${m.from}` : null, `Subject: ${subject}`, 'MIME-Version: 1.0'].filter(Boolean)
+  const headers = [`To: ${m.to.join(', ')}`, m.cc?.length ? `Cc: ${m.cc.join(', ')}` : null, m.from ? `From: ${m.from}` : null, `Subject: ${subject}`, 'MIME-Version: 1.0'].filter(Boolean)
   if (!m.attachments?.length) {
     return [...headers, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', Buffer.from(m.html, 'utf8').toString('base64')].join('\r\n')
   }

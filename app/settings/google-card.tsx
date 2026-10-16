@@ -14,6 +14,8 @@ const SERVICES: { key: string; label: string; scopes: string[] }[] = [
   { key: 'calendar', label: 'יומן — תזכורות ואירועי סגירה', scopes: ['calendar.events'] },
   { key: 'drive', label: 'דרייב — דוחות וגיבויים (רק קבצי המערכת)', scopes: ['drive.file'] },
   { key: 'sheets', label: 'Sheets — ייצוא/ייבוא גיליונות', scopes: ['spreadsheets'] },
+  // ה-CRM קורא את טבלאות הלידים ואת תיקיות הלקוחות הקיימות — קבצים שהמערכת לא יצרה, ולכן drive.file לא מספיק
+  { key: 'crm', label: 'CRM — טבלאות הלידים ותיקיות הלקוחות בדרייב', scopes: ['drive'] },
 ]
 
 /** ADDENDUM ב.1 — כרטיס החיבור לגוגל: מצב, scopes שאושרו, חיבור/ניתוק. */
@@ -30,7 +32,7 @@ export function GoogleCard({ integ, env, notice }: { integ: GoogleIntegration | 
     <Card className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Link2 size={18} className="text-text-2" />
-        <h2 className="font-semibold">Google Workspace</h2>
+        <h2 className="font-semibold">חשבון גוגל</h2>
         {integ ? (
           connected ? <StatusPill tone="actual" icon={Check}>מחובר · {integ.connected_email ?? integ.account_label}</StatusPill>
             : <StatusPill tone="open" icon={X}>{integ.status === 'expired' ? 'ההרשאה פגה — לחבר מחדש' : `שגיאה: ${integ.last_error ?? integ.status}`}</StatusPill>

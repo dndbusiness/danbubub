@@ -1,0 +1,162 @@
+/**
+ * חתימה דיגיטלית על הסכם התקשרות — הכללים הטהורים (בלי I/O, בלי new Date() בלי ארגומנט).
+ * הצד שמדבר עם ה-DB, הדרייב וה-PDF נמצא ב-lib/sign.
+ */
+
+/** ת"ז ישראלית: 9 ספרות (משלימים אפסים משמאל) + ספרת ביקורת. */
+export function normalizeIsraeliId(raw: string): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '')
+  if (!digits || digits.length > 9) return null
+  return digits.padStart(9, '0')
+}
+
+export function isValidIsraeliId(raw: string): boolean {
+  const id = normalizeIsraeliId(raw)
+  if (!id || /^0+$/.test(id)) return false
+  let sum = 0
+  for (let i = 0; i < 9; i++) {
+    let d = Number(id[i]) * ((i % 2) + 1)
+    if (d > 9) d -= 9
+    sum += d
+  }
+  return sum % 10 === 0
+}
+
+export function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+}
+
+export type FieldValue = string | number | null | undefined
+
+const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g
+const BLANK = '__________'
+
+/**
+ * נוסח עם {{שדות}} → HTML בטוח. הנוסח עצמו טקסט (לא HTML): כל תו מוברח.
+ *   שורה שמתחילה ב-"# " → כותרת · "- " → סעיף ברשימה · שורה ריקה → פסקה חדשה.
+ * שדה בלי ערך מוצג כקו ריק ומדווח ב-missing — כדי שלא יישלח הסכם עם חור בלי לדעת.
+ */
+export function renderAgreement(template: string, fields: Record<string, FieldValue>): { html: string; missing: string[] } {
+  const missing = new Set<string>()
+  const fill = (line: string) => escapeHtml(line).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_m, key: string) => {
+    const v = fields[key]
+    if (v === null || v === undefined || String(v).trim() === '') { missing.add(key); return BLANK }
+    return '<b>' + escapeHtml(String(v)) + '</b>'
+  })
+  const out: string[] = []
+  let para: string[] = [], list: string[] = []
+  const flushPara = () => { if (para.length) { out.push('<p>' + para.join('<br>') + '</p>'); para = [] } }
+  const flushList = () => { if (list.length) { out.push('<ol>' + list.map((x) => '<li>' + x + '</li>').join('') + '</ol>'); list = [] } }
+  for (const raw of String(template ?? '').replace(/\r\n?/g, '\n').split('\n')) {
+    const line = raw.trim()
+    if (!line) { flushPara(); flushList(); continue }
+    if (line.startsWith('# ')) { flushPara(); flushList(); out.push('<h2>' + fill(line.slice(2)) + '</h2>'); continue }
+    if (line.startsWith('- ')) { flushPara(); list.push(fill(line.slice(2))); continue }
+    flushList(); para.push(fill(line))
+  }
+  flushPara(); flushList()
+  return { html: out.join('\n'), missing: [...missing] }
+}
+
+/** השדות שהנוסח מבקש, לפי סדר הופעה. */
+export function templateFields(template: string): string[] {
+  const seen: string[] = []
+  for (const m of String(template ?? '').matchAll(PLACEHOLDER)) { const k = m[1] ?? ''; if (k && !seen.includes(k)) seen.push(k) }
+  return seen
+}
+
+export type SignStatus = 'sent' | 'opened' | 'signed' | 'cancelled'
+export type SignState = 'open' | 'signed' | 'cancelled' | 'expired'
+
+/** מה הלקוח רואה כשהוא פותח את הקישור. */
+export function signState(r: { status: SignStatus; expires_at: string | Date; deleted_at?: string | Date | null }, now: Date): SignState {
+  if (r.deleted_at || r.status === 'cancelled') return 'cancelled'
+  if (r.status === 'signed') return 'signed'
+  return new Date(r.expires_at).getTime() <= now.getTime() ? 'expired' : 'open'
+}
+
+export interface Submission { name: string; idNumber: string; signature: string; agree: boolean }
+
+/** בדיקת הטופס של הלקוח. מחזיר רשימת שגיאות בעברית (ריקה = תקין). */
+export function validateSubmission(s: Partial<Submission>): string[] {
+  const errors: string[] = []
+  const name = String(s.name ?? '').trim()
+  if (name.length < 2 || !/[\p{L}]/u.test(name)) errors.push('נא למלא שם מלא')
+  if (!isValidIsraeliId(String(s.idNumber ?? ''))) errors.push('מספר תעודת הזהות לא תקין')
+  const sig = String(s.signature ?? '')
+  if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig)) errors.push('נא לחתום במסגרת')
+  else if (sig.length < 1500) errors.push('החתימה קצרה מדי — נא לחתום שוב')
+  else if (sig.length >= 600000) errors.push('החתימה גדולה מדי — נא לנקות ולחתום שוב')
+  if (s.agree !== true) errors.push('נא לאשר שקראת את ההסכם ושאתה מסכים לו')
+  return errors
+}
+
+/** תוקף הקישור — ברירת מחדל 14 יום, טווח 1-60. */
+export function expiryFrom(now: Date, days: number | null | undefined): Date {
+  const d = Math.min(60, Math.max(1, Math.round(Number(days) || 14)))
+  return new Date(now.getTime() + d * 86_400_000)
+}
+
+/* ── מערכת חתימות: כמה חותמים, קוד אימות, ספריית תבניות (018) ───────────────── */
+
+export const SIGN_CATEGORIES = {
+  agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי',
+} as const
+export type SignCategory = keyof typeof SIGN_CATEGORIES
+
+export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; fields?: Record<string, FieldValue> }
+
+export const MAX_SIGNERS = 6
+
+/** בדיקת רשימת החותמים לפני שליחה. מחזיר שגיאות בעברית (ריקה = תקין). */
+export function validateSigners(signers: SignerInput[]): string[] {
+  const errors: string[] = []
+  if (!signers.length) errors.push('אין חותמים')
+  if (signers.length > MAX_SIGNERS) errors.push(`עד ${MAX_SIGNERS} חותמים במסמך`)
+  const seen = new Set<string>()
+  signers.forEach((s, i) => {
+    const who = s.label?.trim() || `חותם ${i + 1}`
+    const email = String(s.email ?? '').trim().toLowerCase(), phone = String(s.phone ?? '').replace(/\D/g, '')
+    if (!email && !phone) errors.push(`${who}: חסר מייל או טלפון`)
+    if (email && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email)) errors.push(`${who}: מייל לא תקין`)
+    if (s.requireOtp && !email) errors.push(`${who}: קוד אימות נשלח במייל — חסר מייל`)
+    if (email) { if (seen.has(email)) errors.push(`${who}: אותו מייל לשני חותמים`); seen.add(email) }
+  })
+  return errors
+}
+
+/** "dana@gmail.com" → "da***@gmail.com" — להצגה בדף החתימה בלי לחשוף את הכתובת המלאה. */
+export function maskEmail(email: string | null | undefined): string {
+  const [u = '', d = ''] = String(email ?? '').split('@')
+  if (!d) return ''
+  return `${u.slice(0, Math.min(2, u.length))}***@${d}`
+}
+
+export const OTP_TTL_MS = 10 * 60 * 1000
+export const OTP_MAX_ATTEMPTS = 5
+export const OTP_RESEND_MS = 60 * 1000
+
+export type OtpState = 'not_required' | 'verified' | 'need_send' | 'sent' | 'locked'
+
+/** איפה החותם עומד בקוד האימות. */
+export function otpState(r: { require_otp: boolean; otp_verified_at: string | Date | null; otp_hash: string | null; otp_expires_at: string | Date | null; otp_attempts: number }, now: Date): OtpState {
+  if (!r.require_otp) return 'not_required'
+  if (r.otp_verified_at) return 'verified'
+  if (!r.otp_hash || !r.otp_expires_at || new Date(r.otp_expires_at).getTime() <= now.getTime()) return 'need_send'
+  return r.otp_attempts >= OTP_MAX_ATTEMPTS ? 'locked' : 'sent'
+}
+
+/** אפשר לשלוח קוד חדש? (פעם בדקה — שלא יציפו את המייל של החותם) */
+export function canResendOtp(sentAt: string | Date | null | undefined, now: Date): boolean {
+  return !sentAt || now.getTime() - new Date(sentAt).getTime() >= OTP_RESEND_MS
+}
+
+/** ה-PDF המשותף: נוסח אחד לכל טביעה (חותמים עם אותו נוסח — חתימות זה לצד זה). */
+export function groupByDocument<T extends { doc_hash: string; signer_order: number }>(rows: T[]): { doc_hash: string; rows: T[] }[] {
+  const out: { doc_hash: string; rows: T[] }[] = []
+  for (const r of [...rows].sort((a, b) => a.signer_order - b.signer_order)) {
+    const g = out.find((x) => x.doc_hash === r.doc_hash)
+    if (g) g.rows.push(r); else out.push({ doc_hash: r.doc_hash, rows: [r] })
+  }
+  return out
+}

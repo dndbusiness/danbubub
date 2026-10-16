@@ -1,7 +1,8 @@
 import { Lock } from 'lucide-react'
 import { Topbar } from '@/components/shell/topbar'
-import { PinGate } from '@/components/pin-gate'
-import { verifyPin, pinConfigured } from '@/app/actions/pin'
+import { LockedSkeleton, PinGate, PinNotConfigured } from '@/components/pin-gate'
+import { verifyPin } from '@/app/actions/pin'
+import { pinConfigured, pinUnlockedUntil } from '@/lib/pin'
 import { settlementTransferCandidates } from '@/app/actions/periods'
 import { askNissimCount, closingBlockers, nissimCardFor, nissimCardHistory, nissimDrill, periodFor } from '@/lib/queries/nissim'
 import { activeAlertCount } from '@/lib/queries/common'
@@ -18,10 +19,12 @@ export default async function NissimPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams
   const now = new Date().toISOString()
   const { period } = readGlobalParams(sp, now)
-  const [card, history, period_, drill, blockers, ask, alerts, configured, candidates] = await Promise.all([
-    nissimCardFor(period), nissimCardHistory(), periodFor(period), nissimDrill(period), closingBlockers(period),
-    askNissimCount(period), activeAlertCount(), pinConfigured('nissim'), settlementTransferCandidates(period),
-  ])
+  const until = await pinUnlockedUntil('nissim')
+  const [period_, alerts, configured] = await Promise.all([periodFor(period), activeAlertCount(), pinConfigured('nissim')])
+  // הנתונים נטענים רק כשהאזור פתוח (עוגייה חתומה בשרת)
+  const data = until ? await Promise.all([
+    nissimCardFor(period), nissimCardHistory(), nissimDrill(period), closingBlockers(period), askNissimCount(period), settlementTransferCandidates(period),
+  ]) : null
 
   async function verify(pin: string) {
     'use server'
@@ -37,15 +40,15 @@ export default async function NissimPage({ searchParams }: { searchParams: Promi
           <h1 className="text-xl font-semibold">כרטיס ניסים — התחשבנות 50/50</h1>
         </div>
         {!configured ? (
-          <div className="bg-expected-bg text-expected rounded-[var(--radius-card)] p-4 text-sm">
-            לא הוגדר קוד גישה לאזור זה. להגדרה: <code dir="ltr" className="font-mono">node scripts/set-pin.mjs nissim ****</code>
-          </div>
+          <PinNotConfigured />
         ) : (
-          <PinGate area="nissim" areaLabel="כרטיס ניסים" verify={verify}>
-            <NissimCardView
-              month={period} card={card} history={history} period={period_} drill={drill} blockers={blockers}
-              askNissim={ask} candidates={candidates} canClose
-            />
+          <PinGate area="nissim" areaLabel="כרטיס ניסים" verify={verify} unlockedUntil={until}>
+            {data ? (
+              <NissimCardView
+                month={period} card={data[0]} history={data[1]} period={period_} drill={data[2]} blockers={data[3]}
+                askNissim={data[4]} candidates={data[5]} canClose
+              />
+            ) : <LockedSkeleton />}
           </PinGate>
         )}
       </main>

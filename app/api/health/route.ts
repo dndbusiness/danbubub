@@ -29,6 +29,10 @@ export async function GET() {
       jobs48h: jobs, outbox, latencyMs: Date.now() - started,
     }, { status: ok ? 200 : 503 })
   } catch (e) {
-    return NextResponse.json({ status: 'down', error: (e as Error).message, latencyMs: Date.now() - started }, { status: 503 })
+    // בלי טקסט השגיאה הגולמי — הנתיב פתוח לכל העולם; הפרטים ביומן השרת
+    console.error('health:', (e as Error).message)
+    const msg = (e as Error).message
+    const error = /does not exist/.test(msg) ? 'הסכימה לא הוקמה' : /connect|ECONN|timeout|password/i.test(msg) ? 'אין חיבור למסד' : 'שגיאה במסד'
+    return NextResponse.json({ status: 'down', error, latencyMs: Date.now() - started }, { status: 503 })
   }
 }

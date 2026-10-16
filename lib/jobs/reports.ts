@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { sql, withActor } from '@/lib/db'
 import { internalBaseUrl, renderPdf } from '@/lib/pdf'
+import { durablePdfRef, storeLocalFile } from '@/lib/files'
 import { buildWeeklyReport, renderWeeklyHtml, type Audience } from '@/lib/reports/weekly'
 import { refreshMonthClose } from '@/lib/queries/month-close'
 import { settingValues } from '@/lib/queries/cashflow'
@@ -63,10 +64,10 @@ export async function weeklyReportJob(asOf: string): Promise<Out & { recipients:
           queued += n
           const [ob] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${dedupKey}`
           outboxId = ob?.id ?? null
-          if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ pdfPath: pdf, fileName: `דוח-שבועי-${week}.pdf` })} where id = ${outboxId}`
+          if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ fileId: await storeLocalFile(pdf, `דוח-שבועי-${week}.pdf`, 'application/pdf', 'report'), fileName: `דוח-שבועי-${week}.pdf` } as never)} where id = ${outboxId}`
         }
       }
-      await record('weekly', week, driveUrl ?? pdf, t.email ? [t.email] : [], outboxId)
+      await record('weekly', week, driveUrl ?? await durablePdfRef(pdf), t.email ? [t.email] : [], outboxId)
       detail[t.audience] = t.email ? (outboxId ? 'queued' : 'already sent') : 'no target'
     }
     const flush = queued ? await flushOutbox() : null
@@ -113,10 +114,10 @@ export async function pnlReportJob(asOf: string, kind: 'draft' | 'final'): Promi
         const [ob] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${dedupKey}`
         outboxId = ob?.id ?? null
         const main = files.find((f) => f.pdf)?.pdf
-        if (outboxId && main) await sql`update outbox set payload = ${sql.json({ pdfPath: main, fileName: `רווח-והפסד-${month}.pdf` })} where id = ${outboxId}`
+        if (outboxId && main) await sql`update outbox set payload = ${sql.json({ fileId: await storeLocalFile(main, `רווח-והפסד-${month}.pdf`, 'application/pdf', 'report'), fileName: `רווח-והפסד-${month}.pdf` } as never)} where id = ${outboxId}`
       }
     }
-    await record(kind === 'draft' ? 'pnl_draft' : 'pnl_final', month, files[0]?.drive ?? files[0]?.pdf ?? null, to, outboxId)
+    await record(kind === 'draft' ? 'pnl_draft' : 'pnl_final', month, files[0]?.drive ?? await durablePdfRef(files[0]?.pdf ?? null), to, outboxId)
     const flush = outboxId ? await flushOutbox() : null
     return { rowsTouched: files.filter((f) => f.pdf).length, detail: { files: files.map((f) => ({ division: f.division, drive: Boolean(f.drive) })), checklist: `${status.done}/${status.total}`, flush }, month, ready: status.ready }
   })

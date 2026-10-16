@@ -71,6 +71,15 @@ run "$ROOT/db/tests/002_addendum.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 echo "→ הבטחות מבניות (שלב 7 — נדל״ן ופרייבט)"
 run "$ROOT/db/tests/003_realestate.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 
+echo "→ הבטחות מבניות (חתימה דיגיטלית)"
+run "$ROOT/db/tests/004_signatures.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+echo "→ קבצים במסד והגדרות ביומן (017)"
+run "$ROOT/db/tests/005_files.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+echo "→ מערכת חתימות: כמה חותמים, קוד אימות (018)"
+run "$ROOT/db/tests/006_sign_envelopes.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+echo "→ טפסים מ-PDF (019)"
+run "$ROOT/db/tests/007_sign_pdf.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
+
 echo "→ זהות views ↔ lib/rules (SPEC §8)"
 run "$ROOT/db/tests/001_parity.sql" 2>&1 | sed -n 's/^psql.*NOTICE:  /   /p'
 

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { sql, withActor } from '@/lib/db'
 import { internalBaseUrl, renderPdf } from '@/lib/pdf'
+import { durablePdfRef, storeLocalFile } from '@/lib/files'
 import { settingValues } from '@/lib/queries/cashflow'
 import { payrollForMonth, payrollTotals } from '@/lib/queries/payroll'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
@@ -118,16 +119,16 @@ export async function accountantPayrollSendJob(asOf: string): Promise<Out & { mo
       if (queued) {
         const [ob] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${dedupKey}`
         outboxId = ob?.id ?? null
-        if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ pdfPath: pdf, fileName: `דוח-שכר-${month}.pdf` } as never)} where id = ${outboxId}`
+        if (outboxId && pdf) await sql`update outbox set payload = ${sql.json({ fileId: await storeLocalFile(pdf, `דוח-שכר-${month}.pdf`, 'application/pdf', 'report'), fileName: `דוח-שכר-${month}.pdf` } as never)} where id = ${outboxId}`
       }
     }
 
     const marked = await withActor(async (tx) => {
       const res = await tx`
-        update payroll_months set status = 'sent_to_accountant', report_file_url = ${drive ?? pdf}
+        update payroll_months set status = 'sent_to_accountant', report_file_url = ${drive ?? await durablePdfRef(pdf)}
         where period = ${month} and status = 'approved' and deleted_at is null`
       await tx`insert into report_runs (report_type, period, file_url, file_format, recipients, outbox_id, sent_at)
-               values ('payroll', ${month}, ${drive ?? pdf}, 'pdf', ${to}, ${outboxId}, ${to.length ? 'now()' : null}::timestamptz)`
+               values ('payroll', ${month}, ${drive ?? await durablePdfRef(pdf)}, 'pdf', ${to}, ${outboxId}, ${to.length ? 'now()' : null}::timestamptz)`
       return res.count
     })
     const flush = queued ? await flushOutbox() : null

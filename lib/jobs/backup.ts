@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sql, withActor } from '@/lib/db'
+import { readStoredFile, storedFileIdFromUrl } from '@/lib/files'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
 import { settingValues } from '@/lib/queries/cashflow'
@@ -48,7 +49,8 @@ export async function reportsToDriveJob(asOf: string): Promise<Out> {
         const period = r.period ?? asOf.slice(0, 7)
         const folder = await ensureFolderPath(token, reportFolder(FOLDER[r.report_type] ?? 'weekly', period))
         const name = r.file_url.split('/').pop() ?? `${r.report_type}-${period}.pdf`
-        const link = (await uploadFile(token, folder, name, 'application/pdf', await readFile(r.file_url))).webViewLink
+        const sid = storedFileIdFromUrl(r.file_url), stored = sid ? await readStoredFile(sid) : null
+        const link = (await uploadFile(token, folder, stored?.name ?? name, 'application/pdf', stored ? stored.bytes : await readFile(r.file_url))).webViewLink
         await withActor(async (tx) => { await tx`update report_runs set file_url = ${link} where id = ${r.id}` })
         uploaded++
       } catch (e) {

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { sql, withActor } from '@/lib/db'
 import { internalBaseUrl, renderPdf } from '@/lib/pdf'
+import { durablePdfRef, storeLocalFile } from '@/lib/files'
 import { buildDailySummary, renderDailySummaryHtml } from '@/lib/reports/daily-summary'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
@@ -45,12 +46,12 @@ export async function dailySummaryJob(date: string, opts: { force?: boolean } = 
       queued = await enqueueOutbox([{ channel: 'email', target: email, subject: `הר-אל · סיכום יומי ${date.slice(8, 10)}/${date.slice(5, 7)}`, body: html, dedupKey: `daily_summary:${date}` }])
       const [row] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${`daily_summary:${date}`} and deleted_at is null`
       outboxId = row?.id ?? null
-      if (queued && outboxId && pdf) await sql`update outbox set payload = ${sql.json({ pdfPath: pdf, fileName: `סיכום-יומי-${date}.pdf` })} where id = ${outboxId}`
+      if (queued && outboxId && pdf) await sql`update outbox set payload = ${sql.json({ fileId: await storeLocalFile(pdf, `סיכום-יומי-${date}.pdf`, 'application/pdf', 'report'), fileName: `סיכום-יומי-${date}.pdf` } as never)} where id = ${outboxId}`
     }
     await withActor(async (tx) => {
       await tx`
         insert into report_runs (report_type, period, file_url, file_format, recipients, outbox_id)
-        values ('daily_summary', ${date}, ${driveUrl ?? pdf}, 'pdf', ${email ? [email] : []}, ${outboxId})`
+        values ('daily_summary', ${date}, ${driveUrl ?? await durablePdfRef(pdf)}, 'pdf', ${email ? [email] : []}, ${outboxId})`
     })
     const flush = queued ? await flushOutbox() : null
     return { rowsTouched: 1, detail: { items: data.itemsCount, quiet: data.itemsCount === 0, drive: Boolean(driveUrl), email: email ? (flush?.sent ? 'sent' : 'queued') : 'no target', flush }, pdf, driveUrl, emailed: Boolean(flush?.sent) }

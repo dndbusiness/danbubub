@@ -93,7 +93,8 @@ export async function setDeliveryTargets(fd: FormData): Promise<Result> {
   if (wa && wa.length < 11) return { ok: false, error: 'מספר וואטסאפ בפורמט בינלאומי, למשל 972501234567' }
   try {
     for (const [key, value] of [['notify_whatsapp_dan', wa || null], ['notify_email_dan', email || null]] as const) {
-      if (value === null) await sql`delete from settings where key = ${key}`
+      // "מחיקה" = ערך null — אין DELETE פיזי (הנחיה 4, 017_stored_files.sql)
+      if (value === null) await sql`update settings set value = 'null'::jsonb, updated_at = now() where key = ${key}`
       else await sql`insert into settings (key, value, description) values (${key}, ${sql.json(value as never)}, 'ADDENDUM ב.11 — יעד מסירה') on conflict (key) do update set value = excluded.value, updated_at = now()`
     }
     revalidatePath('/alerts')

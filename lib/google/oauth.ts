@@ -9,6 +9,9 @@ export const GOOGLE_SCOPES = {
   calendar: ['https://www.googleapis.com/auth/calendar.events'],
   drive: ['https://www.googleapis.com/auth/drive.file'],
   sheets: ['https://www.googleapis.com/auth/spreadsheets'],
+  /** ה-CRM על השרת: קורא את גיליונות הלידים (של אבינועם / פייסבוק — לא נוצרו ע"י המערכת) ושומר סריקות לתיקיות
+   *  קיימות של דן בדרייב. drive.file לא מספיק לזה — לכן הרשאת Drive מלאה, רק כשמחברים את ה-CRM. */
+  crm: ['https://www.googleapis.com/auth/drive'],
   /** לזיהוי החשבון שחובר (account_label) בלבד. */
   identity: ['https://www.googleapis.com/auth/userinfo.email'],
 } as const

@@ -4,25 +4,28 @@ import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Field, Input } from '@/components/ui/field'
+import { GATE_COOKIE, gateToken, safeNext, sameToken } from '@/lib/gate'
 
 export const dynamic = 'force-dynamic'
 
 /** שער הגישה הזמני (ראו middleware.ts). לא מסך ההתחברות של §6 — זה שלב 10. */
 export default async function GatePage({ searchParams }: { searchParams: Promise<{ next?: string; bad?: string }> }) {
   const sp = await searchParams
-  const next = typeof sp.next === 'string' && sp.next.startsWith('/') ? sp.next : '/'
+  const next = safeNext(typeof sp.next === 'string' ? sp.next : '/')
 
   async function enter(fd: FormData) {
     'use server'
     const password = process.env.APP_PASSWORD
     const given = String(fd.get('password') ?? '')
-    const target = String(fd.get('next') ?? '/')
-    if (!password || given !== password) redirect(`/gate?next=${encodeURIComponent(target)}&bad=1`)
-    let h = 0x811c9dc5
-    for (let i = 0; i < password.length; i++) { h ^= password.charCodeAt(i); h = Math.imul(h, 0x01000193) }
+    const target = safeNext(String(fd.get('next') ?? '/'))
+    if (!password || !sameToken(given, password)) {
+      // האטה על קוד שגוי — ניחוש בכוח גס הופך לאיטי מאוד
+      await new Promise((r) => setTimeout(r, 1200))
+      redirect(`/gate?next=${encodeURIComponent(target)}&bad=1`)
+    }
     const jar = await cookies()
-    jar.set('harel_gate', (h >>> 0).toString(36) + password.length.toString(36), { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 24 * 30 })
-    redirect(target.startsWith('/') ? target : '/')
+    jar.set(GATE_COOKIE, await gateToken(password), { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 24 * 30 })
+    redirect(target)
   }
 
   return (

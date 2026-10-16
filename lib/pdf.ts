@@ -7,6 +7,8 @@
  */
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
+import { GATE_COOKIE, gateToken } from '@/lib/gate'
+import { storeLocalFile } from '@/lib/files'
 
 export const REPORTS_DIR = process.env.HAREL_REPORTS_DIR ?? path.join(process.cwd(), 'storage', 'reports')
 
@@ -45,8 +47,12 @@ export async function renderPdf(url: string, fileName: string): Promise<string> 
   const out = path.join(REPORTS_DIR, fileName)
   const browser = await launch()
   try {
-    const page = await browser.newPage({ locale: 'he-IL' })
-    await page.goto(url, { waitUntil: 'load', timeout: 30_000 })
+    const ctx = await browser.newContext({ locale: 'he-IL' })
+    // עמודי ההדפסה מאחורי שער הכניסה — הדפדפן הפנימי נכנס עם אותה עוגייה, אחרת ה-PDF הוא מסך הכניסה
+    if (process.env.APP_PASSWORD) await ctx.addCookies([{ name: GATE_COOKIE, value: await gateToken(process.env.APP_PASSWORD), url: new URL(url).origin }])
+    const page = await ctx.newPage()
+    const res = await page.goto(url, { waitUntil: 'load', timeout: 30_000 })
+    if (res && (res.status() >= 400 || new URL(page.url()).pathname === '/gate')) throw new Error(`עמוד ההדפסה החזיר ${res.status()} (${new URL(page.url()).pathname})`)
     await page.pdf({ path: out, format: 'A4', printBackground: true, margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } })
   } finally {
     await browser.close()
@@ -54,7 +60,22 @@ export async function renderPdf(url: string, fileName: string): Promise<string> 
   return out
 }
 
-/** כתובת הבסיס לרינדור פנימי (השרת קורא לעצמו). */
-export function internalBaseUrl(): string {
-  return process.env.HAREL_INTERNAL_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
+/** PDF ששורד את הבקשה: נוצר, נשמר במסד (stored_files), ומוחזר גם הנתיב המקומי לשימוש מיידי. */
+export async function renderPdfStored(url: string, fileName: string, kind: string): Promise<{ path: string; fileId: string }> {
+  const p = await renderPdf(url, fileName)
+  return { path: p, fileId: await storeLocalFile(p, fileName, 'application/pdf', kind) }
+}
+
+/**
+ * כתובת הבסיס לרינדור פנימי (השרת קורא לעצמו). מקומית — localhost. ב-Vercel אין localhost:
+ * הכתובת הציבורית (APP_BASE_URL, או דומיין ה-Production ש-Vercel מגדיר). לא VERCEL_URL —
+ * כתובת פריסה מוגנת ב-Vercel Authentication והדפדפן הפנימי היה נחסם.
+ */
+export function internalBaseUrl(env: Record<string, string | undefined> = process.env): string {
+  if (env.HAREL_INTERNAL_URL) return env.HAREL_INTERNAL_URL.replace(/\/+$/, '')
+  if (isServerless(env)) {
+    if (env.APP_BASE_URL) return env.APP_BASE_URL.replace(/\/+$/, '')
+    if (env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
+  }
+  return `http://localhost:${env.PORT ?? 3000}`
 }

@@ -7,9 +7,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { sql, withActor } from '@/lib/db'
+import { storeFile } from '@/lib/files'
 import { classifyIntake, extractByRules, extractByTemplate, findSupplier, intakeFileName, learnTemplate, type Extracted, type KnownSupplier } from './extract'
 import { pdfToText } from './pdf'
 import { llmAvailable, proposeWithClaude } from './llm'
+import { costIls, reserve, settle, type UsageLike } from '@/lib/ai/budget'
 import { INVOICE_MATCH, matchTarget } from '@/lib/match/invoices'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
@@ -43,6 +45,9 @@ export async function processIntakeFile(input: IntakeInput, opts: { useLlm?: boo
   const ext = path.extname(input.fileName).toLowerCase() || '.bin'
   const localPath = path.join(INTAKE_DIR, `${input.source}-${input.sourceRef.replace(/[^\w.-]+/g, '_')}${ext}`)
   writeFileSync(localPath, input.buf)
+  const mime = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : /\.jpe?g$/.test(ext) ? 'image/jpeg' : ext === '.csv' ? 'text/csv' : 'application/octet-stream'
+  // הקובץ נשמר גם במסד: בשרת מנוהל הדיסק המקומי זמני (017_stored_files.sql)
+  const fileId = await storeFile(input.buf, input.fileName, mime, 'intake')
 
   const suppliers = await knownSuppliers()
   let text = ''
@@ -61,7 +66,11 @@ export async function processIntakeFile(input: IntakeInput, opts: { useLlm?: boo
     // ב.3: LLM רק למסמך לא מוכר / ביטחון נמוך, ותמיד כהצעה (הנחיה 17).
     if ((opts.useLlm ?? true) && llmAvailable() && (!supplier || extracted.confidence < 0.6)) {
       try {
-        const llm = await proposeWithClaude(needsOcr ? { pdf: input.buf, fileName: input.fileName } : { text, fileName: input.fileName })
+        /* תקרה יומית משותפת ל-Claude API (lib/ai/budget.ts) */
+        const rv = await reserve('invoice'); if (!rv.ok) throw new Error(rv.message)
+        let spent = 0
+        const llm = await proposeWithClaude(needsOcr ? { pdf: input.buf, fileName: input.fileName } : { text, fileName: input.fileName }, undefined, (m, u) => { spent = costIls(m, [u as UsageLike]) })
+          .finally(() => settle(rv.r, spent).catch(() => null))
         extracted = { ...llm, supplierId: supplier?.id ?? llm.supplierId, supplierName: supplier?.name ?? llm.supplierName, warnings: [...extracted.warnings, ...llm.warnings] }
       } catch (e) { extracted.warnings.push(`LLM: ${(e as Error).message}`) }
     }
@@ -69,13 +78,13 @@ export async function processIntakeFile(input: IntakeInput, opts: { useLlm?: boo
 
   const candidateId = await withActor(async (tx) => {
     const [row] = await tx<{ id: string }[]>`
-      insert into inbox_candidates (source, source_ref, received_at, sender, subject, file_name, extracted, extraction_method, kind, doc_text, local_path, status)
+      insert into inbox_candidates (source, source_ref, received_at, sender, subject, file_name, extracted, extraction_method, kind, doc_text, local_path, file_id, status)
       values (${input.source}, ${input.sourceRef}, ${input.receivedAt ?? new Date().toISOString()}, ${input.sender ?? null}, ${input.subject ?? null}, ${input.fileName},
-              ${extracted ? tx.json(extracted as never) : null}, ${extracted?.method === 'llm' ? 'llm' : extracted ? 'template' : null}, ${kind}, ${text.slice(0, 50_000) || null}, ${localPath}, 'pending')
+              ${extracted ? tx.json(extracted as never) : null}, ${extracted?.method === 'llm' ? 'llm' : extracted ? 'template' : null}, ${kind}, ${text.slice(0, 50_000) || null}, ${localPath}, ${fileId}, 'pending')
       on conflict (source, source_ref) do update
         -- מועמד שנמחק (soft delete) ונשלח שוב — קם לתחייה במקום להיחסם; פעיל → לא נוגעים.
         set deleted_at = null, status = 'pending', verified = false, verified_by = null, verified_at = null, invoice_id = null, matched_tx_id = null,
-            extracted = excluded.extracted, extraction_method = excluded.extraction_method, kind = excluded.kind, doc_text = excluded.doc_text, local_path = excluded.local_path, received_at = excluded.received_at
+            extracted = excluded.extracted, extraction_method = excluded.extraction_method, kind = excluded.kind, doc_text = excluded.doc_text, local_path = excluded.local_path, file_id = excluded.file_id, received_at = excluded.received_at
         where inbox_candidates.deleted_at is not null
       returning id`
     if (!row) return null
@@ -112,8 +121,8 @@ export interface VerifiedFields { supplierId?: string | null; supplierName?: str
  * מעביר לחשבונית ירוקה דרך outbox (שלב 6), סוגר את המשימה.
  */
 export async function verifyCandidate(candidateId: string, f: VerifiedFields, actorId: string): Promise<{ invoiceId: string; matchedTxId: string | null; forwarded: boolean }> {
-  const [c] = await sql<{ id: string; file_name: string; doc_text: string | null; local_path: string | null; source_ref: string; source: string; status: string }[]>`
-    select id, file_name, doc_text, local_path, source_ref, source, status from inbox_candidates where id = ${candidateId} and deleted_at is null`
+  const [c] = await sql<{ id: string; file_name: string; doc_text: string | null; local_path: string | null; file_id: string | null; source_ref: string; source: string; status: string }[]>`
+    select id, file_name, doc_text, local_path, file_id, source_ref, source, status from inbox_candidates where id = ${candidateId} and deleted_at is null`
   if (!c) throw new Error('מועמד לא נמצא')
   if (c.status !== 'pending') throw new Error('המועמד כבר טופל')
   if (Math.abs(f.net + f.vat - f.gross) > 1) throw new Error('נטו + מע"מ חייבים להסתכם לברוטו (±1 ₪)')
@@ -166,14 +175,14 @@ export async function verifyCandidate(candidateId: string, f: VerifiedFields, ac
   // ב.3 שלב 6 — העברה לחשבונית ירוקה (דרך outbox), אלא אם המסמך כבר קיים בייצוא שלה.
   let forwarded = false
   const [gi] = await sql<{ value: string }[]>`select value #>> '{}' as value from settings where key = 'greeninvoice_intake_email'`
-  if (gi?.value && c.local_path) {
+  if (gi?.value && (c.file_id || c.local_path)) {
     const [exists] = f.docNumber ? await sql<{ id: string }[]>`
       select id from invoices where source = 'greeninvoice_import' and doc_number = ${f.docNumber} and deleted_at is null and id <> ${out.invoiceId} limit 1` : []
     if (!exists) {
       const n = await enqueueOutbox([{ channel: 'email', target: gi.value, subject: `חשבונית ${f.docNumber ?? ''} — ${f.supplierName ?? ''}`, body: `<p>חשבונית שהתקבלה ב-${c.source}. סכום ${f.gross} ₪, תאריך ${f.date}.</p>`, dedupKey: `gi_forward:${out.invoiceId}` }])
       if (n) {
         const [ob] = await sql<{ id: string }[]>`select id from outbox where dedup_key = ${`gi_forward:${out.invoiceId}`}`
-        await sql`update outbox set payload = ${sql.json({ pdfPath: c.local_path, fileName: c.file_name })} where id = ${ob!.id}`
+        await sql`update outbox set payload = ${sql.json((c.file_id ? { fileId: c.file_id, fileName: c.file_name } : { pdfPath: c.local_path, fileName: c.file_name }) as never)} where id = ${ob!.id}`
         await sql`update inbox_candidates set forwarded_outbox_id = ${ob!.id} where id = ${candidateId}`
         forwarded = true
       }

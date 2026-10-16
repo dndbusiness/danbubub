@@ -1,7 +1,8 @@
 import { Lock } from 'lucide-react'
 import { Topbar } from '@/components/shell/topbar'
-import { PinGate } from '@/components/pin-gate'
-import { pinConfigured, verifyPin } from '@/app/actions/pin'
+import { LockedSkeleton, PinGate, PinNotConfigured } from '@/components/pin-gate'
+import { verifyPin } from '@/app/actions/pin'
+import { pinConfigured, pinUnlockedUntil } from '@/lib/pin'
 import { activeAlertCount } from '@/lib/queries/common'
 import {
   cashDiscountRows, investorLoans, partnerDraws, partnerPositions, partnerYears,
@@ -25,10 +26,13 @@ export default async function PartnersPage({ searchParams }: { searchParams: Pro
   const requested = typeof sp.year === 'string' ? sp.year : null
   const year = (requested && years.includes(requested) ? requested : years[0]) ?? period.slice(0, 4)
 
-  const [positions, months, draws, loans, cash, partners, alerts, configured] = await Promise.all([
+  const until = await pinUnlockedUntil('partners')
+  const [alerts, configured] = await Promise.all([activeAlertCount(), pinConfigured('partners')])
+  // הנתונים נטענים רק כשהאזור פתוח (עוגייה חתומה בשרת)
+  const data = until ? await Promise.all([
     partnerPositions(year), realEstateMonths(year), partnerDraws(year), investorLoans(),
-    cashDiscountRows(year), realEstatePartners(), activeAlertCount(), pinConfigured('partners'),
-  ])
+    cashDiscountRows(year), realEstatePartners(),
+  ]) : null
 
   async function verify(pin: string) {
     'use server'
@@ -46,15 +50,15 @@ export default async function PartnersPage({ searchParams }: { searchParams: Pro
         </div>
 
         {!configured ? (
-          <div className="bg-expected-bg text-expected rounded-[var(--radius-card)] p-4 text-sm">
-            לא הוגדר קוד גישה לאזור זה. להגדרה: <code dir="ltr" className="font-mono">node scripts/set-pin.mjs partners ****</code>
-          </div>
+          <PinNotConfigured />
         ) : (
-          <PinGate area="partners" areaLabel="משיכות שותפים" verify={verify}>
-            <PartnersView
-              year={year} years={years.length ? years : [year]} positions={positions} months={months}
-              draws={draws} loans={loans} cashDiscount={cash} partners={partners}
-            />
+          <PinGate area="partners" areaLabel="משיכות שותפים" verify={verify} unlockedUntil={until}>
+            {data ? (
+              <PartnersView
+                year={year} years={years.length ? years : [year]} positions={data[0]} months={data[1]}
+                draws={data[2]} loans={data[3]} cashDiscount={data[4]} partners={data[5]}
+              />
+            ) : <LockedSkeleton />}
           </PinGate>
         )}
       </main>

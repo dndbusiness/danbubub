@@ -1,7 +1,8 @@
 import { Lock } from 'lucide-react'
 import { Topbar } from '@/components/shell/topbar'
-import { PinGate } from '@/components/pin-gate'
-import { pinConfigured, verifyPin } from '@/app/actions/pin'
+import { LockedSkeleton, PinGate, PinNotConfigured } from '@/components/pin-gate'
+import { verifyPin } from '@/app/actions/pin'
+import { pinConfigured, pinUnlockedUntil } from '@/lib/pin'
 import { activeAlertCount } from '@/lib/queries/common'
 import { privateRows, privateSummary } from '@/lib/queries/private'
 import { readGlobalParams, type SearchParams } from '@/lib/ui/params'
@@ -17,9 +18,11 @@ export const dynamic = 'force-dynamic'
 export default async function PrivatePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams
   const { period } = readGlobalParams(sp, new Date().toISOString())
-  const rows = await privateRows()
+  // הנתונים נטענים רק כשהאזור פתוח (עוגייה חתומה בשרת) — נעול = לא יוצא מהשרת בכלל
+  const until = await pinUnlockedUntil('private')
+  const rows = until ? await privateRows() : []
   const [summary, alerts, configured] = await Promise.all([
-    privateSummary(rows), activeAlertCount(), pinConfigured('private'),
+    until ? privateSummary(rows) : null, activeAlertCount(), pinConfigured('private'),
   ])
 
   async function verify(pin: string) {
@@ -38,12 +41,10 @@ export default async function PrivatePage({ searchParams }: { searchParams: Prom
         </div>
 
         {!configured ? (
-          <div className="bg-expected-bg text-expected rounded-[var(--radius-card)] p-4 text-sm">
-            לא הוגדר קוד גישה לאזור זה. להגדרה: <code dir="ltr" className="font-mono">node scripts/set-pin.mjs private ****</code>
-          </div>
+          <PinNotConfigured />
         ) : (
-          <PinGate area="private" areaLabel="הכנסות פרייבט" verify={verify}>
-            <PrivateView rows={rows} summary={summary} />
+          <PinGate area="private" areaLabel="הכנסות פרייבט" verify={verify} unlockedUntil={until}>
+            {until && summary ? <PrivateView rows={rows} summary={summary} /> : <LockedSkeleton />}
           </PinGate>
         )}
       </main>

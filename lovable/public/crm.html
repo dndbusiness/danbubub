@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הר-אל CRM</title>
+<style>body{margin:0;background:#F6F7F9;font-family:Heebo,system-ui,sans-serif;color:#111827}#ld{padding:40px 24px;text-align:center;font-size:15px;color:#6B7280}</style>
+</head>
+<body>
+<p id="ld">טוען את הר-אל CRM…</p>
+<script>
+/* הר-אל CRM על Lovable: קוד הדף נטען מהמאגר (אותו קובץ שרץ ב-Claude), והמתאם crm-lovable.js
+   מחבר אותו למסד של Lovable Cloud במקום למסד של Claude. עדכון לקוד הדף = push לענף — בלי לגעת ב-Lovable. */
+(function () {
+  var SRC = 'https://raw.githubusercontent.com/dndbusiness/danbubub/refs/heads/claude/new-session-3k3pta/crm/harel-crm.html';
+  var CLOUD = { url: 'https://hgrjlgesmkwrihaqxuyp.supabase.co', key: 'sb_publishable__4rBlU9CVl9EQkA_g-wJKg_B682cF72' };
+  var SB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js';
+  fetch(SRC, { cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); }).then(function (page) {
+    var head = '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<script>window.__CRM_CLOUD=' + JSON.stringify(CLOUD) + ';<\/script><script src="' + SB + '"><\/script><script src="/crm-lovable.js"><\/script></head><body>';
+    document.open(); document.write(head + page + '</body></html>'); document.close();
+  }).catch(function () { document.getElementById('ld').textContent = 'לא הצלחתי לטעון את המערכת — בדוק חיבור ורענן את הדף'; });
+})();
+</script>
+</body>
+</html>

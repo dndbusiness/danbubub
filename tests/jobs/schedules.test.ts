@@ -18,9 +18,9 @@ const workflowCrons = new Set(
 const jobNames = new Set(schedules.jobs.map((j) => j.name))
 
 describe('תזמוני חלק ג׳', () => {
-  it('19 הג׳ובים רשומים', () => {
-    expect(schedules.jobs).toHaveLength(19)
-    expect(jobNames.size).toBe(19)
+  it('19 הג׳ובים של חלק ג׳ + crm_mirror של שלב המעבר', () => {
+    expect(schedules.jobs).toHaveLength(20)
+    expect(jobNames.size).toBe(20)
   })
 
   it('לכל ג׳וב יש נתיב שתואם לשמו', () => {
