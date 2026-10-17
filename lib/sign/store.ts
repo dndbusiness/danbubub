@@ -20,7 +20,7 @@
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
 import {
-  canResendOtp, expiryFrom, groupByDocument, maskEmail, OTP_MAX_ATTEMPTS, OTP_TTL_MS, otpState, renderAgreement, signState,
+  canResendOtp, expiryFrom, groupByDocument, isSignDraft, maskEmail, maskPhone, OTP_MAX_ATTEMPTS, OTP_TTL_MS, otpChannel, otpState, renderAgreement, signState, waTarget,
   SIGN_CATEGORIES, validateSigners, validateSubmission, type FieldValue, type SignCategory, type SignerInput, type SignState, type Submission,
 } from '@/lib/rules/sign'
 import { writeDoc } from '@/lib/crm/store'
@@ -32,6 +32,7 @@ import { readFile } from 'node:fs/promises'
 import { checkSignerValues, fieldsOf, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 import { appendPdf, readPageSizes, stampPdf } from './pdf'
 import { flushOutbox } from '@/lib/jobs/outbox'
+import { greenApiConfig } from '@/lib/outbox/green-api'
 
 export const AGREEMENTS_FOLDER = 'הסכמי התקשרות'
 const SIGNED_FOLDER = 'מסמכים חתומים'
@@ -101,9 +102,18 @@ export interface EnvelopeInput {
 export interface SignerLink { id: string; label: string; url: string; email: string | null; phone: string | null; emailQueued: boolean; requireOtp: boolean }
 
 export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: string):
-  Promise<{ envelopeId: string; links: SignerLink[]; missing: string[] } | { error: string; missing: string[] }> {
-  const errs = validateSigners(input.signers)
+  Promise<{ envelopeId: string; links: SignerLink[]; missing: string[]; warnings: string[] } | { error: string; missing: string[] }> {
+  // קוד אימות לחותם בלי מייל — בוואטסאפ, כשמוגדר Green-API. בלי וואטסאפ: חותם כזה חותם בלי קוד, ונאמר על כך (warnings)
+  const wa = !!greenApiConfig(), warnings: string[] = []
+  input = { ...input, signers: input.signers.map((s) => {
+    if (!s.requireOtp || cleanEmail(s.email) || (wa && cleanPhone(s.phone))) return s
+    warnings.push(`${s.label}: יחתום בלי קוד אימות (אין מייל${cleanPhone(s.phone) ? ', וואטסאפ לא מוגדר' : ''})`)
+    return { ...s, requireOtp: false }
+  }) }
+  const errs = validateSigners(input.signers, { otpWhatsApp: wa })
   if (errs.length) return { error: errs.join(' · '), missing: [] }
+  // נוסח מוקלד שעדיין טיוטה לא נשלח — גם אם הדף לא חסם (הסימון "[טיוטה", כמו isSignDraft בדף)
+  if (!input.pdf && isSignDraft(input.template)) return { error: 'הנוסח עדיין טיוטה — לאשר אותו בהגדרות לפני שליחה', missing: [] }
   const category: SignCategory = input.category && input.category in SIGN_CATEGORIES ? input.category : 'agreement'
   const kind = input.recipientKind === 'lead' ? 'lead' : 'client'
   let bodies: { html: string; missing: string[]; hash?: string }[]
@@ -165,7 +175,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
   await crmLog(input.clientDoc, `נשלח לחתימה: ${input.title}` + (input.signers.length > 1 ? ` · ${input.signers.length} חותמים (${input.signers.map((s) => s.label).join(', ')})` : '') +
     (links.some((l) => l.email) ? ' · במייל' : ''), now, category === 'agreement' && kind === 'client' ? { agreementSignId: res.envelopeId, agreementStatus: 'sent' } : {}, collOf(kind)).catch(() => {})
   await flushNow()
-  return { envelopeId: res.envelopeId, links, missing }
+  return { envelopeId: res.envelopeId, links, missing, warnings }
 }
 
 /** תאימות: בקשה לחותם יחיד (הכרטיס הישן / סקריפטים). */
@@ -252,18 +262,24 @@ export async function sendOtp(token: string, now: Date): Promise<{ ok: true; to:
   const row = await byToken(token)
   if (!row || signState(row, now) !== 'open') return { ok: false, error: 'הקישור לא פעיל' }
   if (!row.require_otp) return { ok: false, error: 'לא נדרש קוד למסמך הזה' }
-  if (!row.send_email) return { ok: false, error: 'אין מייל לשליחת הקוד — נא לפנות אלינו' }
-  if (row.otp_verified_at) return { ok: true, to: maskEmail(row.send_email) }
-  if (!canResendOtp(row.otp_sent_at, now)) return { ok: false, error: 'קוד נשלח לפני פחות מדקה — בדקו את המייל (גם בספאם)' }
+  const channel = otpChannel(row, !!greenApiConfig())
+  if (!channel) return { ok: false, error: 'אין מייל או וואטסאפ לשליחת הקוד — נא לפנות אלינו' }
+  const to = channel === 'email' ? maskEmail(row.send_email) : 'וואטסאפ ' + maskPhone(row.send_phone)
+  if (row.otp_verified_at) return { ok: true, to }
+  if (!canResendOtp(row.otp_sent_at, now)) return { ok: false, error: channel === 'email' ? 'קוד נשלח לפני פחות מדקה — בדקו את המייל (גם בספאם)' : 'קוד נשלח לפני פחות מדקה — בדקו את הוואטסאפ' }
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
   await sql`update sign_requests set otp_hash = ${otpHashOf(row.id, code)}, otp_expires_at = ${new Date(now.getTime() + OTP_TTL_MS)}, otp_attempts = 0, otp_sent_at = ${now}
             where id = ${row.id} and otp_verified_at is null`
-  await sql`insert into outbox (channel, target, subject, body, dedup_key)
+  if (channel === 'whatsapp') await sql`insert into outbox (channel, target, subject, body, dedup_key)
+    values ('whatsapp', ${waTarget(row.send_phone)}, ${'קוד אימות לחתימה'},
+      ${'קוד האימות לחתימה על "' + row.title + '": ' + code + '\nהקוד בתוקף 10 דקות. אם לא ביקשת — אפשר להתעלם. הר-אל'},
+      ${'sign-otp:' + row.id + ':' + now.getTime()})`
+  else await sql`insert into outbox (channel, target, subject, body, dedup_key)
     values ('email', ${row.send_email}, ${'קוד אימות לחתימה: ' + code},
       ${'<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;color:#111827"><p>קוד האימות לחתימה על <b>' + escHtml(row.title) + '</b>:</p><p style="font-size:28px;letter-spacing:6px;font-weight:700">' + code + '</p><p style="color:#6B7280;font-size:13px">הקוד בתוקף 10 דקות. אם לא ביקשת — אפשר להתעלם.</p><p>הר-אל</p></div>'},
       ${'sign-otp:' + row.id + ':' + now.getTime()})`
   await flushNow()
-  return { ok: true, to: maskEmail(row.send_email) }
+  return { ok: true, to }
 }
 
 export async function verifyOtp(token: string, code: string, now: Date): Promise<{ ok: true } | { ok: false; error: string }> {

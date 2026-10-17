@@ -6,7 +6,7 @@
  * טופס PDF בדף החותם: העמודים מוצגים עם pdf.js, השדות של החותם מסומנים וממולאים בזמן אמת
  * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
-import { groupByDocument, maskEmail, otpState, SIGN_CATEGORIES, type SignState } from '@/lib/rules/sign'
+import { groupByDocument, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, type SignState } from '@/lib/rules/sign'
 import { FIELD_KINDS, fieldsOf, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
@@ -78,9 +78,9 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     <div class="who">חותם/ת: ${esc(row.client_name)}${row.signer_label && row.signer_label !== 'הלקוח' ? ' · ' + esc(row.signer_label) : ''}${total > 1 ? ` · אחד/ת מ-${total} חותמים` : ''}</div></div>
   ${pdf ? pdfHtml : `<div class="card doc">${row.body_html}</div>`}
   ${needOtp ? `<div class="card otp" id="otp"><h2 style="margin-top:0">אימות לפני חתימה</h2>
-    <p class="hint">נשלח קוד חד-פעמי למייל ${esc(maskEmail(row.send_email))}.</p>
+    <p class="hint">נשלח קוד חד-פעמי ${row.send_email ? 'למייל ' + esc(maskEmail(row.send_email)) : 'בוואטסאפ ל-' + esc(maskPhone(row.send_phone))}.</p>
     <div class="row"><button type="button" class="btn" id="otpSend">שלחו לי קוד</button></div>
-    <label for="otpCode">הקוד מהמייל</label><input type="text" id="otpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <label for="otpCode">הקוד שקיבלת</label><input type="text" id="otpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
     <div class="err" id="otpErr" role="alert"></div>
     <button type="button" class="btn primary" id="otpGo" style="margin-top:10px">אימות</button></div>` : ''}
   <form class="card" id="f" novalidate${needOtp ? ' hidden' : ''}>
@@ -94,7 +94,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     <label class="check"><input type="checkbox" id="agree"><span>קראתי את המסמך במלואו, אני מסכים/ה לתנאיו, ואני מאשר/ת שהחתימה האלקטרונית שלי מחייבת כמו חתימה בכתב יד.</span></label>
     <div class="err" id="err" role="alert"></div>
     <button type="submit" class="btn primary" id="go">אני מאשר/ת וחותם/ת</button>
-    <p class="hint" style="margin-top:10px">עם החתימה נשמרים: השם, ת"ז, החתימה, מועד החתימה, כתובת ה-IP והמכשיר${row.require_otp ? ', אימות הקוד במייל' : ''}, וטביעה של נוסח המסמך — לתיעוד.</p>
+    <p class="hint" style="margin-top:10px">עם החתימה נשמרים: השם, ת"ז, החתימה, מועד החתימה, כתובת ה-IP והמכשיר${row.require_otp ? ', אימות הקוד החד-פעמי' : ''}, וטביעה של נוסח המסמך — לתיעוד.</p>
   </form></div>
 <script>
 (function(){
@@ -104,7 +104,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   post({action:'open'}).catch(function(){});
   var oe=document.getElementById('otpErr');
   function otpMsg(m,ok){if(!oe)return;oe.textContent=m;oe.style.display=m?'block':'none';oe.style.background=ok?'var(--ok-bg)':'';oe.style.color=ok?'var(--ok)':''}
-  var os=document.getElementById('otpSend');if(os)os.onclick=function(){os.disabled=true;post({action:'otp_send'}).then(function(j){otpMsg(j.ok?'הקוד נשלח ל-'+j.to+' (גם בספאם)':(j.error||'השליחה נכשלה'),j.ok);setTimeout(function(){os.disabled=false},j.ok?60000:2000)}).catch(function(){otpMsg('אין חיבור');os.disabled=false})};
+  var os=document.getElementById('otpSend');if(os)os.onclick=function(){os.disabled=true;post({action:'otp_send'}).then(function(j){otpMsg(j.ok?'הקוד נשלח ל-'+j.to+(j.to.indexOf('@')>0?' (גם בספאם)':''):(j.error||'השליחה נכשלה'),j.ok);setTimeout(function(){os.disabled=false},j.ok?60000:2000)}).catch(function(){otpMsg('אין חיבור');os.disabled=false})};
   var og=document.getElementById('otpGo');if(og)og.onclick=function(){var c=document.getElementById('otpCode').value.replace(/\D/g,'');if(c.length!==6)return otpMsg('6 ספרות');og.disabled=true;post({action:'otp_verify',code:c}).then(function(j){og.disabled=false;if(j.ok){document.getElementById('otp').style.display='none';document.getElementById('f').hidden=false;setTimeout(size,0)}else otpMsg(j.error||'קוד שגוי')}).catch(function(){og.disabled=false;otpMsg('אין חיבור')})};
   var cv=document.getElementById('cv'),pad=document.getElementById('pad'),ph=document.getElementById('ph'),ctx=cv.getContext('2d'),drawing=false,pts=0,last=null;
   function size(){var r=pad.getBoundingClientRect(),d=window.devicePixelRatio||1,img=pts?cv.toDataURL():null;cv.width=Math.round(r.width*d);cv.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#111827';if(img){var i=new Image();i.onload=function(){ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(i,0,0,cv.width,cv.height);ctx.setTransform(d,0,0,d,0,0)};i.src=img}}
@@ -161,7 +161,7 @@ export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?:
     <tr><td>טביעת הנוסח (SHA-256)</td><td class="mono">${esc(r.doc_hash)}</td></tr>
     <tr><td>נשלח</td><td>${esc(il(r.created_at))}${r.send_email ? ' · במייל ל-' + esc(r.send_email) : ''}${r.send_phone ? ' · וואטסאפ ' + esc(r.send_phone) : ''}${r.reminders_sent ? ' · תזכורות: ' + r.reminders_sent : ''}</td></tr>
     <tr><td>נפתח לראשונה</td><td>${esc(il(r.opened_at))}</td></tr>
-    ${r.require_otp ? `<tr><td>אימות קוד במייל</td><td>${esc(il(r.otp_verified_at))}</td></tr>` : ''}
+    ${r.require_otp ? `<tr><td>אימות קוד ${r.send_email ? 'במייל' : 'בוואטסאפ'}</td><td>${esc(il(r.otp_verified_at))}</td></tr>` : ''}
     <tr><td>נחתם</td><td>${esc(il(r.signed_at))}</td></tr>
     <tr><td>החותם</td><td>${esc(r.signer_name)} · ת"ז ${esc(r.signer_id_number)}</td></tr>
     <tr><td>כתובת IP</td><td class="mono">${esc(r.signer_ip ?? '—')}</td></tr>
