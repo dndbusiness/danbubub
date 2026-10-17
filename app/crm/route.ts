@@ -47,8 +47,8 @@ export async function GET() {
   // בלי </head><body>: כמו המעטפת של Claude — ה-title/style/script של הדף נשארים ב-head, והגוף נפתח באלמנט הראשון שלו
   const html = '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
-    '<link rel="manifest" href="/crm-manifest.webmanifest"><meta name="theme-color" content="#111827">' +
-    '<link rel="icon" href="/crm-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/crm-icon-192.png">' +
+    '<link rel="manifest" href="/crm-manifest.webmanifest"><meta name="theme-color" content="#071D26">' +
+    '<link rel="icon" href="/crm-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/crm-apple-touch-icon.png">' +
     '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="הר-אל">' +
     // מצב המערכת לדף: לפני המעבר (mirror) הדף בשרת לא מסנכרן טבלאות ולא מגבה — הדף ב-Claude עושה את זה
     '<script>window.__CRM_MODE=' + JSON.stringify(mode) + '</script><script src="/crm-shim.js"></script>' + page + banner
