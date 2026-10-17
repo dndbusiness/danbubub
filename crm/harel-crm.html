@@ -2605,7 +2605,56 @@ const refiDue = () => live(S.clients).flatMap((c) => refiOf(c)).filter((x) => x.
 function bizDaysSince(iso, t0 = today()) { if (!iso) return 99; let d = String(iso).slice(0, 10), k = 0; while (d < t0 && k < 99) { d = addDays(d, 1); const wd = new Date(d + 'T12:00:00Z').getUTCDay(); if (wd !== 5 && wd !== 6) k++; } return k; }
 function lastMove(c) { const acts = [c.updatedAt, ...(c.log || []).slice(0, 1).map((e) => e.at), ...live(S.tasks).filter((t) => t.clientId === c.id && t.doneAt).map((t) => t.doneAt)].filter(Boolean).sort(); return acts[acts.length - 1] || c.createdAt; }
 const stuckFiles = () => live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && !isRejected(c) && bizDaysSince(lastMove(c)) >= 3).sort((a, b) => String(lastMove(a)).localeCompare(String(lastMove(b))));
-/* ═════════════ נוכחות צוות (שלב 2): כניסה ויציאה עם מיקום · 40 דקות בלי פעילות (מכירות / טלפנות) · דוח יומי למנהל עם עלות ═════════════ */
+/* ═════════════ נוכחות צוות (שלב 2 + דן 17/10): כניסה ויציאה עם מיקום · מחשב משרד · יציאה מהטווח בלי אישור → יציאה אוטומטית · שעה בלי פעילות (כל הצוות) → המנהל · דוח יומי עם עלות ═════════════ */
+/* ══ נוכחות — כללים טהורים (דן, 17/10) · אותו קוד כמו lib/crm/attendance.ts — tests/crm-attendance.test.ts משווה ביניהם ══ */
+const ATT = { awayGraceMin: 15, idleMin: 60, geoEveryMin: 5, dayEndHour: 23, lookbackDays: 3 };
+const ATT_DIVS = ['finance', 'realestate'];
+const attUKey = (u) => u.resp || String(u.username == null ? '' : u.username).trim().toLowerCase();
+const attURole = (u) => u.role && ['owner', 'admin', 'admin_re', 'partner', 'center'].includes(u.role) ? u.role : u.resp === 'nissim' ? 'partner' : u.resp === 'hadas' ? 'admin' : 'center';
+function attUDivs(u, role) { if (role === 'owner' || role === 'admin') return ATT_DIVS; if (role === 'admin_re') return ['realestate']; if (role === 'partner') return ['finance'];
+  const d = (u.divs || []).filter((x) => ATT_DIVS.includes(x)); return d.length ? d : ['finance']; }
+function attTz(ms) { const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
+  const g = (t) => (p.find((x) => x.type === t) || {}).value || '00'; return { date: g('year') + '-' + g('month') + '-' + g('day'), hour: Number(g('hour')), hm: g('hour') + ':' + g('minute') }; }
+const attRuleKey = (kind, key, date, at) => 'att_' + kind + ':' + key + ':' + date + ':' + at;
+/* למי ההתראה: users[].manager גובר; הדס ופתרונות → דן; מוקד ונדל"ן → אביב (מוקד שרשום רק לפתרונות → דן); דן — אף אחד */
+function attManagerOf(key, users) { if (!key || key === 'dan') return null; const u = (users || []).find((x) => attUKey(x) === key);
+  if (u && u.manager && u.manager !== key) return u.manager; if (!u) return 'dan';
+  const role = attURole(u), divs = attUDivs(u, role), re = role === 'admin_re' || divs.every((d) => d === 'realestate') || (role === 'center' && divs.includes('realestate')), m = re ? 'aviv' : 'dan';
+  return m === key ? 'dan' : m; }
+function attUpsertGap(gaps, from, to, open = false) { const g = (gaps || []).filter((x) => x.from !== from), min = Math.round((Date.parse(to) - Date.parse(from)) / 60000);
+  return [...g, { from, to, min, ...(open ? { open: true } : {}) }].sort((x, y) => String(x.from).localeCompare(String(y.from))); }
+const ATT_WHY = { away: 'יצא/ה מטווח המשרד ולא אושרה עבודה מהבית תוך 15 דקות', rejected: 'יצא/ה מטווח המשרד — המנהל לא אישר עבודה מהבית', eod: 'המשמרת נשארה פתוחה בסוף היום — נסגרה לפי הפעילות האחרונה' };
+function attOutPatch(a, at, why, nowIso) { const t = a.in && Date.parse(at) < Date.parse(a.in.at) ? a.in.at : at, home = a.home || null;
+  return { out: { at: t, place: why === 'eod' ? ((a.in && a.in.place) || 'unknown') : 'away', auto: true, reason: why, note: ATT_WHY[why] || '', autoAt: nowIso },
+    ...(why !== 'eod' && home && home.status === 'pending' ? { home: { ...home, status: 'expired', at: nowIso } } : {}) }; }
+function attStep(a, c) {
+  const r = { patch: null, notify: [], logout: false, why: '' };
+  if (!a || !a.in || !a.in.at || a.out || a.deletedAt) return r;
+  const now = c.now, nowIso = new Date(now).toISOString(), z = attTz(now), last = a.lastActive || a.in.at;
+  if (a.date < z.date || (a.date === z.date && z.hour >= ATT.dayEndHour)) return { patch: attOutPatch(a, last, 'eod', nowIso), notify: [], logout: false, why: 'eod' };
+  const home = a.home || {}, P = {};
+  if (!a.in.device && home.status !== 'approved') {
+    if (a.awayAt) {
+      if (c.inRange === true) { P.awayAt = null; P.aways = [...(a.aways || []), { from: a.awayAt, back: nowIso }]; if (home.reason === 'away' && home.status === 'pending') P.home = { ...home, status: 'back', at: nowIso }; }
+      else if (home.status === 'rejected' || now - Date.parse(a.awayAt) >= ATT.awayGraceMin * 60e3) { const why = home.status === 'rejected' ? 'rejected' : 'away'; return { patch: attOutPatch(a, a.awayAt, why, nowIso), notify: [], logout: true, why }; }
+      else { const k = attRuleKey('away', a.key, a.date, a.awayAt); if (!(a.notified || []).includes(k)) r.notify.push({ kind: 'away', ruleKey: k, at: a.awayAt }); }
+    } else if (c.inRange === false) { P.awayAt = nowIso; P.home = { ...home, status: 'pending', reason: 'away', at: nowIso }; r.notify.push({ kind: 'away', ruleKey: attRuleKey('away', a.key, a.date, nowIso), at: nowIso }); }
+  }
+  const act = Math.max(Date.parse(last), c.activeAt || 0);
+  if ((now - act) / 60000 >= ATT.idleMin) { const k = attRuleKey('idle', a.key, a.date, last);
+    if (!(a.notified || []).includes(k)) { r.notify.push({ kind: 'idle', ruleKey: k, at: last, min: Math.floor((now - Date.parse(last)) / 60000) }); P.gaps = attUpsertGap(a.gaps, last, nowIso, true); } }
+  if (Object.keys(P).length) r.patch = P;
+  r.why = r.notify.map((x) => x.kind).join(',');
+  return r;
+}
+function attAlertText(kind, label, at, min) { const t = attTz(Date.parse(at)).hm;
+  return kind === 'away' ? label + ' יצא/ה מטווח המשרד ב-' + t + ' — לאשר עבודה מהבית?' : label + ' בלי פעילות במערכת ' + (min == null ? ATT.idleMin : min) + ' דקות (מאז ' + t + ') — השעון ממשיך לרוץ'; }
+/* ══ סוף כללי נוכחות ══ */
+/* מחשב משרד: אסימון במכשיר (localStorage) + רישום בהגדרות. במחשב רשום הכניסה נספרת כמשרד בלי מיקום, לכל המשמרת */
+const ATT_DEV_LS = 'harel-office-device';
+const officeDevs = () => (S.settings.officeDevices || []).filter((x) => x && x.id && !x.deletedAt);
+function myDevId() { try { return localStorage.getItem(ATT_DEV_LS) || ''; } catch (e) { return ''; } }
+const officeDev = () => { const id = myDevId(); return id ? officeDevs().find((x) => x.id === id) || null : null; };
 const attId = (key, d = today()) => key + '_' + d;
 const attDoc = (key = S.myKey, d = today()) => key ? S.attendance.get(attId(key, d)) : null;
 const userRec = (key) => (S.settings.users || []).find((u) => userKey(u) === key);
@@ -2614,54 +2663,114 @@ function hourlyOf(key) { const u = userRec(key); if (u && n(u.hourly)) return { 
   const p = staff().find((x) => x.key === key), e = payEmployees().find((x) => x.key === key || (p && String(x.name || '').split(' ')[0] === String(p.label || '').split(' ')[0]));
   return e && n(e.hourly) ? { rate: n(e.hourly), emp: n(e.employerPct) } : { rate: 0, emp: 0 }; }
 const distM = (a, b) => { const R = 6371000, r = (x) => x * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng); const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2; return Math.round(2 * R * Math.asin(Math.sqrt(h))); };
-function getPos() { return new Promise((res) => { if (!navigator.geolocation) return res(null); let done = false; const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
-  try { navigator.geolocation.getCurrentPosition((p) => { if (done) return; done = true; clearTimeout(t); res({ lat: r2(p.coords.latitude * 1e4) / 1e4, lng: r2(p.coords.longitude * 1e4) / 1e4, acc: Math.round(p.coords.accuracy) }); }, () => { if (!done) { done = true; clearTimeout(t); res(null); } }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }); } catch (e) { done = true; clearTimeout(t); res(null); } }); }
+function getPos(fresh) { return new Promise((res) => { if (!navigator.geolocation) return res(null); let done = false; const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
+  try { navigator.geolocation.getCurrentPosition((p) => { if (done) return; done = true; clearTimeout(t); res({ lat: r2(p.coords.latitude * 1e4) / 1e4, lng: r2(p.coords.longitude * 1e4) / 1e4, acc: Math.round(p.coords.accuracy) }); }, () => { if (!done) { done = true; clearTimeout(t); res(null); } }, { enableHighAccuracy: true, timeout: 8000, maximumAge: fresh ? 0 : 60000 }); } catch (e) { done = true; clearTimeout(t); res(null); } }); }
 const PLACE = { office: 'משרד', home: 'בית', field: 'בחוץ (פגישה)', unknown: 'מיקום לא ידוע' };
 function placeOf(pos) { const o = S.settings.office; if (!pos) return { place: 'unknown' }; if (!o || o.lat == null) return { place: 'unknown', note: 'מיקום המשרד לא הוגדר' }; const d = distM(o, pos); return { place: d <= (n(o.radius) || 250) ? 'office' : 'away', dist: d }; }
 async function attIn() {
   if (!S.myKey) return toast('צריך להיכנס עם משתמש'); if (attDoc() && attDoc().in) return toast('כבר נרשמה כניסה היום');
-  toast('בודק מיקום…'); const pos = await getPos(), pl = placeOf(pos), at = stamp(), key = S.myKey, pd = PERSON_DIVS(key);
-  const save = async (place, note) => { await write('attendance/' + attId(key), { id: attId(key), key, label: whoAmI(), date: today(), div: pd && pd.length === 1 ? pd[0] : (S.division !== 'all' ? S.division : 'finance'),
-      in: { at, ...(pos ? { pos } : {}), place, ...(pl.dist != null ? { dist: pl.dist } : {}) }, ...(place === 'home' ? { home: { status: 'pending', note: note || '' } } : {}), ...(note && place !== 'home' ? { note } : {}), lastActive: at, gaps: [], by: S.me.id }, 'set', { noAtt: true });
-    toast('נרשמה כניסה ' + hm(at) + ' · ' + PLACE[place]); };
-  if (pl.place === 'office') return save('office');
-  drawer('כניסה למשמרת', '<p class="full hint">' + (pos ? (pl.dist != null ? 'נראה שאתה במרחק ' + Number(pl.dist).toLocaleString('he-IL') + ' מ׳ מהמשרד.' : 'מיקום המשרד עוד לא הוגדר בהגדרות.') : 'לא התקבל מיקום מהדפדפן (אולי חסום בתצוגה הזו).') + ' איפה אתה עובד היום?</p>' +
+  const dev = officeDev(), at0 = stamp(), key = S.myKey, pd = PERSON_DIVS(key);
+  const save = async (place, note, pos, pl, extra = {}) => { const at = at0; await write('attendance/' + attId(key), { id: attId(key), key, label: whoAmI(), date: today(), div: pd && pd.length === 1 ? pd[0] : (S.division !== 'all' ? S.division : 'finance'),
+      in: { at, ...(pos ? { pos } : {}), place, ...(pl && pl.dist != null ? { dist: pl.dist } : {}), ...extra }, ...(place === 'home' ? { home: { status: 'pending', note: note || '' } } : {}), ...(note && place !== 'home' ? { note } : {}), lastActive: at, gaps: [], by: S.me.id }, 'set', { noAtt: true });
+    toast('נרשמה כניסה ' + hm(at) + ' · ' + PLACE[place] + (extra.device ? ' (מחשב משרד)' : ''));
+    /* כבר בכניסה מחוץ לטווח — אותו מסלול כמו בבדיקה כל 5 דקות: בקשת אישור למנהל, 15 דקות */
+    if (pl && pl.place === 'away') { ATT_GEO = Date.now(); const a = attDoc(key); if (a) await attApply(a, attStep(a, { now: Date.now(), inRange: false, activeAt: ATT_UI })); } };
+  if (dev) return save('office', '', undefined, null, { device: dev.id, devLabel: dev.label || 'מחשב משרד' });
+  toast('בודק מיקום…'); const pos = await getPos(), pl = placeOf(pos);
+  if (pl.place === 'office') return save('office', '', pos, pl);
+  drawer('כניסה למשמרת', '<p class="full hint">' + (pos ? (pl.dist != null ? 'נראה שאתה במרחק ' + Number(pl.dist).toLocaleString('he-IL') + ' מ׳ מהמשרד.' : 'מיקום המשרד עוד לא הוגדר בהגדרות.') : 'לא התקבל מיקום מהדפדפן (אולי חסום בתצוגה הזו).') + ' איפה אתה עובד היום?' +
+    (pl.place === 'away' ? ' מחוץ לטווח המשרד המנהל מקבל בקשה לאשר — בלי אישור תוך ' + ATT.awayGraceMin + ' דקות המשמרת נסגרת אוטומטית.' : '') + '</p>' +
     fs('place', 'איפה', [['office', 'במשרד'], ['home', 'מהבית — באישור מנהל'], ['field', 'בחוץ — פגישה / שטח']], pos && pl.dist != null ? 'home' : 'office') + ft('note', 'הערה (לא חובה)', ''),
-    async (d) => save(d.place, d.note.trim()), '', 'כניסה');
+    async (d) => save(d.place, d.note.trim(), pos, pl), '', 'כניסה');
 }
-async function attOut() { const a = attDoc(); if (!a || !a.in) return; if (a.out) return toast('כבר נרשמה יציאה'); const pos = await getPos(), pl = placeOf(pos), at = stamp();
+async function attOut() { const a = attDoc(); if (!a || !a.in) return; if (a.out) return toast('כבר נרשמה יציאה'); const pos = a.in.device ? null : await getPos(), pl = a.in.device ? { place: 'office' } : placeOf(pos), at = stamp();
   await write('attendance/' + a.id, { out: { at, ...(pos ? { pos } : {}), place: pl.place === 'away' ? 'away' : pl.place }, lastActive: at }, 'update', { noAtt: true }); toast('נרשמה יציאה ' + hm(at) + ' · ' + attHours(S.attendance.get(a.id) || { ...a, out: { at } }).toFixed(1) + ' שעות'); }
-let ATT_UI = Date.now(), ATT_PING = 0;
+let ATT_UI = Date.now(), ATT_PING = 0, ATT_GEO = 0, ATT_BUSY = false;
 ['click', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => { ATT_UI = Date.now(); if (S._idle) { S._idle = false; render(); } attPing().catch(() => {}); }, true));
 async function attPing() {
   const a = attDoc(); if (!a || !a.in || a.out || !S.canTask) return; const now = Date.now(); if (now - ATT_PING < 3 * 60e3) return; ATT_PING = now;
-  const last = Date.parse(a.lastActive || a.in.at), gap = (now - last) / 60000, iso = new Date(now).toISOString();
-  await write('attendance/' + a.id, { lastActive: iso, ...(gap >= 40 ? { gaps: [...(a.gaps || []), { from: a.lastActive || a.in.at, to: iso, min: Math.round(gap) }] } : {}) }, 'update', { noAtt: true });
+  const from = a.lastActive || a.in.at, gap = (now - Date.parse(from)) / 60000, iso = new Date(now).toISOString(), k = attRuleKey('idle', a.key, a.date, from);
+  /* שעה ומעלה בלי פעילות שעוד לא דווחה (הדף היה סגור / ברקע) — מדווחים עכשיו, לפני שהפעילות האחרונה מתעדכנת */
+  const late = gap >= ATT.idleMin && !(a.notified || []).includes(k);
+  if (late) await attNotify(a, { kind: 'idle', ruleKey: k, at: from, min: Math.floor(gap) });
+  await write('attendance/' + a.id, { lastActive: iso, ...(gap >= ATT.idleMin ? { gaps: attUpsertGap(a.gaps, from, iso) } : {}), ...(late ? { notified: [...(a.notified || []), k] } : {}) }, 'update', { noAtt: true });
 }
-/* מי שבמכירות / טלפנות: 40 דקות בלי פעילות במערכת → התראה לנציג, והמנהל רואה את זה בהיום שלי ובדוח */
-setInterval(() => { const a = attDoc(); if (!a || !a.in || a.out || !isSales(S.myKey)) return; const idle = (Date.now() - Math.max(ATT_UI, Date.parse(a.lastActive || a.in.at))) / 60000;
-  if (idle >= 40 && !S._idle) { S._idle = true; toast('40 דקות בלי פעילות במערכת'); render(); } }, 60e3);
+/* וואטסאפ + מייל למנהל — רק דרך תיבת היוצא בשרת (הנחיה 16). השרת בודק את המסמך בעצמו; rule_key זהה לג'וב attendance_watch */
+const ATT_SENT = new Set();
+async function attNotify(a, x) {
+  if (!window.__harelServer || ATT_SENT.has(x.ruleKey)) return; ATT_SENT.add(x.ruleKey);
+  try { const r = await fetch('/api/crm/attendance/notify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: x.kind, key: a.key, date: a.date, at: x.at }) }); if (!r.ok) ATT_SENT.delete(x.ruleKey); } catch (e) { ATT_SENT.delete(x.ruleKey); }
+}
+async function attApply(a, st) {
+  if (!st || (!st.patch && !st.notify.length)) return;
+  const patch = { ...(st.patch || {}) }; if (st.notify.length) patch.notified = [...(a.notified || []), ...st.notify.map((x) => x.ruleKey)];
+  await write('attendance/' + a.id, patch, 'update', { noAtt: true });
+  for (const x of st.notify) await attNotify(a, x);
+  if (st.logout) attLogoutCheck({ ...a, ...patch });
+  else if (patch.awayAt) toast('נראה שיצאת מטווח המשרד — נשלחה למנהל בקשה לאשר עבודה מהבית');
+  else if (patch.awayAt === null) toast('חזרת לטווח המשרד — המשמרת ממשיכה');
+}
+/* יציאה אוטומטית (לא אושר תוך 15 דקות / נדחה): מנתקים את העובד פעם אחת — לא בכל כניסה מחדש באותו יום */
+function attLogoutCheck(a) {
+  if (!a || !a.out || !a.out.auto || a.out.place !== 'away' || a.key !== S.myKey) return;
+  if (Date.now() - Date.parse(a.out.autoAt || a.out.at) > 30 * 60e3) return;
+  const f = 'harel-att-out:' + a.id; try { if (localStorage.getItem(f)) return; localStorage.setItem(f, stamp()); } catch (e) { if (S._attOut === a.id) return; } S._attOut = a.id;
+  toast('המשמרת נסגרה אוטומטית ב-' + hm(a.out.at) + ' — ' + (a.out.note || '')); logout();
+}
+/* כל דקה: שעה בלי פעילות (כל הצוות) · כל 5 דקות, וכשחוזרים לחלון: מיקום — רק כשהמערכת פתוחה בטלפון */
+async function attTick(geo) {
+  if (ATT_BUSY || !S.ready) return; const a = attDoc(); attLogoutCheck(a); if (!a || !a.in || a.out || !S.canTask) return;
+  ATT_BUSY = true;
+  try {
+    const now = Date.now(), o = S.settings.office; let inRange = null;
+    if (!a.in.device && o && o.lat != null && !(a.home && a.home.status === 'approved') && (geo || now - ATT_GEO >= ATT.geoEveryMin * 60e3)) {
+      ATT_GEO = now; const pos = await getPos(true); if (pos) { const pl = placeOf(pos); inRange = pl.place === 'office'; S._attGeo = { at: stamp(), dist: pl.dist, inRange }; } }
+    const cur = attDoc() || a; await attApply(cur, attStep(cur, { now: Date.now(), inRange, activeAt: ATT_UI }));
+    const b = attDoc(); if (b && b.in && !b.out && (Date.now() - Math.max(ATT_UI, Date.parse(b.lastActive || b.in.at))) / 60000 >= ATT.idleMin && !S._idle) { S._idle = true; render(); }
+  } catch (e) { /* בדיקה הבאה בעוד דקה */ } finally { ATT_BUSY = false; }
+}
+setInterval(() => attTick(false), 60e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) attTick(true); });
 const attHours = (a) => { if (!a || !a.in) return 0; const end = a.out ? a.out.at : a.date === today() ? stamp() : a.lastActive || a.in.at; return Math.max(0, (Date.parse(end) - Date.parse(a.in.at)) / 3600e3); };
 const attIdleNow = (a) => a && a.in && !a.out && a.date === today() ? Math.round((Date.now() - Date.parse(a.lastActive || a.in.at)) / 60000) : 0;
 function attActs(key, d) { const p = staff().find((x) => x.key === key), lbl = p ? p.label : L.resp[key] || key; let k = 0;
   live(S.leads).forEach((l) => (l.log || []).forEach((e) => { if (dayOf(e.at) === d && (e.who === lbl) && !/^סנכרון|ייבוא/.test(e.who || '')) k++; }));
   live(S.tasks).forEach((t) => { if (t.status === 'done' && dayOf(t.doneAt) === d && taskResp(t) === key) k++; }); return k; }
-function attRow(a, d) { const h = attHours(a), c = hourlyOf(a.key), cost = r2(h * c.rate * (1 + c.emp / 100)), gaps = (a.gaps || []), idle = attIdleNow(a);
-  return { a, h, cost, rate: c.rate, gapsN: gaps.length + (idle >= 40 ? 1 : 0), gapsMin: gaps.reduce((x, g) => x + n(g.min), 0) + (idle >= 40 ? idle : 0), idle, acts: attActs(a.key, d) }; }
+function attRow(a, d) { const h = attHours(a), c = hourlyOf(a.key), cost = r2(h * c.rate * (1 + c.emp / 100)), gaps = (a.gaps || []), idle = attIdleNow(a), from = a.lastActive || (a.in && a.in.at), now = idle >= ATT.idleMin && !gaps.some((g) => g.from === from);
+  return { a, h, cost, rate: c.rate, gapsN: gaps.length + (now ? 1 : 0), gapsMin: gaps.reduce((x, g) => x + n(g.min), 0) + (now ? idle : 0), idle, acts: attActs(a.key, d) }; }
+/* הערות לשורה בדוח, במייל וב"הצוות עכשיו": מחשב משרד, יציאה מהטווח, יציאה אוטומטית, התראות שנשלחו */
+const ATT_HOME = { pending: 'ממתין לאישור', approved: 'אושר', rejected: 'לא אושר', expired: 'לא אושר בזמן', back: 'חזר/ה לטווח' };
+function attNotes(a) { const o = [], nt = a.notified || [];
+  if (a.in && a.in.device) o.push('מחשב משרד' + (a.in.devLabel ? ' · ' + a.in.devLabel : ''));
+  (a.aways || []).forEach((w) => o.push('מחוץ לטווח ' + hm(w.from) + '–' + hm(w.back) + ', חזר/ה בזמן'));
+  if (a.awayAt && !a.out) o.push('מחוץ לטווח מ-' + hm(a.awayAt) + (a.home && a.home.status === 'approved' ? ' · עבודה מהבית אושרה' : ' · ממתין לאישור עד ' + hm(new Date(Date.parse(a.awayAt) + ATT.awayGraceMin * 60e3).toISOString())));
+  else if (a.awayAt && a.home && a.home.status === 'approved') o.push('מחוץ לטווח מ-' + hm(a.awayAt) + ' · עבודה מהבית אושרה');
+  if (a.out && a.out.auto) o.push('יציאה אוטומטית ' + hm(a.out.at) + ' — ' + (a.out.note || ''));
+  const ni = nt.filter((k) => /^att_idle:/.test(k)).length, na = nt.filter((k) => /^att_away:/.test(k)).length;
+  if (ni) o.push('התראת חוסר פעילות למנהל' + (ni > 1 ? ' ×' + ni : '')); if (na) o.push('בקשת אישור נשלחה למנהל' + (na > 1 ? ' ×' + na : ''));
+  return o; }
 function attCard() {
   if (!S.myKey || !S.canTask) return ''; const a = attDoc(), t = a && a.in ? hm(a.in.at) : '';
   return '<section class="card attcard" style="border-inline-start:4px solid var(--' + (a && a.in && !a.out ? 'actual' : 'open') + ')"><div class="row" style="align-items:center">' +
-    '<div class="grow"><b>' + (a && a.out ? 'סיימת היום · ' + t + '–' + hm(a.out.at) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
-      (isSales(S.myKey) ? '<div class="hint">40 דקות בלי פעילות במערכת — מופיע אצלך ואצל המנהל</div>' : '') + '</div>' +
+    '<div class="grow"><b>' + (a && a.out ? (a.out.auto ? 'המשמרת נסגרה אוטומטית · ' : 'סיימת היום · ') + t + '–' + hm(a.out.at) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.in.device ? ' (מחשב משרד)' : '') + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
+      (a && a.out && a.out.auto ? '<div class="hint">' + esc(a.out.note || '') + ' · לתיקון — המנהל, בדוח הנוכחות</div>' : '') +
+      (a && a.awayAt && !a.out && !(a.home && a.home.status === 'approved') ? '<div class="notice bad" style="margin-top:6px"><b>מחוץ לטווח המשרד מ-' + hm(a.awayAt) + '</b><span>נשלחה בקשה למנהל. בלי אישור עד ' + hm(new Date(Date.parse(a.awayAt) + ATT.awayGraceMin * 60e3).toISOString()) + ' — יציאה אוטומטית מהמשמרת.</span></div>' : '') +
+      (a && a.in && !a.out ? '<div class="hint">שעה בלי פעילות במערכת — המנהל מקבל התראה, והשעון ממשיך לרוץ.' + (a.in.device ? '' : ' המיקום נבדק רק כשהמערכת פתוחה.') + '</div>' : '') + '</div>' +
     (!a || !a.in ? '<button class="btn primary" data-act="attIn">כניסה למשמרת</button>' : !a.out ? '<button class="btn" data-act="attOut">יציאה</button>' : '') + '</div></section>';
 }
-function attLive() { if (!S.isOwner) return ''; const d = today(), rows = live(S.attendance).filter((a) => a.date === d).map((a) => attRow(a, d)), pend = live(S.attendance).filter((a) => a.home && a.home.status === 'pending');
-  const idle = rows.filter((r) => r.idle >= 40 && isSales(r.a.key));
+function attLive() { if (!S.isOwner) return ''; const d = today(), us = S.settings.users || [], mine = (k) => S.isDan || attManagerOf(k, us) === S.myKey;
+  /* העובדים שהמנהל אחראי עליהם מופיעים אצלו גם כשהם רשומים בחברה אחרת (עדן — פתרונות + השקעות → אביב) */
+  const vis = new Set(live(S.attendance).map((a) => a.id)), all = [...S.attendance.values()].filter((a) => !a.deletedAt && (vis.has(a.id) || attManagerOf(a.key, us) === S.myKey));
+  const rows = all.filter((a) => a.date === d).map((a) => attRow(a, d)), pend = all.filter((a) => a.home && a.home.status === 'pending' && !a.awayAt);
+  const away = all.filter((a) => a.date === d && a.awayAt && !a.out && a.home && a.home.status === 'pending' && mine(a.key));
+  const idle = rows.filter((r) => !r.a.out && r.idle >= ATT.idleMin && mine(r.a.key));
   if (!rows.length && !pend.length) return '';
+  const by = (iso) => hm(new Date(Date.parse(iso) + ATT.awayGraceMin * 60e3).toISOString());
   return '<section class="card"><header><h2>הצוות עכשיו</h2><span class="hint">' + rows.filter((r) => !r.a.out).length + ' במשמרת</span><span class="grow"></span><button class="btn small ghost" data-go="reports:att">דוח נוכחות</button></header>' +
-    (idle.length ? '<div class="notice bad" style="margin-bottom:8px"><b>בלי פעילות</b><span>' + idle.map((r) => esc(r.a.label) + ' — ' + r.idle + ' דק׳').join(' · ') + '</span></div>' : '') +
+    away.map((a) => '<div class="notice bad" role="alert" style="margin-bottom:8px;flex-wrap:wrap;align-items:center"><b>' + esc(attAlertText('away', a.label || a.key, a.awayAt)) + '</b><span class="grow">בלי אישור עד ' + by(a.awayAt) + ' — יציאה אוטומטית מהמשמרת בשעה ' + hm(a.awayAt) + '</span><span class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn primary" data-atthome="' + esc(a.id) + '|approved">אשר עבודה מהבית</button><button class="btn" data-atthome="' + esc(a.id) + '|rejected">לא לאשר</button></span></div>').join('') +
+    (idle.length ? '<div class="notice bad" style="margin-bottom:8px"><b>שעה בלי פעילות</b><span>' + idle.map((r) => esc(r.a.label) + ' — ' + r.idle + ' דק׳ (מאז ' + hm(r.a.lastActive || r.a.in.at) + ')').join(' · ') + ' · השעון ממשיך לרוץ</span></div>' : '') +
     (pend.length ? pend.map((a) => '<div class="row" style="margin-bottom:6px"><span class="grow">' + esc(a.label) + ' — עבודה מהבית ' + dLabel(a.date) + (a.home.note ? ' · ' + esc(a.home.note) : '') + '</span><button class="btn small primary" data-atthome="' + esc(a.id) + '|approved">אשר</button><button class="btn small ghost" data-atthome="' + esc(a.id) + '|rejected">לא</button></div>').join('') : '') +
-    '<div class="row" style="flex-wrap:wrap;gap:6px">' + rows.map((r) => '<span class="pill ' + (r.a.out ? 'muted' : r.idle >= 40 ? 'open' : 'actual') + '">' + esc(r.a.label) + ' ' + hm(r.a.in.at) + (r.a.out ? '–' + hm(r.a.out.at) : '') + ' · ' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + '</span>').join('') + '</div></section>';
+    '<div class="row" style="flex-wrap:wrap;gap:6px">' + rows.map((r) => '<span class="pill ' + (r.a.out ? 'muted' : r.idle >= ATT.idleMin || r.a.awayAt ? 'open' : 'actual') + '"' + (attNotes(r.a).length ? ' title="' + esc(attNotes(r.a).join('\n')) + '"' : '') + '>' + esc(r.a.label) + ' ' + hm(r.a.in.at) + (r.a.out ? '–' + hm(r.a.out.at) + (r.a.out.auto ? ' (אוטומטי)' : '') : '') + ' · ' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + '</span>').join('') + '</div></section>';
 }
 function vAtt() {
   const d = S.f.attDay || today(), m = d.slice(0, 7), w = S.isOwner && S.canWrite;
@@ -2672,19 +2781,19 @@ function vAtt() {
   return '<div class="row" style="align-items:flex-end;margin-bottom:10px"><label class="fl">יום<input class="f" type="date" id="fAttDay" value="' + d + '"></label><span class="grow"></span>' +
       (w ? '<span class="hint">' + (o && o.lat != null ? 'משרד: ' + o.lat + ', ' + o.lng + ' · רדיוס ' + (o.radius || 250) + ' מ׳' : 'מיקום המשרד לא הוגדר') + '</span><button class="btn small" data-act="attOffice">קבע משרד לפי המיקום שלי</button>' : '') + '</div>' +
     '<div class="grid4">' + kpi('במשמרת', '<span class="num">' + rows.filter((r) => !r.a.out).length + '</span>', rows.length + ' נכנסו · ' + missing.length + ' לא נכנסו', null) + kpi('שעות', '<span class="num">' + rows.reduce((x, r) => x + r.h, 0).toFixed(1) + '</span>', 'סך כל הצוות', null) +
-      kpi('עלות היום', money(rows.reduce((x, r) => x + r.cost, 0), { tone: 'muted' }), 'שעות × תעריף + עלות מעביד', null) + kpi('חוסרי פעילות', '<span class="num">' + rows.reduce((x, r) => x + r.gapsN, 0) + '</span>', '40+ דקות, אצל מכירות / טלפנות', null, rows.some((r) => r.gapsN) ? 'open' : '') + '</div>' +
+      kpi('עלות היום', money(rows.reduce((x, r) => x + r.cost, 0), { tone: 'muted' }), 'שעות × תעריף + עלות מעביד', null) + kpi('חוסרי פעילות', '<span class="num">' + rows.reduce((x, r) => x + r.gapsN, 0) + '</span>', 'שעה ומעלה, כל הצוות', null, rows.some((r) => r.gapsN) ? 'open' : '') + '</div>' +
     '<section class="card"><header><h2>' + dLabel(d) + '</h2></header>' + (rows.length ? '<div class="scroll"><table><thead><tr><th>עובד</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>איפה</th><th>פעולות במערכת</th><th>בלי פעילות</th><th>עלות</th></tr></thead><tbody>' +
-      rows.map((r) => '<tr><td class="wide"><b>' + esc(r.a.label) + '</b>' + (r.a.note ? '<div class="hint">' + esc(r.a.note) + '</div>' : '') + '</td><td class="num">' + hm(r.a.in.at) + '</td><td class="num">' + (r.a.out ? hm(r.a.out.at) : r.a.date === today() ? '<span class="pill actual">במשמרת</span>' : '<span class="pill open">לא נרשמה</span>') + ((r.a.fixes || []).length ? ' <span class="pill muted" title="' + esc(r.a.fixes.map((f) => 'תוקן ' + dLabel(dayOf(f.at)) + ' ' + hm(f.at) + (f.why ? ' · ' + f.why : '')).join('\n')) + '">תוקן</span>' : '') + (w ? ' <button class="btn small ghost" data-attfix="' + esc(r.a.id) + '">תקן שעות</button>' : '') + '</td>' +
-        '<td class="num">' + r.h.toFixed(1) + '</td><td>' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.in.dist != null ? ' <span class="hint">' + Number(r.a.in.dist).toLocaleString('he-IL') + ' מ׳</span>' : '') + (r.a.home ? ' <span class="pill ' + (r.a.home.status === 'approved' ? 'actual' : r.a.home.status === 'rejected' ? 'open' : 'expected') + '">' + ({ pending: 'ממתין לאישור', approved: 'אושר', rejected: 'לא אושר' }[r.a.home.status] || '') + '</span>' + (w && r.a.home.status === 'pending' ? ' <button class="btn small" data-atthome="' + esc(r.a.id) + '|approved">אשר</button>' : '') : '') + '</td>' +
-        '<td class="num">' + r.acts + '</td><td>' + (r.gapsN ? '<details><summary><span class="pill open">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</span></summary><div class="hint">' + (r.a.gaps || []).map((g) => hm(g.from) + '–' + hm(g.to) + ' (' + g.min + ')').join('<br>') + (r.idle >= 40 ? '<br>עכשיו: ' + r.idle + ' דק׳' : '') + '</div></details>' : '<span class="hint">—</span>') + '</td>' +
+      rows.map((r) => '<tr><td class="wide"><b>' + esc(r.a.label) + '</b>' + (r.a.note ? '<div class="hint">' + esc(r.a.note) + '</div>' : '') + attNotes(r.a).map((x) => '<div class="hint">' + esc(x) + '</div>').join('') + '</td><td class="num">' + hm(r.a.in.at) + '</td><td class="num">' + (r.a.out ? hm(r.a.out.at) : r.a.date === today() ? '<span class="pill actual">במשמרת</span>' : '<span class="pill open">לא נרשמה</span>') + ((r.a.fixes || []).length ? ' <span class="pill muted" title="' + esc(r.a.fixes.map((f) => 'תוקן ' + dLabel(dayOf(f.at)) + ' ' + hm(f.at) + (f.why ? ' · ' + f.why : '')).join('\n')) + '">תוקן</span>' : '') + (w ? ' <button class="btn small ghost" data-attfix="' + esc(r.a.id) + '">תקן שעות</button>' : '') + '</td>' +
+        '<td class="num">' + r.h.toFixed(1) + '</td><td>' + PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.in.dist != null ? ' <span class="hint">' + Number(r.a.in.dist).toLocaleString('he-IL') + ' מ׳</span>' : '') + (r.a.home ? ' <span class="pill ' + (r.a.home.status === 'approved' ? 'actual' : r.a.home.status === 'rejected' || r.a.home.status === 'expired' ? 'open' : r.a.home.status === 'back' ? 'muted' : 'expected') + '">' + (ATT_HOME[r.a.home.status] || '') + '</span>' + (w && r.a.home.status === 'pending' ? ' <button class="btn small" data-atthome="' + esc(r.a.id) + '|approved">אשר</button>' : '') : '') + '</td>' +
+        '<td class="num">' + r.acts + '</td><td>' + (r.gapsN ? '<details><summary><span class="pill open">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</span></summary><div class="hint">' + (r.a.gaps || []).map((g) => hm(g.from) + '–' + hm(g.to) + ' (' + g.min + (g.open ? ', נמשך' : '') + ')').join('<br>') + (r.idle >= ATT.idleMin && !r.a.out ? '<br>עכשיו: ' + r.idle + ' דק׳' : '') + '</div></details>' : '<span class="hint">—</span>') + '</td>' +
         '<td>' + (r.rate ? money(r.cost, { tone: 'muted' }) : '<span class="hint">אין תעריף</span>') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">אף אחד לא נרשם ביום הזה.</p>') +
       (missing.length && d === today() ? '<p class="hint">לא נכנסו: ' + missing.map((p) => esc(p.label)).join(', ') + '</p>' : '') + '</section>' +
     '<section class="card"><header><h2>' + mLabel(m) + ' — לפי עובד</h2></header>' + (Object.keys(mon).length ? '<div class="scroll"><table><thead><tr><th>עובד</th><th>ימים</th><th>מהבית</th><th>שעות</th><th>חוסרי פעילות</th><th>עלות</th></tr></thead><tbody>' +
       Object.values(mon).map((x) => '<tr><td class="wide">' + esc(x.label) + '</td><td class="num">' + x.days + '</td><td class="num">' + x.home + '</td><td class="num">' + x.h.toFixed(1) + '</td><td class="num">' + x.gaps + '</td><td>' + money(x.cost, { tone: 'muted' }) + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">אין נוכחות החודש.</p>') + '</section>' +
-    '<p class="hint">תעריף לשעה: הגדרות ← משתמשים (או מהשכר). התראת 40 דקות — רק למי שמסומן "מכירות / טלפנות". המיקום נלקח מהדפדפן ברגע הכניסה והיציאה בלבד — לא במעקב רציף.</p>';
+    '<p class="hint">תעריף לשעה: הגדרות ← משתמשים (או מהשכר). שעה בלי פעילות במערכת — התראה למנהל האחראי, לכל הצוות; השעון ממשיך והפער נרשם כאן. המיקום נבדק בכניסה, ובטלפון כל ' + ATT.geoEveryMin + ' דקות — רק כשהמערכת פתוחה. כשהיא סגורה אין בדיקת מיקום: השרת רק סוגר יציאה מהטווח שלא אושרה תוך ' + ATT.awayGraceMin + ' דקות, מתריע על שעה בלי פעילות, וסוגר משמרת שנשארה פתוחה ב-' + ATT.dayEndHour + ':00. מחשבי משרד והתראות: הגדרות ← שעון נוכחות.</p>';
 }
 function attMailHtml(d) { const rows = live(S.attendance).filter((a) => a.date === d).map((a) => attRow(a, d)); if (!rows.length) return '<p><b>נוכחות:</b> אף אחד לא נרשם היום.</p>';
-  return '<h3 style="margin:14px 0 4px">נוכחות</h3>' + mailTable(['עובד', 'כניסה', 'יציאה', 'שעות', 'איפה', 'פעולות', 'בלי פעילות', 'עלות'], rows.map((r) => [esc(r.a.label), hm(r.a.in.at), r.a.out ? hm(r.a.out.at) : '<b style="color:#DC2626">לא נרשמה</b>', r.h.toFixed(1), PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.home ? ' (' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'לא אושר' }[r.a.home.status] || '') + ')' : ''), String(r.acts), r.gapsN ? '<b style="color:#DC2626">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</b>' : '0', r.rate ? plain(r.cost) : '—'])) +
+  return '<h3 style="margin:14px 0 4px">נוכחות</h3>' + mailTable(['עובד', 'כניסה', 'יציאה', 'שעות', 'איפה', 'פעולות', 'בלי פעילות', 'עלות'], rows.map((r) => [esc(r.a.label) + attNotes(r.a).map((x) => '<br><small>' + esc(x) + '</small>').join(''), hm(r.a.in.at), r.a.out ? hm(r.a.out.at) + (r.a.out.auto ? ' (אוטומטי)' : '') : '<b style="color:#DC2626">לא נרשמה</b>', r.h.toFixed(1), PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.home ? ' (' + (ATT_HOME[r.a.home.status] || '') + ')' : ''), String(r.acts), r.gapsN ? '<b style="color:#DC2626">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</b>' : '0', r.rate ? plain(r.cost) : '—'])) +
     '<p>עלות הצוות היום: <b>' + plain(rows.reduce((x, r) => x + r.cost, 0)) + '</b></p>'; }
 /* ═════════════ יומן גוגל: זום / פגישות → יומן דרך תיבת היוצא (מפתח ייחודי, בלי כפילויות) · פגישות היום מקושרות לכרטיסי לקוחות ═════════════ */
 const addMinLocal = (s0, k) => { const d = new Date(String(s0).slice(0, 16)); d.setMinutes(d.getMinutes() + k); const z = (x) => String(x).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':00'; };
@@ -6095,9 +6204,27 @@ function linksBlock(compact) {
   return Object.entries(byCat).map(([cat, ls]) => '<h3 class="sec">' + esc(cat) + '</h3><div class="row">' + ls.map((l) => '<a class="btn small" href="' + esc(/^https?:\/\//.test(l.url) ? l.url : 'https://' + l.url) + '" target="_blank" rel="noopener">' + esc(l.title) + ' ↗</a>' +
     (!compact && S.canWrite ? '<button class="btn small ghost danger" data-dellink="' + esc(l.id) + '" aria-label="מחק קישור">×</button>' : '')).join('') + '</div>').join('');
 }
+/* שעון נוכחות (דן, 17/10): משרד, מחשבי משרד, למי הולכות ההתראות ולאן */
+function attSettingsCard() {
+  if (!S.isOwner) return ''; const w = S.canWrite, o = S.settings.office, devs = officeDevs(), mine = myDevId(), us = S.settings.users || [];
+  const mgrs = [...new Set(['dan', 'aviv', ...staff().filter((p) => p.key !== 'dan').map((p) => attManagerOf(p.key, us)).filter(Boolean)])];
+  const canMgr = staff().filter((p) => ['owner', 'admin', 'admin_re'].includes(p.role));
+  return '<section class="card"><header><h2>שעון נוכחות</h2></header>' +
+    '<p class="hint" style="margin:-4px 0 10px">המיקום נבדק רק כשהמערכת פתוחה: בכניסה, ובטלפון כל ' + ATT.geoEveryMin + ' דקות. מחוץ לטווח בלי אישור עבודה מהבית — בקשה למנהל, ובלי אישור תוך ' + ATT.awayGraceMin + ' דקות המשמרת נסגרת אוטומטית בשעת היציאה. כשהמערכת סגורה השרת לא יודע איפה העובד — הוא רק סוגר יציאה שלא אושרה, מתריע על שעה בלי פעילות וסוגר משמרת פתוחה ב-' + ATT.dayEndHour + ':00.</p>' +
+    '<h3 class="sec">המשרד</h3><div class="row" style="align-items:center;margin-bottom:10px"><span class="grow">' + (o && o.lat != null ? 'מוגדר · רדיוס ' + (o.radius || 250) + ' מ׳' + (o.setAt ? ' · נקבע ' + dLabel(dayOf(o.setAt)) : '') : '<span class="pill open">מיקום המשרד לא הוגדר — אין בדיקת טווח</span>') + '</span>' + (w ? '<button class="btn small" data-act="attOffice">קבע משרד לפי המיקום שלי</button>' : '') + '</div>' +
+    '<h3 class="sec">מחשבי משרד</h3>' + (devs.length ? '<div class="tlist">' + devs.map((x) => '<div class="trow"><div class="tname"><b>' + esc(x.label || 'מחשב משרד') + '</b>' + (x.id === mine ? ' <span class="pill actual">המחשב הזה</span>' : '') + '<div class="hint">נוסף ' + (x.at ? dLabel(dayOf(x.at)) : '') + (x.addedBy ? ' · ' + esc(L.resp[x.addedBy] || x.addedBy) : '') + '</div></div>' + (w ? '<div class="row"><button class="btn small ghost danger" data-attdevrm="' + esc(x.id) + '">הסר</button></div>' : '') + '</div>').join('') + '</div>' : '<p class="empty">אין מחשבי משרד רשומים.</p>') +
+    (w ? '<div class="row" style="margin:8px 0 12px">' + (devs.some((x) => x.id === mine) ? '<span class="hint">המחשב הזה רשום כמחשב משרד.</span>' : '<button class="btn" data-act="attDevAdd">סמן את המחשב הזה כמחשב משרד</button>') + '</div>' : '') +
+    '<h3 class="sec">למי הולכות ההתראות</h3><p class="hint" style="margin:-2px 0 8px">ברירת המחדל: הדס ופתרונות מימון — דן. מוקד והר-אל השקעות — אביב.</p><div class="tlist">' +
+      us.map((u) => { const k = userKey(u), m = attManagerOf(k, us), auto = attManagerOf(k, us.map((x) => (x === u ? { ...u, manager: '' } : x)));
+        return '<div class="trow"><div class="tname"><b>' + esc(u.label || L.resp[u.resp] || u.username) + '</b><div class="hint">' + esc(ROLES[userRole(u)].label) + '</div></div><div class="tfields">' +
+          (w ? '<select class="f" data-attmgr="' + esc(normUser(u.username)) + '" aria-label="מנהל להתראות של ' + esc(u.label || u.username) + '"><option value="">אוטומטי — ' + esc(L.resp[auto] || auto || '—') + '</option>' + canMgr.filter((p) => p.key !== k).map((p) => '<option value="' + esc(p.key) + '"' + (u.manager === p.key ? ' selected' : '') + '>' + esc(p.label) + '</option>').join('') + '</select>' : '<span>' + esc(L.resp[m] || m || '—') + '</span>') + '</div></div>'; }).join('') + '</div>' +
+    '<h3 class="sec" style="margin-top:12px">וואטסאפ ומייל למנהלים</h3><p class="hint" style="margin:-2px 0 8px">נשלח דרך תיבת היוצא בשרת. בלי חיבור וואטסאפ (Green API) או גוגל ההודעות ממתינות בתור — ההתראה במערכת מופיעה בכל מקרה.</p>' +
+      mgrs.map((k) => '<div class="row" style="align-items:flex-end;margin-bottom:6px"><b style="min-width:60px">' + esc(L.resp[k] || k) + '</b><label class="fl">טלפון<input class="f" dir="ltr" inputmode="tel" data-attphone="' + esc(k) + '" value="' + esc((S.settings.notifyPhones || {})[k] || '') + '" placeholder="050-0000000"' + (w ? '' : ' disabled') + '></label><label class="fl">מייל<input class="f" type="email" dir="ltr" data-attmail="' + esc(k) + '" value="' + esc((S.settings.notifyEmails || {})[k] || '') + '" placeholder="' + esc((us.find((u) => userKey(u) === k) || {}).email || (k === 'dan' ? S.settings.ownerEmail || '' : '')) + '"' + (w ? '' : ' disabled') + '></label></div>').join('') +
+      (w ? '<button class="btn small primary" data-act="attNotifySave">שמור פרטי התראות</button>' : '') + '</section>';
+}
 function vSettings() {
   const s = S.settings, w = S.canWrite;
-  if (S.role === 'admin_re') return '<h1>הגדרות — הר-אל השקעות</h1>' + usersCard() + statusSetsCard() + callScriptCard() + commRulesCard() + reCfgCard();
+  if (S.role === 'admin_re') return '<h1>הגדרות — הר-אל השקעות</h1>' + usersCard() + attSettingsCard() + statusSetsCard() + callScriptCard() + commRulesCard() + reCfgCard();
   const list = (key, label, hint) => '<section class="card"><header><h2>' + label + '</h2></header><p class="hint" style="margin:-4px 0 10px">' + hint + '</p>' +
     '<div class="row">' + (s[key] || []).map((t) => '<span class="tag">' + esc(t) + (w ? ' <button data-rm="' + key + '" data-v="' + esc(t) + '" aria-label="הסר">×</button>' : '') + '</span>').join('') + (!(s[key] || []).length ? '<span class="hint">ריק</span>' : '') + '</div>' +
     (w ? '<div class="row" style="margin-top:10px"><input class="f grow" id="add_' + key + '" placeholder="הוסף…" aria-label="' + label + '"><button class="btn small" data-addto="' + key + '">הוסף</button></div>' : '') + '</section>';
@@ -6113,7 +6240,7 @@ function vSettings() {
     '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="newLink">+ קישור</button>' : '') + '</header>' + linksBlock(false) + '</section>' +
     '<div class="grid2">' + list('partnersRE', 'שותפי הר-אל השקעות', 'לחלוקת 33/33/33 ולרישום משיכות.') + list('partnersFin', 'שותפי הר-אל פתרונות', 'משיכות של דן; ניסים מקבל דרך מקדמות.') + '</div>' +
     '<div class="grid3">' + list('tags', 'תגיות לקוח', 'מופיעות כהצעה בכרטיס הלקוח.') + list('sources', 'מקורות הגעה', 'פייסבוק, המלצה, גוגל, שותף.') + list('platforms', 'פלטפורמות שיווק', 'נכנסות לבד מקובץ לידים שמועלה.') + '</div>' +
-    usersCard() + appraisersCard() + driveRootsCard() + pdfTplCard() + signTplCard() + statusSetsCard() + leadTaskCard() + callScriptCard() + commRulesCard() + reCfgCard() +
+    usersCard() + attSettingsCard() + appraisersCard() + driveRootsCard() + pdfTplCard() + signTplCard() + statusSetsCard() + leadTaskCard() + callScriptCard() + commRulesCard() + reCfgCard() +
     (!S.isDan ? '' : '<section class="card"><header><h2>סיסמה</h2>' + (s.lock && s.lock.hash ? '<span class="pill actual">מוגדרת</span>' : '<span class="pill open">לא מוגדרת</span>') + '</header><p class="hint" style="margin:-4px 0 10px">נועלת את המערכת במכשיר אחרי 30 דקות בלי פעילות, ופותחת את "פרייבט". נשמר רק גיבוב — אי אפשר לשחזר את הסיסמה, רק להחליף.</p>' +
       (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
@@ -6786,7 +6913,7 @@ function usersCard() {
     '<label class="fl">תפקיד<select class="f" id="uRole">' + grant.map((k) => '<option value="' + k + '"' + (k === r0 ? ' selected' : '') + '>' + esc(ROLES[k].label) + '</option>').join('') + '</select></label>' +
     '<div class="fl">חברות (למוקד)<div class="row" style="margin-top:4px">' + DIVS.map((dv) => '<label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" name="uDiv" value="' + dv + '"' + (d0.includes(dv) ? ' checked' : '') + (S.role === 'admin_re' && dv !== 'realestate' ? ' disabled' : '') + '><span>' + L.division[dv] + '</span></label>').join('') + '</div></div>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uFree"' + (ed && ed.freelancer ? ' checked' : '') + '><span>פרילנסר (עמלות בלבד)</span></label>' +
-    '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uSales"' + ((ed ? (ed.sales != null ? ed.sales : userRole(ed) === 'center') : true) ? ' checked' : '') + '><span>מכירות / טלפנות (התראת 40 דקות)</span></label>' +
+    '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uSales"' + ((ed ? (ed.sales != null ? ed.sales : userRole(ed) === 'center') : true) ? ' checked' : '') + '><span>מכירות / טלפנות</span></label>' +
     '<label class="fl">מייל (להתראות "לחזור מאוחר יותר")<input class="f" type="email" dir="ltr" id="uEmail" value="' + esc(ed && ed.email ? ed.email : '') + '"></label>' +
     '<label class="fl" style="max-width:150px">תעריף לשעה (₪)<input class="f" type="number" min="0" step="1" id="uHourly" value="' + esc(ed && ed.hourly != null ? ed.hourly : '') + '"></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uConv"' + ((ed ? (ed.conv != null ? ed.conv : userRole(ed) === 'partner' || userRole(ed) === 'admin') : false) ? ' checked' : '') + '><span>רואה את טבלת יחס ההמרה</span></label>' +
@@ -9155,7 +9282,7 @@ function render() {
   /* טקסט שהקלדת ועוד לא נשמר (הערה, טיוטה) — לא נמחק כשהמסך מצטייר מחדש */
   const drafts0 = Object.fromEntries([...M0.querySelectorAll('textarea[id], input[id]:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden])')].filter((el) => el.value !== el.defaultValue).map((el) => [el.id, el.value]));
   S._lastView = view1;
-  $('main').innerHTML = (S._idle ? '<div class="notice bad"><b>40 דקות בלי פעילות במערכת</b><span class="grow">הכל בסדר? כל פעולה במערכת מחזירה אותך לפעיל.</span><button class="btn small" data-act="attHere">אני כאן</button></div>' : '') + partnerHint() + (S.canTask ? '' : '<div class="notice warn"><b>קריאה בלבד</b><span>בתצוגה הזו אין הרשאת עריכה. בעל הדף יכול לתת גישה מתפריט השיתוף.</span></div>') + (V[S.view.tab] || vDay)();
+  $('main').innerHTML = (S._idle ? '<div class="notice bad"><b>שעה בלי פעילות במערכת</b><span class="grow">הכל בסדר? המנהל מקבל התראה, והשעון ממשיך לרוץ. כל פעולה במערכת מחזירה אותך לפעיל.</span><button class="btn small" data-act="attHere">אני כאן</button></div>' : '') + partnerHint() + (S.canTask ? '' : '<div class="notice warn"><b>קריאה בלבד</b><span>בתצוגה הזו אין הרשאת עריכה. בעל הדף יכול לתת גישה מתפריט השיתוף.</span></div>') + (V[S.view.tab] || vDay)();
   /* אותו מסך — לא קופצים: הגלילה, טבלאות שגוללות לרוחב ו"פירוט" שפתחת נשארים כמו שהיו */
   if (view0 === view1) {
     const boxes1 = [...M0.querySelectorAll('.scroll, [data-keepscroll]')]; if (boxes1.length === boxes0.length) boxes1.forEach((b, i) => { b.scrollTop = boxes0[i][0]; b.scrollLeft = boxes0[i][1]; });
@@ -9222,7 +9349,11 @@ document.addEventListener('click', async (e) => {
     if (d.notdup) { const l = S.leads.get(d.notdup); if (!l || !S.canTask) return; const o = l.dupOf && S.leads.get(l.dupOf);
       if (o) await write('leads/' + o.id, { returns: (o.returns || []).filter((r) => r.id !== l.id), updatedAt: stamp() }, 'update');
       await leadPatch(l.id, { stage: 'new', sub: null, dupOf: null, notDup: true }, 'סומן: לא ליד כפול — חזר לחדש'); return toast('הליד חזר לחדש'); }
-    if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
+    if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; const home = { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() };
+      /* לא אושר כשהעובד מחוץ לטווח — יציאה אוטומטית עכשיו, בשעת היציאה מהטווח (אותו כלל כמו אחרי 15 דקות) */
+      const outP = v === 'rejected' && a.awayAt && a.in && !a.out ? attOutPatch(a, a.awayAt, 'rejected', stamp()) : {};
+      await write('attendance/' + id, { home, ...outP }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה — המשמרת ממשיכה' : outP.out ? 'לא אושר — המשמרת נסגרה ב-' + hm(a.awayAt) : 'סומן: לא אושר'); }
+    if (d.attdevrm) { if (!S.canWrite) return; await write('settings/main', { officeDevices: (S.settings.officeDevices || []).map((x) => x.id === d.attdevrm ? { ...x, deletedAt: stamp(), deletedBy: S.myKey || null } : x) }, 'update'); return toast('המחשב הוסר מרשימת מחשבי המשרד'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
     if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
@@ -9502,6 +9633,15 @@ document.addEventListener('click', async (e) => {
         case 'attIn': return attIn();
         case 'attOut': return attOut();
         case 'attHere': S._idle = false; ATT_UI = Date.now(); ATT_PING = 0; await attPing(); return render();
+        case 'attDevAdd': { if (!S.canWrite) return; const cur = officeDev(); if (cur) return toast('המחשב הזה כבר רשום כמחשב משרד');
+          return drawer('מחשב משרד', '<p class="full hint">במחשב הזה הכניסה למשמרת תיספר כמשרד בלי לבקש מיקום, לכל המשמרת. לסמן רק מחשב שנשאר במשרד. הסימון נשמר בדפדפן הזה בלבד — ניקוי נתוני הדפדפן מבטל אותו.</p>' + fi('label', 'שם המחשב', 'מחשב משרד ' + (officeDevs().length + 1), 'text', 'required', true),
+            async (x) => { const label = String(x.label || '').trim(); if (!label) return 'צריך שם'; const id = uid(); try { localStorage.setItem(ATT_DEV_LS, id); } catch (e) { return 'הדפדפן לא מאפשר לשמור את הסימון'; }
+              await write('settings/main', { officeDevices: [...(S.settings.officeDevices || []), { id, label, addedBy: S.myKey || null, at: stamp() }] }, 'update'); toast('המחשב סומן כמחשב משרד'); }, '', 'סמן'); }
+        case 'attNotifySave': { if (!S.canWrite) return; const ph = { ...(S.settings.notifyPhones || {}) }, em = { ...(S.settings.notifyEmails || {}) }, bad = [];
+          document.querySelectorAll('[data-attphone]').forEach((el) => { const k = el.dataset.attphone, v = el.value.trim(); if (v && v.replace(/\D/g, '').length < 9) bad.push(k); if (v) ph[k] = v; else delete ph[k]; });
+          document.querySelectorAll('[data-attmail]').forEach((el) => { const k = el.dataset.attmail, v = el.value.trim(); if (v && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(v)) bad.push(k); if (v) em[k] = v; else delete em[k]; });
+          if (bad.length) return toast('לבדוק טלפון / מייל: ' + bad.map((k) => L.resp[k] || k).join(', '));
+          await write('settings/main', { notifyPhones: ph, notifyEmails: em }, 'update'); return toast('פרטי ההתראות נשמרו'); }
         case 'attOffice': { toast('בודק מיקום…'); const pos = await getPos(); if (!pos) return toast('לא התקבל מיקום מהדפדפן'); await write('settings/main', { office: { lat: pos.lat, lng: pos.lng, radius: (S.settings.office && S.settings.office.radius) || 250, setAt: stamp(), acc: pos.acc } }, 'update'); return toast('מיקום המשרד נשמר (דיוק ' + pos.acc + ' מ׳)'); }
         case 'calReload': return calTodayLoad(true);
         case 'newDev': return formDev(null);
@@ -9985,6 +10125,10 @@ let rT;
    כמה עדכונים ברצף = ציור אחד. פעולה שלך (לחיצה) מציירת מיד, כמו קודם. */
 let lastChange = { el: null, at: 0 };
 document.addEventListener('change', (e) => { lastChange = { el: e.target, at: Date.now() }; }, true);
+document.addEventListener('change', async (e) => { const el = e.target && e.target.closest && e.target.closest('[data-attmgr]'); if (!el) return; if (!S.canWrite) return toast('אין לך הרשאה לשנות את זה');
+  const us = S.settings.users || [], u = us.find((x) => normUser(x.username) === el.dataset.attmgr); if (!u) return;
+  const rec = { ...u }; if (el.value) rec.manager = el.value; else delete rec.manager;
+  await write('settings/main', { users: us.map((x) => (x === u ? rec : x)) }, 'update'); toast((u.label || u.username) + ' — ההתראות ל' + (L.resp[attManagerOf(userKey(rec), us.map((x) => (x === u ? rec : x)))] || 'מנהל')); });
 document.addEventListener('change', async (e) => { const el = e.target && e.target.closest && e.target.closest('[data-perm]'); if (!el) return;
   const [name, k] = el.dataset.perm.split('|'), us = S.settings.users || [], u = us.find((x) => normUser(x.username) === name);
   if (!u || !S.canManageUsers || !canManageUser(u) || (DAN_GRANT.includes(k) && !S.isDan) || !AREAS.some((a) => a[0] === k)) { el.checked = !el.checked; return toast('אין לך הרשאה לשנות את זה'); }
