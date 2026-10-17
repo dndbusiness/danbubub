@@ -1,5 +1,5 @@
 <title>הר-אל CRM</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;500;600;700;800&family=Frank+Ruhl+Libre:wght@500;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai label:has(#repFile), body.noai label:has(#repMore), body.noai label:has(#condScan) { display: none !important; }
@@ -18,10 +18,10 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
     --realestate: #0F766E; --realestate-bg: #F0FDFA;
     --dan: #1C6B58; --hadas: #8A3566; --nissim: #2A5A96;
     --radius-card: 12px; --radius-btn: 8px;
-    /* טיפוגרפיה — אפשרות ג׳ (דן, 15/10): כותרות בסריף, גוף נקי, מספרים טכנולוגיים */
-    --font-body: "Noto Sans Hebrew", Heebo, "Segoe UI", system-ui, sans-serif;
-    --font-head: "Frank Ruhl Libre", "Noto Sans Hebrew", Georgia, serif;
-    --font-num: "Space Grotesk", "Noto Sans Hebrew", system-ui, sans-serif;
+    /* טיפוגרפיה — "עיצוב אפליקציה" (דן, 17/10): Rubik בכל מקום, גם במספרים. מיילים ו-PDF נשארים Arial */
+    --font-body: "Rubik", Heebo, "Segoe UI", system-ui, sans-serif;
+    --font-head: "Rubik", Heebo, "Segoe UI", system-ui, sans-serif;
+    --font-num: "Rubik", Heebo, "Segoe UI", system-ui, sans-serif;
     --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
     --shadow-pop: 0 12px 32px rgba(17,24,39,.18);
   }
@@ -567,149 +567,227 @@ table.leads.no-resp .c-resp { display: none; }
 table.leads.no-fu .c-fu { display: none; }
 table.leads.no-last .c-last { display: none; }
 
-/* ══ עיצוב v3 — שלב 1: טוקנים ומעטפת (docs/UI_REDESIGN.md, דן 15/10: "יותר חד, יותר חדשני") ══
+/* ══ עיצוב v3 — שלב 1: טוקנים ומעטפת — "עיצוב אפליקציה" (docs/UI_REDESIGN.md, דן 17/10: מחליף את הכיוון הקודם) ══
    רק CSS: אין שינוי ב-data-*, ב-handlers, בכתיבות או בחישובים.
-   המותג לפי החברה (--brand-strong / --brand-accent / --brand-soft / --brand-text / --brand-ink) מוגדר למעלה — כאן רק משתמשים בו.
+   Rubik בכל מקום · צורות רכות (כרטיס 20, אריח 18, כפתור 14, תגית 99) · צל רך · כותרת כהה בגרדיאנט בנייד · סרגל תחתון צף.
+   צבע לפי החברה, אותה צורה לשתיהן: השקעות = טורקיז על דיו #071D26 (צבעי הקנבס) · פתרונות = כחול לילה #0E2240 + זהב #C8A24E.
    צבעי הוודאות (--actual / --committed / --expected / --open / --locked) לא נגעים. */
 :root {
-  --bg: #F2F4F7; --surface: #FFFFFF; --sunk: #EEF1F5; --border: #DDE2EA; --border-2: #C9D0DB;
-  --text: #0B1220; --ink: #0B1220;
-  --nav-bg: var(--brand-ink); --nav-fg: #B4BDCE; --nav-fg-act: #FFFFFF; --nav-hover: rgba(255,255,255,.06); --nav-sel: rgba(255,255,255,.10); --nav-line: rgba(255,255,255,.10);
-  --on-accent: #0B1220;
-  --radius-card: 10px; --radius-btn: 8px; --radius-chip: 5px;
-  --shadow-card: 0 1px 0 rgba(11,18,32,.04);
-  --shadow-pop: 0 16px 40px rgba(11,18,32,.22);
-  --scrim: rgba(11,18,32,.45);
-  --t-fast: .12s ease;
+  --radius-card: 20px; --radius-tile: 18px; --radius-btn: 14px; --radius-chip: 99px;
+  --shadow-card: 0 1px 2px rgba(7,29,38,.04), 0 8px 24px rgba(7,29,38,.05);
+  --shadow-lift: 0 14px 30px rgba(7,29,38,.11);
+  --shadow-pop: 0 20px 48px rgba(7,29,38,.22);
+  --scrim: rgba(7,29,38,.45);
+  --t-fast: .15s ease;
+  --nav-fg: rgba(255,255,255,.74); --nav-fg-act: #FFFFFF; --nav-line: rgba(255,255,255,.10);
+  --wa: #0B7A3C; --wa-bg: #E3F6EA;            /* וואטסאפ — לא צבע ודאות */
+  --q-violet: #6B3FD0; --q-violet-bg: #F1EBFF; --q-slate: #3C4F63; --q-slate-bg: #EBF0F5;
+}
+/* ── ניטרלים, כותרת וכפתור צף — לכל חברה ── */
+:root, :root[data-brand="finance"] {
+  --bg: #F4F6FA; --surface: #FFFFFF; --sunk: #EEF1F7; --border: #E7EBF2; --border-2: #D3D9E5;
+  --text: #0B1730; --ink: #0B1730; --text-2: #545F75; --text-3: #5E697E;
+  --hdr-1: #1D3A63; --hdr-2: #13294A; --hdr-3: #0E2240; --nav-bg: #0E2240;
+  --fab-1: #1D3A63; --fab-2: #0E2240; --focus: #0E2240; --ring: #C8A24E; --hi: #E6CD8E;
+}
+:root[data-brand="realestate"] {
+  --bg: #F3F7F7; --surface: #FFFFFF; --sunk: #EEF4F4; --border: #E8EEEF; --border-2: #D3DEE0;
+  --text: #071D26; --ink: #071D26; --text-2: #566870; --text-3: #5F7178;
+  --brand-strong: #217C71; --brand-text: #176158;
+  --hdr-1: #124552; --hdr-2: #0A2833; --hdr-3: #071D26; --nav-bg: #071D26;
+  --fab-1: #2A8F81; --fab-2: #217C71; --focus: #217C71; --ring: #26AFA4; --hi: #7EF0DF;
+}
+:root[data-brand="all"] {
+  --bg: #F4F6F8; --surface: #FFFFFF; --sunk: #EEF1F4; --border: #E6E9EE; --border-2: #D2D7DF;
+  --text: #0B1220; --ink: #0B1220; --text-2: #4B5563; --text-3: #5B6472;
+  --hdr-1: #2A3343; --hdr-2: #18202D; --hdr-3: #111827; --nav-bg: #111827;
+  --fab-1: #2A3343; --fab-2: #111827; --focus: #111827; --ring: #C8A24E; --hi: #E6CD8E;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9;
-    --nav-bg: #0A1120; --nav-fg: #A3ADBF;
-    --shadow-card: 0 1px 0 rgba(0,0,0,.35); --shadow-pop: 0 16px 40px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
+  :root:not([data-theme="light"]), :root:not([data-theme="light"])[data-brand="finance"], :root:not([data-theme="light"])[data-brand="all"] {
+    --bg: #0A0F1A; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9; --text-2: #C4CAD4; --text-3: #9AA6BA;
+    --hdr-1: #1B2C4A; --hdr-2: #121E36; --hdr-3: #0C1528; --nav-bg: #0C1528;
+    --fab-1: #E0BE72; --fab-2: #C8A24E; --focus: #D4B062; --ring: #D4B062; --hi: #E6CD8E;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25); --shadow-lift: 0 14px 30px rgba(0,0,0,.45); --shadow-pop: 0 20px 48px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
+    --wa: #4ADE80; --wa-bg: #0E2A1A; --q-violet: #C4B1FF; --q-violet-bg: #261A45; --q-slate: #C3CEDA; --q-slate-bg: #1C2533;
+  }
+  :root:not([data-theme="light"])[data-brand="realestate"] {
+    --bg: #071216; --surface: #0F1E24; --sunk: #0B171C; --border: #1C2F36; --border-2: #2A434B; --text: #EEF5F6; --ink: #EEF5F6; --text-2: #B9C8CC; --text-3: #93A6AC;
+    --hdr-1: #145060; --hdr-2: #0C3039; --hdr-3: #08222A; --nav-bg: #08222A;
+    --fab-1: #34C2B4; --fab-2: #2BB3A3; --focus: #2BB3A3; --ring: #2BB3A3; --hi: #7EF0DF;
   }
 }
-:root[data-theme="dark"] {
-  --bg: #090E18; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9;
-  --nav-bg: #0A1120; --nav-fg: #A3ADBF;
-  --shadow-card: 0 1px 0 rgba(0,0,0,.35); --shadow-pop: 0 16px 40px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
+:root[data-theme="dark"], :root[data-theme="dark"][data-brand="finance"], :root[data-theme="dark"][data-brand="all"] {
+  --bg: #0A0F1A; --surface: #111827; --sunk: #0D1422; --border: #232D3F; --border-2: #33405A; --text: #F1F4F9; --ink: #F1F4F9; --text-2: #C4CAD4; --text-3: #9AA6BA;
+  --hdr-1: #1B2C4A; --hdr-2: #121E36; --hdr-3: #0C1528; --nav-bg: #0C1528;
+  --fab-1: #E0BE72; --fab-2: #C8A24E; --focus: #D4B062; --ring: #D4B062; --hi: #E6CD8E;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25); --shadow-lift: 0 14px 30px rgba(0,0,0,.45); --shadow-pop: 0 20px 48px rgba(0,0,0,.6); --scrim: rgba(0,0,0,.6);
+  --wa: #4ADE80; --wa-bg: #0E2A1A; --q-violet: #C4B1FF; --q-violet-bg: #261A45; --q-slate: #C3CEDA; --q-slate-bg: #1C2533;
+}
+:root[data-theme="dark"][data-brand="realestate"] {
+  --bg: #071216; --surface: #0F1E24; --sunk: #0B171C; --border: #1C2F36; --border-2: #2A434B; --text: #EEF5F6; --ink: #EEF5F6; --text-2: #B9C8CC; --text-3: #93A6AC;
+  --hdr-1: #145060; --hdr-2: #0C3039; --hdr-3: #08222A; --nav-bg: #08222A;
+  --fab-1: #34C2B4; --fab-2: #2BB3A3; --focus: #2BB3A3; --ring: #2BB3A3; --hi: #7EF0DF;
 }
 
 /* ── בסיס ── */
-body { margin: 0; background: var(--bg); color: var(--text); }
-::selection { background: var(--brand-soft); }
-main { gap: 16px; }
+body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+::selection { background: color-mix(in srgb, var(--ring) 35%, transparent); }
+h1 { font-weight: 700; letter-spacing: -.02em; }
+h2 { font-weight: 600; letter-spacing: -.01em; }
+.kpi .v, .moneystrip b { font-weight: 600; letter-spacing: -.02em; }
+main { gap: 18px; }
 .hint, .kpi .sub, .lead .meta, .empty { font-size: 13px; }   /* טקסט משני: 13 ומעלה */
-h3.sec { font-size: 12.5px; color: var(--text-2); letter-spacing: .01em; }
+h3.sec { font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--ring) 28%, transparent); }
 
-/* ── כרטיס: רדיוס 10, קו דק, בלי ענן צל ── */
-.card { border-radius: var(--radius-card); border-color: var(--border); box-shadow: var(--shadow-card); padding: 18px; }
-.card > header { margin-bottom: 12px; }
+/* ── כרטיס: רדיוס 20, קו רך, צל רך; כרטיס לחיץ מתרומם ── */
+.card { border-radius: var(--radius-card); border-color: var(--border); box-shadow: var(--shadow-card); padding: 20px; }
+.card > header { margin-bottom: 14px; }
 .kpi .v { font-size: 28px; }
-.kpi.click { transition: border-color var(--t-fast), box-shadow var(--t-fast); }
-.kpi.click:hover { border-color: var(--brand-strong); box-shadow: 0 0 0 3px var(--brand-soft); }
-.dayhead, .lane, .file, .moneystrip, .qa, .ppanel, .tranche, .doccat, .dtile, .lead, .emailprev, .col { border-radius: var(--radius-card); }
+.kpi.click { transition: transform var(--t-fast), box-shadow var(--t-fast), border-color var(--t-fast); }
+.kpi.click:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); border-color: var(--border-2); }
+.kpi.click:active { transform: translateY(0) scale(.99); }
+.dayhead, .lane, .file, .moneystrip, .qa, .ppanel, .tranche, .doccat, .lead, .emailprev, .col { border-radius: var(--radius-card); }
+.dtile { border-radius: var(--radius-tile); }
 
-/* ── כפתור: רדיוס 8; הראשי בצבע החברה (מוגדר למעלה) ── */
-.btn { border-radius: var(--radius-btn); border-color: var(--border); font-weight: 500; transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
-.btn:hover { background: var(--sunk); border-color: var(--border-2); }
-.btn.primary { font-weight: 600; }
-.btn.primary:hover { box-shadow: 0 0 0 3px var(--brand-soft); }
+/* ── כפתור: 42px (קטן 38), רדיוס 14, צבע לפי סוג, מתרומם בריחוף ונלחץ קלות ── */
+.btn { min-height: 42px; padding: 8px 16px; border-radius: var(--radius-btn); border-color: var(--border); background: var(--surface); font-weight: 500; box-shadow: 0 1px 2px rgba(7,29,38,.05);
+  transition: transform .12s ease, box-shadow var(--t-fast), background var(--t-fast), border-color var(--t-fast), filter var(--t-fast); }
+.btn.small { min-height: 38px; padding: 6px 12px; border-radius: 12px; }
+.btn:hover { background: var(--sunk); border-color: var(--border-2); transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.98); }
+.btn[disabled], .btn[disabled]:hover { transform: none; }
+.btn.primary, .btn.primary:hover { background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%); border-color: transparent; color: var(--on-brand); font-weight: 600;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--fab-2) 30%, transparent); }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.go { box-shadow: 0 6px 16px color-mix(in srgb, var(--actual) 28%, transparent); font-weight: 600; }
+.btn.ghost, .btn.ghost:hover { box-shadow: none; }
 .btn.ghost:hover { border-color: transparent; }
 .btn.danger:hover { border-color: var(--open); }
-.xlink:hover { color: var(--brand-text); text-decoration-color: var(--brand-accent); }
+a.btn[href*="wa.me"] { background: var(--wa-bg); border-color: transparent; color: var(--wa); font-weight: 600; }
+a.btn[href^="tel:"] { background: var(--brand-soft); border-color: transparent; color: var(--brand-text); font-weight: 600; }
+.xlink:hover { color: var(--brand-text); text-decoration-color: var(--ring); }
+@media (pointer: coarse) { .btn { min-height: 46px; } .btn.small { min-height: 44px; } }
 
 /* ── שדות ── */
-input.f, select.f, textarea.f { box-sizing: border-box; background: var(--surface); border-color: var(--border); border-radius: var(--radius-btn); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+input.f, select.f, textarea.f { box-sizing: border-box; background: var(--surface); border-color: var(--border); border-radius: 12px; min-height: 42px; transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+textarea.f { min-height: 60px; }
 input.f:hover, select.f:hover, textarea.f:hover { border-color: var(--border-2); }
-input.f:focus, select.f:focus, textarea.f:focus { border-color: var(--brand-strong); }
-input.f:focus:not(:focus-visible), select.f:focus:not(:focus-visible), textarea.f:focus:not(:focus-visible) { outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+input.f:focus, select.f:focus, textarea.f:focus { border-color: var(--focus); }
+input.f:focus:not(:focus-visible), select.f:focus:not(:focus-visible), textarea.f:focus:not(:focus-visible) { outline: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--ring) 22%, transparent); }
 .check input, input.cb { accent-color: var(--brand-strong); }
 
-/* ── צ׳יפים: רדיוס 5 ── */
+/* ── תגיות: עגולות, עם נקודה בצבע הוודאות ── */
 .pill, .chip, .tag, .dchip, .rchip, .seg button, .steps span, .pstep, .scans a, .dflag { border-radius: var(--radius-chip); }
-.seg button[aria-pressed="true"], .dchip[aria-pressed="true"] { background: var(--brand-strong); border-color: var(--brand-strong); color: var(--on-brand); }
-.seg button:not([aria-pressed="true"]):hover, .dchip:not([aria-pressed="true"]):hover { border-color: var(--border-2); color: var(--text); }
+.pill { padding: 3px 10px; font-weight: 500; line-height: 1.45; }
+.pill.actual::before, .pill.committed::before, .pill.expected::before, .pill.open::before, .pill.locked::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-inline-end: 5px; vertical-align: .1em; }
+.seg { background: var(--sunk); border-radius: var(--radius-chip); padding: 4px; gap: 2px; }
+.seg button { border-color: transparent; background: none; padding: 5px 14px; font-size: 13px; transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast); }
+.seg button[aria-pressed="true"] { background: var(--surface); border-color: transparent; color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(7,29,38,.08), 0 4px 10px rgba(7,29,38,.06); }
+.seg button:not([aria-pressed="true"]):hover { color: var(--text); }
+.dchip { padding: 5px 12px; transition: border-color var(--t-fast), background var(--t-fast); }
+.dchip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.dchip:not([aria-pressed="true"]):hover { border-color: var(--border-2); color: var(--text); }
 
-/* ── טבלה: כותרת שקועה, שורה לחיצה מסומנת בפס בצבע החברה ── */
-thead th { background: var(--sunk); color: var(--text-2); font-weight: 600; border-bottom-color: var(--border); }
-thead th:first-child { border-start-start-radius: 6px; } thead th:last-child { border-start-end-radius: 6px; }
-tbody tr:hover { background: var(--sunk); }
-tbody tr.clickable:not([class*="lc-"]):hover > td:first-child { box-shadow: inset -3px 0 0 var(--brand-accent); }
+/* ── טבלה: כותרת שקועה ועגולה, שורה לחיצה מסומנת בפס בצבע החברה ── */
+thead th { background: var(--sunk); color: var(--text-2); font-weight: 500; border-bottom-color: var(--border); }
+thead th:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; } thead th:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
+tbody tr { transition: background-color var(--t-fast); }
+tbody tr:hover { background: color-mix(in srgb, var(--ring) 6%, var(--surface)); }
+tbody tr.clickable:not([class*="lc-"]):hover > td:first-child { box-shadow: inset -3px 0 0 var(--ring); }
 
 /* ── מגירה, חלון, הודעה ── */
 .scrim { background: var(--scrim); }
 .drawer { box-shadow: var(--shadow-pop); }
 .drawer header { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .drawer.gsbox { border-radius: var(--radius-card); }
-.gsres button { border-radius: var(--radius-btn); }
+.gsres button { border-radius: 12px; }
 .gsres button:hover, .gsres button[aria-selected="true"] { background: var(--brand-soft); }
-.toast { background: var(--nav-bg); color: #fff; border-radius: var(--radius-btn); }
-.notice { border-radius: var(--radius-card); }
+.toast { background: var(--hdr-3); color: #fff; border-radius: var(--radius-btn); box-shadow: var(--shadow-pop); }
+.notice { border-radius: var(--radius-tile); }
 .badge { background: var(--open); color: #fff; }
 
-/* ── כותרת עליונה: חיפוש כשורת פקודה (Ctrl K כבר פועל) ── */
-header.top { background: var(--surface); border-bottom-color: var(--border); }
-.divs { border-radius: var(--radius-btn); }
-.divs button { border-radius: 6px; }
-.divs button[aria-pressed="true"] { color: var(--brand-text); }
-.status { border-radius: var(--radius-chip); }
-.gsbtn { border-radius: var(--radius-btn); background: var(--sunk); border-color: var(--border); min-height: 34px; }
+/* ── כותרת עליונה: חיפוש בצורת גלולה (Ctrl K כבר פועל), בורר חברה כמקטע, נקודה חיה ── */
+header.top { border-top: 0; background: var(--bg); border-bottom: 0; }   /* בלי backdrop-filter: התפריט (position: fixed) יושב בתוך הכותרת */
+.divs { background: var(--sunk); border-radius: var(--radius-chip); padding: 4px; }
+.divs button { border-radius: var(--radius-chip); padding: 5px 14px; }
+.divs button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(7,29,38,.08), 0 4px 10px rgba(7,29,38,.06); }
+.status { border-radius: var(--radius-chip); background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
+.status.live i { box-shadow: 0 0 0 3px color-mix(in srgb, var(--actual) 25%, transparent); animation: livedot 2.4s ease-in-out infinite; }
+@keyframes livedot { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--actual) 0%, transparent); } }
+.gsbtn { border-radius: var(--radius-chip); background: var(--surface); border-color: var(--border); min-height: 42px; padding-inline: 16px; box-shadow: var(--shadow-card); transition: border-color var(--t-fast); }
 .gsbtn:hover { border-color: var(--border-2); }
 @media (min-width: 768px) {
-  .gsbtn { min-width: 240px; justify-content: flex-start; }
-  .gsbtn::after { content: "Ctrl K"; margin-inline-start: auto; direction: ltr; font: 600 11px/1 var(--font-num); color: var(--text-3); border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; background: var(--surface); }
+  .gsbtn { min-width: 300px; justify-content: flex-start; }
+  .gsbtn::after { content: "Ctrl K"; margin-inline-start: auto; direction: ltr; font: 500 11px/1 var(--font-body); color: var(--text-3); border-radius: 6px; padding: 4px 6px; background: var(--sunk); }
 }
 
-/* ── ניווט צד (מחשב וטאבלט): דיו כהה של החברה, פס בצבע ההדגשה לבחירה ── */
+/* ── ניווט צד (מחשב וטאבלט): בהיר, הבחירה באריח רך בצבע החברה ── */
 @media (min-width: 768px) {
-  nav.tabs { background: var(--nav-bg); border-inline-end: 0; }
-  nav.tabs button { position: relative; color: var(--nav-fg); border-radius: var(--radius-btn); transition: background var(--t-fast), color var(--t-fast); }
-  nav.tabs button:hover { background: var(--nav-hover); color: var(--nav-fg-act); }
-  nav.tabs button[aria-selected="true"] { background: var(--nav-sel); color: var(--nav-fg-act) !important; box-shadow: none; }
-  nav.tabs button[aria-selected="true"]::after { content: ""; position: absolute; inset-block: 8px; inset-inline-start: -12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-accent); }
-  nav.tabs #tabAdd, nav.tabs #tabAdd:hover { background: var(--brand-accent); color: var(--on-accent); opacity: 1; }
-  nav.tabs #tabAdd:hover { filter: brightness(1.08); }
-  nav.tabs .badge { background: var(--open); color: #fff; }
+  nav.tabs { background: var(--surface); border-inline-end: 1px solid var(--border); }
+  nav.tabs button { position: relative; color: var(--text-2); border-radius: var(--radius-btn); transition: background var(--t-fast), color var(--t-fast); }
+  nav.tabs button:hover { background: var(--sunk); color: var(--text); }
+  nav.tabs button[aria-selected="true"] { background: var(--brand-soft); color: var(--brand-text) !important; font-weight: 600; box-shadow: none; }
+  nav.tabs #tabAdd, nav.tabs #tabAdd:hover { background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%); color: var(--on-brand); opacity: 1; box-shadow: 0 8px 20px color-mix(in srgb, var(--fab-2) 32%, transparent); }
+  nav.tabs #tabAdd:hover { filter: brightness(1.06); }
+  nav.tabs .badge { background: var(--open); color: #fff; padding: 1px 7px; }
 }
 @media (min-width: 1024px) {
-  header.top .mark .brand { color: #fff; }
-  header.top .mark .brand .bt small { color: var(--nav-fg); }
-  nav.tabs::before { border-bottom-color: var(--nav-line); }
-  nav.tabs button { padding: 8px 12px; font-size: 14px; }
+  header.top .mark { background: var(--surface); }
+  header.top .mark .brand { color: var(--brand-ink); }
+  nav.tabs::before { border-bottom: 0; }
+  nav.tabs button { padding: 10px 14px; font-size: 14.5px; min-height: 44px; }
   nav.tabs button[data-tab="books"], nav.tabs button[data-tab="lenders"] { margin-top: 14px; }
+  nav.tabs #tabAdd { min-height: 46px; }
 }
 
-/* ── נייד: כותרת כהה של החברה, סרגל תחתון עם ➕ במרכז ── */
+/* ── נייד: כותרת כהה בגרדיאנט של החברה, פינות 30, סימן מים; סרגל תחתון צף עם ➕ מורם ── */
 @media (max-width: 767px) {
-  header.top { background: var(--nav-bg); border-bottom: 0; color: #fff; }
+  header.top { background: linear-gradient(150deg, var(--hdr-1) 0%, var(--hdr-2) 45%, var(--hdr-3) 100%); color: #fff; border-radius: 0 0 30px 30px; overflow: hidden; }
+  header.top::before { content: ""; position: absolute; inset-inline-start: -30px; top: -34px; width: 150px; height: 150px; opacity: .08; transform: rotate(-8deg); pointer-events: none;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'><path d='M12 58 50 22l38 36'/><path d='M28 84V60l22-20 22 20v24'/></svg>") center / contain no-repeat; }
+  header.top .topin { position: relative; padding: 12px 16px 14px; }
   header.top .mark .brand { color: #fff; }
   header.top .mark .brand .bt small { color: var(--nav-fg); }
-  header.top .divs { background: rgba(255,255,255,.08); }
+  header.top .divs { background: rgba(255,255,255,.10); }
   header.top .divs button { color: var(--nav-fg); }
-  header.top .divs button[aria-pressed="true"] { background: var(--brand-accent); color: var(--on-accent); box-shadow: none; }
-  header.top .gsbtn { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #fff; min-width: 40px; min-height: 40px; justify-content: center; }
-  header.top .status { background: rgba(255,255,255,.08); color: var(--nav-fg); }
+  header.top .divs button[aria-pressed="true"] { background: #fff; color: var(--hdr-3); box-shadow: none; font-weight: 600; }
+  header.top .gsbtn { background: rgba(255,255,255,.12); border-color: transparent; color: #fff; min-width: 44px; min-height: 44px; justify-content: center; box-shadow: none; }
+  header.top .status { background: rgba(255,255,255,.10); color: var(--nav-fg); box-shadow: none; }
   header.top .who { color: var(--nav-fg); }
-  nav.tabs { background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(11,18,32,.07); }
+  nav.tabs { inset-inline: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 26px; box-shadow: 0 10px 30px rgba(7,29,38,.16); }
   /* סדר: היום · לידים · ➕ · לקוחות · עוד ("עוד" נשאר — דרכו מגיעים לכל שאר המסכים, כולל כספים) */
   nav.tabs [data-tab="day"] { order: 1; } nav.tabs [data-tab="leads"] { order: 2; } #tabAdd { order: 3; } nav.tabs [data-tab="clients"] { order: 4; } #tabMore { order: 5; }
-  nav.tabs button[aria-selected="true"]:not(.navx)::after { content: ""; position: absolute; top: 0; inset-inline: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--brand-accent); }
-  #tabAdd::before { background: var(--on-brand); }
-  #tabAdd::after { background: var(--brand-strong); border-radius: 12px; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand-strong) 35%, transparent); }
-  body.more-open nav.tabs { border-radius: 14px 14px 0 0; }
-  body.more-open nav.tabs button:not(.navx) { border-radius: var(--radius-card); }
+  nav.tabs button, .navx { height: 52px; font-size: 11.5px; color: var(--text-3); }
+  nav.tabs button[aria-selected="true"] { color: var(--brand-text); font-weight: 600; }
+  nav.tabs button[aria-selected="true"]:not(.navx)::after { content: ""; position: absolute; bottom: 1px; inset-inline-start: calc(50% - 2.5px); width: 5px; height: 5px; border-radius: 50%; background: var(--ring); }
+  #tabAdd { overflow: visible; }
+  #tabAdd::before { position: relative; top: -13px; width: 26px; height: 26px; background: var(--on-brand); }
+  #tabAdd::after { top: -20px; inset-inline-start: calc(50% - 28px); width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%);
+    box-shadow: 0 10px 22px color-mix(in srgb, var(--fab-2) 40%, transparent), 0 0 0 5px var(--surface); transition: transform .12s ease; }
+  #tabAdd:active::after { transform: scale(.95); }
+  /* עם כספים/פרייבט בסרגל (6–7 פריטים) ➕ נשאר באמצע: היום · לידים · לקוחות · ➕ · כספים · פרייבט · עוד */
+  body.bn-money:not(.more-open) nav.tabs [data-tab="clients"] { order: 3; } body.bn-money:not(.more-open) #tabAdd { order: 4; }
+  body.bn-money:not(.more-open) #tabAdd::after { inset-inline-start: calc(50% - 25px); width: 50px; height: 50px; top: -16px; }
+  body.bn-money:not(.more-open) #tabAdd::before { top: -10px; }
+  body.more-open nav.tabs { inset-inline: 0; bottom: 0; border-radius: 26px 26px 0 0; border-bottom: 0; }
+  body.more-open nav.tabs button:not(.navx) { border-radius: var(--radius-tile); }
   body.more-open nav.tabs button[aria-selected="true"] { background: var(--brand-soft); }
   body.more-open nav.tabs button[aria-selected="true"]::after { display: none; }
   body.more-open::after, body.add-open::after { background: var(--scrim); }
-  .card { padding: 14px; }
+  main { padding-bottom: calc(var(--bnav-h) + 56px + env(safe-area-inset-bottom, 0px)); }
+  .toast { bottom: calc(var(--bnav-h) + 30px + env(safe-area-inset-bottom, 0px)); }
+  .card { padding: 16px; }
 }
-body.add-open #qadd { border-radius: 14px 14px 0 0; }
-#qadd button { border-radius: var(--radius-card); transition: border-color var(--t-fast), background var(--t-fast); }
+body.add-open #qadd { border-radius: 26px 26px 0 0; }
+#qadd button { border-radius: var(--radius-tile); transition: border-color var(--t-fast), background var(--t-fast), transform .12s ease; }
 #qadd button:hover { border-color: var(--brand-strong); background: var(--brand-soft); }
+#qadd button:active { transform: scale(.98); }
 @media (min-width: 768px) { body.add-open #qadd { border-radius: var(--radius-card); } body.add-open::after { background: var(--scrim); } }
 
-/* ── מגע: גם צ׳יפים וחיפוש 40px לפחות (כפתורים ושדות — 44px, בשכבת הנגישות למעלה) ── */
+/* ── מגע: גם צ׳יפים וחיפוש 40px לפחות (כפתורים ושדות — 44px ומעלה) ── */
 @media (pointer: coarse) { .seg button, .dchip, .gsbtn { min-height: 40px; } }
 /* הערכת שווי — המגירה הרחבה (בלי צבעים: הכל מה-tokens) */
 .valbody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -718,85 +796,123 @@ body.add-open #qadd { border-radius: 14px 14px 0 0; }
 .valbody .seg button { white-space: nowrap; }
 .valdr footer { flex-wrap: wrap; }
 
-/* ══ עיצוב v3 — שלב 2: היום שלי ובית (docs/UI_REDESIGN.md) ══
-   אריח גיבור כהה, משפך מחובר עם אחוז על כל חץ, סדר היום, תיקים לפי שלב. בנייד: כותרת כהה, אריחי המספרים כהים, תור עם פס צבע.
-   המותג מהחברה (--nav-bg = הדיו של החברה). בתוך האריח הכהה צבעי הוודאות הם הגוונים של המצב הכהה — אותה משמעות, ניגודיות על רקע כהה. */
-/* ── כותרת היום: ברכה בסריף, בלי מסגרת ── */
+/* ══ עיצוב v3 — שלב 2: היום שלי ובית — "עיצוב אפליקציה" (docs/UI_REDESIGN.md, דן 17/10) ══
+   פעולות מהירות באריחים, אריח גיבור כהה בגרדיאנט של החברה עם סימן מים, משפך שכל שלב בו כרטיס עם פס התקדמות ואחוז המרה,
+   עמודות מעוגלות לתיקים לפי שלב, פס מפולח לכסף של החודש, אווטאר עם אות לכל לקוח בתור.
+   בתוך האריח הכהה צבעי הוודאות הם הגוונים של המצב הכהה — אותה משמעות, ניגודיות על רקע כהה. */
+/* ── כותרת היום ── */
 .dayhead { background: transparent; border: 0; box-shadow: none; padding: 2px 0 0; }
-.dayhead .big { font-family: var(--font-head); font-size: 30px; font-weight: 700; line-height: 1.2; }
-/* ── בנטו: האריח הראשון הוא אריח הגיבור הכהה ── */
-.bento.hero1 > .kpi:first-child { background: var(--nav-bg); border-color: var(--nav-line); color: #fff;
-  --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #A3ADBF; --sunk: rgba(255,255,255,.08); --border: rgba(255,255,255,.14);
+.dayhead .big { font-size: 32px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; }
+/* ── פעולות מהירות: אריח אייקון רך + שם (אותן פעולות כמו "הוספה מהירה") ── */
+.qacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.qact { display: flex; align-items: center; gap: 14px; min-height: 76px; padding: 14px 16px; font: inherit; font-size: 15px; font-weight: 600; color: var(--text); text-align: start; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.qact:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.qact:active { transform: translateY(0) scale(.98); }
+.qact i { flex: none; width: 48px; height: 48px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; background: var(--brand-soft); color: var(--brand-text); }
+.qact i::before { content: ""; width: 24px; height: 24px; background: currentColor; -webkit-mask: var(--ic) center / contain no-repeat; mask: var(--ic) center / contain no-repeat; }
+.qact.q-lead { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M12 5v14M5 12h14'/></svg>"); }
+.qact.q-call { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z'/></svg>"); }
+.qact.q-task { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='4' width='16' height='16' rx='4.5'/><path d='m8.5 12 2.5 2.5 4.5-5'/></svg>"); }
+.qact.q-call i { background: var(--q-violet-bg); color: var(--q-violet); }   /* לא כחול/כתום — אלה צבעי ודאות */
+.qact.q-task i { background: var(--q-slate-bg); color: var(--q-slate); }
+/* ── אריח הגיבור: כהה בגרדיאנט של החברה, סימן מים של השברון ── */
+.bento.hero1 > .kpi:first-child { position: relative; overflow: hidden; background: linear-gradient(150deg, var(--hdr-1) 0%, var(--hdr-2) 45%, var(--hdr-3) 100%); border-color: transparent; color: #fff;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--hdr-3) 28%, transparent);
+  --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #B9C4CF; --sunk: rgba(255,255,255,.08); --border: rgba(255,255,255,.14);
   --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; --locked: #9CA3AF; }
+.bento.hero1 > .kpi:first-child::after { content: ""; position: absolute; inset-inline-end: -26px; bottom: -34px; width: 150px; height: 150px; opacity: .07; transform: rotate(-8deg); pointer-events: none;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'><path d='M12 58 50 22l38 36'/><path d='M28 84V60l22-20 22 20v24'/></svg>") center / contain no-repeat; }
+.bento.hero1 > .kpi:first-child > * { position: relative; }
 .bento.hero1 > .kpi:first-child h3 { color: var(--nav-fg); }
 .bento.hero1 > .kpi:first-child .v { font-size: 44px; line-height: 1.05; letter-spacing: -.03em; }
-.bento.hero1 > .kpi.click:first-child:hover { border-color: var(--brand-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-accent) 35%, transparent); }
+.bento.hero1 > .kpi.click:first-child:hover { box-shadow: 0 18px 40px color-mix(in srgb, var(--hdr-3) 36%, transparent); }
 @media (min-width: 1024px) {
   .grid4.bento.tall { grid-template-columns: 1.3fr 1fr 1fr 1fr; }
   .bento.tall.hero1 > .kpi:first-child { grid-row: span 2; justify-content: center; }
-  .bento.tall.hero1 > .kpi:first-child .v { font-size: 64px; }
+  .bento.tall.hero1 > .kpi:first-child .v { font-size: 72px; }
   .bento.tall > .funnel { grid-column: 2 / -1; }
 }
 @media (min-width: 768px) and (max-width: 1023px) {
   .grid4.bento.tall { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .bento.tall.hero1 > .kpi:first-child { grid-column: 1 / -1; }
 }
-/* במצב כהה הדיו כמעט שחור כמו הכרטיסים — האריח הכהה מקבל גוון של צבע ההדגשה של החברה כדי שיבלוט */
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bento.hero1 > .kpi:first-child { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
-:root[data-theme="dark"] .bento.hero1 > .kpi:first-child { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); }
-@media (max-width: 767px) and (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bento.tall > .kpi { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
-@media (max-width: 767px) { :root[data-theme="dark"] .bento.tall > .kpi { background: color-mix(in srgb, var(--brand-accent) 16%, #0A1120); border-color: color-mix(in srgb, var(--brand-accent) 35%, transparent); } }
-/* ── משפך מחובר: שלב · אחוז · שלב ── */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bento.hero1 > .kpi:first-child { border-color: color-mix(in srgb, var(--ring) 30%, transparent); } }
+:root[data-theme="dark"] .bento.hero1 > .kpi:first-child { border-color: color-mix(in srgb, var(--ring) 30%, transparent); }
+/* ── משפך: כרטיס לכל שלב — אייקון, מספר, פס התקדמות (חלק מהנכנסים), ואחוז ההמרה על המחבר ── */
 .funnel { grid-column: 1 / -1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; }
-.funnel h3.sec { margin: 0 0 6px; }
+.funnel h3.sec { margin: 0 0 8px; }
 .fsteps { display: flex; align-items: stretch; min-width: 0; }
-.fstep { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; font: inherit; text-align: start; color: var(--text);
-  background: var(--surface); border: 1px solid var(--border); border-inline-width: 0; cursor: pointer; transition: background var(--t-fast); }
-.fstep:first-child { border-inline-start-width: 1px; border-start-start-radius: var(--radius-btn); border-end-start-radius: var(--radius-btn); }
-.fstep:last-child { border-inline-end-width: 1px; border-start-end-radius: var(--radius-btn); border-end-end-radius: var(--radius-btn); }
-.fstep:hover { background: var(--sunk); }
+.fstep { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 14px 12px; font: inherit; text-align: start; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-tile); box-shadow: var(--shadow-card); cursor: pointer; transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.fstep:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.fstep:active { transform: translateY(0) scale(.98); }
+.fstep::before { content: ""; width: 22px; height: 22px; margin-bottom: 2px; background: var(--brand-text); -webkit-mask: var(--ic) center / contain no-repeat; mask: var(--ic) center / contain no-repeat; }
+.fstep::after { content: ""; align-self: stretch; height: 6px; margin-top: auto; border-radius: 99px; background: linear-gradient(to left, var(--bar, var(--brand-strong)) var(--p, 0%), var(--sunk) var(--p, 0%)); }
+.fstep:nth-of-type(1) { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 5h17l-6.5 7.5V19l-4 2v-8.5z'/></svg>"); }
+.fstep:nth-of-type(2) { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z'/></svg>"); }
+.fstep:nth-of-type(3) { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z'/><path d='m9 12 2 2 4-4'/></svg>"); }
+.fstep:nth-of-type(4) { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19l-4 1z'/></svg>"); }
+.fstep:nth-of-type(5) { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='18' height='13' rx='3.5'/><path d='M3 10.5h18M16 14.8h2'/></svg>"); }
 .fstep > span { font-size: 13px; color: var(--text-2); }
-.fstep > b { font: 600 24px/1.1 var(--font-num); letter-spacing: -.02em; }
-.fstep.expected { background: var(--expected-bg); } .fstep.expected > b { color: var(--expected); }
-.fstep.actual { background: var(--actual-bg); } .fstep.actual > b { color: var(--actual); }
-.farrow { flex: none; display: flex; align-items: center; padding: 0 7px; font: 600 12px/1 var(--font-num); color: var(--brand-text); background: var(--brand-soft); border-block: 1px solid var(--border); white-space: nowrap; }
+.fstep > b { font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+.fstep.expected { background: var(--expected-bg); --bar: var(--expected); } .fstep.expected > b, .fstep.expected::before { color: var(--expected); } .fstep.expected::before { background: var(--expected); }
+.fstep.actual { background: var(--actual-bg); --bar: var(--actual); } .fstep.actual > b { color: var(--actual); } .fstep.actual::before { background: var(--actual); }
+.farrow { position: relative; z-index: 1; flex: none; align-self: center; display: flex; align-items: center; margin-inline: -10px; padding: 5px 9px; font-size: 12px; font-weight: 600; line-height: 1; color: var(--brand-text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 99px; box-shadow: var(--shadow-card); white-space: nowrap; }
 .farrow::after { content: " ←"; }
-/* ── תיקים לפי שלב: עמודה לכל שלב ── */
-.stages { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 2px; min-width: 0; }
-.stages .stt { font-size: 13px; }
-.stbars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(68px, 112px); justify-content: start; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.stbar { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 3px; height: 112px; min-width: 0; padding: 0; font: inherit; color: var(--text); background: none; border: 0; border-radius: var(--radius-chip); cursor: pointer; }
-.stbar i { display: block; height: calc(var(--h) * .62); min-height: 4px; background: var(--brand-strong); border-radius: 4px 4px 0 0; transition: filter var(--t-fast); }
-.stbar:hover i { filter: brightness(1.15); }
-.stbar b { font: 600 15px/1 var(--font-num); text-align: center; }
-.stbar span { font-size: 13px; line-height: 1.2; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
-/* ── סדר היום: שורה = יעד לחיצה; פס הדחיפות בצד כבר בשורה ── */
-.agenda label.check { min-height: 44px; padding-inline-start: 10px; }
+/* ── תיקים לפי שלב: עמודות מעוגלות, העמודה הגבוהה בצבע המלא ── */
+.stages { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 2px; min-width: 0; }
+.stages .stt { font-size: 14px; font-weight: 600; }
+.stbars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(68px, 112px); justify-content: start; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
+.stbar { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 4px; height: 124px; min-width: 0; padding: 0; font: inherit; color: var(--text); background: none; border: 0; border-radius: 12px; cursor: pointer; }
+.stbar i { order: 1; display: block; height: calc(var(--h) * .62); min-height: 8px; background: color-mix(in srgb, var(--ring) 38%, var(--surface)); border-radius: 10px; transition: filter var(--t-fast), transform var(--t-fast); transform-origin: bottom; }
+.stbar.top i { background: var(--brand-strong); }
+.stbar:hover i { filter: brightness(1.08); transform: scaleY(1.03); }
+.stbar b { order: 0; font-size: 16px; font-weight: 600; line-height: 1; text-align: center; }
+.stbar span { order: 2; font-size: 13px; line-height: 1.2; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
+/* ── כסף של החודש: פס מפולח מאותם שלושה מספרים (נכנס בפועל · עוד צפוי · פתוח בלי תאריך) ── */
+.segbar { display: flex; gap: 4px; height: 10px; margin: 2px 0 4px; }
+.segbar i { min-width: 6px; border-radius: 99px; }
+.segbar .actual { background: var(--actual); } .segbar .committed { background: var(--committed); } .segbar .expected { background: var(--expected); }
+/* ── סדר היום ולקוחות שמחכים: שורה = יעד 44px, אווטאר עגול עם אות ── */
+.agenda label.check { min-height: 44px; padding-inline-start: 10px; border-radius: 12px; }
+.ava { flex: none; width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: #fff;
+  background: linear-gradient(145deg, var(--ring), var(--brand-strong)); }
+.ava.a1 { background: linear-gradient(145deg, #9C8CF8, #5B47D6); } .ava.a2 { background: linear-gradient(145deg, #8A9BAE, #475869); }
+.avrow { display: flex; align-items: center; gap: 12px; }
 /* ── בית — "דורש טיפול": פס בצבע של אותו טון כמו התגית בשורה ── */
 .attn tr:has(.pill.open) > td:first-child { box-shadow: inset -3px 0 0 var(--open); }
 .attn tr:has(.pill.expected) > td:first-child { box-shadow: inset -3px 0 0 var(--expected); }
-/* ── נייד: כותרת כהה, אריחי המספרים כהים, המשפך אנכי, התור ככרטיסים עם פס צבע ── */
+/* ── נייד: הכותרת ממשיכה לכותרת היום (פינות 30), אריחי פעולה בכרטיס אחד, המשפך אנכי, התור ככרטיסים ── */
 @media (max-width: 767px) {
-  main > .dayhead:first-child { margin: -16px -16px 0; padding: 14px 16px 18px; background: var(--nav-bg); color: #fff; border-radius: 0 0 18px 18px; }
+  body:has(main > .dayhead:first-child) header.top { border-radius: 0; background: linear-gradient(170deg, var(--hdr-1) 0%, var(--hdr-2) 100%); }
+  main > .dayhead:first-child { margin: -16px -16px 0; padding: 6px 18px 22px; background: linear-gradient(170deg, var(--hdr-2) 0%, var(--hdr-3) 100%); color: #fff; border-radius: 0 0 30px 30px; }
   main > .dayhead:first-child .hint { color: var(--nav-fg); }
-  main > .dayhead:first-child .btn.ghost { color: #fff; border-color: rgba(255,255,255,.22); }
-  main > .dayhead:first-child .btn.primary { background: var(--brand-accent); border-color: var(--brand-accent); color: var(--on-accent); }
-  .dayhead .big { font-size: 24px; }
+  main > .dayhead:first-child .btn.ghost { color: #fff; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.08); }
+  main > .dayhead:first-child .btn.primary { background: #fff; color: var(--hdr-3); box-shadow: none; }
+  .dayhead .big { font-size: 22px; font-weight: 500; letter-spacing: -.3px; }
+  .qacts { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; padding: 14px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow-card); }
+  .qact { flex-direction: column; justify-content: flex-start; gap: 8px; min-height: 0; padding: 0; font-size: 12.5px; font-weight: 500; color: var(--text-2); text-align: center; background: none; border: 0; box-shadow: none; }
+  .qact:hover { transform: none; box-shadow: none; }
+  .qact i { width: 56px; height: 56px; border-radius: 20px; }
   .grid4.bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bento.hero1 > .kpi:first-child { grid-column: 1 / -1; }
   .bento.tall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-  .bento.tall > .kpi { background: var(--nav-bg); border-color: var(--nav-line); color: #fff; padding: 10px;
-    --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #A3ADBF; --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; }
+  .bento.tall > .kpi { background: linear-gradient(150deg, var(--hdr-1) 0%, var(--hdr-3) 100%); border-color: transparent; border-radius: var(--radius-tile); color: #fff; padding: 12px 12px 10px;
+    --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #B9C4CF; --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; }
   .bento.tall > .kpi h3 { color: var(--nav-fg); font-size: 12.5px; }
   .bento.tall > .kpi:not(:first-child) .v { font-size: 22px; }
   .bento.tall > .kpi .sub { font-size: 12px; overflow-wrap: anywhere; }
-  .bento.tall.hero1 > .kpi:first-child .v { font-size: 40px; }
-  .fsteps { flex-direction: column; }
-  .fstep { flex-direction: row; justify-content: space-between; align-items: center; border-inline-width: 1px; border-radius: var(--radius-btn); }
-  .fstep > b { font-size: 20px; }
-  .farrow { align-self: flex-start; background: none; border: 0; padding: 3px 12px; }
+  .bento.tall.hero1 > .kpi:first-child .v { font-size: 44px; }
+  .fsteps { flex-direction: column; gap: 0; }
+  .fstep { display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 10px; row-gap: 8px; padding: 12px 14px; }
+  .fstep::before { margin: 0; }
+  .fstep::after { grid-column: 1 / -1; margin: 0; }
+  .fstep > b { font-size: 22px; }
+  .farrow { align-self: flex-start; margin: -6px 18px; }
   .farrow::after { content: " ↓"; }
-  .agenda label.check { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-btn); margin-bottom: 6px; padding: 10px 12px; }
+  .agenda label.check { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-tile); box-shadow: var(--shadow-card); margin-bottom: 8px; padding: 12px 14px; }
   .agenda h3.sec { margin-top: 12px; }
 }
 </style>
@@ -1232,7 +1348,7 @@ function focusPanel() {
       /* עיצוב v3 — משפך מחובר: אותם מספרים של החודש (M) ואותו pc(), אחוז ההמרה על כל חץ; כל שלב פותח את הלידים כמו הכרטיסים */
       '<div class="funnel" role="group" aria-label="משפך החודש — מליד ועד כסף"><h3 class="sec">החודש · מליד ועד כסף · ' + mLabel(t0.slice(0, 7)) + '</h3><div class="fsteps">' +
         [['נכנסו', M.in - M.credit, ''], ['טופלו', M.handled, pc(M.handled, M.in - M.credit)], ['בדיקה', M.check, pc(M.check, M.handled)], ['חתמו', M.signed, pc(M.signed, M.check), 'expected'], ...(money$ ? [['שילמו', M.paid, pc(M.paid, M.signed), 'actual']] : [])]
-          .map(([t, v, p, tone]) => (p ? '<span class="farrow num" aria-hidden="true">' + p + '</span>' : '') + '<button class="fstep' + (tone ? ' ' + tone : '') + '" data-go="leads"' + (p ? ' aria-label="' + t + ' ' + v + ' · המרה ' + p + '"' : '') + '><span>' + t + '</span><b class="num">' + v + '</b></button>').join('') + '</div></div>' +
+          .map(([t, v, p, tone]) => (p ? '<span class="farrow num" aria-hidden="true">' + p + '</span>' : '') + '<button class="fstep' + (tone ? ' ' + tone : '') + '" data-go="leads" style="--p:' + (M.in - M.credit ? Math.min(100, Math.round(v / (M.in - M.credit) * 100)) : 0) + '%"' + (p ? ' aria-label="' + t + ' ' + v + ' · המרה ' + p + '"' : '') + '><span>' + t + '</span><b class="num">' + v + '</b></button>').join('') + '</div></div>' +
       '</div>' +
       (typeRows.length ? '<div class="scroll"><table><thead><tr><th>' + mLabel(t0.slice(0, 7)) + '</th><th>נכנסו</th><th>טופלו</th><th>בדיקה</th><th>חתמו</th><th>בדיקה → חתימה</th>' + (money$ ? '<th>שילמו</th>' : '') + '</tr></thead><tbody>' +
         typeRows.map(([t, r]) => '<tr><td class="wide">' + esc(t) + '</td><td class="num">' + r.in + '</td><td class="num">' + r.handled + ' <small class="hint">' + pc(r.handled, r.in) + '</small></td><td class="num">' + r.check + ' <small class="hint">' + pc(r.check, r.handled) + '</small></td><td class="num"><b>' + r.signed + '</b></td><td class="num"><b>' + pc(r.signed, r.check) + '</b></td>' + (money$ ? '<td class="num">' + r.paid + (r.collected ? ' <small class="hint">' + plain(r2(r.collected)) + '</small>' : '') + '</td>' : '') + '</tr>').join('') +
@@ -1254,16 +1370,18 @@ function focusPanel() {
       /* עיצוב v3 — תיקים לפי שלב: עמודה לכל שלב, הגובה לפי מספר התיקים (אותו מספר ואותו מעבר ללוח הלקוחות) */
       Object.entries(groups).map(([ty, g], _i, all) => { const top = Math.max(1, ...all.flatMap(([, gg]) => Object.values(gg).map((x) => x.n))); /* סקלה אחת לכל התהליכים — תיק אחד לא נראה כמו שלושה */
         return '<div class="stages"><b class="stt">' + esc((PROC[ty] || {}).label || ty) + '</b><div class="stbars">' +
-        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><i aria-hidden="true"></i><b class="num">' + x.n + '</b><span>' + esc(lab) + '</span></button>').join('') + '</div></div>'; }).join('');
+        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar' + (x.n === top ? ' top' : '') + '" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><i aria-hidden="true"></i><b class="num">' + x.n + '</b><span>' + esc(lab) + '</span></button>').join('') + '</div></div>'; }).join('');
   }
   if (fc === 'all' && S.isOwner) {
     const m = t0.slice(0, 7), open = (S.settings.monthOpen || {})[m], got = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + cashIn(t), 0));
-    const rest = monthExpect(m).filter((i) => i.date >= t0 || i.late), close = r2(got + rest.reduce((a, i) => a + i.amount, 0));
-    h += '<h3 class="sec">כסף — ' + mLabel(m) + '</h3><div class="grid4">' +
+    const rest = monthExpect(m).filter((i) => i.date >= t0 || i.late), close = r2(got + rest.reduce((a, i) => a + i.amount, 0)), und = forecastItems(70).undated.reduce((a, i) => a + i.amount, 0);
+    /* עיצוב v3 — פס מפולח מאותם שלושה מספרים של הכרטיסים למטה (נכנס בפועל · עוד צפוי עד סגירה · פתוח בלי תאריך); קישוט — המספרים והפירוט בכרטיסים */
+    const seg3 = [['actual', got], ['committed', close - got], ['expected', und]].filter(([, v]) => v > 0);
+    h += '<h3 class="sec">כסף — ' + mLabel(m) + '</h3>' + (seg3.length ? '<div class="segbar" aria-hidden="true">' + seg3.map(([k, v]) => '<i class="' + k + '" style="flex:' + v + '"></i>').join('') + '</div>' : '') + '<div class="grid4">' +
       kpi('פתחנו את החודש עם', open ? money(open.total, { tone: 'committed' }) : '—', open ? 'נרשם ' + dLabel(dayOf(open.at)) : 'נרשם בפתיחת מסך הצפי', 'money:forecast') +
       kpi('נכנס בפועל', money(got, { tone: 'actual' }), open && open.total ? pct(got, open.total) + '% מהצפי' : '', 'money:forecast') +
       kpi('צפי סגירה', money(close, { tone: 'committed' }), 'בלי "לא לבנות על זה"', 'money:forecast') +
-      kpi('פתוח בלי תאריך', money(forecastItems(70).undated.reduce((a, i) => a + i.amount, 0), { tone: 'expected' }), 'קבע צפי בכרטיס הלקוח', 'money:forecast') + '</div>';
+      kpi('פתוח בלי תאריך', money(und, { tone: 'expected' }), 'קבע צפי בכרטיס הלקוח', 'money:forecast') + '</div>';
   }
   return '<section class="card"><header><h2>' + (fc === 'sales' ? 'המכירות שלך' : fc === 'ops' ? 'התפעול' : 'תמונת מצב') + '</h2><span class="grow"></span>' + seg + '</header>' + h + '</section>';
 }
@@ -1300,7 +1418,10 @@ function vDay() {
       (c ? ' · <button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '') + '</span>' +
       (t.priority === 'urgent' || t.priority === 'high' ? '<span class="pill open">' + L.priority[t.priority] + '</span>' : '') +
       '<span class="hint num">' + dLabel(t.due) + '</span></label>'; };
-  return head + focus +
+  /* עיצוב v3 — פעולות מהירות: אותן פעולות קיימות כמו "הוספה מהירה" (אין פעולת "שליחה לחתימה" כללית — נשארה בכרטיס הלקוח) */
+  const qacts = S.canTask ? '<nav class="qacts" aria-label="פעולות מהירות">' + [['newLead', 'ליד חדש', 'lead'], ['newCall', 'שיחת מכירה', 'call'], ['newTask', 'משימה', 'task']]
+    .map(([a, t, k]) => '<button type="button" class="qact q-' + k + '" data-act="' + a + '"><i aria-hidden="true"></i><span>' + t + '</span></button>').join('') + '</nav>' : '';
+  return head + qacts + focus +
     '<div class="grid4">' +
       kpi('משימות באיחור', '<span class="num">' + overdue.length + '</span>', 'עליך, מלפני היום' + (overdue.length ? ' · לחץ לכרטיסים' : ''), overdue.length ? 'tasks:late' : null, overdue.length ? 'open' : '') +
       kpi('להיום', '<span class="num">' + dueToday.length + '</span>', dueToday.length ? 'משימות עם יעד היום' : 'אין יעדים להיום', null) +
@@ -1320,7 +1441,7 @@ function vDay() {
         (later.length && (overdue.length || dueToday.length) ? '<p class="hint" style="margin-top:8px">ועוד ' + later.length + ' משימות פתוחות להמשך — <button class="xlink" data-go="tasks">כל המשימות</button></p>' : '') +
       '</section>' +
       '<section class="card agenda"><header><h2>לקוחות שמחכים לך</h2><span class="pill ' + (follow.length ? 'expected' : 'actual') + '">' + follow.length + '</span></header>' +
-        (follow.length ? '<div class="scroll"><table><tbody>' + follow.map((c) => '<tr class="clickable" data-client="' + esc(c.id) + '"><td class="wide"><b>' + esc(c.name) + '</b><div class="hint">' + esc(c.nextAction.text) + '</div></td><td class="num">' + dLabel(c.nextAction.date) + '</td></tr>').join('') + '</tbody></table></div>'
+        (follow.length ? '<div class="scroll"><table><tbody>' + follow.map((c) => '<tr class="clickable" data-client="' + esc(c.id) + '"><td class="wide"><div class="avrow"><span class="ava a' + (String(c.name || '').charCodeAt(0) % 3 || 0) + '" aria-hidden="true">' + esc(String(c.name || '').trim().charAt(0)) + '</span><span><b>' + esc(c.name) + '</b><div class="hint">' + esc(c.nextAction.text) + '</div></span></div></td><td class="num">' + dLabel(c.nextAction.date) + '</td></tr>').join('') + '</tbody></table></div>'
           : '<p class="empty">אין מעקבים להיום.</p>') +
         (tickets.length ? '<h3 class="sec">פניות שירות פתוחות שלך</h3>' + tickets.map((x) => { const c = x.clientId && S.clients.get(x.clientId);
           return '<div class="check"><span class="grow">' + esc(x.subject) + (c ? ' · ' + esc(c.name) : '') + '</span><span class="pill ' + (x.priority === 'urgent' ? 'open' : 'muted') + '">' + L.ticket[x.status] + '</span></div>'; }).join('') : '') +
