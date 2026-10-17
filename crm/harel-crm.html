@@ -450,6 +450,7 @@ nav.tabs button::before, .navx::before { content: ""; flex: none; width: 20px; h
 [data-tab="service"]   { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12a9 9 0 0 1-13.5 7.8L3 21l1.2-4.5A9 9 0 1 1 21 12z'/></svg>"); }
 [data-tab="reports"]   { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><path d='M3 3v18h18M8 17v-5M13 17V8M18 17v-9'/></svg>"); }
 [data-tab="settings"]  { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg>"); }
+[data-tab="forms"]     { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5'/><path d='M9 17c1.2-1.6 2-1.6 2.6-.4.5 1 1.2 1 2.4-.6'/></svg>"); }
 #tabAdd  { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'><path d='M12 5v14M5 12h14'/></svg>"); }
 #tabMore { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><path d='M4 6h16M4 12h16M4 18h16'/></svg>"); }
 .navx { display: none; }
@@ -915,38 +916,132 @@ body.add-open #qadd { border-radius: 26px 26px 0 0; }
   .agenda label.check { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-tile); box-shadow: var(--shadow-card); margin-bottom: 8px; padding: 12px 14px; }
   .agenda h3.sec { margin-top: 12px; }
 }
+
+/* ══ עיצוב v4 — שלב 1: מעטפת לפי הקנבס "הר-אל — עיצוב אפליקציה" (דן, 17/10: "תמזג לפי זה") ══
+   מחשב: סרגל צד בהיר מימין עם הלוגו למעלה, קבוצות (ראשי · כסף · צמיחה · ניהול), ספירות בתגית, כרטיס משתמש בתחתית.
+   שורה עליונה: חיפוש רחב בצורת גלולה (Ctrl K), בורר חברה כמקטע (הכל / פתרונות / השקעות), פעמון, "+ חדש".
+   נייד: כמו קודם (כותרת כהה + סרגל תחתון צף עם ➕). אין צבע מקודד חדש מחוץ לטוקנים. */
+:root { --nav-w: 252px; }
+.navgrp { display: none; }
+.navuser { display: none; }
+nav.tabs .lx { display: none; }
+.tbell, .tadd { display: none; }
+nav.tabs .badge.soft { background: var(--sunk); color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border); font-weight: 600; }
+.tbell { position: relative; flex: none; width: 48px; height: 48px; border-radius: 50%; border: 0; cursor: pointer; background: var(--surface); color: var(--text); box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border); align-items: center; justify-content: center; }
+.tbell::before { content: ""; width: 20px; height: 20px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>") center / contain no-repeat; }
+.tbell.on::after { content: ""; position: absolute; top: 11px; inset-inline-end: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--open); box-shadow: 0 0 0 2px var(--surface); }
+.tbell[hidden] { display: none !important; }
+.tadd { flex: none; align-items: center; gap: 8px; min-height: 48px; padding: 0 20px; border: 0; border-radius: 16px; cursor: pointer; font-weight: 600; font-size: 15px;
+  background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%); color: var(--on-brand); box-shadow: 0 8px 20px color-mix(in srgb, var(--fab-2) 30%, transparent); transition: filter var(--t-fast), transform .12s ease; }
+.tadd::before { content: "+"; font-size: 20px; font-weight: 400; line-height: 1; }
+.tadd:hover { filter: brightness(1.06); } .tadd:active { transform: scale(.98); }
+body.locked .tbell, body.locked .tadd, body.locked .navuser { display: none !important; }
+.gsi { flex: none; width: 18px; height: 18px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>") center / contain no-repeat; }
+@media (max-width: 767px) { nav.tabs .badge.soft { display: none; } }
+.pghead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 4px; }
+.pghead h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+.chip.soft, .chip.soft.num { display: inline-flex; align-items: center; min-height: 28px; padding: 0 12px; border-radius: 99px; background: var(--brand-soft); color: var(--brand-text); font-weight: 600; font-size: 13px; border: 0; }
+.formpick select.f { max-width: 520px; }
+
+@media (min-width: 768px) {
+  #tabAdd { display: none !important; }
+  .tbell, .tadd { display: inline-flex; }
+  header.top { background: var(--bg); }
+  header.top .topin { gap: 12px; align-items: center; }
+  header.top .push { display: none; }
+  .gsbtn { flex: 1 1 260px; min-height: 48px; font-size: 14.5px; color: var(--text-3); padding-inline: 18px; gap: 10px; }
+  .gsbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .divs { padding: 4px; min-height: 48px; align-items: center; }
+  .divs button { min-height: 40px; padding: 0 18px; font-size: 14px; }
+  body.add-open #qadd { top: 92px; bottom: auto; }
+}
+@media (min-width: 1024px) {
+  body { background: linear-gradient(to left, var(--surface) calc(var(--nav-w) - 1px), var(--border) calc(var(--nav-w) - 1px), var(--border) var(--nav-w), var(--bg) var(--nav-w)); }
+  body.locked { background: var(--bg); }
+  header.top { min-height: 96px; }
+  header.top .topin { max-width: 1240px; padding: 22px 32px 6px; }
+  header.top .mark { height: 104px; padding-inline: 24px; }
+  header.top .mark .brand svg { height: 50px; }
+  header.top .mark .brand img { width: 44px; height: 44px; }
+  header.top #who, header.top #conn { display: none; }
+  nav.tabs { padding: 0 14px 16px; gap: 4px; }
+  nav.tabs::before { height: 104px; margin-bottom: 4px; flex: none; }
+  nav.tabs > * { flex: none; }
+  nav.tabs button { min-height: 44px; padding: 9px 14px; border-radius: 14px; font-size: 15px; gap: 14px; }
+  nav.tabs button::before { width: 21px; height: 21px; }
+  nav.tabs button[aria-selected="true"] { background: var(--brand-soft); color: var(--brand-text) !important; box-shadow: none; font-weight: 600; }
+  nav.tabs button[data-tab="books"], nav.tabs button[data-tab="lenders"] { margin-top: 0; }
+  nav.tabs .badge { min-width: 26px; text-align: center; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+  nav.tabs .lx { display: inline; margin-inline-start: -10px; }
+  .navgrp { display: block; padding: 14px 14px 2px; font-size: 12px; font-weight: 500; color: var(--text-3); letter-spacing: .02em; }
+  .navgrp:has(+ button[hidden] + button[hidden] + button[hidden] + button[hidden]), .navgrp:has(+ button[hidden] + button[hidden] + .navgrp), .navgrp:has(+ button[hidden] + button[hidden] + button[hidden] + .navgrp) { display: none; }
+  .navuser:not([hidden]) { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 12px; border-radius: 18px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); flex-wrap: wrap; }
+  .navuser .ava { width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 600; color: #fff; background: linear-gradient(160deg, var(--hdr-1), var(--hdr-3)); }
+  .navuser .nu { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+  .navuser .nu b { font-size: 14.5px; } .navuser .nu small { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .navuser .ldot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--locked); }
+  .navuser[data-state="live"] .ldot { background: var(--ring); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ring) 22%, transparent); animation: ldot 2.4s ease-in-out infinite; }
+  .navuser[data-state="err"] .ldot { background: var(--open); }
+  .navuser .btn { flex-basis: 100%; }
+  main { max-width: 1240px; padding: 18px 32px 64px; }
+}
+@keyframes ldot { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--ring) 0%, transparent); } }
+@media (min-width: 768px) and (max-width: 1023px) {
+  .gsbtn::after { display: none; }
+  header.top .topin { padding: 14px 20px 4px; }
+  .tadd { padding: 0 14px; }
+}
+@media (max-width: 767px) {
+  header.top .tbell { display: inline-flex; width: 44px; height: 44px; background: rgba(255,255,255,.12); color: #fff; box-shadow: none; order: 3; }
+  header.top .tbell.on::after { box-shadow: 0 0 0 2px var(--hdr-2); }
+  header.top .gsbtn { order: 2; } header.top .push { order: 1; } header.top .who { order: 4; } header.top .status { order: 5; }
+  header.top .divs { order: 6; }
+  header.top .gsbtn span { display: none; }
+}
+@media (max-width: 380px) { header.top .who { display: none; } }
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
 <header class="top">
   <div class="topin">
     <div class="mark" id="brand" role="link" tabindex="0" title="למסך הבית" style="cursor:pointer"><span class="brand"><span class="bt"><b>הר-אל</b></span></span></div>
+    <button type="button" class="gsbtn" id="gsBtn" aria-label="חיפוש (מקש /)" title="חיפוש — מקש /"><i class="gsi" aria-hidden="true"></i><span>מה עושים עכשיו? חפש לקוח, ליד או טלפון</span></button>
     <div class="divs" role="group" aria-label="חטיבה" id="divs">
-      <button type="button" data-d="all" aria-pressed="true" title="שתי החברות יחד — לוח בקרה, כספים, דוחות והגדרות">משולב</button>
-      <button type="button" data-d="finance" aria-pressed="false">הר-אל פתרונות</button>
-      <button type="button" data-d="realestate" aria-pressed="false">הר-אל השקעות</button>
+      <button type="button" data-d="all" aria-pressed="true" title="שתי החברות יחד — לוח בקרה, כספים, דוחות והגדרות">הכל</button>
+      <button type="button" data-d="finance" aria-pressed="false" title="הר-אל פתרונות">פתרונות</button>
+      <button type="button" data-d="realestate" aria-pressed="false" title="הר-אל השקעות">השקעות</button>
     </div>
     <span class="push"></span>
-    <button type="button" class="gsbtn" id="gsBtn" aria-label="חיפוש (מקש /)" title="חיפוש — מקש /">⌕ <span>חיפוש</span></button>
+    <button type="button" class="tbell" id="topBell" data-go="tasks" aria-label="משימות פתוחות" title="משימות פתוחות"></button>
+    <button type="button" class="tadd" id="topAdd" aria-label="הוספה מהירה">חדש</button>
     <span class="who" id="who"></span>
     <div class="status" id="conn"><i></i><span>מתחבר…</span></div>
   </div>
   <nav class="tabs" role="tablist" aria-label="מסכים" id="tabs">
     <button role="tab" data-tab="day">היום שלי</button>
-    <button role="tab" data-tab="home">לוח בקרה</button>
-    <button role="tab" data-tab="clients">לקוחות</button>
     <button role="tab" data-tab="leads">לידים</button>
+    <button role="tab" data-tab="clients">לקוחות</button>
     <button role="tab" data-tab="tasks">משימות</button>
+    <button role="tab" data-tab="forms" hidden>טפסים</button>
+    <span class="navgrp" aria-hidden="true">כסף</span>
     <button role="tab" data-tab="money">כספים</button>
     <button role="tab" data-tab="books">הנהלת חשבונות</button>
+    <button role="tab" data-tab="home">לוח בקרה</button>
     <button role="tab" data-tab="private">פרייבט</button>
+    <span class="navgrp" aria-hidden="true">צמיחה</span>
     <button role="tab" data-tab="marketing">שיווק</button>
     <button role="tab" data-tab="lenders">גופים ומימון</button>
+    <span class="navgrp" aria-hidden="true">ניהול</span>
     <button role="tab" data-tab="service">פניות שירות</button>
     <button role="tab" data-tab="reports">דוחות</button>
     <button role="tab" data-tab="settings">הגדרות</button>
     <button type="button" class="navx" id="tabAdd" aria-label="הוספה מהירה">הוספה</button>
     <button type="button" class="navx" id="tabMore" aria-expanded="false">עוד</button>
+    <div class="navuser" id="navUser" hidden></div>
   </nav>
 </header>
 
@@ -1282,7 +1377,7 @@ async function notify(userId, subject, lines, ref) {
 function go(tab, clientId = null) {
   if (!['leads', 'lead'].includes(tab)) S.leadKeep = null;
   S.view = { tab, clientId };
-  try { location.hash = clientId ? (tab === 'intake' ? 'intake' : tab === 'lead' ? 'leads' : 'client') : tab; } catch (e) {}
+  try { location.hash = clientId ? (tab === 'intake' ? 'intake' : tab === 'lead' ? 'leads' : tab === 'forms' ? 'forms' : 'client') : tab; } catch (e) {}
   render(); window.scrollTo({ top: 0 });
 }
 
@@ -3231,6 +3326,31 @@ function signCard(c) {
     '<div class="row" style="margin-top:8px"><span class="hint grow">כל חותם מקבל קישור אישי. ' + (pdfMode ? 'הלקוח חותם על הטופס עצמו, והחתימות נכתבות על ה-PDF המקורי.' : 'הנוסח נשמר עם טביעה,') + ' הקישורים בתוקף 14 יום. כשכולם חותמים — PDF אחד ' + (c._lead ? 'במערכת' : 'לדרייב') + ' ועותק לכל חותם.</span><button class="btn primary" data-act="signSend"' + (draft || (pdfMode && !pdfN) || (pdfMode === 'tpl' && !ptpl) ? ' disabled' : '') + '>שלח לחתימה</button></div></details>' : '';
   return head + rows + links + form + '</section>';
 }
+/* ══ עיצוב v4 — "טפסים" כמסך משלו בתפריט (דן, 17/10: "מערכת הטפסים צריכה להיות נפרדת גם בדשבורד הראשי")
+   אותן פונקציות בדיוק: signCard (שליחה ללקוח/מתעניין), pdfTplCard (ספריית ה-PDF), vSignDocs (מה נשלח). רק בשרת, כמו היום.
+   ניהול הספרייה — בעלים/מנהלים (כמו בהגדרות); שליחה — כל מי שיכול לשלוח מהכרטיס. ══ */
+function vForms() {
+  if (!formsOk()) return '<h1>טפסים</h1><p class="hint">טפסים לחתימה עובדים במערכת בשרת — בדף ב-Claude אין כתובת שחותם מבחוץ יכול לפתוח.</p>';
+  if (!S.pdfTpls) setTimeout(() => pdfTplLoad(), 20);
+  const v = ['send', 'lib', 'sent'].includes(S.f.formsView) ? S.f.formsView : 'send', T = (S.pdfTpls && S.pdfTpls.templates) || [];
+  const seg = '<div class="seg" role="group" aria-label="תצוגה">' + [['send', 'שליחה לחתימה'], ['lib', 'ספריית טפסים'], ['sent', 'מה נשלח']].map(([k, t]) => '<button data-formsview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
+  const head = '<div class="pghead"><h1>טפסים</h1>' + (T.length ? '<span class="chip soft num">' + T.length + ' טפסים</span>' : '') + '<span class="grow"></span>' + seg + '</div>';
+  if (v === 'lib') return head + (pdfTplCard() || '<p class="hint">טוען…</p>');
+  if (v === 'sent') return head + vSignDocs();
+  const id = S.view.clientId, subj = id ? signSubject(id) : null;
+  const cl = live(S.clients).filter((c) => inDiv(c) && !['cancelled', 'lost'].includes(c.status) && !isRejected(c)).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'));
+  const ld = (S.can && !S.can('leads')) ? [] : live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey) && isLeadOpen(l) && !l.clientId).sort((a, b) => leadAt(b).localeCompare(leadAt(a))).slice(0, 200);
+  const top = ((S.pdfTpls && S.pdfTpls.top) || []).map((x) => ({ t: pdfTplOf(x.id), n: x.n })).filter((x) => x.t);
+  const pick = '<section class="card formpick"><header><h2>למי שולחים?</h2><span class="hint">לקוח או מתעניין — הטופס נשלח עם הפרטים שלו</span></header>' +
+    '<label class="fl">לקוח / ליד<select class="f" id="formsSubj"><option value="">בחר לקוח או ליד…</option>' +
+      (cl.length && (!S.can || S.can('clients')) ? '<optgroup label="לקוחות">' + cl.map((c) => '<option value="' + esc(c.id) + '"' + (id === c.id ? ' selected' : '') + '>' + esc(c.name || '—') + '</option>').join('') + '</optgroup>' : '') +
+      (ld.length ? '<optgroup label="לידים פתוחים">' + ld.map((l) => '<option value="' + esc(l.id) + '"' + (id === l.id ? ' selected' : '') + '>' + esc(l.name || normPhone(l.phone) || '—') + '</option>').join('') + '</optgroup>' : '') + '</select></label>' +
+    (top.length ? '<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><span class="hint">הכי פעילות:</span>' + top.map((x) => '<span class="chip">' + esc(x.t.name) + ' <span class="hint">' + x.n + '</span></span>').join('') + '</div>' : '') + '</section>';
+  const body = subj ? '<div class="row" style="align-items:center;margin:4px 0 -4px"><span class="hint grow">שולחים ל<b>' + esc(subj.name) + '</b></span>' + (subj._lead ? '<button class="btn small ghost" data-leadopen="' + esc(subj.id) + '">לכרטיס הליד ←</button>' : '<button class="btn small ghost" data-client="' + esc(subj.id) + '">לכרטיס הלקוח ←</button>') + '</div>' + signCard(subj)
+    : '<p class="empty">בחר לקוח או ליד — ייפתח טופס השליחה: טופס PDF מהספרייה, מסמך חד-פעמי או הסכם, וכל חותם מקבל קישור אישי.</p>';
+  return head + pick + body;
+}
+document.addEventListener('change', (e) => { if (!e.target || e.target.id !== 'formsSubj') return; S.signForm = S.signForm || {}; go('forms', e.target.value || null); });
 function signFormRead(c) { const f = {}; document.querySelectorAll('[data-signf]').forEach((el) => { f[el.dataset.signf] = el.value.trim(); }); return f; }
 /* ═════ "מסמכים לחתימה" — כל המסמכים שנשלחו, בכל הלקוחות, עם מונים לפי מצב (v_sign_overview) ═════ */
 async function signDocsLoad(force) { if (S._sdLoading || (S.signDocs && !force)) return; S._sdLoading = true;
@@ -9332,6 +9452,20 @@ function liabilitiesCard() {
 }
 
 /* ═════════════════════════ רינדור ואירועים ═════════════════════════ */
+/* ══ עיצוב v4 — מעטפת (דן, 17/10: "תמזג לפי זה") ══
+   פעמון = משימות פתוחות שלך (באיחור / להיום) — אותו מעבר של "משימות באיחור". כרטיס משתמש בתחתית התפריט: שם, תפקיד, נקודה חיה (מצב החיבור).
+   "יציאה" נשארת כמו שהייתה (data-act="logout"). אין כאן חישוב חדש — רק הצגה. */
+const formsOk = () => !!window.__harelServer && !!(S.isOwner || S.canTask) && (!S.can || S.can('clients') || S.can('leads'));
+function shellChrome(mine) {
+  const late = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due < today() && isMyTask(t, S.me.id)).length, b = $('topBell');
+  if (b) { b.dataset.go = late ? 'tasks:late' : 'tasks'; b.classList.toggle('on', !!mine); b.title = mine ? mine + ' משימות שלך להיום ובאיחור' : 'משימות'; b.setAttribute('aria-label', b.title); b.hidden = !!(S.can && !S.can('tasks')); }
+  const u = $('navUser'); if (!u) return;
+  const name = (S.loginAs && S.loginAs.label) || S.me.name || '', role = (ROLES[S.role] || {}).label || LEVEL[S.level] || '';
+  const divs = (S.allowedDivs || DIVS).filter(canSeeDiv), dl = divs.length > 1 ? 'שתי החברות' : divs.length ? L.division[divs[0]] : '';
+  u.hidden = !name;
+  u.innerHTML = '<span class="ava" aria-hidden="true">' + esc(String(name).trim().charAt(0)) + '</span><span class="nu"><b>' + esc(name) + '</b><small>' + esc([String(role).split(' — ')[0], dl].filter(Boolean).join(' · ')) + '</small></span><i class="ldot" aria-hidden="true"></i>' +
+    (S.settings.lock && S.settings.lock.hash && !isLocked() ? '<button class="btn small ghost" data-act="logout" title="יציאה / החלפת משתמש">יציאה</button>' : '');
+}
 function render() {
   if (DRAG) return; /* באמצע גרירה — לא מציירים מחדש */
   if (S.level) applyRole();
@@ -9342,6 +9476,7 @@ function render() {
   const OWNER_TABS = ['home', 'money', 'books', 'private', 'marketing', 'lenders', 'reports', 'settings'];
   const HIDE = { owner: [], admin: ['private'], admin_re: ['private', 'books'], partner: ['books', 'private', 'settings'], center: [...OWNER_TABS, 'service', 'clients'], team: OWNER_TABS };
   const hideT = S.can ? [...OWNER_TABS, 'day', 'clients', 'leads', 'tasks', 'service'].filter((t) => !S.can(t)) : HIDE[S.role] || OWNER_TABS;
+  if (!formsOk()) hideT.push('forms');
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.hidden = hideT.includes(b.dataset.tab); });
   { const lb = document.querySelector('#tabs [data-tab="lenders"]'); if (lb) lb.textContent = screenDiv('lendDiv') === 'realestate' && S.division !== 'all' ? 'יזמים' : S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? 'גופים ויזמים' : 'גופים ומימון'; }
   $('divs').hidden = !(S.isOwner || S.isCenter) || (S.allowedDivs || DIVS).length < 2;
@@ -9353,7 +9488,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: () => approvalsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -9379,7 +9514,11 @@ function render() {
   const mine = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due <= t0 && isMyTask(t, me)).length;
   document.querySelector('#tabs [data-tab="day"]').innerHTML = 'היום שלי' + (mine ? '<span class="badge">' + mine + '</span>' : '');
   const ld = live(S.leads).filter((l) => (!S.isCenter || l.resp === S.myKey) && (S.division === 'all' || leadDiv(l) === S.division) && ((l.stage || 'new') === 'new' || leadDue(l, t0))).length;
-  document.querySelector('#tabs [data-tab="leads"]').innerHTML = 'לידים' + (ld ? '<span class="badge">' + ld + '</span>' : '');
+  document.querySelector('#tabs [data-tab="leads"]').innerHTML = 'לידים' + (ld ? '<span class="badge soft">' + ld + '</span>' : '');
+  /* עיצוב v4 — ספירות בתפריט: לקוחות = תיקים פתוחים בחברה שנבחרה (אותה ספירה של "תיקים פתוחים" ב"היום שלי") */
+  const oc = S.can && S.can('clients') ? live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && !isRejected(c)).length : 0;
+  document.querySelector('#tabs [data-tab="clients"]').innerHTML = 'לקוחות<span class="lx"> ותיקים</span>' + (oc ? '<span class="badge soft">' + oc + '</span>' : '');
+  shellChrome(mine);
   const tk = live(S.tickets).filter((x) => x.status !== 'closed').length;
   document.querySelector('#tabs [data-tab="service"]').innerHTML = 'פניות שירות' + (tk ? '<span class="badge">' + tk + '</span>' : '');
   $('who').innerHTML = S.me.id ? (S.me.avatarUrl ? '<img alt="" src="' + esc(S.me.avatarUrl) + '">' : '') + esc(S.me.name || '') + (S.loginAs && S.loginAs.label && S.loginAs.label !== S.me.name ? ' · ' + esc(S.loginAs.label) : '') +
@@ -9433,6 +9572,7 @@ document.addEventListener('click', async (e) => {
       await leadPatch(l.id, { stage: 'new', sub: null, dupOf: null, notDup: true }, 'סומן: לא ליד כפול — חזר לחדש'); return toast('הליד חזר לחדש'); }
     if (d.atthome) { const [id, v] = d.atthome.split('|'), a = S.attendance.get(id); if (!a || !S.isOwner) return; await write('attendance/' + id, { home: { ...(a.home || {}), status: v, by: S.myKey || null, at: stamp() } }, 'update', { noAtt: true }); return toast(v === 'approved' ? 'עבודה מהבית אושרה' : 'סומן: לא אושר'); }
     if (d.callink && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), e = (((S.calRes || {})[c.id] || {}).ev || []).find((x) => x.id === d.callink); if (!c || !e) return; await write('clients/' + c.id, { meetings: [{ id: e.id, summary: e.summary || '', start: e.start, htmlLink: e.htmlLink || '' }, ...(c.meetings || []).filter((x) => x.id !== e.id)].slice(0, 50), updatedAt: stamp() }, 'update'); return logClient(c.id, 'פגישה מהיומן שויכה: ' + (e.summary || '') + ' · ' + evStart(e).slice(0, 16).replace('T', ' ')); }
+    if (d.formsview) { S.f.formsView = d.formsview; return render(); }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
     if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
     if (d.docjump !== undefined) { const t = document.getElementById('dv-' + d.docjump); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
@@ -10207,11 +10347,11 @@ const soon = () => { clearTimeout(rT); const now = Date.now(); if (!rFirst) rFir
 document.addEventListener('pointerdown', () => { S._pointerDown = true; }, true);
 document.addEventListener('pointerup', () => { S._pointerDown = false; }, true);
 document.addEventListener('pointercancel', () => { S._pointerDown = false; }, true);
-function conn(state, text) { const el = $('conn'); el.className = 'status ' + state; el.querySelector('span').textContent = text; }
+function conn(state, text) { const el = $('conn'); el.className = 'status ' + state; el.querySelector('span').textContent = text; const u = $('navUser'); if (u) { u.dataset.state = state; u.title = text; } }
 
 async function boot() {
   const h = String(location.hash || '').replace('#', '');
-  if (['day', 'home', 'clients', 'leads', 'tasks', 'money', 'books', 'private', 'marketing', 'lenders', 'service', 'reports', 'settings'].includes(h)) S.view.tab = h;
+  if (['day', 'home', 'clients', 'leads', 'tasks', 'forms', 'money', 'books', 'private', 'marketing', 'lenders', 'service', 'reports', 'settings'].includes(h)) S.view.tab = h;
   render();
   const [db, user, mcp] = await Promise.all([claude.use('db'), claude.use('user'), claude.use('mcp')]);
   S.mcp = mcp; S.user = user;
@@ -10255,6 +10395,7 @@ async function boot() {
   });
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.title = b.textContent.trim(); });
   $('tabs').addEventListener('click', (e) => { if (e.target.closest('[data-tab]')) close(); });
+  $('topAdd').addEventListener('click', (e) => { e.stopPropagation(); add.click(); });
   q.addEventListener('click', () => setTimeout(close, 0));
   document.addEventListener('click', (e) => { if ((document.body.classList.contains('more-open') && !e.target.closest('#tabs')) || (document.body.classList.contains('add-open') && !e.target.closest('#qadd'))) close(); }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
