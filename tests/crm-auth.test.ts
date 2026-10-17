@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll } from 'vitest'
 import { randomBytes } from 'node:crypto'
 import {
   canRead, canWrite, decodeSession, encodeSession, pwHash, restoreSecrets, sanitizeSettings, verifyLogin, SECRET_MARK, type CrmSession,
-  permsOf, sessionPerms, guardPerms, AREAS, DAN_GRANT,
+  permsOf, sessionPerms, guardPerms, AREAS, DAN_GRANT, isOwnerSession, memberId, pickMember,
 } from '@/lib/crm/auth'
 import { readFileSync } from 'node:fs'
 
@@ -156,5 +156,32 @@ describe('הרשאות לפי אזור (דן, 15/10)', () => {
     expect(page.DAN_GRANT).toEqual(DAN_GRANT)
     const cases: [Record<string, unknown> | null, CrmSession['r'] | 'team'][] = [[null, 'owner'], [{}, 'admin'], [{}, 'admin_re'], [{}, 'partner'], [{}, 'center'], [{}, 'team'], [{ perms: { money: true, leads: false } }, 'center']]
     for (const [u, r] of cases) expect(page.permsOf(u, r)).toEqual(permsOf(u, r))
+  })
+})
+
+describe('כל עובד בשמו (S.me) — לא דן', () => {
+  const e = Date.now() + 60e3
+  const dan: CrmSession = { k: 'dan', r: 'owner', d: ['finance', 'realestate'], l: 'דן', e }
+  const eden: CrmSession = { k: 'eden', r: 'center', d: ['finance'], l: 'עדן', e }
+
+  it('רק דן (סיסמת הנעילה) הוא הבעלים', () => {
+    expect(isOwnerSession(dan)).toBe(true)
+    expect(isOwnerSession(eden)).toBe(false)
+    expect(isOwnerSession({ ...eden, r: 'owner' })).toBe(false) // עובד עם תפקיד בעלים — עדיין לא דן
+  })
+
+  it('חבר צוות קיים (מ-Claude) — אותו מזהה, כדי שההיסטוריה שלו תישאר שלו', () => {
+    expect(pickMember([{ docId: 'abc', userId: 'claude-user-1', label: 'עדן ישן' }], eden)).toEqual({ id: 'claude-user-1', name: 'עדן' })
+    expect(pickMember([{ docId: 'abc' }], eden)).toEqual({ id: 'abc', name: 'עדן' })
+  })
+
+  it('כמה רשומות — מעדיף את זו שמקושרת למשתמש', () => {
+    expect(pickMember([{ docId: 'x' }, { docId: 'y', userId: 'uid-y' }], eden).id).toBe('uid-y')
+  })
+
+  it('אין חבר צוות — מזהה יציב לפי שם המשתמש, לא של דן', () => {
+    expect(pickMember([], eden)).toEqual({ id: 'u-eden', name: 'עדן' })
+    expect(memberId(' Eden Cohen ')).toBe('u-eden_cohen')
+    expect(memberId('a/b')).toBe('u-a_b') // בלי / — נתיב מסמך חוקי
   })
 })
