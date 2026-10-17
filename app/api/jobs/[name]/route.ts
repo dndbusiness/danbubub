@@ -14,6 +14,7 @@ import { wiseImportJob } from '@/lib/jobs/wise'
 import { accountantPayrollSendJob, payrollReminderJob } from '@/lib/jobs/payroll'
 import { coldBackupJob, reportsToDriveJob } from '@/lib/jobs/backup'
 import { crmMirrorJob } from '@/lib/jobs/crm-mirror'
+import { attendanceWatchJob } from '@/lib/jobs/attendance-watch'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,6 +44,8 @@ const JOBS = {
   reports_to_drive: (d: string) => reportsToDriveJob(d),
   cold_backup: (d: string) => coldBackupJob(d),
   crm_mirror: (d: string) => crmMirrorJob(d),
+  /** לא בחלק ג' — סטייה שדן אישר (17/10/26): נוכחות כשהמערכת סגורה */
+  attendance_watch: (d: string) => attendanceWatchJob(d),
 } as const
 
 const eq = (a: string, b: string) => {

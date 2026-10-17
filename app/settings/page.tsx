@@ -22,6 +22,7 @@ const JOB_LABEL: Record<string, string> = {
   pnl_draft: 'רווח והפסד — טיוטה', pnl_final: 'רווח והפסד — סופי', accountant_pack: 'חבילה לרו״ח', deal_decay: 'עדכון תיקים ישנים',
   db_backup: 'גיבוי מסד', greeninvoice_import: 'ייבוא חשבונית ירוקה', wise_import: 'ייבוא WISE', payroll_reminder: 'תזכורת שכר',
   accountant_payroll_send: 'שכר לרו״ח', reports_to_drive: 'דוחות לדרייב', cold_backup: 'גיבוי קר', crm_mirror: 'שכפול CRM',
+  attendance_watch: 'שעון נוכחות',
 }
 
 /** מסך 18 — הגדרות (בשלב זה: חיבורים, בריאות המערכת, דוחות שהופקו). הרשימות הסגורות ומיפויי הייבוא — בהמשך. */
