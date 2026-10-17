@@ -11,7 +11,7 @@ on:
     - cron: '0 4 * * *'       # 07:00 — calendar_sync
     - cron: '30 4 * * 0-5'    # 07:30 א'–ו' — daily_summary
     - cron: '30 5 * * *'      # 08:30 — anchor_reminder
-    - cron: '*/15 * * * *'    # כל 15 דק' — gmail_scan + drive_intake_scan
+    - cron: '*/15 * * * *'    # כל 15 דק' — gmail_scan + drive_intake_scan + attendance_watch (נוכחות; באישור דן 17/10)
     - cron: '0 5 * * 5'       # ו' 08:00 — weekly_report
     - cron: '0 5 1 * *'       # 1 לחודש 08:00 — pnl_draft
     - cron: '0 5 12 * *'      # 12 לחודש 08:00 — pnl_final
@@ -58,7 +58,7 @@ jobs:
             '0 4 * * *')    run_job calendar_sync ;;
             '30 4 * * 0-5') run_job daily_summary ;;
             '30 5 * * *')   run_job anchor_reminder ;;
-            '*/15 * * * *') run_job gmail_scan; run_job drive_intake_scan ;;
+            '*/15 * * * *') run_job gmail_scan; run_job drive_intake_scan; run_job attendance_watch ;;
             '0 5 * * 5')    run_job weekly_report ;;
             '0 5 1 * *')    run_job pnl_draft ;;
             '0 5 12 * *')   run_job pnl_final ;;

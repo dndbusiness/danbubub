@@ -142,6 +142,21 @@ export function verifyLogin(settings: Settings, username: string, password: stri
   return { k: u.resp || normUser(u.username), r, d: divsOf(u, r), l: u.label || u.username || '', e }
 }
 
+/** דן — נכנס בסיסמת הנעילה בלבד (בלי שם משתמש) */
+export const isOwnerSession = (s: CrmSession) => s.k === 'dan' && s.r === 'owner'
+
+/** מזהה חבר צוות לעובד שעוד אין לו (בדף ב-Claude זה היה מזהה החשבון שלו ב-Claude) */
+export const memberId = (key: string) => 'u-' + String(key).trim().toLowerCase().replace(/[\/\s]+/g, '_').slice(0, 100)
+
+/**
+ * מי העובד בדף (S.me): חבר הצוות שלו אם קיים — אותו מזהה שכבר מופיע על משימות, לידים ויומנים מ-Claude;
+ * אחרת מזהה יציב לפי שם המשתמש. השם = מה שבהגדרות המשתמשים, כדי ש"נוצר על ידי" יראה את השם שלו.
+ */
+export function pickMember(rows: { docId: string; userId?: string; label?: string; name?: string }[], s: CrmSession): { id: string; name: string } {
+  const t = [...rows].sort((a, b) => Number(!!b.userId) - Number(!!a.userId))[0]
+  return { id: t ? t.userId || t.docId : memberId(s.k), name: s.l || t?.label || t?.name || s.k }
+}
+
 /** אין סיסמת נעילה מוגדרת = הדף לא נועל, ומי שעבר את שער המשרד הוא הבעלים (כמו קודם) */
 export const lockConfigured = (s: Settings) => !!(s.lock && s.lock.hash && s.lock.salt)
 
