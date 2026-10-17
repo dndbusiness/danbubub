@@ -4,6 +4,7 @@
  */
 import { sql, withActor } from '@/lib/db'
 import { applySet, applyUpdate, docsFromDump, parsePath, type BackupDump, type CrmDoc } from '@/lib/crm/docs.js'
+import { isOwnerSession, memberId, pickMember, type CrmSession } from '@/lib/crm/auth'
 
 export interface Change { coll: string; id: string; seq: number; data: CrmDoc | null }
 
@@ -103,6 +104,28 @@ export async function importMirror(dump: BackupDump, opts: { force?: boolean } =
 }
 
 /** מי הבעלים בדף — המזהה שהדף ב-Claude נתן לדן (נשמר במסמכי team), כדי ש"by" יישאר עקבי. */
+/**
+ * מי נכנס — לפי עוגיית הכניסה האישית. דן (בעלים) = ownerIdentity. כל עובד אחר = חבר הצוות שלו
+ * (team/* עם resp = שם המשתמש שלו), כדי ש-S.me בדף יהיה הוא ולא דן: "נוצר על ידי", יום העבודה (days/*),
+ * "התיקים שלי", התראות. אין עדיין חבר צוות — נוצר בכניסה הבאה (ensureMember).
+ */
+export async function sessionIdentity(s: CrmSession | null): Promise<{ id: string; name: string }> {
+  if (!s || isOwnerSession(s)) return ownerIdentity()
+  const rows = await sql<{ doc_id: string; data: CrmDoc }[]>`
+    select doc_id, data from crm_docs where coll = 'team' and deleted_at is null and data->>'resp' = ${s.k}`
+  return pickMember(rows.map((r) => ({ docId: r.doc_id, ...(r.data as { userId?: string; label?: string; name?: string }) })), s)
+}
+
+/** בכניסה של עובד: אם אין לו חבר צוות — יוצרים אחד, קשור לשם המשתמש שלו (כמו שהדף עשה ב-Claude בכניסה הראשונה). */
+export async function ensureMember(s: CrmSession): Promise<void> {
+  if (isOwnerSession(s)) return
+  const [t] = await sql<{ doc_id: string }[]>`
+    select doc_id from crm_docs where coll = 'team' and deleted_at is null and data->>'resp' = ${s.k} limit 1`
+  if (t) return
+  const id = memberId(s.k)
+  await writeDoc('team/' + id, 'set', { id, userId: id, resp: s.k, label: s.l || s.k, role: '', linkedBy: 'login', createdAt: new Date().toISOString() })
+}
+
 export async function ownerIdentity(): Promise<{ id: string; name: string }> {
   const env = process.env.CRM_OWNER_ID
   const [t] = await sql<{ doc_id: string; data: CrmDoc }[]>`
