@@ -1203,6 +1203,7 @@ button.chip.dc { cursor: pointer; } button.chip.dc:hover { border-color: var(--b
   .btn.dhall { min-height: 44px; background: var(--surface); color: var(--brand-text); border: 1px solid var(--border); }
   .dhempty { color: var(--text-3); }
   .dmoney { grid-template-columns: 1fr; gap: 16px; }
+  .dmv { flex-direction: column; align-items: stretch; } .dmv .spark { width: 100%; height: 56px; }
   .fcards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .fcard > b { font-size: 28px; }
   .dstg .stbar { height: 140px; }
@@ -1311,14 +1312,13 @@ table.leads td.c-src { max-width: 150px; }
   table.leads tbody tr > td:has(> input.cb) { position: absolute !important; top: 12px; inset-inline-end: 12px; }
   .lwho { padding-inline-start: 4px; } .lwho .ava { width: 46px; height: 46px; }
   .lnm .show-m { display: inline; margin: 0; } .lnm .lpill .pill { font-size: 12px; }
-  table.leads:not(.no-st) tbody tr > td.c-st { display: block !important; grid-column: 2; grid-row: 2; align-self: center; }
+  table.leads:not(.no-st) tbody tr > td.c-st { display: block !important; grid-column: 1 / -1; grid-row: 3; }
   table.leads tbody tr > td.c-act { grid-column: 1 / -1; grid-row: 2; }
-  table.leads:not(.no-st) tbody tr > td.c-act { grid-column: 1; }
+  .lacts > * { flex: 1 1 0; justify-content: center; }
   table.leads tbody tr > td.c-st select { width: 100%; max-width: none; min-height: 46px; border-radius: 16px; background-color: var(--surface); border: 1px solid var(--border-2); text-align: center; font-size: 14px !important; }
   .lacts { justify-content: flex-start; gap: 8px; }
   .lacts .btn.small { min-height: 46px; border-radius: 16px; padding: 0 14px; font-size: 14px; }
   .lacts a.btn.call span { display: none; } .lacts a.btn.call::after { content: "חיוג"; }
-  .lacts a.btn.wa span { display: none; } .lacts a.btn.wa { padding: 0 14px; }
   .lacts .btn.lcopy { padding: 0 10px; font-size: 13px; }
 }
 @media (max-width: 380px) { .lacts a.btn.wa span { display: none; } }
@@ -1416,6 +1416,73 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
   .card.mtile { padding: 14px; } .mtile > .v { font-size: 22px; } .mth > .ic { display: none; }
   .mtile.wide { grid-column: 1 / -1; }
   .mtile.t-actual { background: var(--actual-bg); }
+}
+
+/* ══ עיצוב v4 — שלב 5: מפת החודש לפי הקנבס ══
+   "לנקות את השוטף" כאריח כהה עם ארבעה מספרים (הנשאר בתיבה מודגשת) · לוח עם תאים מעוגלים, גוון לפי מה שקרה, "היום" ממוסגר בצבע החברה ·
+   חתימות מול כסף: ארבעה אריחים צבעוניים ופס לכל חודש חתימה. נייד: תא = יום + נטו מקוצר + ✍. */
+.mnyhead { margin-bottom: 4px; } .mnyhead .seg { flex-wrap: wrap; }
+.mnav { align-items: center; gap: 10px; }
+.mnav h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.mnav .btn { width: 44px; min-height: 44px; padding: 0; border-radius: 50%; justify-content: center; background: var(--surface); border: 1px solid var(--border); font-size: 18px; }
+.mnav .btn[data-mapm="0"] { width: auto; padding: 0 16px; border-radius: 99px; font-size: 14px; }
+.card.mhero { position: relative; overflow: hidden; border: 0; color: #fff; padding: 26px; border-radius: 26px;
+  background: linear-gradient(150deg, var(--hdr-1) 0%, var(--hdr-2) 45%, var(--hdr-3) 100%); box-shadow: 0 18px 40px color-mix(in srgb, var(--hdr-3) 24%, transparent);
+  --text: #FFFFFF; --text-2: rgba(255,255,255,.74); --text-3: rgba(255,255,255,.62); --sunk: rgba(255,255,255,.08); --border: rgba(255,255,255,.14); --surface: rgba(255,255,255,.06);
+  --actual: #5EEAD4; --committed: #93C5FD; --expected: #FBBF24; --open: #FCA5A5; }
+.card.mhero::after { content: ""; position: absolute; inset-inline-end: 30%; top: -30px; width: 200px; height: 200px; opacity: .05; pointer-events: none;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'><path d='M12 58 50 22l38 36'/><path d='M28 84V60l22-20 22 20v24'/></svg>") center / contain no-repeat; }
+.card.mhero > * { position: relative; z-index: 1; }
+.card.mhero header h2 { color: rgba(255,255,255,.86); font-weight: 500; font-size: 15px; }
+.card.mhero header .btn { background: rgba(255,255,255,.12); color: #fff; border-color: transparent; }
+.mh4 > .kpi { background: transparent; border: 0; box-shadow: none; padding: 6px 4px; }
+.mh4 > .kpi .v { font-size: 34px; font-weight: 600; letter-spacing: -.02em; }
+.mh4 > .kpi:last-child { background: color-mix(in srgb, var(--ring) 16%, transparent); border: 1px solid color-mix(in srgb, var(--ring) 45%, transparent); border-radius: 18px; padding: 14px 18px; }
+.mh4 > .kpi:last-child .v { font-size: 38px; }
+.card.mhero details summary { color: rgba(255,255,255,.72); }
+.card.mhero table td { border-color: rgba(255,255,255,.1); }
+/* לוח */
+.card.mcal > header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .card.mcal h2 { margin: 0; }
+.mcal .mgrid { gap: 10px; margin-top: 14px; }
+.mcal .mgrid .mh { font-size: 12.5px; padding-bottom: 6px; }
+.mcal .mday { min-height: 96px; border: 0; border-radius: 16px; background: var(--sunk); padding: 10px 12px; gap: 3px; transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.mcal .mday:not(:disabled):hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.mcal .mday:disabled { opacity: 1; }
+.mcal .mday.past { background: color-mix(in srgb, var(--sunk) 70%, var(--bg)); }
+.mcal .mday.t-in { background: var(--actual-bg); } .mcal .mday.t-fin { background: var(--committed-bg); } .mcal .mday.t-out { background: color-mix(in srgb, var(--text) 7%, var(--surface)); }
+.mcal .mday.today { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ring); border: 0; }
+.mcal .mday .dn { font-size: 13px; color: var(--text-2); }
+.mcal .mday.today .dn { color: var(--brand-text); } .mcal .mday .dn small { font-weight: 600; }
+.mcal .mday .mv { font-size: 13px; font-weight: 600; }
+.mcal .mday .mv.sg { align-self: flex-end; background: var(--expected-bg); border-radius: 99px; padding: 1px 8px; font-size: 12px; }
+.mcal .mday .mv.mnet, .mcal .mday .mv.msg { display: none; }
+.mcal .mleg { justify-content: flex-start; }
+/* חתימות מול כסף */
+.mc4 > .kpi { border: 0; box-shadow: none; border-radius: 18px; background: var(--sunk); }
+.mc4 > .kpi:nth-child(1) { background: var(--expected-bg); } .mc4 > .kpi:nth-child(2) { background: var(--actual-bg); }
+.mc4 > .kpi .v { font-size: 28px; }
+.cbars { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.cbar { display: grid; grid-template-columns: 110px minmax(80px, 1fr) minmax(0, 48%); align-items: center; gap: 12px; font-size: 13px; }
+.cbar.cur b { color: var(--brand-text); }
+.cbt { height: 10px; border-radius: 99px; background: var(--sunk); overflow: hidden; }
+.cbt i { display: block; height: 100%; min-width: 6px; border-radius: 99px; background: linear-gradient(to left, var(--ring), var(--brand-strong)); }
+.cbv { color: var(--text-2); font-size: 12.5px; }
+@media (max-width: 900px) { .cbar { grid-template-columns: 90px 1fr; } .cbv { grid-column: 1 / -1; } }
+@media (max-width: 767px) {
+  .mnyhead .seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; } .mnyhead .seg button { white-space: nowrap; }
+  .card.mhero { padding: 18px; border-radius: 24px; }
+  .mh4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .mh4 > .kpi:last-child { grid-column: 1 / -1; order: -1; }
+  .mh4 > .kpi .v { font-size: 22px; } .mh4 > .kpi:last-child .v { font-size: 34px; }
+  .mh4 > .kpi:not(:last-child) { background: rgba(255,255,255,.07); border-radius: 16px; padding: 10px 12px; }
+  .mcal .mgrid { gap: 5px; }
+  .mcal .mday { min-height: 54px; padding: 6px 2px; border-radius: 12px; align-items: center; justify-content: center; text-align: center; }
+  .mcal .mday .dn { font-size: 15px; color: var(--text); } .mcal .mday .dn small { display: none; }
+  .mcal .mday .mv { display: none; }
+  .mcal .mday .mv.mnet { display: block; font-size: 10px; text-align: center; direction: ltr; }
+  .mcal .mday .mv.msg { display: block; font-size: 11px; line-height: 1; color: var(--expected); }
+  .mcal .mday.today { background: var(--brand-strong); box-shadow: none; } .mcal .mday.today .dn, .mcal .mday.today .mv { color: var(--on-brand); }
+  .mc4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
 
@@ -2774,7 +2841,7 @@ function vMoney() {
   const tabs = '<div class="seg" role="group" aria-label="כספים">' + [['pnl', 'רווח והפסד'], ['forecast', 'צפי לפי תאריכים'], ['tx', 'תנועות'], ['cash', 'תזרים שבועי'], ['month', 'מפת החודש'], ['settle', S.division === 'realestate' ? 'התחשבנות שותפים' : 'התחשבנות'], ['fixed', 'הוצאות']]
     .filter(([k]) => !S.isPartner || ['pnl', 'tx', 'settle'].includes(k)).map(([k, v]) => '<button data-money="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
   const body = (S.isPartner && !['pnl', 'tx', 'settle'].includes(sub) ? null : { pnl: vPnl, forecast: vForecast, month: vMonthMap, tx: vTx, cash: vCash, settle: S.division === 'realestate' ? vSettleRE : vSettle, fixed: vExpenses }[sub]) || vPnl;
-  return '<div class="row"><h1 class="grow">כספים</h1>' + tabs + '</div>' + (S.isPartner && ['settle', 'tx'].includes(sub) ? partnerBar() : '') + body() + (S.division === 'realestate' && (sub || 'pnl') === 'pnl' ? finShareCard() : '');
+  return '<div class="pghead mnyhead"><h1>כספים' + (sub === 'month' ? ' · מפת החודש' : '') + '</h1><span class="grow"></span>' + tabs + '</div>' + (S.isPartner && ['settle', 'tx'].includes(sub) ? partnerBar() : '') + body() + (S.division === 'realestate' && (sub || 'pnl') === 'pnl' ? finShareCard() : '');
 }
 function vPnl() {
   const mixed = S.f.pnlMode === 'distributable' && S.division === 'all';
@@ -3038,13 +3105,16 @@ function vMonthMap() {
   const t0 = today(), m = S.f.mapMonth || t0.slice(0, 7), D = dayFlows(m), days = monthDays(m), s = (a) => r2((a || []).reduce((q, i) => q + i.amount, 0));
   const dow0 = new Date(m + '-01T12:00:00Z').getUTCDay();
   const cell = (d) => { const x = D[d] || {}, i1 = s(x.in), i2 = s(x.fin), o1 = s(x.out), o2 = s(x.fout), sg = s(x.signed), any = i1 || i2 || o1 || o2 || sg;
-    return '<button class="mday' + (d === t0 ? ' today' : '') + (d < t0 ? ' past' : '') + '" data-mday="' + d + '"' + (any ? '' : ' disabled') + ' aria-label="' + dLabel(d) + '"><span class="dn">' + Number(d.slice(8)) + '</span>' +
+    /* עיצוב v4 — גוון התא לפי מה שקרה בו (ירוק נכנס · כחול צפוי להיכנס · אפור יצא), "היום" ממוסגר; בנייד שורה אחת: נטו + ✍ */
+    const net = r2(i1 + i2 - o1 - o2), tone = i1 ? ' t-in' : i2 ? ' t-fin' : o1 || o2 ? ' t-out' : '';
+    return '<button class="mday' + tone + (d === t0 ? ' today' : '') + (d < t0 ? ' past' : '') + '" data-mday="' + d + '"' + (any ? '' : ' disabled') + ' aria-label="' + dLabel(d) + '"><span class="dn">' + Number(d.slice(8)) + (d === t0 ? '<small> · היום</small>' : '') + '</span>' +
+      (net ? '<span class="mv mnet ' + (i1 ? 'in' : i2 ? 'fin' : 'out') + '">' + (net > 0 ? '+' : '−') + plain0(net) + '</span>' : '') + (sg ? '<span class="mv msg" aria-hidden="true">✍</span>' : '') +
       (i1 ? '<span class="mv in">+' + plain0(i1) + '</span>' : '') + (i2 ? '<span class="mv fin">+' + plain0(i2) + '</span>' : '') + (o1 ? '<span class="mv out">−' + plain0(o1) + '</span>' : '') + (o2 ? '<span class="mv fout">−' + plain0(o2) + '</span>' : '') + (sg ? '<span class="mv sg">✍ ' + plain0(sg) + '</span>' : '') + '</button>'; };
   const grid = '<div class="mgrid">' + ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'].map((x) => '<div class="mh">' + x + '</div>').join('') + Array.from({ length: dow0 }, () => '<div></div>').join('') + days.map(cell).join('') + '</div>' +
-    '<div class="row hint" style="gap:12px;margin-top:6px;flex-wrap:wrap"><span><i class="lg in"></i>נכנס בפועל</span><span><i class="lg fin"></i>צפוי להיכנס</span><span><i class="lg out"></i>יצא</span><span><i class="lg fout"></i>צפוי לצאת</span><span><i class="lg sg"></i>✍ נחתם (שכ״ט)</span></div>';
+    '<div class="row hint mleg" style="gap:12px;margin-top:6px;flex-wrap:wrap"><span><i class="lg in"></i>נכנס בפועל</span><span><i class="lg fin"></i>צפוי להיכנס</span><span><i class="lg out"></i>יצא</span><span><i class="lg fout"></i>צפוי לצאת</span><span><i class="lg sg"></i>✍ נחתם (שכ״ט)</span></div>';
   const tot = (k) => r2(days.reduce((a, d) => a + s((D[d] || {})[k]), 0));
   const C = clearCurrent(m), cur = m === t0.slice(0, 7);
-  const clearCard = cur ? '<section class="card"><header><h2>לנקות את השוטף — עד ' + dLabel(monthEnd(m + '-01')) + '</h2><span class="grow"></span>' + (S.canWrite ? '<button class="btn small" data-act="newPlanned">+ כניסה / יציאה צפויה</button>' : '') + '</header><div class="grid4">' +
+  const clearCard = cur ? '<section class="card mhero"><header><h2>לנקות את השוטף — עד ' + dLabel(monthEnd(m + '-01')) + '</h2><span class="grow"></span>' + (S.canWrite ? '<button class="btn small" data-act="newPlanned">+ כניסה / יציאה צפויה</button>' : '') + '</header><div class="grid4 mh4">' +
       kpi('צריך לשלם עד סוף החודש', money(-C.owe), C.outs.length + ' תשלומים: קבועות, שכר, מתוכננים', null) +
       kpi('בטוח שייכנס עד אז', money(C.come, { tone: 'committed' }), C.ins.length + ' כניסות בטוחות', null) +
       kpi('יתרה בבנק', C.bal == null ? '—' : money(C.bal), C.ob ? 'עודכן ' + dLabel(C.ob.date) + ' · מבדיקת עו״ש' : 'עדכן בהנהלת חשבונות ← בדיקת עו״ש', null) +
@@ -3053,19 +3123,20 @@ function vMonthMap() {
   const K = cohorts(m), me = K.rows[K.rows.length - 1], gotM = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + n(t.net), 0));
   const fromThis = r2(me.byM[m] || 0), fromPrev = r2(K.rows.slice(0, -1).reduce((a, r) => a + (r.byM[m] || 0), 0)), other = r2(gotM - fromThis - fromPrev);
   const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
-  const cohortCard = '<section class="card"><header><h2>חתימות מול כסף שנכנס — ' + mLabel(m) + '</h2><span class="hint">לפני מע״מ</span></header><div class="grid4">' +
+  const cohortCard = '<section class="card mcoh"><header><h2>חתימות מול כסף שנכנס — ' + mLabel(m) + '</h2><span class="hint">לפני מע״מ</span></header><div class="grid4 mc4">' +
       kpi('חתמתי החודש', money(me.fee, { tone: 'expected' }), me.n + ' עסקאות', null) +
       kpi('נכנס בפועל', money(gotM, { tone: 'actual' }), 'כל התקבולים בחודש', null) +
       kpi('מתוך החתימות של החודש', money(fromThis, { tone: 'actual' }), pc(fromThis, me.fee) + ' ממה שנחתם החודש', null) +
       kpi('מחתימות קודמות', money(fromPrev, { tone: 'actual' }), pc(fromPrev, gotM) + ' מהכסף שנכנס' + (other > 1 ? ' · ועוד ' + plain(other) + ' בלי תאריך חתימה' : ''), null) + '</div>' +
-    '<div class="scroll"><table><thead><tr><th>חודש חתימה</th><th>נחתם</th><th>נכנס ב-' + mLabel(m) + '</th><th>% מהחתום</th><th>נכנס עד ' + mLabel(m) + '</th><th>% עד היום</th></tr></thead><tbody>' +
-      K.rows.slice().reverse().map((r) => '<tr' + (r.cm === m ? ' style="font-weight:700"' : '') + '><td>' + mLabel(r.cm) + ' <small class="hint">(' + r.n + ')</small></td><td>' + (r.fee ? plain(r.fee) : '—') + '</td><td>' + (r.byM[m] ? plain(r.byM[m]) : '—') + '</td><td>' + pc(r.byM[m] || 0, r.fee) + '</td><td>' + (r.toDate ? plain(r.toDate) : '—') + '</td><td>' + pc(r.toDate, r.fee) + '</td></tr>').join('') +
-    '</tbody></table></div>' +
+    /* עיצוב v4 — פס לכל חודש חתימה: כמה מהחתום נכנס עד היום (אותם מספרים של הטבלה הקודמת, כולם בשורה) */
+    '<div class="cbars">' + K.rows.slice().reverse().map((r) => '<div class="cbar' + (r.cm === m ? ' cur' : '') + '"><b class="num">' + mLabel(r.cm) + ' <small class="hint">(' + r.n + ')</small></b>' +
+      '<span class="cbt" aria-hidden="true"><i style="width:' + (r.fee ? Math.min(100, Math.round(r.toDate / r.fee * 100)) : 0) + '%"></i></span>' +
+      '<span class="cbv num">נחתם ' + (r.fee ? plain(r.fee) : '—') + ' · נכנס ב-' + mLabel(m) + ' ' + (r.byM[m] ? plain(r.byM[m]) : '—') + ' (' + pc(r.byM[m] || 0, r.fee) + ') · עד היום ' + (r.toDate ? plain(r.toDate) : '—') + ' (' + pc(r.toDate, r.fee) + ')</span></div>').join('') + '</div>' +
     '<p style="margin:8px 0 0"><b>מקדם גביה</b> <span class="hint">(ממוצע משוקלל של ' + K.rows.filter((r) => r.fee).length + ' חודשים)</span>: ' + ['בחודש החתימה', 'בחודש שאחרי', 'אחרי חודשיים', 'אחרי שלושה'].map((l, k) => l + ' ' + (K.coef[k] == null ? '—' : Math.round(K.coef[k] * 100) + '%')).join(' · ') + '</p>' +
     '<p class="hint" style="margin:4px 0 0">' + (K.coef.slice(1).some((c) => c != null) ? 'לפי המקדם, מהחתימות שכבר יש — צפוי להיכנס ב-' + mLabel(K.nextM) + ' בערך ' + plain(K.est) + '. ' : 'עוד אין מספיק חודשים סגורים כדי לחשב מקדם לחודש שאחרי החתימה — זה יתמלא לבד עם כל חודש שנסגר. ') + 'הערכה בלבד: נשענת על ' + live(S.clients).filter((c) => c.signDate).length + ' לקוחות עם תאריך חתימה; לקוח בלי תאריך חתימה נספר לפי יום הפתיחה.</p></section>';
-  return '<div class="row" style="align-items:center;gap:8px"><button class="btn small ghost" data-mapm="-1" aria-label="חודש קודם">›</button><h2 style="margin:0" class="num">' + mLabel(m) + '</h2><button class="btn small ghost" data-mapm="1" aria-label="חודש הבא">‹</button>' + (m !== t0.slice(0, 7) ? '<button class="btn small ghost" data-mapm="0">היום</button>' : '') + '</div>' +
+  return '<div class="row mnav"><button class="btn small ghost" data-mapm="-1" aria-label="חודש קודם">›</button><h2 class="num">' + mLabel(m) + '</h2><button class="btn small ghost" data-mapm="1" aria-label="חודש הבא">‹</button>' + (m !== t0.slice(0, 7) ? '<button class="btn small ghost" data-mapm="0">היום</button>' : '') + '</div>' +
     clearCard +
-    '<section class="card"><header><h2>כל יום בחודש</h2><span class="grow"></span><span class="hint num">נכנס ' + plain(r2(tot('in') + tot('fin'))) + ' · יצא ' + plain(r2(tot('out') + tot('fout'))) + ' · נחתם ' + plain(tot('signed')) + '</span></header>' + grid + '</section>' +
+    '<section class="card mcal"><header><span class="grow"><h2>כל יום בחודש</h2><small class="hint">לחיצה על יום פותחת את השורות שמרכיבות אותו</small></span><span class="hint num">נכנס ' + plain(r2(tot('in') + tot('fin'))) + ' · יצא ' + plain(r2(tot('out') + tot('fout'))) + ' · נחתם ' + plain(tot('signed')) + '</span></header>' + grid + '</section>' +
     '<section class="card"><header><h2>מצטבר בחודש — נכנס פחות יצא</h2></header>' + balanceChart(m, D) + '</section>' +
     cohortCard;
 }
