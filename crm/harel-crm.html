@@ -1003,6 +1003,214 @@ body.locked .tbell, body.locked .tadd, body.locked .navuser { display: none !imp
   header.top .gsbtn span { display: none; }
 }
 @media (max-width: 380px) { header.top .who { display: none; } }
+
+/* ══ עיצוב v4 — שלב 2: "היום שלי" לפי הקנבס ══
+   ברכה + שבבי סטטוס · 4 אריחי פעולה · אריח כהה "לטיפול עכשיו" עם התור · נכנס בפועל (גרף) · צפי סגירה (פס מפולח) · Claude מציע ·
+   משפך בכרטיסים · איפה התיקים עומדים · מה קרה היום. הוודאות נשארת צבע: ירוק בפועל, כחול ודאי צפוי, כתום פוטנציאל, אדום פתוח. */
+.ic { display: inline-block; flex: none; width: 20px; height: 20px; background: currentColor; -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+.ic-flame { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3c.8 3.4 5.2 5.4 5.2 10a5.2 5.2 0 0 1-10.4 0c0-2 1-3.2 2.2-4.4.4 1.4 1.2 2 2 2 0-2.8-.6-4.6 1-7.6z'/></svg>"); }
+.ic-wa { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12a8 8 0 0 1-11.5 7.2L4 20l1-4.5A8 8 0 1 1 21 12z'/></svg>"); }
+.ic-call { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2'/></svg>"); }
+.ic-cal { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round'><rect x='3.5' y='5' width='17' height='15' rx='3.5'/><path d='M3.5 10h17M8 3v4M16 3v4'/></svg>"); }
+.ic-alert { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0zM12 9.5v4M12 17h.01'/></svg>"); }
+.ic-check { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m5 12.5 4.5 4.5L19 7.5'/></svg>"); }
+.ic-wallet { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='18' height='13' rx='3.5'/><path d='M3 10.5h18M16 14.8h2'/></svg>"); }
+.ic-trend { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='m3 17 6-6 4 4 8-8M15 7h6v6'/></svg>"); }
+.ic-spark { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5l1.8 4.7 4.7 1.8-4.7 1.8L12 16.5l-1.8-4.7L5.5 10l4.7-1.8zM18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z'/></svg>"); }
+.ic-note { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z'/></svg>"); }
+.ic-f-in { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 5h17l-6.5 7.5V19l-4 2v-8.5z'/></svg>"); }
+.ic-f-handled { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2'/></svg>"); }
+.ic-f-check { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z'/><path d='m9 12 2 2 4-4'/></svg>"); }
+.ic-f-signed { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z'/></svg>"); }
+.ic-f-paid { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='18' height='13' rx='3.5'/><path d='M3 10.5h18M16 14.8h2'/></svg>"); }
+.ic-pin { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z'/><circle cx='12' cy='9.5' r='2.5'/></svg>"); }
+.ic-user { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><circle cx='9' cy='8' r='3.8'/><path d='M2.5 20.5c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8M16.5 4.4a3.8 3.8 0 0 1 0 7.2'/></svg>"); }
+.ic-arrow { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M17 7 7 17M8 7h9v9'/></svg>"); }
+.pill.violet { background: var(--q-violet-bg); color: var(--q-violet); }
+.btn.soft { background: var(--brand-soft); color: var(--brand-text); border-color: transparent; font-weight: 600; }
+.btn.wa, a.btn.wa { background: var(--wa-bg); color: var(--wa); border-color: transparent; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.btn.call, a.btn.call { display: inline-flex; align-items: center; gap: 6px; }
+.btn .ic { width: 17px; height: 17px; }
+
+.vday { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.vday .phead { display: none; }
+.vday .dayhead { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.vday .dayhead > .grow { flex: 1 1 420px; min-width: 0; }
+.vday .dayhead h1.big { margin: 0 0 10px; font-size: 34px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.dchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.dchips.st { display: contents; }
+.qn .xlink { text-decoration: none; } .qn .xlink:hover { text-decoration: underline; }
+.chip.dc { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; font-size: 13px; cursor: default; }
+button.chip.dc { cursor: pointer; } button.chip.dc:hover { border-color: var(--border-2); color: var(--text); }
+.chip.dc .ic { width: 15px; height: 15px; } .chip.dc b { color: var(--text); font-weight: 600; }
+.chip.dc.open { background: var(--open-bg); color: var(--open); border-color: transparent; } .chip.dc.open b { color: var(--open); }
+.chip.dc.actual { background: var(--actual-bg); color: var(--actual); border-color: transparent; } .chip.dc.actual b { color: var(--actual); }
+/* פעולות מהירות: אריח, שם + שורת משנה, חץ */
+.vday .qacts { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; }
+.vday .qact { min-height: 80px; padding: 16px 18px; gap: 14px; border-radius: var(--radius-card); }
+.vday .qact .qt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.vday .qact .qt b { font-size: 15.5px; font-weight: 600; } .vday .qact .qt small { font-size: 13px; color: var(--text-3); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vday .qact .qchev { flex: none; width: 18px; height: 18px; background: var(--text-3); -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m15 5-7 7 7 7'/></svg>") center / contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m15 5-7 7 7 7'/></svg>") center / contain no-repeat; }
+.qact.q-sign { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z'/></svg>"); }
+.qact.q-sign i { background: color-mix(in srgb, var(--ring) 16%, var(--surface)); color: var(--brand-text); }
+/* רשת 12 */
+.dgrid12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 22px; align-items: start; min-width: 0; }
+.dgrid12 > * { min-width: 0; } .dgrid12 > .c5 { grid-column: span 5; } .dgrid12 > .c7 { grid-column: span 7; } .dgrid12 > .c12 { grid-column: 1 / -1; }
+.dgrid12 section.card, .dgrid12 .card { margin: 0; }
+.dside { display: flex; flex-direction: column; gap: 22px; }
+/* אריח כהה: לטיפול עכשיו */
+.dhero { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 16px; padding: 26px; border-radius: 26px; color: #fff;
+  background: linear-gradient(150deg, var(--hdr-1) 0%, var(--hdr-2) 45%, var(--hdr-3) 100%); box-shadow: 0 18px 40px color-mix(in srgb, var(--hdr-3) 26%, transparent);
+  --text: #FFFFFF; --text-2: #C4CAD4; --text-3: #B9C4CF; --actual: #4ADE80; --committed: #60A5FA; --expected: #FBBF24; --open: #F87171; --locked: #9CA3AF;
+  --actual-bg: rgba(74,222,128,.14); --committed-bg: rgba(96,165,250,.16); --expected-bg: rgba(251,191,36,.16); --open-bg: rgba(248,113,113,.18); --locked-bg: rgba(255,255,255,.10); }
+.dhero::after { content: ""; position: absolute; inset-inline-end: -40px; bottom: -30px; width: 230px; height: 230px; opacity: .06; pointer-events: none;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'><path d='M12 58 50 22l38 36'/><path d='M28 84V60l22-20 22 20v24'/></svg>") center / contain no-repeat; }
+.dhero > * { position: relative; z-index: 1; }
+.dhero header { display: flex; align-items: center; gap: 12px; font-size: 15.5px; }
+.dhero header > .ic { width: 42px; height: 42px; border-radius: 15px; background: rgba(255,255,255,.12); -webkit-mask: none; mask: none; position: relative; }
+.dhero header > .ic::before { content: ""; position: absolute; inset: 10px; background: var(--hi); -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+.dhero header b { font-weight: 500; }
+.dhnum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 0; border: 0; background: none; color: #fff; font: inherit; text-align: start; cursor: pointer; }
+.dhnum b { font-size: 76px; font-weight: 600; line-height: 1; letter-spacing: -3px; }
+.dhnum span { font-size: 14.5px; color: rgba(255,255,255,.74); }
+.dhnum:hover b { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+.qlist { display: flex; flex-direction: column; gap: 8px; }
+.qrow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: rgba(255,255,255,.07); transition: background var(--t-fast); min-width: 0; }
+.qrow:hover { background: rgba(255,255,255,.11); }
+.qrow .ava { width: 42px; height: 42px; }
+.qn { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.qn .xlink { color: inherit; text-align: start; padding: 0; min-height: 0; } .qn .xlink b { font-weight: 500; }
+.qn small { font-size: 13px; color: rgba(255,255,255,.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qst { flex: none; } .qst .pill { white-space: nowrap; }
+.dhero .btn.small { min-height: 40px; padding: 0 14px; border-radius: 14px; white-space: nowrap; }
+.btn.glass, a.btn.glass { background: rgba(255,255,255,.12); color: #fff; border-color: transparent; display: inline-flex; align-items: center; gap: 6px; }
+.btn.glass:hover { background: rgba(255,255,255,.18); }
+.dhero a.btn.wa { background: var(--ring); color: var(--hdr-3); box-shadow: 0 6px 16px color-mix(in srgb, var(--ring) 30%, transparent); }
+.btn.dhall { min-height: 50px; border-radius: 16px; background: #fff; color: var(--hdr-3); border: 0; font-weight: 600; justify-content: center; }
+.btn.dhall:hover { background: #fff; filter: brightness(.97); }
+.dhempty { margin: 0; color: rgba(255,255,255,.74); }
+/* כסף */
+.dmoney { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.card.dmc { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 20px 22px; font: inherit; text-align: start; color: var(--text); cursor: pointer; min-width: 0; transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.card.dmc:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.dmh { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
+.dmh > .ic, .dsug header > .ic { width: 40px; height: 40px; border-radius: 14px; -webkit-mask: none; mask: none; position: relative; background: var(--brand-soft); }
+.dmh > .ic::before, .dsug header > .ic::before { content: ""; position: absolute; inset: 10px; background: var(--brand-text); -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+.dmh > .ic-wallet { background: var(--actual-bg); } .dmh > .ic-wallet::before { background: var(--actual); }
+.dmh > .ic-trend { background: var(--committed-bg); } .dmh > .ic-trend::before { background: var(--committed); }
+.dmv { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.dmv .money, .dmv > span:first-child { font-size: 34px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.spark { width: 46%; min-width: 110px; height: 60px; }
+.spark .sa { fill: color-mix(in srgb, var(--actual) 16%, transparent); } .spark .sl { fill: none; stroke: var(--actual); stroke-width: 2; vector-effect: non-scaling-stroke; } .spark .sd { fill: var(--surface); stroke: var(--actual); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.dmc .segbar { margin: 2px 0; }
+.dleg { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--text-2); }
+.dleg i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 5px; vertical-align: 1px; }
+.dleg i.actual { background: var(--actual); } .dleg i.committed { background: var(--committed); } .dleg i.expected { background: var(--expected); }
+/* Claude מציע */
+.dsug header { display: flex; align-items: center; gap: 12px; }
+.dsug header > .ic { background: var(--q-violet-bg); } .dsug header > .ic::before { background: var(--q-violet); }
+.dsug header h2 { margin: 0; } .dsug header small { display: block; }
+.dsug ol { list-style: none; margin: 10px 0 0; padding: 0; }
+.dsug li { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 0; border-top: 1px solid var(--border); }
+.dsug li:first-child { border-top: 0; }
+.sgn { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--q-violet-bg); color: var(--q-violet); font-size: 13px; font-weight: 600; }
+.dsug li .btn { min-height: 40px; padding: 0 16px; border-radius: 12px; }
+/* משפך בכרטיסים */
+.card.dfun > header, .card.dstg > header, .card.dfeed > header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.card.dfun h2, .card.dstg h2, .card.dfeed h2 { margin: 0; }
+.fcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-top: 16px; }
+.fcard { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 16px 16px 14px; font: inherit; text-align: start; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-tile); box-shadow: var(--shadow-card); cursor: pointer; min-width: 0; --tc: var(--brand-strong); --tb: var(--brand-soft); transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.fcard:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.fcard.t-violet { --tc: var(--q-violet); --tb: var(--q-violet-bg); } .fcard.t-slate { --tc: var(--q-slate); --tb: var(--q-slate-bg); }
+.fcard.t-expected { --tc: var(--expected); --tb: var(--expected-bg); } .fcard.t-actual { --tc: var(--actual); --tb: var(--actual-bg); }
+.fh { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--text-2); }
+.fh > .ic { width: 36px; height: 36px; border-radius: 12px; background: var(--tb); -webkit-mask: none; mask: none; position: relative; }
+.fh > .ic::before { content: ""; position: absolute; inset: 9px; background: var(--tc); -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+.fcard > b { font-size: 34px; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+.fcard.t-expected > b { color: var(--expected); } .fcard.t-actual > b { color: var(--actual); }
+.fcard > small { font-size: 12.5px; color: var(--text-3); min-height: 2.6em; }
+.fbar { display: block; height: 6px; border-radius: 99px; background: var(--sunk); overflow: hidden; margin-top: auto; }
+.fbar > i { display: block; height: 100%; width: var(--p); min-width: 4px; border-radius: 99px; background: var(--tc); }
+.fconv { align-self: stretch; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--sunk); border-radius: 99px; padding: 4px 8px; }
+.ftypes { margin-top: 12px; } .ftypes summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+/* איפה התיקים עומדים */
+.dstg .stages { margin-top: 18px; }
+.dstg .stbars { grid-auto-columns: minmax(60px, 1fr); justify-content: stretch; gap: 10px; }
+.dstg .stbar { height: 172px; gap: 8px; }
+.dstg .stbar i { height: calc(var(--h) * .68); border-radius: 12px; }
+.stchips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.chip.stc { display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 12px; border-radius: 99px; background: var(--sunk); color: var(--text-2); border: 0; font: inherit; font-size: 13px; cursor: pointer; }
+.chip.stc b { color: var(--text); } .chip.stc.open { background: var(--open-bg); color: var(--open); } .chip.stc.open b { color: var(--open); }
+.chip.stc.expected { background: var(--expected-bg); color: var(--expected); } .chip.stc.expected b { color: var(--expected); }
+/* מה קרה היום */
+.dfeed .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.dfeed .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); animation: ldot 2.4s ease-in-out infinite; }
+.dfeed ol { list-style: none; margin: 14px 0 0; padding: 0; }
+.dfeed li { position: relative; display: flex; align-items: flex-start; gap: 12px; padding-bottom: 14px; }
+.dfeed li:not(:last-child)::before { content: ""; position: absolute; inset-inline-start: 19px; top: 42px; bottom: 2px; width: 2px; background: var(--border); }
+.fi { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand-text); }
+.fi .ic { width: 18px; height: 18px; }
+.fi-done { background: var(--sunk); color: var(--text-2); } .fi-pay { background: var(--actual-bg); color: var(--actual); } .fi-client, .fi-note { background: var(--q-violet-bg); color: var(--q-violet); }
+.fl2 { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 2px 0; border: 0; background: none; font: inherit; color: var(--text); text-align: start; cursor: pointer; min-height: 40px; }
+.fl2 span { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; } .fl2 small { font-size: 12px; color: var(--text-3); }
+.fl2:hover span { text-decoration: underline; text-underline-offset: 3px; }
+.dmini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+.dmini .kpi { margin: 0; }
+@media (max-width: 1180px) and (min-width: 768px) { .dmoney { grid-template-columns: 1fr; } }
+@media (max-width: 1023px) {
+  .dgrid12 > .c5, .dgrid12 > .c7 { grid-column: 1 / -1; }
+}
+@media (max-width: 767px) {
+  .vday { gap: 16px; }
+  .vday .phead { display: block; position: relative; overflow: hidden; padding: 18px 18px 20px; border-radius: 26px; color: #fff;
+    background: linear-gradient(160deg, var(--hdr-2) 0%, var(--hdr-3) 100%); }
+  main > .vday:first-child .phead { margin: -16px -16px 0; border-radius: 0 0 30px 30px; padding-top: 4px; }
+  body:has(main > .vday:first-child) header.top { border-radius: 0; background: linear-gradient(170deg, var(--hdr-1) 0%, var(--hdr-2) 100%); }
+  .phtop { display: flex; align-items: center; gap: 12px; }
+  .phtop .ava { width: 48px; height: 48px; box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+  .phtop small { display: block; font-size: 13px; color: rgba(255,255,255,.72); } .phtop b { display: block; font-size: 20px; font-weight: 600; line-height: 1.25; }
+  .phstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+  .phstats button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 68px; padding: 10px 12px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.08); color: #fff; font: inherit; text-align: start; cursor: pointer; }
+  .phstats b { font-size: 24px; font-weight: 600; line-height: 1.1; } .phstats span { font-size: 12px; color: rgba(255,255,255,.74); line-height: 1.25; }
+  .phstats button:nth-child(3) b { color: var(--hi); }
+  .vday .dayhead h1.big, .vday .dchips > span.chip.dc:has(.ic-cal) { display: none; }
+  .vday .dayhead > .grow { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+  .vday .dchips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+  .chip.dc { white-space: nowrap; min-height: 36px; }
+  .vday .qacts { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 14px 6px; }
+  .vday .qact { min-height: 0; padding: 0; gap: 8px; }
+  .vday .qact .qt small, .vday .qact .qchev { display: none; }
+  .vday .qact .qt b { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+  .vday .qact i { width: 54px; height: 54px; border-radius: 18px; }
+  .dgrid12 { gap: 16px; } .dside { gap: 16px; }
+  /* התור בנייד: כרטיסים בהירים, כמו "התור שלך עכשיו" בקנבס */
+  .dhero { padding: 0; background: none; box-shadow: none; border-radius: 0; color: var(--text); gap: 10px; overflow: visible;
+    --text: inherit; --actual: inherit; --committed: inherit; --expected: inherit; --open: inherit; --locked: inherit; --actual-bg: inherit; --committed-bg: inherit; --expected-bg: inherit; --open-bg: inherit; --locked-bg: inherit; --text-2: inherit; --text-3: inherit; }
+  .dhero::after, .dhero header > .ic, .dhnum span { display: none; }
+  .dhero header { font-size: 18px; } .dhero header b { font-weight: 600; }
+  .dhnum { position: absolute; top: 0; inset-inline-end: 0; } .dhnum b { font-size: 15px; letter-spacing: 0; color: var(--brand-text); font-weight: 600; }
+  .dhnum b::after { content: " · הכל"; font-weight: 500; }
+  .qrow { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); padding: 12px 14px; }
+  .qrow:hover { background: var(--surface); }
+  .qn small { color: var(--text-3); white-space: normal; }
+  .qrow .qst { display: none; }
+  .dhero .btn.small { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 50%; }
+  .dhero .btn.small:not(:has(.ic)) { border-radius: 14px; }
+  .dhero a.btn.wa { background: var(--wa-bg); color: var(--wa); box-shadow: none; font-size: 0; gap: 0; }
+  .dhero .btn.glass { background: var(--brand-soft); color: var(--brand-text); }
+  .dhero a.btn.glass { font-size: 0; gap: 0; }
+  .dhero .btn .ic { width: 20px; height: 20px; }
+  .btn.dhall { min-height: 44px; background: var(--surface); color: var(--brand-text); border: 1px solid var(--border); }
+  .dhempty { color: var(--text-3); }
+  .dmoney { grid-template-columns: 1fr; gap: 16px; }
+  .fcards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .fcard > b { font-size: 28px; }
+  .dstg .stbar { height: 140px; }
+  .dmini { grid-template-columns: 1fr; }
+  .dsug li { align-items: center; gap: 10px; } .dsug li .grow { font-size: 14px; } .dhero header .pill { display: none; }
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dhero { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 28%, transparent), 0 18px 40px rgba(0,0,0,.4); } }
+:root[data-theme="dark"] .dhero { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 28%, transparent), 0 18px 40px rgba(0,0,0,.4); }
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
@@ -1420,65 +1628,131 @@ function convSnap(from, to, mine) {
     if (lv === 3) { r.signed++; r.ids.signed.push(l.id); const m = leadRevenue(l); if (m.collected > 0) { r.paid++; r.ids.paid.push(l.id); r.collected += m.collected; } } });
   r.collected = r2(r.collected); return r;
 }
-function focusPanel() {
+/* ══ עיצוב v4 — "היום שלי" לפי הקנבס (דן, 17/10: "תמזג לפי זה") ══
+   אותם מספרים בדיוק של "תמונת מצב" (convSnap, stuckFiles, monthExpect, forecastItems) — רק סידור אחר:
+   אריח כהה "לטיפול עכשיו" עם הלידים הדחופים · "נכנס בפועל" עם גרף קטן · "צפי סגירת החודש" בפס מפולח ·
+   "Claude מציע" (כללים קבועים מהנתונים — לא קריאה ל-AI) · משפך בכרטיסים · "איפה התיקים עומדים" · "מה קרה היום" מהיומנים של היום.
+   כל מספר נשאר כפתור שפותח את השורות שמרכיבות אותו; כל כפתור = פעולה קיימת. */
+const agoLabel = (iso, t0 = today()) => { if (!iso) return ''; const ms = Date.now() - Date.parse(iso);
+  if (ms >= 0 && ms < 3600e3) return 'לפני ' + Math.max(1, Math.round(ms / 60e3)) + ' דק׳'; return dayOf(iso) === t0 ? 'היום ' + hm(iso) : dLabel(dayOf(iso)); };
+const avaOf = (name) => '<span class="ava a' + (String(name || '').charCodeAt(0) % 3 || 0) + '" aria-hidden="true">' + esc(String(name || '').trim().charAt(0) || '·') + '</span>';
+const IC = (k) => '<i class="ic ic-' + k + '" aria-hidden="true"></i>';
+function leadActBtn(l, kind, dark) {
+  const wa = l.phone && waLink(l.phone);
+  if (kind === 'wa' && wa) return '<a class="btn small wa" href="' + esc(wa) + '" target="_blank" rel="noopener">' + IC('wa') + 'וואטסאפ</a>';
+  if (kind !== 'open' && l.phone) return '<a class="btn small ' + (dark ? 'glass' : 'call') + '" href="tel:' + esc(normPhone(l.phone)) + '">' + IC('call') + 'חיוג</a>';
+  return '<button class="btn small ' + (dark ? 'glass' : 'ghost') + '" data-leadopen="' + esc(l.id) + '">פתח</button>';
+}
+function dayBoard(ctx) {
   const fc = dayFocus(), t0 = today(), m0 = t0.slice(0, 8) + '01', mine = S.isCenter || (!S.isOwner && live(S.leads).some((l) => l.resp === S.myKey)), money$ = S.can('money');
-  if (!fc) return '';
-  const seg = '<div class="seg" role="group" aria-label="מה להציג">' + Object.entries(FOCUS).filter(([k]) => focusOk(k)).map(([k, v]) => '<button data-focus="' + k + '" aria-pressed="' + (fc === k) + '">' + v + '</button>').join('') + '</div>';
   const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
-  let h = '';
-  if (fc === 'sales' || fc === 'all') {
-    const T = convSnap(t0, t0, mine), M = convSnap(m0, t0, mine);
+  const seg = fc ? '<div class="seg" role="group" aria-label="מה להציג">' + Object.entries(FOCUS).filter(([k]) => focusOk(k)).map(([k, v]) => '<button data-focus="' + k + '" aria-pressed="' + (fc === k) + '">' + v + '</button>').join('') + '</div>' : '';
+  const sales = fc === 'sales' || fc === 'all', ops = fc === 'ops' || fc === 'all';
+  const out = { hero: '', money: '', suggest: '', funnel: '', stages: '', stats: [] };
+  /* ── לטיפול עכשיו ── */
+  if (sales) {
     const L0 = live(S.leads).filter((l) => (!mine || l.resp === S.myKey) && (S.division === 'all' || leadDiv(l) === S.division) && canSeeDiv(leadDiv(l)));
-    const fresh = L0.filter((l) => (l.stage || 'new') === 'new' && !l.dupOf).length, due = L0.filter((l) => leadDue(l, t0)).length;
+    const freshL = L0.filter((l) => (l.stage || 'new') === 'new' && !l.dupOf).sort((a, b) => leadAt(b).localeCompare(leadAt(a)));
+    const dueL = L0.filter((l) => leadDue(l, t0) && !freshL.includes(l)).sort((a, b) => String(a.followUp).localeCompare(String(b.followUp)));
+    const fresh = freshL.length, due = L0.filter((l) => leadDue(l, t0)).length;
+    const top = [...freshL.slice(0, 2).map((l) => [l, 'wa']), ...dueL.slice(0, 2).map((l) => [l, 'call']), ...freshL.slice(2).map((l) => [l, 'call'])].slice(0, 4);
+    const row = ([l, k]) => '<div class="qrow">' + avaOf(l.name) + '<span class="qn"><button class="xlink" data-leadopen="' + esc(l.id) + '"><b>' + esc(l.name || normPhone(l.phone) || '—') + '</b></button>' +
+      '<small>' + esc([leadType(l) !== 'אחר' ? leadType(l) : leadChannel(l), k === 'wa' || (l.stage || 'new') === 'new' ? agoLabel(leadAt(l), t0) : leadStageLabel(l) + ' · מעקב ' + (l.followUp < t0 ? 'מ-' + dLabel(l.followUp).slice(0, 5) : 'להיום')].filter(Boolean).join(' · ')) + '</small></span>' +
+      '<span class="qst">' + leadPill(l) + '</span>' + leadActBtn(l, l.phone ? k : 'open', true) + '</div>';
+    out.hero = '<section class="dhero" aria-label="לטיפול עכשיו"><header>' + IC('flame') + '<b class="grow">לטיפול עכשיו</b>' + (fresh ? '<span class="pill open">חם</span>' : '') + '</header>' +
+      '<button class="dhnum" data-go="leads"><b class="num">' + fresh + '</b><span>לידים חדשים' + (due ? ' · ' + due + ' מעקבים שנקבעו להיום' : '') + '</span></button>' +
+      (top.length ? '<div class="qlist">' + top.map(row).join('') + '</div>' : '<p class="dhempty">אין לידים שמחכים לך עכשיו.</p>') +
+      '<button class="btn dhall" data-go="leads">לתור המלא ‹</button></section>';
+    out.stats.push(['לטיפול', fresh, 'leads'], ['מעקבים היום', due, 'leads']);
+  } else if (ops) {
+    const follow = ctx.follow;
+    out.hero = '<section class="dhero" aria-label="לקוחות שמחכים לך"><header>' + IC('flame') + '<b class="grow">לקוחות שמחכים לך</b></header>' +
+      '<button class="dhnum" data-go="clients"><b class="num">' + follow.length + '</b><span>מעקבים להיום · ' + ctx.cases.length + ' תיקים באחריותך</span></button>' +
+      (follow.length ? '<div class="qlist">' + follow.slice(0, 4).map((c) => '<div class="qrow">' + avaOf(c.name) + '<span class="qn"><button class="xlink" data-client="' + esc(c.id) + '"><b>' + esc(c.name) + '</b></button><small>' + esc(c.nextAction.text || '') + '</small></span>' +
+        (c.phone ? '<a class="btn small glass" href="tel:' + esc(normPhone(c.phone)) + '">' + IC('call') + 'חיוג</a>' : '<button class="btn small glass" data-client="' + esc(c.id) + '">פתח</button>') + '</div>').join('') + '</div>' : '<p class="dhempty">אין מעקבים להיום.</p>') +
+      '<button class="btn dhall" data-go="clients">לכל התיקים ‹</button></section>';
+    out.stats.push(['מעקבים היום', follow.length, 'clients'], ['תיקים שלך', ctx.cases.length, 'clients']);
+  }
+  /* ── משפך החודש ── */
+  if (sales) {
+    const T = convSnap(t0, t0, mine), M = convSnap(m0, t0, mine), base = M.in - M.credit;
     const typeRows = [...LEAD_TYPES, 'אחר'].map((t) => { const r = { in: 0, handled: 0, check: 0, signed: 0, paid: 0, collected: 0 };
       live(S.leads).forEach((l) => { const d = dayOf(l.createdAt); if (d < m0 || d > t0 || (LEAD_TYPES.includes(leadType(l)) ? leadType(l) : 'אחר') !== t || !canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division) || (mine && l.resp !== S.myKey)) return;
         const lv = convLevel(l); if (lv < 0) return; r.in++; if (lv >= 1) r.handled++; if (lv >= 2) r.check++; if (lv === 3) { r.signed++; const mm = leadRevenue(l); if (mm.collected > 0) { r.paid++; r.collected += mm.collected; } } });
       return [t, r]; }).filter(([, r]) => r.in);
     let spend = 0; if (money$ && !mine) { const G = convMonth(t0.slice(0, 7), t0); Object.values(G).forEach((g) => { spend += g.tot.spendC || g.tot.spendL || 0; }); spend = r2(spend); }
-    h += '<h3 class="sec">מכירות' + (mine ? ' — הלידים שלך' : '') + '</h3><div class="grid4 bento hero1 tall">' +
-      kpi('לטיפול עכשיו', '<span class="num">' + fresh + '</span>', 'חדשים' + (due ? ' · ועוד ' + due + ' מעקבים להיום' : ''), 'leads', fresh || due ? 'open' : '') +
-      kpi('היום', '<span class="num">' + T.in + '</span> נכנסו', 'טופלו ' + T.handled + ' · בדיקה ' + T.check + ' · חתמו ' + T.signed, 'leads') +
-      kpi('יחס המרה — החודש', pc(M.signed, M.handled), 'מטופל → חתימה · ' + M.signed + ' מתוך ' + M.handled + ' (נכנסו ' + (M.in - M.credit) + ')', 'leads', 'committed') +
-      kpi('בדיקה → חתימה', pc(M.signed, M.check), M.signed + ' מתוך ' + M.check + ' שהגיעו לבדיקה' + (money$ && M.paid ? ' · שילמו ' + M.paid + ' (' + plain(M.collected) + ')' : ''), 'leads') +
-      /* עיצוב v3 — משפך מחובר: אותם מספרים של החודש (M) ואותו pc(), אחוז ההמרה על כל חץ; כל שלב פותח את הלידים כמו הכרטיסים */
-      '<div class="funnel" role="group" aria-label="משפך החודש — מליד ועד כסף"><h3 class="sec">החודש · מליד ועד כסף · ' + mLabel(t0.slice(0, 7)) + '</h3><div class="fsteps">' +
-        [['נכנסו', M.in - M.credit, ''], ['טופלו', M.handled, pc(M.handled, M.in - M.credit)], ['בדיקה', M.check, pc(M.check, M.handled)], ['חתמו', M.signed, pc(M.signed, M.check), 'expected'], ...(money$ ? [['שילמו', M.paid, pc(M.paid, M.signed), 'actual']] : [])]
-          .map(([t, v, p, tone]) => (p ? '<span class="farrow num" aria-hidden="true">' + p + '</span>' : '') + '<button class="fstep' + (tone ? ' ' + tone : '') + '" data-go="leads" style="--p:' + (M.in - M.credit ? Math.min(100, Math.round(v / (M.in - M.credit) * 100)) : 0) + '%"' + (p ? ' aria-label="' + t + ' ' + v + ' · המרה ' + p + '"' : '') + '><span>' + t + '</span><b class="num">' + v + '</b></button>').join('') + '</div></div>' +
-      '</div>' +
-      (typeRows.length ? '<div class="scroll"><table><thead><tr><th>' + mLabel(t0.slice(0, 7)) + '</th><th>נכנסו</th><th>טופלו</th><th>בדיקה</th><th>חתמו</th><th>בדיקה → חתימה</th>' + (money$ ? '<th>שילמו</th>' : '') + '</tr></thead><tbody>' +
+    const steps = [['in', 'נכנסו', base, '', spend ? plain(spend) + ' שיווק' : 'היום ' + T.in, 'brand'], ['handled', 'טופלו', M.handled, pc(M.handled, base), 'היום ' + T.handled, 'violet'], ['check', 'בדיקה', M.check, pc(M.check, M.handled), 'היום ' + T.check, 'slate'],
+      ['signed', 'חתמו', M.signed, pc(M.signed, M.check), spend && M.signed ? plain(Math.round(spend / M.signed)) + ' לחתימה' : 'היום ' + T.signed, 'expected'], ...(money$ ? [['paid', 'שילמו', M.paid, pc(M.paid, M.signed), M.collected ? plain(M.collected) + ' נגבו' : 'מחתימות החודש', 'actual']] : [])];
+    out.funnel = '<div class="fcards">' + steps.map(([k, t, v, p, sub, tone]) => '<button class="fcard t-' + tone + '" data-go="leads" style="--p:' + (base ? Math.min(100, Math.round(v / base * 100)) : 0) + '%"' + (p ? ' aria-label="' + t + ' ' + v + ' · המרה ' + p + '"' : '') + '>' +
+      '<span class="fh">' + IC('f-' + k) + '<span>' + t + '</span></span><b class="num">' + v + '</b><small>' + esc(sub) + '</small><i class="fbar" aria-hidden="true"><i></i></i>' + (p ? '<span class="fconv num">המרה ' + p + '</span>' : '<span class="fconv num">בסיס</span>') + '</button>').join('') + '</div>' +
+      (typeRows.length ? '<details class="ftypes"><summary class="hint">לפי סוג ליד · ' + typeRows.length + '</summary><div class="scroll"><table><thead><tr><th>' + mLabel(t0.slice(0, 7)) + '</th><th>נכנסו</th><th>טופלו</th><th>בדיקה</th><th>חתמו</th><th>בדיקה → חתימה</th>' + (money$ ? '<th>שילמו</th>' : '') + '</tr></thead><tbody>' +
         typeRows.map(([t, r]) => '<tr><td class="wide">' + esc(t) + '</td><td class="num">' + r.in + '</td><td class="num">' + r.handled + ' <small class="hint">' + pc(r.handled, r.in) + '</small></td><td class="num">' + r.check + ' <small class="hint">' + pc(r.check, r.handled) + '</small></td><td class="num"><b>' + r.signed + '</b></td><td class="num"><b>' + pc(r.signed, r.check) + '</b></td>' + (money$ ? '<td class="num">' + r.paid + (r.collected ? ' <small class="hint">' + plain(r2(r.collected)) + '</small>' : '') + '</td>' : '') + '</tr>').join('') +
-        '</tbody></table></div>' : '') +
+        '</tbody></table></div></details>' : '') +
       (money$ && spend ? '<p class="hint" style="margin:6px 0 0">שיווק החודש: ' + plain(spend) + (M.signed ? ' · ' + plain(Math.round(spend / M.signed)) + ' לחתימה' : '') + (M.paid ? ' · ' + plain(Math.round(spend / M.paid)) + ' ללקוח שכבר שילם' : '') + ' — <button class="xlink" data-go="marketing">שיווק ←</button></p>' : '') +
-      '<p class="hint" style="margin:4px 0 0">הקבוצה = לידים שנכנסו היום / מתחילת החודש. "בדיקה" = הגיע לבדיקה (גם אם לא עבר). לזיכוי לא נספרים.</p>';
+      '<p class="hint" style="margin:4px 0 0">הקבוצה = לידים שנכנסו מתחילת החודש. "בדיקה" = הגיע לבדיקה (גם אם לא עבר). לזיכוי לא נספרים. יחס המרה מטופל → חתימה: ' + pc(M.signed, M.handled) + '.</p>';
+    out.stats.push(['בדיקה ← חתימה', pc(M.signed, M.check), 'leads']);
+    out.funnelHead = mLabel(t0.slice(0, 7)) + ' · מליד ועד כסף';
   }
-  if (fc === 'ops' || fc === 'all') {
+  /* ── איפה התיקים עומדים ── */
+  if (ops) {
     const open = live(S.clients).filter((c) => c.status === 'open' && inDiv(c) && c.division !== 'realestate');
     const groups = {}; open.forEach((c) => { const ty = procType(c), st = procSteps(c), cur = procCur(c), lab = (st.find((x) => x[0] === cur) || [])[1] || cur; const g = (groups[ty] = groups[ty] || {}); g[lab] = g[lab] || { n: 0, i: procIdx(c, cur) }; g[lab].n++; });
     const stuck = stuckFiles().filter((c) => c.division !== 'realestate'), dan = open.filter((c) => (fileOf(c.id) || {}).needsDan);
     const appr = open.filter((c) => c.apprSurvey && Object.keys(c.apprSurvey.sent || {}).length && !c.apprSurvey.chosen);
-    h += '<h3 class="sec">תפעול — איפה התיקים עומדים</h3><div class="grid4 bento' + (fc === 'ops' ? ' hero1' : '') + '">' +
-      kpi('תיקים פתוחים', '<span class="num">' + open.length + '</span>', 'בתהליך', 'clients') +
-      kpi('תקועים', '<span class="num">' + stuck.length + '</span>', '3 ימי עבודה בלי תזוזה', 'clients', stuck.length ? 'open' : '') +
-      kpi('לאישור דן', '<span class="num">' + dan.length + '</span>', 'מחכים להחלטה', 'clients', dan.length ? 'expected' : '') +
-      kpi('שמאויות בסקר', '<span class="num">' + appr.length + '</span>', 'נשלח לשמאים, עוד לא נבחר', 'clients') +
-      '</div>' +
-      /* עיצוב v3 — תיקים לפי שלב: עמודה לכל שלב, הגובה לפי מספר התיקים (אותו מספר ואותו מעבר ללוח הלקוחות) */
-      Object.entries(groups).map(([ty, g], _i, all) => { const top = Math.max(1, ...all.flatMap(([, gg]) => Object.values(gg).map((x) => x.n))); /* סקלה אחת לכל התהליכים — תיק אחד לא נראה כמו שלושה */
-        return '<div class="stages"><b class="stt">' + esc((PROC[ty] || {}).label || ty) + '</b><div class="stbars">' +
-        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar' + (x.n === top ? ' top' : '') + '" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><i aria-hidden="true"></i><b class="num">' + x.n + '</b><span>' + esc(lab) + '</span></button>').join('') + '</div></div>'; }).join('');
+    const all = Object.entries(groups), top = Math.max(1, ...all.flatMap(([, gg]) => Object.values(gg).map((x) => x.n)));
+    out.stages = (all.length ? all.map(([ty, g]) => '<div class="stages">' + (all.length > 1 ? '<b class="stt">' + esc((PROC[ty] || {}).label || ty) + '</b>' : '') + '<div class="stbars">' +
+        Object.entries(g).sort((a, b) => a[1].i - b[1].i).map(([lab, x]) => '<button class="stbar' + (x.n === top ? ' top' : '') + '" data-go="clients" title="לוח הלקוחות" style="--h:' + Math.round(x.n / top * 100) + '%"><b class="num">' + x.n + '</b><i aria-hidden="true"></i><span>' + esc(lab) + '</span></button>').join('') + '</div></div>').join('')
+      : '<p class="empty">אין תיקים פתוחים בתהליך.</p>') +
+      '<div class="stchips">' + [['פתוחים', open.length, ''], ['תקועים', stuck.length, stuck.length ? 'open' : ''], ['לאישור דן', dan.length, dan.length ? 'expected' : ''], ['שמאויות בסקר', appr.length, '']]
+        .map(([t, v, tone]) => '<button class="chip stc' + (tone ? ' ' + tone : '') + '" data-go="clients"><b class="num">' + v + '</b> ' + t + '</button>').join('') + '</div>';
+    out.stuck = stuck; out.appr = appr;
   }
+  /* ── כסף: נכנס בפועל · צפי סגירה ── */
   if (fc === 'all' && S.isOwner) {
-    const m = t0.slice(0, 7), open = (S.settings.monthOpen || {})[m], got = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + cashIn(t), 0));
-    const rest = monthExpect(m).filter((i) => i.date >= t0 || i.late), close = r2(got + rest.reduce((a, i) => a + i.amount, 0)), und = forecastItems(70).undated.reduce((a, i) => a + i.amount, 0);
-    /* עיצוב v3 — פס מפולח מאותם שלושה מספרים של הכרטיסים למטה (נכנס בפועל · עוד צפוי עד סגירה · פתוח בלי תאריך); קישוט — המספרים והפירוט בכרטיסים */
-    const seg3 = [['actual', got], ['committed', close - got], ['expected', und]].filter(([, v]) => v > 0);
-    h += '<h3 class="sec">כסף — ' + mLabel(m) + '</h3>' + (seg3.length ? '<div class="segbar" aria-hidden="true">' + seg3.map(([k, v]) => '<i class="' + k + '" style="flex:' + v + '"></i>').join('') + '</div>' : '') + '<div class="grid4">' +
-      kpi('פתחנו את החודש עם', open ? money(open.total, { tone: 'committed' }) : '—', open ? 'נרשם ' + dLabel(dayOf(open.at)) : 'נרשם בפתיחת מסך הצפי', 'money:forecast') +
-      kpi('נכנס בפועל', money(got, { tone: 'actual' }), open && open.total ? pct(got, open.total) + '% מהצפי' : '', 'money:forecast') +
-      kpi('צפי סגירה', money(close, { tone: 'committed' }), 'בלי "לא לבנות על זה"', 'money:forecast') +
-      kpi('פתוח בלי תאריך', money(und, { tone: 'expected' }), 'קבע צפי בכרטיס הלקוח', 'money:forecast') + '</div>';
+    const m = t0.slice(0, 7), open = (S.settings.monthOpen || {})[m], tx = live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)), got = r2(tx.reduce((a, t) => a + cashIn(t), 0));
+    const rest = monthExpect(m).filter((i) => i.date >= t0 || i.late), close = r2(got + rest.reduce((a, i) => a + i.amount, 0)), F = forecastItems(70), und = F.undated.reduce((a, i) => a + i.amount, 0);
+    /* גרף: נכנס מצטבר לפי יום בחודש — אותן תנועות של "נכנס בפועל" */
+    const days = Number(t0.slice(8, 10)), cum = []; let acc = 0; for (let k = 1; k <= days; k++) { const d = m + '-' + String(k).padStart(2, '0'); acc += tx.filter((t) => t.date === d).reduce((a, t) => a + cashIn(t), 0); cum.push(acc); }
+    const mx = Math.max(1, acc), W = 220, H = 64, pts = cum.map((v, i) => [cum.length > 1 ? i / (cum.length - 1) * W : W, H - 4 - v / mx * (H - 10)]);
+    const path = pts.length ? 'M' + pts.map((p) => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L') : '';
+    const chart = got > 0 && pts.length > 1 ? '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true"><path class="sa" d="' + path + ' L' + W + ' ' + H + ' L0 ' + H + ' Z"/><path class="sl" d="' + path + '"/><circle class="sd" cx="' + pts[pts.length - 1][0].toFixed(1) + '" cy="' + pts[pts.length - 1][1].toFixed(1) + '" r="3.5"/></svg>' : '';
+    const seg3 = [['actual', got, 'נכנס'], ['committed', close - got, 'צפוי'], ['expected', und, 'פתוח בלי תאריך']].filter(([, v]) => v > 0);
+    const K = (v) => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : String(Math.round(v));
+    out.money = '<button class="card dmc" data-go="money:forecast"><span class="dmh">' + IC('wallet') + '<span class="grow">נכנס בפועל</span>' + (open && open.total ? '<span class="pill actual">' + pct(got, open.total) + '% מהצפי</span>' : '') + '</span>' +
+        '<span class="dmv">' + money(got, { tone: 'actual' }) + chart + '</span><small class="hint">' + tx.length + ' תקבולים החודש</small></button>' +
+      '<button class="card dmc" data-go="money:forecast"><span class="dmh">' + IC('trend') + '<span class="grow">צפי סגירת החודש</span><span class="pill committed">לפי ודאות</span></span>' +
+        '<span class="dmv">' + money(close, { tone: 'committed' }) + '</span>' + (seg3.length ? '<span class="segbar" aria-hidden="true">' + seg3.map(([k, v]) => '<i class="' + k + '" style="flex:' + v + '"></i>').join('') + '</span>' : '') +
+        '<span class="dleg">' + [['actual', got, 'נכנס'], ['committed', close - got, 'צפוי'], ['expected', und, 'פתוח בלי תאריך']].map(([k, v, t]) => '<span><i class="' + k + '"></i>' + t + ' <b class="num">' + K(v) + '</b></span>').join('') + '</span>' +
+        '<small class="hint">' + (open ? 'פתחנו את החודש עם ' + plain(open.total) + ' · ' : '') + 'בלי "לא לבנות על זה"</small></button>';
+    out.undated = F.undated;
   }
-  return '<section class="card"><header><h2>' + (fc === 'sales' ? 'המכירות שלך' : fc === 'ops' ? 'התפעול' : 'תמונת מצב') + '</h2><span class="grow"></span>' + seg + '</header>' + h + '</section>';
+  /* ── Claude מציע: כללים קבועים מהנתונים שכבר על המסך. אין כאן AI ── */
+  const sg = [];
+  if (S.isOwner && out.undated) { const u = [...out.undated].filter((i) => i.cid && i.amount > 0).sort((a, b) => b.amount - a.amount)[0]; if (u) sg.push(['לקבוע צפי ל' + (cname(u.cid) || 'לקוח') + ' — ' + plain(u.amount) + ' פתוחים בלי תאריך', 'קבע', 'data-client="' + esc(u.cid) + '"']); }
+  if (out.appr && out.appr.length) { const c = out.appr[0], k = Object.keys(c.apprSurvey.sent || {}).length; sg.push(['שמאות ל' + c.name + ' — נשלח ל-' + k + ' שמאים, עוד לא נבחר', 'בחר', 'data-client="' + esc(c.id) + '"']); }
+  if (sales && S.can('leads')) { const cm = {}; live(S.leads).forEach((l) => { if (dayOf(l.createdAt) < m0 || !canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division) || !l.campaign) return; const r = (cm[l.campaign] = cm[l.campaign] || { n: 0, s: 0 }); r.n++; if (leadSigned(l)) r.s++; });
+    const bad = Object.entries(cm).filter(([, r]) => r.n >= 10 && !r.s).sort((a, b) => b[1].n - a[1].n)[0];
+    if (bad) sg.push(['קמפיין ' + bad[0] + ': ' + bad[1].n + ' לידים החודש, 0 חתימות — כדאי לבדוק', 'פתח', S.can('marketing') ? 'data-go="marketing"' : 'data-go="leads"']); }
+  if (out.stuck && out.stuck.length && sg.length < 3) { const c = out.stuck[0]; sg.push(['התיק של ' + c.name + ' לא זז 3 ימי עבודה' + (c.nextAction && c.nextAction.text ? ' — ' + c.nextAction.text : ''), 'פתח', 'data-client="' + esc(c.id) + '"']); }
+  if (ctx.overdue.length && sg.length < 3) sg.push([ctx.overdue.length + ' משימות שלך באיחור — הוותיקה: ' + ctx.overdue[0].title, 'למשימות', 'data-go="tasks:late"']);
+  out.suggest = '<section class="card dsug"><header>' + IC('spark') + '<span class="grow"><h2>Claude מציע</h2><small class="hint">הצעד הבא — אתה מאשר</small></span><span class="pill violet">כללים קבועים</span></header>' +
+    (sg.length ? '<ol>' + sg.slice(0, 3).map(([t, b, a], i) => '<li><span class="sgn num">' + (i + 1) + '</span><span class="grow">' + esc(t) + '</span><button class="btn small soft" ' + a + '>' + b + '</button></li>').join('') + '</ol>' : '<p class="empty">אין הצעות כרגע — הכל מטופל.</p>') + '</section>';
+  out.seg = seg; out.fc = fc;
+  return out;
+}
+/* מה קרה היום — מהיומנים שכבר נשמרים: לידים שנכנסו, יומן לקוח, משימות שבוצעו, תקבולים */
+function dayFeed() {
+  const t0 = today(), ev = [], seeL = !S.can || S.can('leads'), seeC = !S.can || S.can('clients');
+  if (seeL) live(S.leads).forEach((l) => { if (!canSeeDiv(leadDiv(l)) || (S.division !== 'all' && leadDiv(l) !== S.division) || (S.isCenter && l.resp !== S.myKey)) return;
+    if (dayOf(l.createdAt) === t0) ev.push([leadAt(l), 'lead', 'נכנס ליד · ' + (l.campaign || leadChannel(l) || ''), 'data-leadopen="' + esc(l.id) + '"', l.name]);
+    (l.log || []).forEach((x) => { if (x && !x.auto && dayOf(x.at) === t0) ev.push([x.at, 'note', (l.name || 'ליד') + ' · ' + String(x.text || '').slice(0, 80), 'data-leadopen="' + esc(l.id) + '"']); }); });
+  if (seeC) live(S.clients).forEach((c) => { if (!inDiv(c)) return; (c.log || []).forEach((x) => { if (x && dayOf(x.at) === t0) ev.push([x.at, 'client', c.name + ' · ' + String(x.text || '').slice(0, 80), 'data-client="' + esc(c.id) + '"']); }); });
+  live(S.tasks).forEach((t) => { if (t.status === 'done' && dayOf(t.doneAt) === t0 && (S.isOwner || isMyTask(t, S.me.id))) ev.push([t.doneAt, 'done', 'בוצע: ' + t.title, 'data-go="tasks"']); });
+  if (S.can('money')) live(S.transactions).forEach((t) => { if (t.nature === 'income' && t.date === t0 && inDiv(t)) ev.push([t.createdAt || t0, 'pay', 'נכנס תקבול · ' + plain(cashIn(t)) + (cname(t.clientId) || t.counterparty ? ' · ' + (cname(t.clientId) || t.counterparty) : ''), 'data-go="money"']); });
+  ev.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+  return '<section class="card dfeed"><header><h2 class="grow">מה קרה היום</h2><span class="live"><i></i>חי</span></header>' +
+    (ev.length ? '<ol>' + ev.slice(0, 7).map(([at, k, t, a, nm]) => '<li><span class="fi fi-' + k + '">' + IC(k === 'lead' ? 'f-in' : k === 'done' ? 'check' : k === 'pay' ? 'wallet' : k === 'client' ? 'spark' : 'note') + '</span><button class="fl2" ' + a + '><span>' + esc(t) + (nm && k === 'lead' ? ' · ' + esc(nm) : '') + '</span><small class="num">' + (String(at).length > 10 ? hm(at) : '') + '</small></button></li>').join('') + '</ol>' + (ev.length > 7 ? '<p class="hint">ועוד ' + (ev.length - 7) + ' היום</p>' : '')
+      : '<p class="empty">עוד לא קרה כלום היום.</p>') + '</section>';
 }
 function vDay() {
   const me = S.me.id, t0 = today();
@@ -1496,35 +1770,45 @@ function vDay() {
   if (!me) return '<h1>היום שלי</h1><div class="notice warn"><b>אין זיהוי</b><span>כדי לנהל יום עבודה אישי, פתח את הדף מחובר לחשבון claude.ai שלך.</span></div>';
 
   const myName = (S.loginAs && S.loginAs.label) || S.me.name || '';
-  const head = '<div class="dayhead"><div class="grow"><div class="big">' + greet + (myName ? ', ' + esc(myName.split(' ')[0]) : '') + '</div>' +
-    '<div class="hint">' + new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date()) +
-    (d && d.openedAt ? ' · היום נפתח ב-' + new Date(d.openedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '') +
-    (d && d.closedAt ? ' · נסגר ב-' + new Date(d.closedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '') + '</div></div>' +
-    (!d || !d.openedAt ? (S.canTask ? '<button class="btn go" data-act="openDay">פתיחת יום</button>' : '') :
+  const dateTxt = new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+  const dayBtns = (!d || !d.openedAt ? (S.canTask ? '<button class="btn go" data-act="openDay">פתיחת יום</button>' : '') :
      !d.closedAt ? (S.canTask ? '<button class="btn primary" data-act="closeDay">סגירת יום</button>' : '') :
      '<span class="pill actual">היום נסגר' + (d.emailed ? ' · הסיכום נשלח' : '') + '</span>' + (S.canTask ? '<button class="btn small ghost" data-act="closeDay">לסגור שוב</button>' : '')) +
-    (S.canTask ? '<button class="btn small ghost" data-act="mailMorning" title="אותו מייל שנשלח אוטומטית ב-08:00">תקציר בוקר למייל</button>' : '') + '</div>';
+    (S.canTask ? '<button class="btn small ghost" data-act="mailMorning" title="אותו מייל שנשלח אוטומטית ב-08:00">תקציר בוקר למייל</button>' : '');
+  const dayTimes = (d && d.openedAt ? 'היום נפתח ב-' + new Date(d.openedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '') +
+    (d && d.closedAt ? ' · נסגר ב-' + new Date(d.closedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '');
+  const head = '<div class="dayhead"><div class="grow"><h1 class="big">' + greet + (myName ? ', ' + esc(myName.split(' ')[0]) : '') + '</h1>' +
+    '<div class="dchips"><span class="chip dc">' + IC('cal') + esc(dateTxt) + '</span>' + (dayTimes ? '<span class="chip dc">' + esc(dayTimes) + '</span>' : '') + '<!--DCHIPS--></div></div>' + dayBtns + '</div>';
 
   if (S.f.closeStep) return head + vDayClose(cases, tasks);
-  const focus = focusPanel();
-
+  const B = dayBoard({ follow, cases, overdue });
+  const casesOpen = S.isCenter ? '' : money(cases.reduce((a, c) => a + clientMoney(c).open, 0), { tone: 'expected' });
+  /* שבבי סטטוס בכותרת = ארבעת המספרים של היום (באיחור · להיום · תיקים · בוצע) — כל אחד פותח את מה שמרכיב אותו */
+  const chips = '<span class="dchips st">' +
+    '<button class="chip dc' + (overdue.length ? ' open' : '') + '" data-go="' + (overdue.length ? 'tasks:late' : 'tasks') + '">' + IC('alert') + '<b class="num">' + overdue.length + '</b> משימות באיחור</button>' +
+    '<button class="chip dc" data-go="tasks"><b class="num">' + dueToday.length + '</b> ' + (dueToday.length ? 'משימות להיום' : 'אין יעדים להיום') + '</button>' +
+    '<button class="chip dc"' + (S.isCenter ? '' : ' data-go="clients"') + '><b class="num">' + cases.length + '</b> תיקים באחריותך' + (casesOpen ? ' · ' + casesOpen + ' פתוח לגביה' : '') + '</button>' +
+    '<span class="chip dc' + (doneToday.length ? ' actual' : '') + '">' + IC('check') + '<b class="num">' + doneToday.length + '</b> בוצעו היום</span></span>';
+  const sigOk = typeof formsOk === 'function' && formsOk();
+  const qacts = S.canTask ? '<nav class="qacts" aria-label="פעולות מהירות">' + [['newLead', 'ליד חדש', 'lead', 'הוספה ידנית'], ['newCall', 'תיעוד שיחה', 'call', 'שיחת מכירה ביומן'], ['newTask', 'משימה חדשה', 'task', (overdue.length + dueToday.length + later.length) + ' פתוחות' + (overdue.length ? ' · ' + overdue.length + ' באיחור' : '')], ...(sigOk ? [['', 'שליחה לחתימה', 'sign', 'בחר לקוח']] : [])]
+    .map(([a, t, k, sub]) => '<button type="button" class="qact q-' + k + '" ' + (a ? 'data-act="' + a + '"' : 'data-tab="forms"') + '><i aria-hidden="true"></i><span class="qt"><b>' + t + '</b><small>' + esc(sub) + '</small></span><span class="qchev" aria-hidden="true"></span></button>').join('') + '</nav>' : '';
+  /* נייד: כותרת כהה עם שלושת המספרים של המשתמש (כמו בקנבס) */
+  const phead = '<div class="phead" aria-hidden="false"><div class="phtop">' + avaOf(myName) + '<span class="grow"><small>' + esc(dateTxt) + '</small><b>' + greet + (myName ? ', ' + esc(myName.split(' ')[0]) : '') + '</b></span></div>' +
+    (B.stats.length ? '<div class="phstats">' + B.stats.slice(0, 3).map(([t, v, go]) => '<button data-go="' + go + '"><b class="num">' + v + '</b><span>' + t + '</span></button>').join('') + '</div>' : '') + '</div>';
   const taskRow = (t) => { const c = t.clientId && S.clients.get(t.clientId);
     return '<label class="check" style="border-inline-start:4px solid ' + prioVar(t) + '"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + (t.time ? '<span class="hint num">' + esc(t.time) + '</span> ' : '') + esc(t.title) +
       (c ? ' · <button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '') + '</span>' +
       (t.priority === 'urgent' || t.priority === 'high' ? '<span class="pill open">' + L.priority[t.priority] + '</span>' : '') +
       '<span class="hint num">' + dLabel(t.due) + '</span></label>'; };
-  /* עיצוב v3 — פעולות מהירות: אותן פעולות קיימות כמו "הוספה מהירה" (אין פעולת "שליחה לחתימה" כללית — נשארה בכרטיס הלקוח) */
-  const qacts = S.canTask ? '<nav class="qacts" aria-label="פעולות מהירות">' + [['newLead', 'ליד חדש', 'lead'], ['newCall', 'שיחת מכירה', 'call'], ['newTask', 'משימה', 'task']]
-    .map(([a, t, k]) => '<button type="button" class="qact q-' + k + '" data-act="' + a + '"><i aria-hidden="true"></i><span>' + t + '</span></button>').join('') + '</nav>' : '';
-  return head + qacts + focus +
-    '<div class="grid4">' +
-      kpi('משימות באיחור', '<span class="num">' + overdue.length + '</span>', 'עליך, מלפני היום' + (overdue.length ? ' · לחץ לכרטיסים' : ''), overdue.length ? 'tasks:late' : null, overdue.length ? 'open' : '') +
-      kpi('להיום', '<span class="num">' + dueToday.length + '</span>', dueToday.length ? 'משימות עם יעד היום' : 'אין יעדים להיום', null) +
-      kpi('תיקים באחריותך', '<span class="num">' + cases.length + '</span>', S.isCenter ? 'תיקים שמשויכים אליך' : money(cases.reduce((a, c) => a + clientMoney(c).open, 0), { tone: 'expected' }) + ' פתוח לגביה', S.isCenter ? null : 'clients') +
-      kpi('בוצע היום', '<span class="num">' + doneToday.length + '</span>', 'משימות שסימנת כבוצעו', null, doneToday.length ? 'actual' : '') +
-    '</div>' +
-    (S.can('money') ? '<div class="grid2">' + kpi('נכנס היום', money(dm.income, { tone: dm.income ? 'actual' : 'muted' }), dm.incomeRows.length ? dm.incomeRows.map((t) => esc(cname(t.clientId) || t.counterparty || '')).join(' · ') : 'עוד לא נכנס כסף היום', null) +
-      kpi('פוטנציאל שנחתם היום', money(dm.potential, { tone: dm.potential ? 'expected' : 'muted' }), dm.signed.length ? dm.signed.map((c) => esc(c.name)).join(' · ') : 'אין החתמות היום — תאריך חתימה נקבע בכרטיס', null) + '</div>' : '') +
+  const funnelCard = B.funnel ? '<section class="card dfun"><header><span class="grow"><h2>' + B.funnelHead + '</h2><small class="hint">כל שלב מול מה שנכנס בתחילת התהליך</small></span>' + B.seg + '</header>' + B.funnel + '</section>' : '';
+  const stagesCard = B.stages ? '<section class="card dstg"><header><span class="grow"><h2>איפה התיקים עומדים</h2><small class="hint">תיקים פתוחים לפי שלב</small></span>' + (B.funnel ? '' : B.seg) + '</header>' + B.stages + '</section>' : '';
+  const feed = dayFeed();
+  const dmTiles = S.can('money') ? '<div class="dmini">' + kpi('נכנס היום', money(dm.income, { tone: dm.income ? 'actual' : 'muted' }), dm.incomeRows.length ? dm.incomeRows.map((t) => esc(cname(t.clientId) || t.counterparty || '')).join(' · ') : 'עוד לא נכנס כסף היום', null) +
+      kpi('פוטנציאל שנחתם היום', money(dm.potential, { tone: dm.potential ? 'expected' : 'muted' }), dm.signed.length ? dm.signed.map((c) => esc(c.name)).join(' · ') : 'אין החתמות היום — תאריך חתימה נקבע בכרטיס', null) + '</div>' : '';
+  return '<div class="vday">' + phead + head.replace('<!--DCHIPS-->', chips) + qacts +
+    '<div class="dgrid12">' + (B.hero ? '<div class="c5">' + B.hero + '</div>' : '') + '<div class="' + (B.hero ? 'c7' : 'c12') + ' dside">' + (B.money ? '<div class="dmoney">' + B.money + '</div>' : '') + B.suggest + '</div></div>' +
+    funnelCard + (!B.funnel && !B.stages && B.seg ? '<div class="row">' + B.seg + '</div>' : '') +
+    '<div class="dgrid12">' + (stagesCard ? '<div class="c7">' + stagesCard + '</div>' : '') + '<div class="' + (stagesCard ? 'c5' : 'c12') + '">' + feed + dmTiles + '</div></div>' +
     attCard() + attLive() + calTodayCard() + birthdaysCard() + dayExtras() +
     (rem.length ? '<section class="card"><header><h2>תזכורות יומיות</h2><span class="pill open">' + rem.length + '</span><span class="hint">חוזרות כל יום עד שמסמנים בכרטיס</span></header>' +
       rem.map((x) => '<div class="check"><span class="grow"><button class="xlink" data-client="' + esc(x.c.id) + '">' + esc(x.c.name) + '</button> — ' + esc(x.text) + '</span><span class="pill ' + (x.kind === 'fund' ? 'open' : 'expected') + '">' + (x.kind === 'fund' ? 'קרן' : 'פעימה') + '</span></div>').join('') + '</section>' : '') +
@@ -1543,7 +1827,7 @@ function vDay() {
       '</section>' +
     '</div>' +
     '<section class="card"><header><h2>התיקים שלך — איפה כל אחד עומד</h2><span class="hint">הצעד הבא נקבע בסגירת היום</span></header>' + clientTable(cases.sort((a, b) => clientMoney(b).open - clientMoney(a).open), true) + '</section>' +
-    (S.isCenter ? '' : '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span><button class="btn small ghost" data-go="settings">ניהול ←</button></header>' + linksBlock(true) + '</section>');
+    (S.isCenter ? '' : '<section class="card"><header><h2>מערכות החברה</h2><span class="grow"></span><button class="btn small ghost" data-go="settings">ניהול ←</button></header>' + linksBlock(true) + '</section>') + '</div>';
 }
 
 function vDayClose(cases, tasks) {
