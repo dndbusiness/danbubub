@@ -19,6 +19,8 @@ const Field = z.union([z.string().max(2000), z.number(), z.null()])
 const Signer = z.object({
   label: z.string().min(1).max(60), name: z.string().max(200).nullish(), email: z.string().max(200).nullish(), phone: z.string().max(40).nullish(),
   requireOtp: z.boolean().optional(), fields: z.record(z.string(), Field).optional(),
+  // מה שמולא מכרטיס הלקוח (שם, ת"ז, שדות טקסט בטופס) — הצעה שהחותם רואה ויכול לתקן
+  prefill: z.object({ name: z.string().max(200).nullish(), idNumber: z.string().max(20).nullish(), values: z.record(z.string(), z.string().max(400)).optional() }).optional(),
 })
 const Create = z.object({
   clientDoc: z.string().min(1).max(200).regex(/^[^/]+$/),
@@ -37,6 +39,8 @@ const Create = z.object({
   email: z.string().max(200).nullish(), phone: z.string().max(40).nullish(),
   expiresDays: z.number().int().min(1).max(60).nullish(),
   allowMissing: z.boolean().optional(),
+  notes: z.string().max(4000).nullish(),
+  sentBy: z.string().max(80).nullish(),
 })
 
 export async function GET(req: Request) {

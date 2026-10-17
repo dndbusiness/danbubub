@@ -107,6 +107,7 @@ node scripts/e2e-wise.mjs        # שלב 8: ייבוא WISE → ערוץ אוט
 node scripts/e2e-payroll.mjs     # שלב 8b: הסכם → קלט → תחשיב עם הסבר → אישור → דוח לרו"ח → תשלום
 node scripts/e2e-ops.mjs         # שלב 9: משימות → שאלה לשותף → תשובה מהנייד → קישורים → סגירה אוטומטית
 node scripts/e2e-sign-pdf.mjs    # טפסים מ-PDF: העלאה ואיחוד → תבנית → שני לווים חותמים על הטופס → PDF חתום + תיעוד → מתעניין → מחיקה
+node scripts/e2e-sign-prefill.mjs # חתימות: מילוי מהתיק → ★ שליחה מהירה + הערות → קישור/וואטסאפ/מייל → החותם רואה הכל ממולא → ת"ז שונה = ⚠️ → עמוד תיעוד מלא
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup

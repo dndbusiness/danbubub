@@ -30,7 +30,23 @@ export interface PdfField {
   label?: string
   /** טקסט / תיבת סימון: חובה למלא? (חתימה, שם, ת"ז ותאריך — תמיד) */
   required?: boolean
+  /** טקסט: מילוי אוטומטי מכרטיס הלקוח (PREFILL_KEYS) — החותם רואה את הערך ויכול לתקן; "notes" — ההערות של השולח, לקריאה בלבד */
+  src?: PrefillKey
 }
+
+/**
+ * מאיפה שדה טקסט בטופס מתמלא מראש (דן, 17/10: "השם, ת"ז, המייל, כל הפרטים שכבר ישנם — יוצמדו לטופס").
+ * signer_* — של החותם שהשדה שייך לו (לווה 1 = הלקוח, לווה 2 = בן/בת הזוג…). השאר — מהתיק.
+ * הערכים מחושבים בדף (מהכרטיס) ונשלחים עם המסמך; השרת רק מנקה ושומר.
+ */
+export const PREFILL_KEYS = {
+  signer_email: 'מייל החותם', signer_phone: 'טלפון החותם', signer_address: 'כתובת החותם',
+  client_name: 'שם הלקוח (לווה 1)', client_id: 'ת״ז הלקוח (לווה 1)', spouse_name: 'שם בן/בת הזוג', spouse_id: 'ת״ז בן/בת הזוג',
+  company: 'שם החברה', amount: 'סכום הבקשה', fee: 'שכר טרחה', service: 'השירות',
+  car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור',
+  notes: 'הערות השולח (לקריאה בלבד)',
+} as const
+export type PrefillKey = keyof typeof PREFILL_KEYS
 
 export interface PageSize { w: number; h: number }
 
@@ -66,6 +82,7 @@ export function cleanField(raw: unknown): PdfField | null {
   if (!f.id || ![f.page, f.x, f.y, f.w, f.h, f.signer].every(Number.isFinite)) return null
   if (r.label != null && String(r.label).trim()) f.label = String(r.label).trim().slice(0, 60)
   if ((kind === 'text' || kind === 'checkbox') && r.required === true) f.required = true
+  if (kind === 'text' && typeof r.src === 'string' && r.src in PREFILL_KEYS) f.src = r.src as PrefillKey
   return f
 }
 
@@ -101,10 +118,12 @@ export function signerInputs(fields: PdfField[], signer: number): PdfField[] {
 }
 
 /** בדיקת הערכים שהחותם מילא. מחזיר את הערכים הנקיים (רק השדות שלו). */
-export function checkSignerValues(fields: PdfField[], signer: number, raw: unknown): { values: Record<string, string>; errors: string[] } {
+export function checkSignerValues(fields: PdfField[], signer: number, raw: unknown, notes = ''): { values: Record<string, string>; errors: string[] } {
   const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const values: Record<string, string> = {}, errors: string[] = []
   for (const f of signerInputs(fields, signer)) {
+    // ההערות של השולח — לא בידי החותם: נכתב מה שנשלח, גם אם הדפדפן שלח משהו אחר
+    if (f.src === 'notes') { if (notes) values[f.id] = notes.slice(0, 200); continue }
     const v = f.kind === 'checkbox' ? (src[f.id] === true || src[f.id] === 'on' || src[f.id] === '1' ? '1' : '') : String(src[f.id] ?? '').trim().slice(0, 200)
     if (v) values[f.id] = v
     else if (f.required) errors.push(f.kind === 'checkbox' ? `נא לסמן: ${f.label ?? 'תיבת הסימון'}` : `נא למלא: ${f.label ?? 'שדה טקסט'}`)

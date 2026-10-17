@@ -6,7 +6,7 @@
  * טופס PDF בדף החותם: העמודים מוצגים עם pdf.js, השדות של החותם מסומנים וממולאים בזמן אמת
  * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
-import { groupByDocument, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, type SignState } from '@/lib/rules/sign'
+import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, type SignState } from '@/lib/rules/sign'
 import { FIELD_KINDS, fieldsOf, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
@@ -41,6 +41,7 @@ input[type=text]{width:100%;font:inherit;padding:10px 12px;border:1px solid var(
 .fld.other{border:1px dashed #9CA3AF;background:rgba(156,163,175,.10);color:#6B7280;font-weight:400}
 .fld.filled{background:rgba(22,163,74,.08);border-color:#16A34A}.fld img{max-width:100%;max-height:100%}
 .fld .t{white-space:nowrap;direction:rtl;padding:0 2px}
+.pre{font-size:12px;color:var(--text-2);margin-top:-2px}.notes{white-space:pre-wrap}
 .who{display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-size:13px;margin-top:6px}
 `
 
@@ -66,17 +67,24 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   const pdf = opts.pdf ?? null
   const mine = pdf ? fieldsOf(pdf.fields, row.signer_order) : []
   const inputs = pdf ? signerInputs(pdf.fields, row.signer_order) : []
+  // מה שמולא מראש מהתיק (דן, 17/10) — החותם רואה, בודק ומתקן אם צריך; ההערות של השולח — לקריאה בלבד
+  const pre = row.fields?.['@prefill'] ?? {}, notes = String(row.fields?.['@notes'] ?? '')
+  const preHint = '<div class="pre">מולא מראש מהתיק — נא לבדוק, ולתקן אם צריך</div>'
   const pdfHtml = pdf ? `<div class="card"><div class="row" style="justify-content:space-between"><b>המסמך</b><span class="hint">${pdf.pages.length} עמודים · ${mine.length} שדות שלך מסומנים בכתום</span></div>
     <div class="pages" id="pages" style="margin-top:10px">${pdf.pages.map((p, i) => `<div class="pg" data-pg="${i}" style="aspect-ratio:${p.w}/${p.h}"><canvas></canvas>${pdf.fields.filter((f) => f.page === i).map((f) =>
       `<div class="fld${f.signer === row.signer_order ? '' : ' other'}" data-f="${esc(f.id)}" data-k="${f.kind}" style="left:${(f.x * 100).toFixed(3)}%;top:${(f.y * 100).toFixed(3)}%;width:${(f.w * 100).toFixed(3)}%;height:${(f.h * 100).toFixed(3)}%"><span class="t">${esc(f.signer === row.signer_order ? f.label || FIELD_KINDS[f.kind] : 'לווה ' + f.signer)}</span></div>`).join('')}</div>`).join('')}</div>
     <p class="hint" id="pdfFallback" style="display:none">התצוגה לא נטענה. <a href="/api/s/${encodeURIComponent(token)}/file" target="_blank" rel="noopener">פתיחת המסמך</a></p></div>` : ''
   const inputsHtml = inputs.map((f) => f.kind === 'checkbox'
     ? `<label class="check"><input type="checkbox" data-fid="${esc(f.id)}"><span>${esc(f.label || 'אישור')}${f.required ? ' *' : ''}</span></label>`
-    : `<label for="v_${esc(f.id)}">${esc(f.label || 'טקסט')}${f.required ? ' *' : ''}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" maxlength="200">`).join('')
+    : f.src === 'notes'
+      ? `<label for="v_${esc(f.id)}">${esc(f.label || 'הערות')}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" value="${esc(notes.replace(/\n+/g, ' · ').slice(0, 200))}" readonly>`
+      : `<label for="v_${esc(f.id)}">${esc(f.label || 'טקסט')}${f.required ? ' *' : ''}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" maxlength="200" value="${esc(pre.values?.[f.id] ?? '')}">${pre.values?.[f.id] ? preHint : ''}`).join('')
+  const notesHtml = pdf && notes ? `<div class="card"><h2 style="margin-top:0">הערות למסמך</h2><div class="notes">${esc(notes)}</div><p class="hint" style="margin-bottom:0">ההערות הן חלק מהמסמך שעליו חותמים, ונשמרות איתו.</p></div>` : ''
   const body = `<div class="wrap">
   <div class="card"><div class="hint">${esc(company)}</div><h1>${esc(row.title)}</h1><div class="hint">בתוקף עד ${esc(il(row.expires_at))}</div>
     <div class="who">חותם/ת: ${esc(row.client_name)}${row.signer_label && row.signer_label !== 'הלקוח' ? ' · ' + esc(row.signer_label) : ''}${total > 1 ? ` · אחד/ת מ-${total} חותמים` : ''}</div></div>
   ${pdf ? pdfHtml : `<div class="card doc">${row.body_html}</div>`}
+  ${notesHtml}
   ${needOtp ? `<div class="card otp" id="otp"><h2 style="margin-top:0">אימות לפני חתימה</h2>
     <p class="hint">נשלח קוד חד-פעמי ${row.send_email ? 'למייל ' + esc(maskEmail(row.send_email)) : 'בוואטסאפ ל-' + esc(maskPhone(row.send_phone))}.</p>
     <div class="row"><button type="button" class="btn" id="otpSend">שלחו לי קוד</button></div>
@@ -85,8 +93,8 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     <button type="button" class="btn primary" id="otpGo" style="margin-top:10px">אימות</button></div>` : ''}
   <form class="card" id="f" novalidate${needOtp ? ' hidden' : ''}>
     <h2 style="margin-top:0">חתימה</h2>
-    <label for="name">שם מלא</label><input type="text" id="name" autocomplete="name" required>
-    <label for="idn">מספר תעודת זהות</label><input type="text" id="idn" inputmode="numeric" autocomplete="off" maxlength="10" required dir="ltr" style="text-align:right">
+    <label for="name">שם מלא</label><input type="text" id="name" autocomplete="name" required value="${esc(pre.name ?? '')}">${pre.name ? preHint : ''}
+    <label for="idn">מספר תעודת זהות</label><input type="text" id="idn" inputmode="numeric" autocomplete="off" maxlength="10" required dir="ltr" style="text-align:right" value="${esc(pre.idNumber ?? '')}">${pre.idNumber ? preHint : ''}
     ${inputsHtml}
     <label>חתימה <span class="hint">— לחתום באצבע / בעכבר בתוך המסגרת</span></label>
     <div class="pad" id="pad"><canvas id="cv"></canvas><div class="ph" id="ph">כאן חותמים</div></div>
@@ -94,7 +102,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     <label class="check"><input type="checkbox" id="agree"><span>קראתי את המסמך במלואו, אני מסכים/ה לתנאיו, ואני מאשר/ת שהחתימה האלקטרונית שלי מחייבת כמו חתימה בכתב יד.</span></label>
     <div class="err" id="err" role="alert"></div>
     <button type="submit" class="btn primary" id="go">אני מאשר/ת וחותם/ת</button>
-    <p class="hint" style="margin-top:10px">עם החתימה נשמרים: השם, ת"ז, החתימה, מועד החתימה, כתובת ה-IP והמכשיר${row.require_otp ? ', אימות הקוד החד-פעמי' : ''}, וטביעה של נוסח המסמך — לתיעוד.</p>
+    <p class="hint" style="margin-top:10px">עם החתימה נשמרים לתיעוד: השם, ת"ז, החתימה, מועדי הפתיחה והחתימה, כתובת ה-IP והמכשיר${row.require_otp ? ', אימות הקוד החד-פעמי' : ''}, וטביעה של המסמך.</p>
   </form></div>
 <script>
 (function(){
@@ -124,6 +132,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
       else{var inp=document.querySelector('[data-fid="'+id+'"]');if(inp)v=inp.type==='checkbox'?(inp.checked?'X':''):inp.value}
       if(v){el.innerHTML='<span class="t"></span>';el.firstChild.textContent=v;el.classList.add('filled')}})}
   if(PDF){['name','idn'].forEach(function(i){document.getElementById(i).addEventListener('input',preview)});document.querySelectorAll('[data-fid]').forEach(function(i){i.addEventListener('input',preview);i.addEventListener('change',preview)});cv.addEventListener('pointerup',preview);
+    preview();
     var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onerror=function(){document.getElementById('pdfFallback').style.display='block'};
     s.onload=function(){var lib=window.pdfjsLib;lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       lib.getDocument({url:API+'/file'}).promise.then(function(doc){document.querySelectorAll('.pg').forEach(function(box){var i=+box.getAttribute('data-pg');doc.getPage(i+1).then(function(pg){var c=box.querySelector('canvas'),vw=pg.getViewport({scale:1}),sc=box.clientWidth*(window.devicePixelRatio||1)/vw.width,v=pg.getViewport({scale:sc});c.width=Math.round(v.width);c.height=Math.round(v.height);pg.render({canvasContext:c.getContext('2d'),viewport:v})})})})
@@ -146,6 +155,22 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   return shell(row.title, body)
 }
 
+/** פרטים מהתיק מול מה שהחותם הזין (ת"ז ושם) — לתיעוד הזיהוי */
+function identityRow(r: SignRow): string {
+  const pre = r.fields?.['@prefill']
+  if (!pre?.name && !pre?.idNumber) return ''
+  const chk = identityCheck(pre, String(r.signer_name ?? ''), String(r.signer_id_number ?? ''))
+  const mark = (v: boolean | null) => (v === null ? '' : v ? ' ✓ תואם' : ' ✗ שונה ממה שהוזן')
+  return `<tr><td>פרטים בתיק לפני החתימה</td><td>${pre.name ? esc(pre.name) + mark(chk.name) : ''}${pre.name && pre.idNumber ? ' · ' : ''}${pre.idNumber ? 'ת"ז ' + esc(pre.idNumber) + mark(chk.id) : ''}</td></tr>`
+}
+
+/** ציר הזמן של החותם: שליחה, כל פתיחה, קוד, חתימה — עם IP ומכשיר */
+function eventsTable(r: SignRow): string {
+  const ev = Array.isArray(r.fields?.['@events']) ? r.fields['@events'] : []
+  if (!ev.length) return ''
+  return `<div class="hint" style="margin:8px 0 2px">ציר הזמן</div><table>${ev.map((e) => `<tr><td>${esc(il(e.at))}</td><td>${esc(SIGN_EVENT_LABELS[e.kind] ?? e.kind)}${e.detail ? ' · ' + esc(e.detail) : ''}${e.ip ? ' · <span class="mono">' + esc(e.ip) + '</span>' : ''}${e.ua ? ' · ' + esc(deviceLabel(e.ua)) : ''}</td></tr>`).join('')}</table>`
+}
+
 export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?: boolean } = {}): string {
   const company = COMPANY[env.division] ?? 'הר-אל'
   const signed = rows.filter((r) => r.status === 'signed')
@@ -165,15 +190,17 @@ export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?:
     <tr><td>נחתם</td><td>${esc(il(r.signed_at))}</td></tr>
     <tr><td>החותם</td><td>${esc(r.signer_name)} · ת"ז ${esc(r.signer_id_number)}</td></tr>
     <tr><td>כתובת IP</td><td class="mono">${esc(r.signer_ip ?? '—')}</td></tr>
-    <tr><td>מכשיר / דפדפן</td><td class="mono">${esc(r.signer_ua ?? '—')}</td></tr>
+    <tr><td>מכשיר / דפדפן</td><td>${esc(deviceLabel(r.signer_ua))}<div class="mono hint">${esc(r.signer_ua ?? '—')}</div></td></tr>
+    ${identityRow(r)}
     ${env.pdf_fields ? `<tr><td>שדות שמולאו</td><td>${esc(fieldsOf(env.pdf_fields, r.signer_order).filter((f) => f.kind === 'text' || f.kind === 'checkbox')
-      .map((f) => (f.label || FIELD_KINDS[f.kind]) + ': ' + (f.kind === 'checkbox' ? (r.field_values?.[f.id] ? 'סומן' : 'לא סומן') : r.field_values?.[f.id] || '—')).join(' · ') || '—')}</td></tr>` : ''}</table>`
+      .map((f) => (f.label || FIELD_KINDS[f.kind]) + ': ' + (f.kind === 'checkbox' ? (r.field_values?.[f.id] ? 'סומן' : 'לא סומן') : r.field_values?.[f.id] || '—')).join(' · ') || '—')}</td></tr>` : ''}
+    ${r.fields?.['@notes'] ? `<tr><td>הערות השולח</td><td style="white-space:pre-wrap">${esc(r.fields['@notes'])}</td></tr>` : ''}</table>${eventsTable(r)}`
   if (opts.auditOnly) return shell(env.title, `<div class="wrap"><div class="hint">${esc(company)} · ${esc(SIGN_CATEGORIES[env.category] ?? '')}</div>
   <h2 style="margin-top:0">עמוד תיעוד חתימה</h2><table><tr><td>מסמך</td><td>${esc(env.title)}${env.page_sizes ? ' · ' + env.page_sizes.length + ' עמודים (המסמך המקורי, לפני עמוד זה)' : ''}</td></tr>
   <tr><td>עבור</td><td>${esc(env.client_name)}${env.recipient_kind === 'lead' ? ' (מתעניין)' : ''}${env.lender ? ' · ' + esc(env.lender) : ''}</td></tr>
   <tr><td>מזהה מסמך</td><td class="mono">${esc(env.id)}</td></tr><tr><td>הושלם</td><td>${esc(il(env.completed_at))} · ${signed.length} חותמים</td></tr></table>
   ${signed.map(auditRows).join('')}
-  <p class="hint" style="margin-top:12px">כל חותם חתם דרך קישור אישי שנשלח אליו בלבד. החתימות, השמות, מספרי הזהות והתאריכים נכתבו על המסמך המקורי במקומות שסומנו לפני השליחה; טביעת המסמך והשדות של כל חותם מופיעה למעלה. השעות לפי שעון ישראל.</p></div>`, css)
+  <p class="hint" style="margin-top:12px">כל חותם חתם דרך קישור אישי שנשלח אליו בלבד (הקישור הוא סוד חד-פעמי; במערכת נשמרת רק טביעה שלו). החתימות, השמות, מספרי הזהות והתאריכים נכתבו על המסמך המקורי במקומות שסומנו לפני השליחה; טביעת המסמך, השדות וההערות של כל חותם מופיעה למעלה, וטביעת הקובץ החתום כולו נשלחה במייל לחותמים ולמשרד. השעות לפי שעון ישראל.</p></div>`, css)
   const body = `<div class="wrap">
   <div class="hint">${esc(company)} · ${esc(SIGN_CATEGORIES[env.category] ?? '')}</div><h1>${esc(env.title)}</h1><div class="hint">עבור ${esc(env.client_name)}${env.lender ? ' · ' + esc(env.lender) : ''}</div>
   ${docs}

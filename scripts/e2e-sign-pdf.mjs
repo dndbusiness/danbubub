@@ -133,7 +133,7 @@ try {
   const bytes = Buffer.from(await r.body())
   if (OUT) writeFileSync(path.join(OUT, 'signed.pdf'), bytes)
   const doc = await PDFDocument.load(bytes)
-  assert(doc.getPageCount() === 3, `3 עמודים: 2 של הטופס + עמוד תיעוד (${doc.getPageCount()})`)
+  assert(doc.getPageCount() >= 3 && doc.getPageCount() <= 4, `2 עמודי הטופס + עמודי תיעוד (עם ציר הזמן — 1-2 עמודים): ${doc.getPageCount()}`)
   const parsed = await new PDFParse({ data: bytes }).getText()
   const text = parsed.text
   assert(text.includes('Bank form A') && text.includes('Bank form B'), 'הטקסט המקורי של הטופס נשמר (לא תמונה)')

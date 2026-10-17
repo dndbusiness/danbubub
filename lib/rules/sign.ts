@@ -115,7 +115,7 @@ export const SIGN_CATEGORIES = {
 } as const
 export type SignCategory = keyof typeof SIGN_CATEGORIES
 
-export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; fields?: Record<string, FieldValue> }
+export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; fields?: Record<string, FieldValue>; prefill?: unknown }
 
 export const MAX_SIGNERS = 6
 
@@ -190,4 +190,85 @@ export function groupByDocument<T extends { doc_hash: string; signer_order: numb
     if (g) g.rows.push(r); else out.push({ doc_hash: r.doc_hash, rows: [r] })
   }
   return out
+}
+
+/* ── מילוי מהתיק, הערות ותיעוד (דן, 17/10) ───────────────────────────────────── */
+
+/**
+ * מה שמולא מראש מכרטיס הלקוח לחותם: שם, ת"ז, ושדות טקסט בטופס (לפי מזהה שדה).
+ * הצעה בלבד — החותם רואה, מתקן אם צריך, ומה שהוא שולח הוא מה שנחתם. ההשוואה נשמרת לתיעוד.
+ */
+export interface Prefill { name?: string; idNumber?: string; values?: Record<string, string> }
+
+const clip = (v: unknown, n: number) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n)
+
+/** ניקוי מה שהדף שלח: רק מחרוזות קצרות, ת"ז רק ספרות, ושדות רק מהרשימה שמותר (allowed). */
+export function cleanPrefill(raw: unknown, allowed?: string[] | null): Prefill {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const out: Prefill = {}
+  const name = clip(r.name, 120); if (name) out.name = name
+  const id = String(r.idNumber ?? '').replace(/\D/g, '').slice(0, 9); if (id) out.idNumber = id
+  const v = r.values && typeof r.values === 'object' ? (r.values as Record<string, unknown>) : {}
+  const values: Record<string, string> = {}
+  for (const [k, x] of Object.entries(v)) {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(k) || (allowed && !allowed.includes(k))) continue
+    const s = clip(x, 200); if (s) values[k] = s
+  }
+  if (Object.keys(values).length) out.values = values
+  return out
+}
+
+/** הערות השולח לטופס: טקסט חופשי עד 2000 תווים, שורות נשמרות. בלי {{ — שלא ייקרא כשדה בנוסח. */
+export function cleanNotes(raw: unknown): string {
+  return String(raw ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ').replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }')
+    .split('\n').map((l) => l.trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 2000)
+}
+
+/** נוסח מוקלד + הערות בסוף, כחלק מהמסמך (נכנס לטביעה ולמה שנחתם). "- " בתחילת שורה — שלא תהפוך לרשימה בטעות. */
+export function withNotes(template: string, notes: string): string {
+  if (!notes) return template
+  return String(template ?? '').replace(/\s+$/, '') + '\n\n# הערות\n' + notes.split('\n').map((l) => (l.startsWith('# ') || l.startsWith('- ') ? '‏' + l : l)).join('\n')
+}
+
+/** טופס PDF: הטביעה של מה שהחותם רואה = הקובץ + השדות שלו + ההערות (אם יש). */
+export function pdfSignerHash(sha: (s: string) => string, fileHash: string, mine: unknown[], notes: string): string {
+  return sha(fileHash + ':' + JSON.stringify(mine) + (notes ? ':notes:' + sha(notes) : ''))
+}
+
+/** התאמה בין מה שבכרטיס למה שהחותם הזין: ת"ז (מדויק) ושם (בלי רווחים כפולים / גרשיים). null = לא היה מה להשוות. */
+export function identityCheck(prefill: Prefill | null | undefined, name: string, idNumber: string): { id: boolean | null; name: boolean | null } {
+  const norm = (s: string) => String(s ?? '').replace(/["'׳״`.\-]/g, '').replace(/\s+/g, ' ').trim()
+  const pid = prefill?.idNumber ? normalizeIsraeliId(prefill.idNumber) : null
+  const sid = normalizeIsraeliId(idNumber)
+  return {
+    id: pid ? pid === sid : null,
+    name: prefill?.name ? norm(prefill.name) === norm(name) : null,
+  }
+}
+
+/** אירוע בתיעוד החתימה (נשמר בשורת החותם עד החתימה, ואז ננעל איתה). */
+export type SignEventKind = 'sent' | 'email_queued' | 'link_renewed' | 'opened' | 'otp_sent' | 'otp_verified' | 'otp_failed' | 'signed'
+export interface SignEvent { at: string; kind: SignEventKind; ip?: string | null; ua?: string | null; detail?: string | null }
+
+export const SIGN_EVENT_LABELS: Record<SignEventKind, string> = {
+  sent: 'נשלח לחתימה', email_queued: 'הזמנה במייל', link_renewed: 'קישור חדש (הקודם בוטל)', opened: 'המסמך נפתח',
+  otp_sent: 'נשלח קוד אימות', otp_verified: 'הקוד אומת', otp_failed: 'קוד שגוי', signed: 'נחתם',
+}
+export const MAX_SIGN_EVENTS = 60
+
+export function signEvent(kind: SignEventKind, at: Date, meta: { ip?: string | null; ua?: string | null; detail?: string | null } = {}): SignEvent {
+  const e: SignEvent = { at: at.toISOString(), kind }
+  if (meta.ip) e.ip = clip(meta.ip, 64)
+  if (meta.ua) e.ua = clip(meta.ua, 300)
+  if (meta.detail) e.detail = clip(meta.detail, 200)
+  return e
+}
+
+/** "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 …) … Safari" → "iPhone · Safari" — לעמוד התיעוד (המחרוזת המלאה נשמרת). */
+export function deviceLabel(ua: string | null | undefined): string {
+  const u = String(ua ?? '')
+  if (!u) return '—'
+  const os = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac OS X|Macintosh/.test(u) ? 'Mac' : /Linux/.test(u) ? 'Linux' : 'מכשיר אחר'
+  const br = /WhatsApp/.test(u) ? 'WhatsApp' : /SamsungBrowser/.test(u) ? 'Samsung Internet' : /Edg\//.test(u) ? 'Edge' : /CriOS|Chrome\//.test(u) ? 'Chrome' : /FxiOS|Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'דפדפן'
+  return os + ' · ' + br
 }
