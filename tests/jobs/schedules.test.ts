@@ -18,9 +18,15 @@ const workflowCrons = new Set(
 const jobNames = new Set(schedules.jobs.map((j) => j.name))
 
 describe('תזמוני חלק ג׳', () => {
-  it('19 הג׳ובים של חלק ג׳ + crm_mirror של שלב המעבר', () => {
-    expect(schedules.jobs).toHaveLength(20)
-    expect(jobNames.size).toBe(20)
+  it('19 הג׳ובים של חלק ג׳ + crm_mirror של שלב המעבר + attendance_watch (באישור דן, 17/10/26)', () => {
+    expect(schedules.jobs).toHaveLength(21)
+    expect(jobNames.size).toBe(21)
+  })
+
+  it('attendance_watch רץ ב-GitHub Actions באותו תזמון כמו ב-jobs.schedule.json', () => {
+    const j = schedules.jobs.find((x) => x.name === 'attendance_watch')!
+    expect(j.schedule).toBe('*/15 * * * *')
+    expect(workflow).toMatch(/'\*\/15 \* \* \* \*'\)[^\n]*run_job attendance_watch/)
   })
 
   it('לכל ג׳וב יש נתיב שתואם לשמו', () => {

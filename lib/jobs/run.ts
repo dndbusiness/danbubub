@@ -9,6 +9,8 @@ export type JobName =
   | 'reports_to_drive' | 'cold_backup'
   /** שלב המעבר מהדף ב-Claude — לא בחלק ג' המקורי; נוסף באישור דן (09/10/26) ונעצר לבד אחרי המעבר. */
   | 'crm_mirror'
+  /** שעון נוכחות כשהמערכת סגורה — לא בחלק ג' המקורי; סטייה שדן אישר (17/10/26). */
+  | 'attendance_watch'
 
 export interface JobOutcome { rowsTouched: number; detail?: Record<string, unknown>; skipped?: string }
 
