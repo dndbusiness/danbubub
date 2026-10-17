@@ -28,19 +28,20 @@ export function escapeHtml(s: string): string {
 
 export type FieldValue = string | number | null | undefined
 
-const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g
+const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)(\?)?\s*\}\}/g
 const BLANK = '__________'
 
 /**
  * נוסח עם {{שדות}} → HTML בטוח. הנוסח עצמו טקסט (לא HTML): כל תו מוברח.
  *   שורה שמתחילה ב-"# " → כותרת · "- " → סעיף ברשימה · שורה ריקה → פסקה חדשה.
  * שדה בלי ערך מוצג כקו ריק ומדווח ב-missing — כדי שלא יישלח הסכם עם חור בלי לדעת.
+ * {{שדה?}} = שדה רשות (למשל בן/בת זוג): בלי ערך מוצג "—" ולא נחשב חסר.
  */
 export function renderAgreement(template: string, fields: Record<string, FieldValue>): { html: string; missing: string[] } {
   const missing = new Set<string>()
-  const fill = (line: string) => escapeHtml(line).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_m, key: string) => {
+  const fill = (line: string) => escapeHtml(line).replace(PLACEHOLDER, (_m, key: string, opt?: string) => {
     const v = fields[key]
-    if (v === null || v === undefined || String(v).trim() === '') { missing.add(key); return BLANK }
+    if (v === null || v === undefined || String(v).trim() === '') { if (opt) return '—'; missing.add(key); return BLANK }
     return '<b>' + escapeHtml(String(v)) + '</b>'
   })
   const out: string[] = []
@@ -58,12 +59,22 @@ export function renderAgreement(template: string, fields: Record<string, FieldVa
   return { html: out.join('\n'), missing: [...missing] }
 }
 
-/** השדות שהנוסח מבקש, לפי סדר הופעה. */
+/** השדות שהנוסח מבקש, לפי סדר הופעה (כולל שדות רשות). */
 export function templateFields(template: string): string[] {
   const seen: string[] = []
   for (const m of String(template ?? '').matchAll(PLACEHOLDER)) { const k = m[1] ?? ''; if (k && !seen.includes(k)) seen.push(k) }
   return seen
 }
+
+/** השדות שחובה למלא — שדה שמופיע בנוסח רק כ-{{שדה?}} לא נכלל. */
+export function requiredFields(template: string): string[] {
+  const req: string[] = []
+  for (const m of String(template ?? '').matchAll(PLACEHOLDER)) { const k = m[1] ?? ''; if (k && !m[2] && !req.includes(k)) req.push(k) }
+  return req
+}
+
+/** טיוטה = הסימון "[טיוטה" בנוסח (כמו בדף). נוסח כזה לא נשלח — גם אם הדף לא חסם. */
+export const isSignDraft = (t: string | null | undefined): boolean => /\[\s*טיוטה/.test(String(t ?? ''))
 
 export type SignStatus = 'sent' | 'opened' | 'signed' | 'cancelled'
 export type SignState = 'open' | 'signed' | 'cancelled' | 'expired'
@@ -109,7 +120,7 @@ export interface SignerInput { label: string; name?: string | null; email?: stri
 export const MAX_SIGNERS = 6
 
 /** בדיקת רשימת החותמים לפני שליחה. מחזיר שגיאות בעברית (ריקה = תקין). */
-export function validateSigners(signers: SignerInput[]): string[] {
+export function validateSigners(signers: SignerInput[], opts: { otpWhatsApp?: boolean } = {}): string[] {
   const errors: string[] = []
   if (!signers.length) errors.push('אין חותמים')
   if (signers.length > MAX_SIGNERS) errors.push(`עד ${MAX_SIGNERS} חותמים במסמך`)
@@ -119,7 +130,7 @@ export function validateSigners(signers: SignerInput[]): string[] {
     const email = String(s.email ?? '').trim().toLowerCase(), phone = String(s.phone ?? '').replace(/\D/g, '')
     if (!email && !phone) errors.push(`${who}: חסר מייל או טלפון`)
     if (email && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email)) errors.push(`${who}: מייל לא תקין`)
-    if (s.requireOtp && !email) errors.push(`${who}: קוד אימות נשלח במייל — חסר מייל`)
+    if (s.requireOtp && !email && !(opts.otpWhatsApp && phone)) errors.push(`${who}: קוד אימות נשלח במייל — חסר מייל`)
     if (email) { if (seen.has(email)) errors.push(`${who}: אותו מייל לשני חותמים`); seen.add(email) }
   })
   return errors
@@ -130,6 +141,26 @@ export function maskEmail(email: string | null | undefined): string {
   const [u = '', d = ''] = String(email ?? '').split('@')
   if (!d) return ''
   return `${u.slice(0, Math.min(2, u.length))}***@${d}`
+}
+
+/** "0521234567" → "052***4567" */
+export function maskPhone(phone: string | null | undefined): string {
+  const d = String(phone ?? '').replace(/\D/g, '')
+  return d.length < 7 ? '' : `${d.slice(0, 3)}***${d.slice(-4)}`
+}
+
+/** לאן נשלח קוד האימות: מייל אם יש; אחרת וואטסאפ (Green-API, דרך outbox) כשמוגדר ויש טלפון. */
+export function otpChannel(r: { send_email?: string | null; send_phone?: string | null }, whatsappReady: boolean): 'email' | 'whatsapp' | null {
+  if (String(r.send_email ?? '').trim()) return 'email'
+  if (whatsappReady && String(r.send_phone ?? '').replace(/\D/g, '').length >= 9) return 'whatsapp'
+  return null
+}
+
+/** טלפון ישראלי → יעד וואטסאפ בינלאומי: "052-1234567" → "972521234567" */
+export function waTarget(phone: string | null | undefined): string | null {
+  const d = String(phone ?? '').replace(/\D/g, '')
+  if (d.length < 9) return null
+  return d.startsWith('972') ? d : d.startsWith('0') ? '972' + d.slice(1) : d
 }
 
 export const OTP_TTL_MS = 10 * 60 * 1000
