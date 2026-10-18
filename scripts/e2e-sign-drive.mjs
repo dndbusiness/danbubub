@@ -147,13 +147,15 @@ try {
   const [r1] = await sql`select signer_label, send_email, fields->'@prefill' pre from sign_requests where envelope_id = ${e1.id}`
   assert(r1.signer_label === 'לווה 2' && r1.send_email === 'avi@example.com' && r1.pre.idNumber === '000000026' && r1.pre.name === 'Avi Levi', 'נשלח לבן הזוג: מייל, שם ות"ז שלו ממולאים מראש')
 
-  step('390px: חלון הייבוא בלי גלילה לרוחב')
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.evaluate(() => { $('layer').innerHTML = ''; S.f.formsView = 'lib'; go('forms') }); await page.waitForTimeout(400)
-  await page.click('[data-act="pdfDriveImport"]'); await page.fill('#pdImpUrl', 'ROOT_E2E_0123456789'); await page.click('#pdImpGo'); await page.waitForSelector('[data-pdimpf]', { timeout: 15000 })
-  const ov = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  if (process.env.E2E_OUT) await page.screenshot({ path: path.join(process.env.E2E_OUT, 'drive-import@390.png') })
-  assert(ov <= 0, 'אין גלילה לרוחב ב-390 (' + ov + ')')
+  step('768 / 390: חלון הייבוא בלי גלילה לרוחב')
+  for (const [w, h] of [[768, 1024], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h })
+    await page.evaluate(() => { $('layer').innerHTML = ''; S.f.formsView = 'lib'; go('forms') }); await page.waitForTimeout(400)
+    await page.click('[data-act="pdfDriveImport"]'); await page.fill('#pdImpUrl', 'ROOT_E2E_0123456789'); await page.click('#pdImpGo'); await page.waitForSelector('[data-pdimpf]', { timeout: 15000 })
+    const ov = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    if (process.env.E2E_OUT) await page.screenshot({ path: path.join(process.env.E2E_OUT, 'drive-import@' + w + '.png') })
+    assert(ov <= 0, 'אין גלילה לרוחב ב-' + w + ' (' + ov + ')')
+  }
   assert(driveCalls > 0, 'כל הקריאות לדרייב עברו דרך /api/crm/mcp (' + driveCalls + ')')
   assert(!pageErrs.length, 'אין שגיאות בדף' + (pageErrs.length ? ': ' + pageErrs.join(' | ') : ''))
   console.log('\nייבוא מדרייב — עבר.')

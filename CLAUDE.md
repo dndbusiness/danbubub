@@ -109,6 +109,7 @@ node scripts/e2e-ops.mjs         # שלב 9: משימות → שאלה לשות�
 node scripts/e2e-sign-pdf.mjs    # טפסים מ-PDF: העלאה ואיחוד → תבנית → שני לווים חותמים על הטופס → PDF חתום + תיעוד → מתעניין → מחיקה
 node scripts/e2e-sign-prefill.mjs # חתימות: מילוי מהתיק → ★ שליחה מהירה + הערות → קישור/וואטסאפ/מייל → החותם רואה הכל ממולא → ת"ז שונה = ⚠️ → עמוד תיעוד מלא
 node scripts/e2e-sign-detect.mjs  # "שילמד את התבניות": טפסים בעברית → העלאה מרוכזת → ✨ שדות במקום (2 לווים) → שמור/דלג → שליחה לנמען ידני (לא נשמר במערכת)
+node scripts/e2e-sign-drive.mjs   # ייבוא הספרייה מתיקייה בדרייב (מדומה): תת-תיקייה = גוף → ✨ שדות → "לבדיקה" → ריצה שנייה = 0 → טופס "לווה 2" נשלח לבן הזוג
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup
