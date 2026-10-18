@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
+import { envSecret, secretEq } from '@/lib/secret'
 import { dayCloseJob } from '@/lib/jobs/day-close'
 import { alertsEvalJob } from '@/lib/jobs/alerts-eval'
 import { anchorReminderJob } from '@/lib/jobs/anchor-reminder'
@@ -48,26 +48,23 @@ const JOBS = {
   attendance_watch: (d: string) => attendanceWatchJob(d),
 } as const
 
-const eq = (a: string, b: string) => {
-  const x = Buffer.from(a), y = Buffer.from(b)
-  return x.length === y.length && timingSafeEqual(x, y)
-}
-
 /**
  * הרשאה: `x-jobs-secret` (ה-cron שלנו), או `Authorization: Bearer $CRON_SECRET`
- * (הפורמט ש-Vercel Cron שולח). בלי סוד מוגדר — רק בפיתוח.
+ * (הפורמט ש-Vercel Cron שולח). בלי סוד מוגדר — רק בפיתוח. רווחים בקצוות לא נחשבים (lib/secret.ts).
  */
-function authorized(req: Request): boolean {
-  const secret = process.env.JOBS_SECRET
-  const cronSecret = process.env.CRON_SECRET
-  if (!secret && !cronSecret) return process.env.NODE_ENV !== 'production'
+function authorized(req: Request): { ok: boolean; why?: Record<string, boolean> } {
+  const secret = envSecret('JOBS_SECRET'), cronSecret = envSecret('CRON_SECRET')
+  if (!secret && !cronSecret) return { ok: process.env.NODE_ENV !== 'production', why: { serverHasSecret: false } }
   const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
   const given = req.headers.get('x-jobs-secret') ?? ''
-  return (Boolean(secret) && (eq(given, secret!) || eq(bearer, secret!))) || (Boolean(cronSecret) && eq(bearer, cronSecret!))
+  if (secretEq(given, secret) || secretEq(bearer, secret) || secretEq(bearer, cronSecret)) return { ok: true }
+  // לאבחון בלי לחשוף את הסוד: רק מה הגיע ומה מוגדר — אף פעם לא ערכים
+  return { ok: false, why: { serverHasSecret: true, sentJobsHeader: Boolean(given.trim()), sentBearer: Boolean(bearer.trim()) } }
 }
 
 async function run(req: Request, { params }: { params: Promise<{ name: string }> }) {
-  if (!authorized(req)) return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
+  const auth = authorized(req)
+  if (!auth.ok) return NextResponse.json({ error: 'לא מורשה', ...auth.why }, { status: 401 })
   const { name } = await params
   const job = JOBS[name as keyof typeof JOBS]
   if (!job) return NextResponse.json({ error: `ג'וב לא מוכר: ${name}`, jobs: Object.keys(JOBS) }, { status: 404 })
