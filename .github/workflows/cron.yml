@@ -32,6 +32,11 @@ on:
         required: true
         default: alerts_eval
 
+# אסימון זהות של GitHub (OIDC) — השרת מאמת אותו מול GitHub, בלי סוד משותף (lib/gh-oidc.ts)
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -49,8 +54,9 @@ jobs:
           BASE="$(printf '%s' "$BASE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s:/*$::')"
           run_job() {
             echo "→ $1"
+            OIDC=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=harel-jobs" | jq -r '.value // empty')
             code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
-              -H "x-jobs-secret: $SECRET" "$BASE/api/jobs/$1")
+              -H "x-gh-oidc: $OIDC" -H "x-jobs-secret: $SECRET" "$BASE/api/jobs/$1")
             cat /tmp/out.json; echo
             [ "$code" = "200" ] || { echo "✗ $1 → HTTP $code"; exit 1; }
           }

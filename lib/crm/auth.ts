@@ -11,6 +11,7 @@
 import { createHmac, pbkdf2Sync, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
 import { envSecret, secretEq } from '@/lib/secret'
+import { githubOidc } from '@/lib/gh-oidc'
 import type { CrmDoc } from '@/lib/crm/docs.js'
 import { SERVER_ONLY, SERVER_WRITE } from '@/lib/crm/ai-queue'
 
@@ -225,7 +226,7 @@ export function throttle(ip: string, ok?: boolean): number {
 }
 
 /**
- * מי מבקש: עוגיית הכניסה; או השומר (scripts/crm-keeper.mjs) עם JOBS_SECRET בכותרת; ואם עוד לא הוגדרה
+ * מי מבקש: עוגיית הכניסה; או השומר (scripts/crm-keeper.mjs) עם JOBS_SECRET בכותרת או אסימון OIDC של GitHub; ואם עוד לא הוגדרה
  * סיסמת נעילה — מי שעבר את שער המשרד הוא הבעלים (כמו קודם, כדי שמערכת חדשה לא תינעל לפני שיש סיסמה).
  */
 export async function effectiveSession(req: Request): Promise<CrmSession | null> {
@@ -233,5 +234,6 @@ export async function effectiveSession(req: Request): Promise<CrmSession | null>
   if (s) return s
   const e = Date.now() + 60e3, owner: CrmSession = { k: 'dan', r: 'owner', d: DIVS, l: 'דן', e }
   if (secretEq(req.headers.get('x-crm-keeper'), envSecret('JOBS_SECRET'))) return owner
+  if (req.headers.has('x-gh-oidc') && (await githubOidc(req)).ok) return owner /* השומר מ-GitHub Actions, בלי סוד */
   return lockConfigured(await crmSettings()) ? null : owner
 }
