@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { cleanNotes, cleanPrefill, deviceLabel, identityCheck, pdfSignerHash, renderAgreement, signEvent, withNotes } from '@/lib/rules/sign'
-import { checkSignerValues, cleanField, type PdfField } from '@/lib/rules/sign-pdf'
+import { bundleFields, checkSignerValues, cleanField, validatePdfFields, type PdfField } from '@/lib/rules/sign-pdf'
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 
@@ -76,5 +76,15 @@ describe('תיעוד החתימה', () => {
     expect(deviceLabel('Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36')).toBe('Android · Chrome')
     expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36 Edg/126.0')).toBe('Windows · Edge')
     expect(deviceLabel(null)).toBe('—')
+  })
+})
+
+describe('כמה טפסים כמסמך אחד', () => {
+  it('bundleFields: עמודים מוזזים, מזהים ייחודיים, החותמים נשמרים', () => {
+    const A: PdfField[] = [{ id: 's1', page: 0, x: 0.5, y: 0.8, w: 0.3, h: 0.06, kind: 'signature', signer: 1 }, { id: 'n1', page: 1, x: 0.5, y: 0.7, w: 0.3, h: 0.03, kind: 'name', signer: 1 }]
+    const B: PdfField[] = [{ id: 's1', page: 0, x: 0.5, y: 0.8, w: 0.3, h: 0.06, kind: 'signature', signer: 1 }, { id: 's2', page: 0, x: 0.1, y: 0.8, w: 0.3, h: 0.06, kind: 'signature', signer: 2 }]
+    const F = bundleFields([{ fields: A, pages: 2 }, { fields: B, pages: 1 }])
+    expect(F.map((f) => [f.id, f.page, f.signer])).toEqual([['t0_s1', 0, 1], ['t0_n1', 1, 1], ['t1_s1', 2, 1], ['t1_s2', 2, 2]])
+    expect(validatePdfFields(F, 3, 2)).toEqual([])
   })
 })

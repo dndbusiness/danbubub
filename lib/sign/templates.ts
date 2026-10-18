@@ -7,7 +7,7 @@
 import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { readStoredFile } from '@/lib/files'
-import { cleanField, mostActive, signersNeeded, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
+import { bundleFields, cleanField, mostActive, signersNeeded, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 import { SIGN_CATEGORIES, type SignCategory } from '@/lib/rules/sign'
 import { readPageSizes } from './pdf'
 
@@ -68,6 +68,31 @@ export async function getTemplate(id: string): Promise<TemplateRow | null> {
   if (!/^[0-9a-f-]{36}$/.test(id)) return null
   const [r] = await sql<TemplateRow[]>`select * from sign_templates where id = ${id} and deleted_at is null`
   return r ?? null
+}
+
+/**
+ * "ללמוד כל מסמך איפה למלא" (דן, 18/10): קובץ שהועלה וזהה בדיוק (SHA-256) לקובץ של תבנית בספרייה —
+ * מחזיר את התבנית, והדף טוען את השדות שכבר הוצבו עליה. תבנית אישית — רק לבעליה.
+ */
+export async function templateForFile(sha: string, viewer: string | null): Promise<Pick<TemplateRow, 'id' | 'name' | 'fields' | 'signers' | 'folder' | 'category'> | null> {
+  if (!/^[0-9a-f]{64}$/.test(sha)) return null
+  const [r] = await sql<Pick<TemplateRow, 'id' | 'name' | 'fields' | 'signers' | 'folder' | 'category'>[]>`
+    select t.id, t.name, t.fields, t.signers, t.folder, t.category from sign_templates t join stored_files f on f.id = t.file_id
+    where f.sha256 = ${sha} and t.deleted_at is null and (t.scope = 'system' or t.owner_key = ${viewer ?? ''})
+    order by t.updated_at desc limit 1`
+  return r ?? null
+}
+
+/** כמה תבניות כמסמך אחד ("חבילה"): הקבצים מאוחדים לפי הסדר, השדות עוברים לעמוד הנכון, מזהי השדות ייחודיים. */
+export async function bundleTemplates(ids: string[], readBytes: (fileId: string) => Promise<Uint8Array | null>, merge: (files: { name: string; bytes: Uint8Array }[]) => Promise<{ bytes: Uint8Array; pages: PageSize[] }>):
+  Promise<{ bytes: Uint8Array; fields: PdfField[]; names: string[]; requireOtp: boolean } | { error: string }> {
+  const ts: TemplateRow[] = []
+  for (const id of ids) { const t = await getTemplate(id); if (!t) return { error: 'אחד הטפסים לא נמצא בספרייה' }; ts.push(t) }
+  const files: { name: string; bytes: Uint8Array }[] = []
+  for (const t of ts) { const b = await readBytes(t.file_id); if (!b) return { error: `הקובץ של "${t.name}" לא נמצא` }; files.push({ name: t.name, bytes: b }) }
+  const merged = await merge(files)
+  const fields = bundleFields(ts.map((t) => ({ fields: t.fields, pages: t.page_sizes.length })))
+  return { bytes: merged.bytes, fields, names: ts.map((t) => t.name), requireOtp: ts.some((t) => t.require_otp) }
 }
 
 /** הספרייה למשתמש: מערכת + האישיות שלו. עם "הכי פעילות" ב-90 הימים האחרונים. */

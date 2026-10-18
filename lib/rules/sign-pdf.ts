@@ -177,3 +177,14 @@ export function mostActive(rows: { template_key: string | null; created_at: stri
   for (const r of rows) if (r.template_key && new Date(r.created_at) >= since) by.set(r.template_key, (by.get(r.template_key) ?? 0) + 1)
   return [...by].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n || a.key.localeCompare(b.key)).slice(0, top)
 }
+
+/**
+ * כמה תבניות כמסמך אחד ("חבילה", דן 18/10): השדות של כל תבנית עוברים לעמודים שלה במסמך המאוחד,
+ * והמזהים מקבלים קידומת t<i>_ (ייחודיים גם כשבשתי תבניות יש שדה "s1"). הדף בונה את אותם מזהים למילוי מהתיק.
+ */
+export function bundleFields(ts: { fields: PdfField[]; pages: number }[]): PdfField[] {
+  const out: PdfField[] = []
+  let offset = 0
+  ts.forEach((t, i) => { for (const f of t.fields) out.push({ ...f, id: (`t${i}_` + f.id).slice(0, 40), page: f.page + offset }); offset += t.pages })
+  return out
+}
