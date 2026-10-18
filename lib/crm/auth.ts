@@ -10,6 +10,7 @@
  */
 import { createHmac, pbkdf2Sync, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
+import { envSecret, secretEq } from '@/lib/secret'
 import type { CrmDoc } from '@/lib/crm/docs.js'
 import { SERVER_ONLY, SERVER_WRITE } from '@/lib/crm/ai-queue'
 
@@ -231,7 +232,6 @@ export async function effectiveSession(req: Request): Promise<CrmSession | null>
   const s = sessionOf(req)
   if (s) return s
   const e = Date.now() + 60e3, owner: CrmSession = { k: 'dan', r: 'owner', d: DIVS, l: 'דן', e }
-  const job = process.env.JOBS_SECRET, hdr = req.headers.get('x-crm-keeper')
-  if (job && hdr && hdr.length === job.length && timingSafeEqual(Buffer.from(hdr), Buffer.from(job))) return owner
+  if (secretEq(req.headers.get('x-crm-keeper'), envSecret('JOBS_SECRET'))) return owner
   return lockConfigured(await crmSettings()) ? null : owner
 }

@@ -70,7 +70,8 @@ export async function keep({ base, key = '', secret = '', waitMs = 4 * 60e3, exe
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  const ok = await keep({ base: process.env.APP_BASE_URL, key: process.env.APP_PASSWORD, secret: process.env.JOBS_SECRET, waitMs: Number(process.env.KEEPER_WAIT_MS || 4 * 60e3), executablePath: process.env.CHROMIUM_PATH })
+  const env = (k) => (process.env[k] ?? '').trim() || undefined /* רווח / שורה בסוף ההדבקה ב-GitHub Secrets */
+  const ok = await keep({ base: env('APP_BASE_URL')?.replace(/\/+$/, ''), key: env('APP_PASSWORD'), secret: env('JOBS_SECRET'), waitMs: Number(process.env.KEEPER_WAIT_MS || 4 * 60e3), executablePath: process.env.CHROMIUM_PATH })
     .catch((e) => { console.error('✗ ' + e.message); return false })
   process.exit(ok ? 0 : 1)
 }

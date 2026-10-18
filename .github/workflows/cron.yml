@@ -44,6 +44,9 @@ jobs:
           MANUAL: ${{ github.event.inputs.job }}
         run: |
           set -euo pipefail
+          # רווח או ירידת שורה בסוף ההדבקה ב-GitHub Secrets לא נראים, ושוברים את הכותרת
+          SECRET="$(printf '%s' "$SECRET" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          BASE="$(printf '%s' "$BASE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s:/*$::')"
           run_job() {
             echo "→ $1"
             code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
