@@ -97,8 +97,13 @@ try {
   assert(tr[0]?.resp === 'hadas' && (await open(CID, 'submit')).length === 0, 'מעקב אישור — משימה להדס, השליחה נסגרה')
 
   step('אישור עקרוני → השלמות (הדס) + שליחת השמאי (ניסים)')
+  /* השמאי שנבחר בסקר השמאים נשמר ב-appr.appraiser — המשימה של ניסים צריכה להזכיר אותו */
+  await page.evaluate(async (id) => { const c = S.clients.get(id); await write('clients/' + id, { proc: { ...c.proc, appr: { ...((c.proc || {}).appr || {}), appraiser: 'שמאי בדיקה' } } }, 'update') }, CID)
+  await page.waitForFunction((id) => ((S.clients.get(id).proc || {}).appr || {}).appraiser === 'שמאי בדיקה', CID)
   await next(); await waitStep(CID, 'conds'); await settle(CID, 'apprGo', ['tracking']); await settle(CID, 'conds')
-  assert((await open(CID, 'conds'))[0]?.resp === 'hadas' && (await open(CID, 'apprGo'))[0]?.resp === 'nissim', 'השלמות להדס, שליחת השמאי לניסים')
+  const go = await open(CID, 'apprGo')
+  assert((await open(CID, 'conds'))[0]?.resp === 'hadas' && go[0]?.resp === 'nissim', 'השלמות להדס, שליחת השמאי לניסים')
+  assert(go[0]?.notes === 'השמאי שתואם: שמאי בדיקה', 'שליחת השמאי — עם שם השמאי שתואם')
 
   step('אחראי מההגדרות: ביטוחים → הדס (במקום דן)')
   await page.evaluate(() => go('settings')); await page.waitForSelector('[data-procowner="mortgage:insurance"]')

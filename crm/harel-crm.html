@@ -6121,7 +6121,7 @@ async function procEnter(c, key, opt = {}) {
     return procTask(c, 'docs', st[1], who, { repeatDays: 2, notes: note(missingDocs(c).join('\n')) });
   }
   if (key === 'conds') {
-    if (mort) await procTask(c, 'apprGo', 'שליחת השמאי — התיק אושר עקרונית', procOwner(c, 'appraisal') || 'nissim', { priority: 'high', notes: (((c.proc || {}).appr || {}).name ? 'השמאי שתואם: ' + c.proc.appr.name : 'עוד לא תואם שמאי') });
+    if (mort) await procTask(c, 'apprGo', 'שליחת השמאי — התיק אושר עקרונית', procOwner(c, 'appraisal') || 'nissim', { priority: 'high', notes: (((c.proc || {}).appr || {}).appraiser ? 'השמאי שתואם: ' + c.proc.appr.appraiser : 'עוד לא תואם שמאי') });
     return procTask(c, 'conds', st[1], who, { repeatDays: 2, notes: note('') });
   }
   if (key === 'tracking') return procTask(c, 'tracking', st[1] + ' מול הגופים', who, { repeatDays: 3, notes: note((c.submissions || []).map((x) => x.bank + ' — ' + (SUBST[x.status] || x.status || '')).join('\n')) });
