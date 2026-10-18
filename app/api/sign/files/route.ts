@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { storeFile } from '@/lib/files'
 import { validateUploads } from '@/lib/rules/sign-pdf'
 import { mergePdfs, PdfInputError } from '@/lib/sign/pdf'
+import { templateForFile } from '@/lib/sign/templates'
+import { createHash } from 'node:crypto'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -9,6 +11,7 @@ export const maxDuration = 60
 /**
  * העלאת טופס לחתימה (מאחורי שער הכניסה): עד 5 קבצי PDF → מסמך אחד במסד (stored_files).
  * מחזיר את המזהה ומידות העמודים — לעורך השדות. multipart, שדה "file" (כמה פעמים, לפי הסדר).
+ * known — אם הקובץ זהה לטופס שכבר בספרייה: השדות שכבר הוצבו עליו ("המערכת לומדת כל מסמך", דן 18/10).
  */
 export async function POST(req: Request) {
   const form = await req.formData().catch(() => null)
@@ -21,7 +24,8 @@ export async function POST(req: Request) {
     const merged = await mergePdfs(files)
     const name = String(form.get('name') || files[0]!.name).replace(/\.pdf$/i, '').slice(0, 150) + '.pdf'
     const fileId = await storeFile(merged.bytes, name, 'application/pdf', 'sign-source')
-    return NextResponse.json({ fileId, pages: merged.pages, name, files: files.length })
+    const known = await templateForFile(createHash('sha256').update(Buffer.from(merged.bytes)).digest('hex'), String(form.get('viewer') || '') || null).catch(() => null)
+    return NextResponse.json({ fileId, pages: merged.pages, name, files: files.length, known })
   } catch (e) {
     if (e instanceof PdfInputError) return NextResponse.json({ code: 'invalid_argument', message: e.message }, { status: 422 })
     throw e

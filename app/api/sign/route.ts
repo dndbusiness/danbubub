@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createEnvelope, envelopeCounts, listEnvelopes } from '@/lib/sign/store'
 import { cleanField, type PdfField } from '@/lib/rules/sign-pdf'
-import { getTemplate, templateKey } from '@/lib/sign/templates'
+import { bundleTemplates, getTemplate, templateKey } from '@/lib/sign/templates'
+import { readStoredFile, storeFile } from '@/lib/files'
+import { mergePdfs } from '@/lib/sign/pdf'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -19,6 +21,8 @@ const Field = z.union([z.string().max(2000), z.number(), z.null()])
 const Signer = z.object({
   label: z.string().min(1).max(60), name: z.string().max(200).nullish(), email: z.string().max(200).nullish(), phone: z.string().max(40).nullish(),
   requireOtp: z.boolean().optional(), fields: z.record(z.string(), Field).optional(),
+  // מה שמולא מכרטיס הלקוח (שם, ת"ז, שדות טקסט בטופס) — הצעה שהחותם רואה ויכול לתקן
+  prefill: z.object({ name: z.string().max(200).nullish(), idNumber: z.string().max(20).nullish(), values: z.record(z.string(), z.string().max(400)).optional() }).optional(),
 })
 const Create = z.object({
   clientDoc: z.string().min(1).max(200).regex(/^[^/]+$/),
@@ -27,6 +31,8 @@ const Create = z.object({
   title: z.string().min(2).max(200),
   template: z.string().min(20).max(60000).optional(),
   pdfTemplateId: z.string().uuid().optional(),
+  // כמה טפסים מהספרייה כמסמך אחד — קישור אחד לכל חותם על כולם (כמו סימון כמה תבניות ב-WISE)
+  pdfTemplateIds: z.array(z.string().uuid()).min(2).max(10).optional(),
   pdf: z.object({ fileId: z.string().uuid(), fields: z.array(z.unknown()).max(300) }).optional(),
   recipientKind: z.enum(['client', 'lead']).optional(),
   category: z.enum(['agreement', 'bank', 'fund', 'insurance', 'poa', 'general']).optional(),
@@ -37,6 +43,8 @@ const Create = z.object({
   email: z.string().max(200).nullish(), phone: z.string().max(40).nullish(),
   expiresDays: z.number().int().min(1).max(60).nullish(),
   allowMissing: z.boolean().optional(),
+  notes: z.string().max(4000).nullish(),
+  sentBy: z.string().max(80).nullish(),
 })
 
 export async function GET(req: Request) {
@@ -61,7 +69,13 @@ export async function POST(req: Request) {
   const signers = d.signers ?? [{ label: 'הלקוח', name: d.clientName, email: d.email, phone: d.phone }]
   let pdf: { fileId: string; fields: PdfField[]; templateId?: string | null } | null = null
   let templateKeyV = d.templateKey ?? null, requireOtp = false
-  if (d.pdfTemplateId) {
+  if (d.pdfTemplateIds) {
+    const b = await bundleTemplates(d.pdfTemplateIds, async (id) => (await readStoredFile(id))?.bytes ?? null, mergePdfs)
+    if ('error' in b) return NextResponse.json({ code: 'not_found', message: b.error }, { status: 404 })
+    const fileId = await storeFile(b.bytes, d.title.slice(0, 140) + '.pdf', 'application/pdf', 'sign-source')
+    pdf = { fileId, fields: b.fields, templateId: null }
+    templateKeyV = 'pdfs:' + d.pdfTemplateIds.join(',').slice(0, 74); requireOtp = b.requireOtp
+  } else if (d.pdfTemplateId) {
     const t = await getTemplate(d.pdfTemplateId)
     if (!t) return NextResponse.json({ code: 'not_found', message: 'התבנית לא נמצאה' }, { status: 404 })
     pdf = { fileId: t.file_id, fields: t.fields, templateId: t.id }

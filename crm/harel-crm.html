@@ -1484,6 +1484,13 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
   .mcal .mday.today { background: var(--brand-strong); box-shadow: none; } .mcal .mday.today .dn, .mcal .mday.today .mv { color: var(--on-brand); }
   .mc4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* ספריית הטפסים — כמו "תבניות מסמכים" ב-WISE (18/10) */
+.folderchips .chip.on { background: var(--brand-soft); color: var(--brand-text); font-weight: 600; box-shadow: inset 0 0 0 1px var(--brand-strong); }
+.folderchips .chip.muted { opacity: .55; }
+.tpllist { border-top: 1px solid var(--border); }
+.tplrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 4px; border-bottom: 1px solid var(--border); }
+.tplrow.on { background: var(--brand-soft); }
+.tplrow b { overflow-wrap: anywhere; }
 </style>
 
 <a class="skip" href="#main">דלג לתוכן</a>
@@ -3861,16 +3868,156 @@ function signSignerDefaults(c, mode) {
   rows.push({ on: false, label: 'חותם נוסף', name: '', email: '', phone: '' });
   return rows.slice(0, 6);
 }
+/* ═════ מילוי מהתיק, הערות, שליחה מהירה ומסירה ללקוח (דן, 17/10) ═════
+   "אם פתחתי כרטיס לקוח או נכנסתי למערכת טפסים ואני משייך ללקוח — השם, ת״ז, המייל, כל הפרטים שכבר ישנם, יוצמדו לטופס".
+   כל חותם מקבל הצעה מהכרטיס (שם, ת״ז, ושדות טקסט בטופס שסומנו "מילוי מהתיק"); הוא רואה, מתקן אם צריך, וחותם — ומה שהזין
+   מושווה לכרטיס בעמוד התיעוד. טפסים קבועים (הסכם שירותים, הסכמה…) — "שליחה מהירה" בלחיצה. ההערות — חלק מהמסמך החתום.
+   PREFILL זהה ל-PREFILL_KEYS ב-lib/rules/sign-pdf.ts. ═════ */
+const PREFILL = { signer_email: 'מייל החותם', signer_phone: 'טלפון החותם', signer_address: 'כתובת החותם', client_name: 'שם הלקוח (לווה 1)', client_id: 'ת״ז הלקוח (לווה 1)', spouse_name: 'שם בן/בת הזוג', spouse_id: 'ת״ז בן/בת הזוג',
+  company: 'שם החברה', amount: 'סכום הבקשה', fee: 'שכר טרחה', service: 'השירות', car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', notes: 'הערות השולח (לקריאה בלבד)' };
+/* האדם בכרטיס לפי מספר החותם: 1 = הלקוח, 2 = בן/בת הזוג (או לווה 2 בקליטה), 3+ = לווים נוספים */
+function signPerson(c, i) {
+  const ik = (typeof intakeDoc === 'function' && c.id ? intakeDoc(c.id) : null) || {}, B = ik.borrowers || [], b = B[i - 1] || {};
+  if (i === 1) return { name: c.name || b.name || '', idNumber: c.idNumber || b.idNumber || '', email: c.email || b.email || '', phone: c.phone || b.phone || '', address: c.address || '' };
+  if (i === 2) return { name: c.spouseName || b.name || '', idNumber: c.spouseId || b.idNumber || '', email: c.spouseEmail || b.email || '', phone: c.spousePhone || b.phone || '', address: c.address || '' };
+  const m = (c.moreBorrowers || [])[i - 3] || {}; return { name: m.name || b.name || '', idNumber: m.idNumber || b.idNumber || '', email: m.email || '', phone: m.phone || '', address: '' };
+}
+const signNameKey = (x) => String(x || '').replace(/["'׳״`.\-]/g, '').replace(/\s+/g, ' ').trim();
+/* ההצעה לחותם i: ת״ז מהכרטיס רק אם השם בשורה הוא אותו אדם (אחרת — לא מצמידים ת״ז של מישהו אחר) */
+function signPrefill(c, i, row, pdfFields, fsig = i) {
+  const p = signPerson(c, i), name = String(row.name || '').trim() || p.name, same = !p.name || signNameKey(p.name) === signNameKey(name);
+  const out = { name, idNumber: same ? String(p.idNumber || '').replace(/\D/g, '').slice(0, 9) : '' };
+  if (pdfFields) { const defs = signDefaults(c), v = {};
+    pdfFields.filter((f) => f.signer === fsig && f.kind === 'text' && f.src && f.src !== 'notes').forEach((f) => {
+      const k = f.src, val = k === 'signer_email' ? (row.email || p.email) : k === 'signer_phone' ? (row.phone || p.phone) : k === 'signer_address' ? (p.address || c.address) : defs[k];
+      if (val) v[f.id] = String(val).slice(0, 200); });
+    if (Object.keys(v).length) out.values = v; }
+  return out;
+}
+const signWho = () => (S.loginAs && S.loginAs.label) || S.me.name || '';
+/* השליחה עצמה — מהטופס בכרטיס ומהשליחה המהירה. rows: שורות החותמים (on, label, name, email, phone, _i = מספר האדם בכרטיס) */
+async function signSendRun(c, key, o) {
+  const common = { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', recipientKind: c._lead ? 'lead' : 'client', notes: String(o.notes || '').trim() || null, sentBy: signWho() };
+  let r, signers, title;
+  if (key.startsWith('pdfs:')) {
+    const ids = pdfBundleIds(key), ts = ids.map(pdfTplOf).filter(Boolean); if (ts.length < 2 || ts.length !== ids.length) throw new Error('אחד הטפסים לא נמצא בספרייה');
+    const F = pdfBundleFields(ids), N = ts.reduce((m, t) => Math.max(m, t.signers), 0);
+    signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null;
+      return { label: 'לווה ' + (i + 1), name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, i + 1, x, F) }; });
+    const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
+    title = o.title || ts.map((t) => t.name).join(' + ');
+    r = await signApi('/api/sign', { ...common, title: title.slice(0, 200), category: ts[0].category, lender: ts[0].folder || null, pdfTemplateIds: ids, signers });
+    S.pdfTpls = null;
+  } else if (key.startsWith('pdf:') || key === 'adhoc') {
+    const t = key === 'adhoc' ? null : pdfTplOf(key.slice(4)), ad = key === 'adhoc' ? o.adhoc : null;
+    if (!t && !ad) throw new Error(key === 'adhoc' ? 'מעלים קובץ ומציבים שדות קודם' : 'הטופס לא נמצא');
+    const F = t ? t.fields : ad.fields, N = t ? t.signers : pdfSignersOf(F);
+    signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null, who = x._i || i + 1;
+      return { label: 'לווה ' + who, name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, who, x, F, i + 1) }; });
+    const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
+    title = o.title || (t ? t.name : ad.name);
+    r = await signApi('/api/sign', { ...common, title, category: t ? t.category : o.adhocCat || 'general', lender: t ? t.folder || null : null,
+      ...(t ? { pdfTemplateId: t.id } : { pdf: { fileId: ad.fileId, fields: ad.fields } }), signers });
+    S.pdfTpls = null;
+  } else {
+    const tpl = signTplOf(c, key); if (isSignDraft(tpl.body)) throw new Error('התבנית עדיין טיוטה — לעדכן בהגדרות');
+    const fields = { ...signDefaults(c), ...(o.fields || {}) };
+    const miss = signTplRequired(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !String(fields[k] || '').trim()); if (miss.length) throw new Error('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
+    signers = o.rows.filter((x) => x.on).map((x) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null;
+      return { label: String(x.label || '').trim() || 'חותם', name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, x._i || 99, x, null) }; });
+    if (!signers.length) throw new Error('לא נבחר אף חותם'); const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
+    title = o.title || tpl.title;
+    r = await signApi('/api/sign', { ...common, title, template: tpl.body, category: tpl.category, templateKey: tpl.key, lender: tpl.lender || null, perSigner: !!tpl.perSigner, fields, signers });
+  }
+  S.signLast = { client: c.id, title, links: r.links.map((l, i) => ({ ...l, name: signers[i].name })), warnings: r.warnings || [], mailReady: r.mailReady };
+  S.signDocs = null; signLoad(c); setTimeout(() => signResult(c), 0); /* אחרי שהמגירה של השליחה המהירה נסגרת */
+  return r;
+}
+/* "איך זה מגיע ללקוח" — אחרי שליחה / קישור חדש: לכל חותם הקישור, העתקה, וואטסאפ ומה קרה עם המייל */
+function signResult(c) {
+  const L0 = S.signLast; if (!L0) return; c = c || signSubject(L0.client) || { name: '' };
+  const first = (n) => String(n || c.name || '').split(' ')[0];
+  const mailSt = (l) => !l.email ? '<span class="pill muted">אין מייל</span>' : l.emailStatus === 'sent' ? '<span class="pill actual">נשלח במייל ✓</span> <span class="hint" dir="ltr">' + esc(l.email) + '</span>'
+    : l.emailStatus === 'failed' ? '<span class="pill open">המייל נכשל</span> <span class="hint">' + esc(l.emailError || '') + '</span>' : '<span class="pill expected">המייל ממתין</span> <span class="hint">' + esc(l.emailError || 'יישלח כשהחיבור לגוגל פעיל') + '</span>';
+  const wa = (l) => { const ph = String(l.phone || '').replace(/\D/g, '').replace(/^0/, '972'); const msg = 'שלום ' + first(l.name) + ', מצורף קישור אישי לקריאה וחתימה על "' + (L0.title || 'המסמך') + '": ' + l.url + (l.requireOtp ? '\nבכניסה יישלח אליך קוד אימות.' : '');
+    return '<a class="btn small' + (ph ? ' primary' : '') + '" target="_blank" rel="noopener" href="https://wa.me/' + (ph ? esc(ph) : '') + '?text=' + encodeURIComponent(msg) + '">וואטסאפ ↗</a>'; };
+  const body = '<p class="full hint" style="margin-top:0">' + (L0.reminder ? 'נוצר קישור חדש — הקודם כבר לא עובד.' : 'כל חותם קיבל קישור אישי, חד-פעמי, בתוקף 14 יום. אפשר לשלוח אותו גם בוואטסאפ מהטלפון שלך — וגם במייל, יחד.') + '</p>' +
+    L0.links.map((l, i) => '<div class="full card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><b>' + esc(l.label || '') + '</b>' + (l.name ? '<span>' + esc(l.name) + '</span>' : '') + (l.requireOtp ? '<span class="pill committed" title="לפני החתימה יקבל קוד חד-פעמי">קוד אימות</span>' : '') + '</div>' +
+      '<input class="f" readonly dir="ltr" value="' + esc(l.url) + '" style="margin:6px 0;font-size:12px" onfocus="this.select()">' +
+      '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" data-signcopy="' + i + '">העתק קישור</button>' + wa(l) + '<span class="grow"></span>' + mailSt(l) + '</div></div>').join('') +
+    ((L0.warnings || []).length ? '<p class="full hint" style="color:var(--open)">' + L0.warnings.map(esc).join('<br>') + '</p>' : '') +
+    (L0.mailReady === false ? '<p class="full hint">שליחת מיילים מהמערכת עוד לא מחוברת (הגדרות ← "חבר את גוגל"). עד אז — וואטסאפ או העתקת הקישור.</p>' : '') +
+    '<p class="full hint">מה נשמר לתיעוד: למי נשלח ואיך, כל פתיחה (מתי, IP ומכשיר), קוד האימות, השם ות״ז מול הכרטיס, החתימה, וטביעה (SHA-256) של המסמך ושל הקובץ החתום.</p>';
+  drawer((L0.reminder ? 'קישור חדש — ' : 'נשלח לחתימה — ') + (L0.title || ''), body, async () => {}, '', 'סגור');
+}
+/* טפסים קבועים לשליחה מהירה (settings.signQuick: מפתחות תבנית — "pdf:<id>" או מפתח בספריית הנוסחים) */
+const signQuickKeys = () => (Array.isArray(S.settings.signQuick) ? S.settings.signQuick : []);
+function signQuickItems(c) {
+  const div = c.division || 'finance', lib = signLibrary(div), T = (S.pdfTpls && S.pdfTpls.templates) || [];
+  return signQuickKeys().map((k) => { if (k.startsWith('pdf:')) { const t = T.find((x) => x.id === k.slice(4)); return t && (!t.division || t.division === div) ? { key: k, label: t.name, pdf: t } : null; }
+    const t = lib.find((x) => x.key === k); return t && !isSignDraft(t.body) ? { key: k, label: t.title + (t.lender ? ' · ' + t.lender : ''), tpl: t } : null; }).filter(Boolean);
+}
+async function signQuickToggle(key) { if (!key) return; const cur = signQuickKeys(), on = cur.includes(key);
+  await write('settings/main', { signQuick: on ? cur.filter((k) => k !== key) : [...cur, key].slice(0, 20) }, 'update'); toast(on ? 'הוסר מהשליחה המהירה' : 'נוסף לשליחה המהירה — מופיע בכל כרטיס לקוח'); }
+/* שליחה מהירה: הכל ממולא מהכרטיס; רק מאשרים (ומוסיפים הערות אם רוצים) */
+function signQuickForm(c, key) {
+  const it = signQuickItems(c).find((x) => x.key === key); if (!it) return toast('הטופס לא נמצא');
+  const isPdf = !!it.pdf, defs0 = signSignerDefaults(c, isPdf ? 'client_spouse' : it.tpl.signers);
+  const off = isPdf ? pdfOffOf(it.pdf) : 0;
+  const rows = isPdf ? Array.from({ length: it.pdf.signers }, (_, i) => ({ ...(defs0[i + off] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1 + off), _i: i + 1 + off, _f: i + 1 })) : defs0.map((x, i) => ({ ...x, _i: i + 1 }));
+  const defs = signDefaults(c), need = isPdf ? [] : signTplRequired(it.tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !String(defs[k] || '').trim());
+  const preTxt = (r) => { const p = signPrefill(c, r._i, r, isPdf ? it.pdf.fields : null, r._f || r._i), parts = [p.name ? 'שם' : '', p.idNumber ? 'ת״ז ' + p.idNumber : '', ...Object.keys(p.values || {}).map((id) => { const f = it.pdf.fields.find((x) => x.id === id); return f ? (f.label || PREFILL[f.src] || 'שדה') : ''; })].filter(Boolean);
+    return parts.length ? '<span class="hint">ימולא מהתיק: ' + esc(parts.join(' · ')) + '</span>' : '<span class="hint" style="color:var(--open)">אין בתיק פרטים לחותם הזה — הוא ימלא בעצמו</span>'; };
+  const rowHtml = (r, i) => '<div class="full row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:2px">' + (isPdf ? '' : '<label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" name="on' + i + '" value="1"' + (r.on ? ' checked' : '') + '></label>') +
+    '<label class="fl" style="flex:1 1 110px">' + esc(r.label) + '<input class="f" name="name' + i + '" value="' + esc(r.name || '') + '"></label><label class="fl" style="flex:2 1 150px">מייל<input class="f" dir="ltr" name="email' + i + '" value="' + esc(r.email || '') + '"></label><label class="fl" style="flex:1 1 110px">טלפון<input class="f" dir="ltr" name="phone' + i + '" value="' + esc(r.phone || '') + '"></label></div><div class="full" style="margin:-2px 0 8px">' + preTxt(r) + '</div>';
+  drawer('שליחה מהירה — ' + it.label, '<p class="full hint" style="margin-top:0">שולחים ל<b>' + esc(c.name || '') + '</b>. הפרטים נלקחים מהכרטיס; הלקוח רואה אותם ממולאים, בודק וחותם.</p>' +
+    rows.map(rowHtml).join('') + (need.length ? '<h3 class="full sec">חסר בכרטיס</h3>' + need.map((k) => fi('f_' + k, SIGN_LABELS[k] || k, '', 'text', 'required')).join('') : '') +
+    '<label class="fl full">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" name="notes" rows="3" maxlength="2000"></textarea></label>' +
+    '<label class="check full"><input type="checkbox" class="cb" name="otp" value="1" checked><span>קוד אימות לפני החתימה — מוכיח שהמייל / הטלפון באמת שלו</span></label>',
+    async (d) => {
+      const rws = rows.map((r, i) => ({ ...r, on: isPdf ? true : d['on' + i] === '1', name: String(d['name' + i] || '').trim(), email: String(d['email' + i] || '').trim(), phone: String(d['phone' + i] || '').trim() }));
+      const fields = {}; need.forEach((k) => { fields[k] = String(d['f_' + k] || '').trim(); });
+      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields }); }
+      catch (e) { return e.message; }
+    }, '', 'שלח עכשיו');
+}
 /* ═════ טפסים מ-PDF (מפרט "מערכת טפסים" של WISE): מעלים PDF (עד 5 קבצים — מאוחדים), מציבים שדות
    לכל לווה (חתימה, ראשי תיבות, שם, ת״ז, תאריך, טקסט, סימון), ושולחים — מתבנית בספרייה או כמסמך מזדמן.
    הלקוח חותם על המסמך עצמו; החתימות נכתבות על ה-PDF המקורי בשרת (pdf-lib). רק במערכת בשרת. ═════ */
 const PDF_KINDS = { signature: 'חתימה', initials: 'ראשי תיבות', name: 'שם', id_number: 'ת״ז', date: 'תאריך', text: 'טקסט', checkbox: 'סימון' };
 const PDF_SIZE = { signature: [0.28, 0.06], initials: [0.1, 0.035], name: [0.25, 0.03], id_number: [0.18, 0.03], date: [0.15, 0.03], text: [0.25, 0.03], checkbox: [0.028, 0.02] };
-const BANK_FOLDERS = ['בנק טפחות', 'בנק הפועלים', 'בנק דיסקונט', 'בנק לאומי', 'הבינלאומי', 'בנק ירושלים', 'מרכנתיל', 'חברות ביטוח', 'מימון ישיר', 'כללי'];
+/* התיקיות לפי גוף — כמו "תבניות מסמכים" ב-WISE (דן, 18/10). "כללי" ראשון; תיקייה חדשה נוצרת כשכותבים שם אחר בטופס */
+const BANK_FOLDERS = ['כללי', 'בנק טפחות', 'בנק הפועלים', 'בנק דיסקונט', 'בנק לאומי', 'בנק הבינלאומי', 'בנק ירושלים', 'בנק מרכנתיל', 'מימון ישיר', 'כלל ביטוח', 'הראל ביטוח', 'הפניקס משכנתאות', 'איילון משכנתאות', 'קוואליטי IBI', 'וויצ׳ק', 'קרדיטו', 'קרדיט 360', 'פמה משכנתאות', 'אלבר משכנתאות', 'טריא', 'loanwise - לואן ווייז', 'פריסבי מימון'];
+/* שם תיקייה → התיקייה בספרייה: בלי הבדלי אותיות גדולות, גרש / גרשיים ומקפים ("וויצ'ק" = "וויצ׳ק") */
+const folderKey = (s) => String(s || '').toLowerCase().replace(/[׳'`"״]/g, '').replace(/[\s\-–—_]+/g, ' ').trim();
+const folderCanon = (s) => { const k = folderKey(s); if (!k) return 'כללי'; const all = [...BANK_FOLDERS, ...((S.pdfTpls && S.pdfTpls.templates) || []).map((t) => t.folder).filter(Boolean)];
+  return all.find((f) => folderKey(f) === k) || String(s).trim().slice(0, 80); };
+/* טופס של "לווה 2" (חותם אחד): בשליחה — האדם השני בכרטיס (בן/בת הזוג), לא הלקוח. לווה 3/4 — הלווים הנוספים */
+const tplPersonOffset = (name) => { const s = String(name || ''); return /לווה\s*(?:4|רביעי)/.test(s) ? 3 : /לווה\s*(?:3|שלישי)/.test(s) ? 2 : /לווה\s*(?:2|שני)/.test(s) ? 1 : 0; };
+const pdfOffOf = (t) => t && t.signers === 1 ? tplPersonOffset(t.name) : 0;
+const pdfKeyOff = (key) => String(key || '').startsWith('pdf:') ? pdfOffOf(pdfTplOf(String(key).slice(4))) : 0;
 const sgc = (i) => 'var(--sg' + (((Number(i) || 1) - 1) % 6 + 1) + ')';
-const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', _lead: true });
+const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', idNumber: l.idNumber || '', address: l.address || '', _lead: true });
 /* מי מקבל את המסמך במסך הנוכחי: לקוח, או מתעניין (ליד) */
-function signSubject(id) { const v = S.view; id = id || v.clientId; if (S.clients.has(id)) return S.clients.get(id); const l = S.leads.get(id); return l ? leadSignObj(l) : null; }
+function signSubject(id) { const v = S.view; id = id || v.clientId; if (S.clients.has(id)) return S.clients.get(id); const l = S.leads.get(id); if (l) return leadSignObj(l);
+  return S.extSubj && S.extSubj.id === id ? S.extSubj : null; }
+/* נמען ידני (דן, 18/10: "מישהו שאני רוצה לרשום את הפרטים שלו ידנית — בלי להכניס למערכת"): לא נשמר כלקוח או ליד.
+   המסמך נרשם ב"מה נשלח" עם התיעוד המלא; ה-PDF החתום נשמר במערכת (אין תיקייה בדרייב). מזהה ext-… */
+const isExtDoc = (id) => String(id || '').startsWith('ext-');
+function extSubjForm() {
+  const divs = DIVS.filter((d) => (S.allowedDivs || DIVS).includes(d)), def = S.division !== 'all' && divs.includes(S.division) ? S.division : divs[0];
+  drawer('שליחה למישהו שלא במערכת', '<p class="full hint" style="margin-top:0">הפרטים משמשים רק למסמך הזה — לא נפתח לקוח ולא ליד. המסמך והחתימה נשמרים ב"מה נשלח".</p>' +
+    fi('name', 'שם מלא *', '', 'text', 'required') + fi('idNumber', 'ת״ז', '', 'text', 'inputmode="numeric" dir="ltr"') + fi('email', 'מייל', '', 'email', 'dir="ltr"') + fi('phone', 'טלפון', '', 'tel', 'dir="ltr" inputmode="tel"') +
+    fi('address', 'כתובת', '', 'text', '', true) +
+    '<h3 class="full sec">חותם נוסף <span class="hint">· רשות — לטופס של שני לווים</span></h3>' + fi('name2', 'שם', '', 'text') + fi('id2', 'ת״ז', '', 'text', 'inputmode="numeric" dir="ltr"') + fi('email2', 'מייל', '', 'email', 'dir="ltr"') + fi('phone2', 'טלפון', '', 'tel', 'dir="ltr" inputmode="tel"') +
+    (divs.length > 1 ? fs('division', 'בשם איזו חברה', divs.map((d) => [d, L.division[d]]), def, true) : ''),
+    async (d) => { const name = String(d.name || '').trim(); if (name.length < 2) return 'חסר שם';
+      if (!String(d.email || '').trim() && !String(d.phone || '').trim()) return 'צריך מייל או טלפון — לשם נשלח הקישור';
+      const t = (k) => String(d[k] || '').trim();
+      S.extSubj = { id: 'ext-' + uid(), name, idNumber: t('idNumber').replace(/\D/g, ''), email: t('email'), phone: t('phone'), address: t('address'), spouseName: t('name2'), spouseId: t('id2').replace(/\D/g, ''), spouseEmail: t('email2'), spousePhone: t('phone2'),
+        division: d.division || def || 'finance', _lead: true, _ext: true };
+      S.signForm = S.signForm || {}; S.signForm[S.extSubj.id] = { open: true }; setTimeout(() => go('forms', S.extSubj.id), 0); }, '', 'המשך — בחירת טופס');
+}
 async function pdfTplLoad(force) { if (!window.__harelServer || S._ptLoading || (S.pdfTpls && !force)) return; S._ptLoading = true;
   try { S.pdfTpls = await signApi('/api/sign/templates?viewer=' + encodeURIComponent(S.myKey || S.me.id || '')); } catch (e) { S.pdfTpls = { templates: [], top: [], error: e.message }; }
   S._ptLoading = false; render(); }
@@ -3878,10 +4025,61 @@ const pdfTplOf = (id) => ((S.pdfTpls && S.pdfTpls.templates) || []).find((t) => 
 const pdfSignersOf = (fields) => (fields || []).reduce((m, f) => Math.max(m, f.signer), 0);
 async function pdfUpload(files, name) {
   const fs0 = [...files].filter(Boolean); if (!fs0.length) throw new Error('לא נבחר קובץ'); if (fs0.length > 5) throw new Error('עד 5 קבצים בבת אחת');
-  const fd = new FormData(); fs0.forEach((f) => fd.append('file', f)); if (name) fd.append('name', name);
+  const fd = new FormData(); fs0.forEach((f) => fd.append('file', f)); if (name) fd.append('name', name); fd.append('viewer', S.myKey || S.me.id || '');
   const r = await fetch('/api/sign/files', { method: 'POST', body: fd }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || 'ההעלאה נכשלה'); return j;
 }
 /* עורך השדות: העמודים (pdf.js) + שכבת שדות. לחיצה על העמוד = שדה חדש מהסוג ולחותם שנבחרו; גרירה מזיזה; הפינה משנה גודל. */
+/* ═════ זיהוי שדות אוטומטי בטופס (דן, 18/10: "שילמד את התבניות — אני מעלה את כולן") ═════
+   קורא את הטקסט שעל הטופס (pdf.js) ומחפש תוויות קצרות: "שם", "ת.ז", "חתימה", "תאריך", "כתובת", "טלפון", "מייל".
+   לכל תווית — שדה ליד הקו הריק שמשמאלה (טופס בעברית: התווית מימין, הקו משמאל), ואם אין מקום — מתחתיה.
+   כמה חתימות באותה שורה = לווים שונים (מימין לשמאל: לווה 1, 2…). "לווה 2"/"ערב" בשורה — לאותו לווה.
+   הצעה בלבד: נפתחת בעורך, מתקנים, ושומרים (הנחיה 17 ברוחה — אדם מאשר). ═════ */
+const PDF_DETECT = [
+  [/^(?:חתימ(?:ה|ת)(?:\s+(?:ה?לווה|ה?לקוח|ה?מבקש|ה?חותם|ה?ערב|בן\/?ת?\s*ה?זוג)(?:\s*\d)?)?|signature)$/i, 'signature'],
+  [/^(?:שם(?:\s+(?:מלא|ה?לווה|ה?לקוח|ה?מבקש|ה?חותם|פרטי\s+ומשפחה|משפחה\s+ופרטי))?(?:\s*\d)?|full\s*name|name)$/i, 'name'],
+  [/^(?:ת\.?\s*ז\.?|ת"ז|ת״ז|תעודת\s+זהות|מס(?:פר|')?\s+(?:תעודת\s+)?זהות|id(?:\s*no\.?)?)$/i, 'id_number'],
+  [/^(?:תאריך(?:\s+(?:החתימה|חתימה))?|date)$/i, 'date'],
+  [/^(?:כתובת(?:\s+מגורים)?|address)$/i, 'text', 'signer_address', 'כתובת'],
+  [/^(?:טלפון(?:\s+נייד)?|נייד|טל(?:'|\.)|phone|mobile)$/i, 'text', 'signer_phone', 'טלפון'],
+  [/^(?:דוא"ל|דוא״ל|מייל|דואר\s+אלקטרוני|e-?mail)$/i, 'text', 'signer_email', 'מייל'],
+];
+const pdfLabelOf = (raw) => { const t = String(raw || '').replace(/[:：_.\-–—*]+\s*$/, '').replace(/^\s*[:：*]+/, '').replace(/\s+/g, ' ').trim();
+  if (!t || t.length > 30) return null; const rev = [...t].reverse().join('');
+  for (const [re, kind, src, label] of PDF_DETECT) if (re.test(t) || re.test(rev)) return { kind, src: src || null, label: label || null, text: t }; return null; };
+async function pdfDetect(doc, pages) {
+  const out = [];
+  for (let pi = 0; pi < pages.length; pi++) {
+    const pg = await doc.getPage(pi + 1), vp = pg.getViewport({ scale: 1 }), W = vp.width, H = vp.height, tc = await pg.getTextContent();
+    const items = tc.items.filter((it) => it.str && it.str.trim()).map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0, h: Math.abs(it.transform[3]) || 10 }));
+    const hits = items.map((it) => ({ it, m: pdfLabelOf(it.s) })).filter((x) => x.m);
+    const rowOf = (y) => Math.round(y / 6);
+    for (const { it, m } of hits) {
+      const [fw0, fh] = PDF_SIZE[m.kind] || PDF_SIZE.text, fw = fw0;
+      // הקו הריק: משמאל לתווית (עד התווית הבאה באותה שורה). אין מקום? — מתחתיה.
+      const leftNeighbors = items.filter((o) => o !== it && Math.abs(o.y - it.y) < it.h * 0.6 && o.x + o.w <= it.x - 2);
+      const stop = leftNeighbors.length ? Math.max(...leftNeighbors.map((o) => o.x + o.w)) : 18;
+      const room = (it.x - 4 - stop) / W;
+      let x, y; const base = 1 - it.y / H;
+      if (room >= Math.min(fw, 0.12)) { const w = Math.min(fw, room); x = (it.x - 4) / W - w; y = base - fh + 0.006; out.push({ page: pi, kind: m.kind, src: m.src, label: m.label, x, y, w, h: fh, row: rowOf(it.y), rx: it.x }); }
+      else { x = Math.max(0, Math.min(1 - fw, (it.x + it.w) / W - fw)); y = base + 0.006; out.push({ page: pi, kind: m.kind, src: m.src, label: m.label, x, y, w: fw, h: fh, row: rowOf(it.y), rx: it.x }); }
+    }
+  }
+  // לווים: באותה שורה, כמה שדות מאותו סוג — מימין לשמאל = לווה 1, 2, …; שאר השדות באותה עמודה יורשים את הלווה של החתימה הקרובה
+  const byRow = {}; out.forEach((f) => { const k = f.page + ':' + f.row + ':' + f.kind; (byRow[k] = byRow[k] || []).push(f); });
+  Object.values(byRow).forEach((g) => g.sort((a, b) => b.rx - a.rx).forEach((f, i) => { f.signer = Math.min(6, i + 1); }));
+  const sigs = out.filter((f) => f.kind === 'signature');
+  out.forEach((f) => { if (f.kind === 'signature' || (byRow[f.page + ':' + f.row + ':' + f.kind] || []).length > 1) return;
+    const near = sigs.filter((s) => s.page === f.page).sort((a, b) => (Math.abs(a.x - f.x) + Math.abs(a.y - f.y) * 0.5) - (Math.abs(b.x - f.x) + Math.abs(b.y - f.y) * 0.5))[0];
+    f.signer = near ? near.signer : 1; });
+  const clamp = (v) => Math.round(Math.max(0, Math.min(1, v)) * 10000) / 10000;
+  const fields = out.slice(0, 120).map((f) => { const g = { id: 'f' + uid(), page: f.page, kind: f.kind, signer: f.signer || 1, x: clamp(f.x), y: clamp(f.y), w: clamp(f.w), h: clamp(f.h) };
+    if (g.y + g.h > 1) g.y = clamp(1 - g.h); if (g.x + g.w > 1) g.x = clamp(1 - g.w); if (f.src) g.src = f.src; if (f.label) g.label = f.label; return g; });
+  // כל לווה שיש לו שדות צריך חתימה — אם לא נמצאה, בתחתית העמוד האחרון (לבדיקה)
+  const N = fields.reduce((m, f) => Math.max(m, f.signer), 0) || 1;
+  for (let i = 1; i <= N; i++) if (!fields.some((f) => f.signer === i && f.kind === 'signature')) { const [w, h] = PDF_SIZE.signature;
+    fields.push({ id: 'f' + uid(), page: pages.length - 1, kind: 'signature', signer: i, w, h, x: clamp(1 - 0.06 - w - (i - 1) * (w + 0.03)), y: clamp(0.88 - h) }); }
+  return fields;
+}
 function pdfEditor(o) {
   const E = { fileId: o.fileId, pages: o.pages, fields: JSON.parse(JSON.stringify(o.fields || [])), signer: 1, kind: 'signature', sel: null, max: Math.max(1, Math.min(6, o.signers || pdfSignersOf(o.fields) || 1)) };
   S.pe = E;
@@ -3890,7 +4088,7 @@ function pdfEditor(o) {
     '<div class="pdfbar"><b class="grow">' + esc(o.title || 'הצבת שדות') + '</b>' +
       '<label class="row" style="gap:6px;align-items:center"><span class="sgdot" id="peDot" style="--sgc:' + sgc(1) + '"></span>חותם<select class="f small" id="peSigner">' + signerOpts(1) + '</select></label>' +
       '<div class="seg" role="group" aria-label="סוג שדה">' + Object.entries(PDF_KINDS).map(([k, v]) => '<button type="button" data-pek="' + k + '" aria-pressed="' + (k === 'signature') + '">' + v + '</button>').join('') + '</div>' +
-      '<span class="hint" id="peCount"></span><button type="button" class="btn primary" data-pe="save">שמור</button><button type="button" class="btn" data-pe="cancel">ביטול</button></div>' +
+      '<span class="hint" id="peCount"></span><button type="button" class="btn" data-pe="auto" title="קורא את הטופס ומציע שדות ליד התוויות (שם, ת״ז, חתימה, תאריך…)">✨ זיהוי שדות</button><button type="button" class="btn primary" data-pe="save">' + esc(o.saveLabel || 'שמור') + '</button><button type="button" class="btn" data-pe="cancel">' + esc(o.cancelLabel || 'ביטול') + '</button></div>' +
     '<div class="pdfsel" id="peSel"></div>' +
     '<div class="pdfpages" id="pePages">' + E.pages.map((p, i) => '<div class="pg" data-pg="' + i + '" style="aspect-ratio:' + p.w + '/' + p.h + '"><canvas></canvas><span class="pgn">' + (i + 1) + '/' + E.pages.length + '</span></div>').join('') +
       '<p class="hint" style="max-width:860px">לחיצה על העמוד מוסיפה שדה מהסוג שנבחר ללווה שנבחר · גרירה מזיזה · הריבוע בפינה משנה גודל · לחיצה על שדה בוחרת אותו (שם, חובה, מחיקה). לכל לווה צריך לפחות שדה חתימה אחד.</p></div></div>';
@@ -3899,18 +4097,21 @@ function pdfEditor(o) {
     root.querySelectorAll('.pef').forEach((x) => x.remove());
     for (const f of E.fields) { const pg = root.querySelector('.pg[data-pg="' + f.page + '"]'); if (!pg) continue; const d = document.createElement('div');
       d.className = 'pef' + (E.sel === f.id ? ' sel' : ''); d.dataset.fid = f.id; d.style.cssText = '--sgc:' + sgc(f.signer) + ';left:' + f.x * 100 + '%;top:' + f.y * 100 + '%;width:' + f.w * 100 + '%;height:' + f.h * 100 + '%';
-      d.innerHTML = '<span></span><i class="rz" data-rz="1"></i>'; d.firstChild.textContent = (f.label || PDF_KINDS[f.kind]) + ' · ' + f.signer + (f.required ? '*' : ''); pg.appendChild(d); }
+      d.innerHTML = '<span></span><i class="rz" data-rz="1"></i>'; d.firstChild.textContent = (f.label || PDF_KINDS[f.kind]) + ' · ' + f.signer + (f.required ? '*' : '') + (f.src ? ' ⟵ תיק' : ''); pg.appendChild(d); }
     const n = pdfSignersOf(E.fields), miss = []; for (let i = 1; i <= n; i++) if (!E.fields.some((f) => f.signer === i && f.kind === 'signature')) miss.push(i);
     $('peCount').textContent = E.fields.length + ' שדות · ' + n + ' חותמים' + (miss.length ? ' · חסרה חתימה ללווה ' + miss.join(', ') : '');
     const f = E.fields.find((x) => x.id === E.sel);
     $('peSel').innerHTML = f ? '<span class="sgdot" style="--sgc:' + sgc(f.signer) + '"></span><b>' + PDF_KINDS[f.kind] + '</b> · עמוד ' + (f.page + 1) +
       '<label class="row" style="gap:4px;align-items:center">לווה<select class="f small" id="peFSigner">' + signerOpts(f.signer) + '</select></label>' +
       (f.kind === 'text' || f.kind === 'checkbox' ? '<label class="row" style="gap:4px;align-items:center">שם השדה<input class="f small" id="peFLabel" value="' + esc(f.label || '') + '" placeholder="' + (f.kind === 'text' ? 'למשל: מספר חשבון' : 'למשל: מאשר/ת') + '"></label><label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="peFReq"' + (f.required ? ' checked' : '') + '> חובה</label>' : '') +
+      (f.kind === 'text' ? '<label class="row" style="gap:4px;align-items:center">מילוי מהתיק<select class="f small" id="peFSrc"><option value="">— החותם ממלא —</option>' + Object.entries(PREFILL).map(([k, v]) => '<option value="' + k + '"' + (f.src === k ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>' : '') +
+      (['name', 'id_number', 'date', 'initials'].includes(f.kind) ? '<span class="hint">' + (f.kind === 'date' ? 'יום החתימה — אוטומטי' : 'ימולא מהכרטיס של הלווה, החותם מאשר') + '</span>' : '') +
       '<button type="button" class="btn small ghost danger" data-pe="del">מחק שדה</button><button type="button" class="btn small ghost" data-pe="dup">שכפל</button>' : '<span class="hint">בחר שדה כדי לערוך אותו</span>';
   };
   // העמודים — pdf.js (מאותו מקור, מאחורי שער הכניסה)
   (async () => { try { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const doc = await lib.getDocument({ url: '/api/files/' + E.fileId }).promise;
+      const doc = await lib.getDocument({ url: '/api/files/' + E.fileId }).promise; E.doc = doc;
+      if (o.auto && !E.fields.length) { try { E.fields = await pdfDetect(doc, E.pages); draw(); toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק, לתקן ולשמור' : 'לא זוהו תוויות — מציבים ידנית'); } catch (x) {} }
       for (const box of root.querySelectorAll('.pg')) { const pg = await doc.getPage(+box.dataset.pg + 1), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(2.2, box.clientWidth * (devicePixelRatio || 1) / v1.width), v = pg.getViewport({ scale: sc }), cv = box.querySelector('canvas');
         cv.width = Math.round(v.width); cv.height = Math.round(v.height); await pg.render({ canvasContext: cv.getContext('2d'), viewport: v }).promise; } }
     catch (e) { toast('התצוגה של המסמך לא נטענה: ' + (e.message || e)); } })();
@@ -3929,11 +4130,14 @@ function pdfEditor(o) {
   root.addEventListener('pointerup', () => { if (drag) { const f = drag.f; ['x', 'y', 'w', 'h'].forEach((k) => { f[k] = Math.round(f[k] * 10000) / 10000; }); drag = null; } });
   root.addEventListener('change', (e) => { const f = E.fields.find((x) => x.id === E.sel);
     if (e.target.id === 'peSigner') { E.signer = +e.target.value; $('peDot').style.setProperty('--sgc', sgc(E.signer)); return; }
-    if (!f) return; if (e.target.id === 'peFSigner') f.signer = +e.target.value; if (e.target.id === 'peFReq') f.required = e.target.checked; draw(); });
+    if (!f) return; if (e.target.id === 'peFSigner') f.signer = +e.target.value; if (e.target.id === 'peFReq') f.required = e.target.checked;
+    if (e.target.id === 'peFSrc') { if (e.target.value) { f.src = e.target.value; if (!f.label) f.label = PREFILL[f.src].replace(/ \(.*\)$/, ''); } else delete f.src; } draw(); });
   root.addEventListener('input', (e) => { const f = E.fields.find((x) => x.id === E.sel); if (f && e.target.id === 'peFLabel') { f.label = e.target.value.slice(0, 60); const el = root.querySelector('.pef[data-fid="' + f.id + '"] span'); if (el) el.textContent = (f.label || PDF_KINDS[f.kind]) + ' · ' + f.signer + (f.required ? '*' : ''); } });
   root.addEventListener('click', async (e) => {
     const k = e.target.closest('[data-pek]'); if (k) { E.kind = k.dataset.pek; root.querySelectorAll('[data-pek]').forEach((b) => b.setAttribute('aria-pressed', String(b === k))); return; }
     const a = e.target.closest('[data-pe]'); if (!a) return;
+    if (a.dataset.pe === 'auto') { if (!E.doc) return toast('המסמך עוד נטען…'); if (E.fields.length && !confirm('להחליף את השדות הקיימים בהצעה האוטומטית?')) return;
+      E.fields = await pdfDetect(E.doc, E.pages); E.sel = null; draw(); return toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק ולתקן' : 'לא זוהו תוויות בטופס'); }
     if (a.dataset.pe === 'del') { E.fields = E.fields.filter((x) => x.id !== E.sel); E.sel = null; return draw(); }
     if (a.dataset.pe === 'dup') { const f = E.fields.find((x) => x.id === E.sel); if (!f) return; const g = { ...f, id: 'f' + uid(), y: Math.min(1 - f.h, f.y + f.h + 0.01) }; E.fields.push(g); E.sel = g.id; return draw(); }
     if (a.dataset.pe === 'cancel') { if (E.fields.length && !confirm('לצאת בלי לשמור את השדות?')) return; $('layer').innerHTML = ''; S.pe = null; return o.onCancel && o.onCancel(); }
@@ -3945,88 +4149,231 @@ function pdfEditor(o) {
   draw();
 }
 /* ספריית טפסי ה-PDF בהגדרות: לפי סוג ← גוף, רשימה או כרטיסים, "הכי פעילות" */
+/* ספריית הטפסים — מסודרת כמו "תבניות מסמכים" ב-WISE (דן, 18/10): מסמכי מערכת / מסמכים אישיים → תיקייה לפי גוף → רשימה.
+   pdfLibView — אותו מבנה לספרייה (ניהול) ולבחירה בשליחה (pick: סימון כמה טפסים → מסמך אחד). */
+const tplFolderOf = (t) => t.folder || 'כללי';
+function pdfLibState(st) {
+  const T = (S.pdfTpls && S.pdfTpls.templates) || [], scope = st.scope === 'personal' ? 'personal' : 'system', q = String(st.q || '').trim().toLowerCase();
+  const inScope = T.filter((t) => (t.scope || 'system') === scope && (!st.div || !t.division || t.division === st.div));
+  const known = [...new Set([...BANK_FOLDERS, ...inScope.map(tplFolderOf)])];
+  const counts = Object.fromEntries(known.map((f) => [f, inScope.filter((t) => tplFolderOf(t) === f).length]));
+  const folder = st.folder && known.includes(st.folder) ? st.folder : '';
+  const R = tplReview(), nRev = inScope.filter((t) => R.has(t.id)).length, review = !!st.review && nRev > 0;
+  const rows = inScope.filter((t) => (!folder || tplFolderOf(t) === folder) && (!review || R.has(t.id)) && (!q || [t.name, t.folder, SIGN_CAT[t.category]].some((v) => String(v || '').toLowerCase().includes(q))))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
+  return { T, scope, known, counts, folder, rows, R, nRev, review, nSys: T.filter((t) => (t.scope || 'system') === 'system').length, nMine: T.filter((t) => t.scope === 'personal').length };
+}
+function pdfLibView(st, mode) {
+  const L0 = pdfLibState(st), pick = mode === 'pick', w = S.isOwner && S.canWrite, sel = st.sel || [];
+  const tabs = '<div class="row formtabs" style="gap:6px;flex-wrap:wrap">' + [['system', 'מסמכי מערכת', L0.nSys], ['personal', 'מסמכים אישיים', L0.nMine]].map(([k, t, n]) => '<button type="button" class="btn small' + (L0.scope === k ? ' primary' : '') + '" data-plscope="' + k + '">📁 ' + t + ' <span class="hint">' + n + '</span></button>').join('') +
+    '<span class="grow"></span><input class="f small" type="search" id="plQ" placeholder="חיפוש טופס…" value="' + esc(st.q || '') + '" style="max-width:220px"></div>';
+  const chips = '<div class="row folderchips" style="gap:6px;flex-wrap:wrap;margin:10px 0">' + (L0.nRev ? '<button type="button" class="chip' + (L0.review ? ' on' : '') + '" data-plreview="' + (L0.review ? '' : '1') + '" title="הוצבו אוטומטית — לפתוח &quot;שדות&quot;, לבדוק ולשמור"><span class="pill open">לבדיקה</span> <span class="hint">' + L0.nRev + '</span></button>' : '') + '<button type="button" class="chip' + (!L0.folder ? ' on' : '') + '" data-plfolder="">הכל <span class="hint">' + Object.values(L0.counts).reduce((a, b) => a + b, 0) + '</span></button>' +
+    L0.known.map((f) => '<button type="button" class="chip' + (L0.folder === f ? ' on' : '') + (L0.counts[f] ? '' : ' muted') + '" data-plfolder="' + esc(f) + '">📁 ' + esc(f) + (L0.counts[f] ? ' <span class="hint">' + L0.counts[f] + '</span>' : '') + '</button>').join('') + '</div>';
+  const row = (t) => '<div class="tplrow' + (sel.includes(t.id) ? ' on' : '') + '">' + (pick ? '<label class="row" style="gap:8px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" class="cb" data-plsel="' + esc(t.id) + '"' + (sel.includes(t.id) ? ' checked' : '') + '>' : '<div style="flex:1">') +
+    '<span><b>' + esc(t.name) + '</b>' + (L0.R.has(t.id) ? ' <span class="pill open" title="השדות הוצבו אוטומטית בייבוא — עוד לא נבדקו">לבדיקה</span>' : '') + '<span class="hint"> · ' + esc(tplFolderOf(t)) + ' · ' + esc(SIGN_CAT[t.category] || '') + ' · ' + t.signers + ' חותמים · ' + t.fields.length + ' שדות' + (t.fields.some((f) => f.src) ? ' · ממולא מהתיק' : '') + (t.require_otp ? ' · קוד' : '') + (t.uses ? ' · נשלח ' + t.uses : '') + '</span></span>' + (pick ? '</label>' : '</div>') +
+    (!pick && w ? '<div class="row" style="gap:4px;flex-wrap:wrap"><button class="btn small ghost" data-signquicktoggle="pdf:' + esc(t.id) + '" title="שליחה מהירה מכל כרטיס">' + (signQuickKeys().includes('pdf:' + t.id) ? '★' : '☆') + '</button><button class="btn small ghost" data-pdftplfields="' + esc(t.id) + '">שדות</button><button class="btn small ghost" data-pdftpledit="' + esc(t.id) + '">ערוך</button><button class="btn small ghost danger" data-pdftpldel="' + esc(t.id) + '">מחק</button></div>' : '') + '</div>';
+  const list = L0.rows.length ? '<div class="tpllist">' + L0.rows.map(row).join('') + '</div>' : '<p class="empty">' + (L0.T.length ? 'אין טפסים ' + (L0.folder ? 'בתיקייה "' + esc(L0.folder) + '"' : 'כאן') + (st.q ? ' שמתאימים לחיפוש' : '') + '.' : 'עוד אין טפסים. "+ טופס PDF" — אפשר לבחור כמה קבצים יחד; השדות מוצבים לבד לפי התוויות שעל הטופס.') + '</p>';
+  return tabs + chips + list;
+}
 function pdfTplCard() {
   if (!window.__harelServer || !(S.isOwner || S.canTask)) return ''; if (!S.pdfTpls) { setTimeout(() => pdfTplLoad(), 20); return ''; }
-  const T = S.pdfTpls.templates || [], w = S.isOwner && S.canWrite, grid = S.f.tplGrid, top = (S.pdfTpls.top || []).map((x) => ({ t: pdfTplOf(x.id), n: x.n })).filter((x) => x.t);
-  const item = (t) => grid
-    ? '<div class="card"><b>' + esc(t.name) + '</b>' + (t.scope === 'personal' ? ' <span class="pill muted">אישי</span>' : '') + '<div class="hint">' + t.signers + ' חותמים · ' + t.fields.length + ' שדות · ' + t.page_sizes.length + ' עמ׳' + (t.uses ? ' · נשלח ' + t.uses : '') + '</div>' + (w ? '<div class="row" style="margin-top:6px"><button class="btn small ghost" data-pdftplfields="' + esc(t.id) + '">שדות</button><button class="btn small ghost" data-pdftpledit="' + esc(t.id) + '">ערוך</button><button class="btn small ghost danger" data-pdftpldel="' + esc(t.id) + '">מחק</button></div>' : '') + '</div>'
-    : '<tr><td class="wide"><b>' + esc(t.name) + '</b>' + (t.scope === 'personal' ? ' <span class="pill muted">אישי</span>' : '') + (t.require_otp ? ' <span class="hint">· קוד</span>' : '') + '</td><td class="num">' + t.signers + '</td><td class="num">' + t.fields.length + '</td><td class="num">' + t.page_sizes.length + '</td><td class="num">' + (t.uses || '—') + '</td><td>' + esc(t.division ? L.division[t.division] : 'שתיהן') + '</td>' +
-      '<td>' + (w ? '<button class="btn small ghost" data-pdftplfields="' + esc(t.id) + '">שדות</button><button class="btn small ghost" data-pdftpledit="' + esc(t.id) + '">ערוך</button><button class="btn small ghost danger" data-pdftpldel="' + esc(t.id) + '">מחק</button>' : '') + '</td></tr>';
-  const groups = Object.keys(SIGN_CAT).map((cat) => { const inCat = T.filter((t) => t.category === cat); if (!inCat.length) return '';
-    const folders = [...new Set(inCat.map((t) => t.folder || 'כללי'))].sort((a, b) => a.localeCompare(b, 'he'));
-    return '<h3 class="sec">' + esc(SIGN_CAT[cat]) + ' <span class="hint">' + inCat.length + '</span></h3>' + folders.map((fo) => { const rows = inCat.filter((t) => (t.folder || 'כללי') === fo);
-      return '<div class="hint" style="margin:6px 0 4px"><b>' + esc(fo) + '</b> · ' + rows.length + '</div>' + (grid ? '<div class="tplgrid">' + rows.map(item).join('') + '</div>' : '<div class="scroll"><table><thead><tr><th>טופס</th><th>חותמים</th><th>שדות</th><th>עמודים</th><th>נשלח (90 יום)</th><th>חברה</th><th></th></tr></thead><tbody>' + rows.map(item).join('') + '</tbody></table></div>'); }).join(''); }).join('');
-  return '<section class="card"><header><h2>טפסי PDF לחתימה</h2><span class="pill muted">' + T.length + '</span><span class="grow"></span><div class="seg" role="group" aria-label="תצוגה"><button data-tplgrid="0" aria-pressed="' + !grid + '">רשימה</button><button data-tplgrid="1" aria-pressed="' + !!grid + '">כרטיסים</button></div>' + (w ? '<button class="btn small primary" data-act="pdfTplAdd">+ טופס PDF</button>' : '') + '</header>' +
-    '<p class="hint" style="margin:-4px 0 10px">טופס בנק, הסכמה למסירת נתוני אשראי, כתב הרשאה — מעלים את ה-PDF (עד 5 קבצים, מאוחדים), מציבים שדות לכל לווה, ושולחים מכרטיס הלקוח או הליד. ' + (S.pdfTpls.error ? '<span style="color:var(--open)">' + esc(S.pdfTpls.error) + '</span>' : '') + '</p>' +
-    (top.length ? '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><span class="hint">הכי פעילות:</span>' + top.map((x) => '<span class="chip">' + esc(x.t.name) + ' <span class="hint">' + x.n + '</span></span>').join('') + '</div>' : '') +
-    (T.length ? groups : '<p class="empty">עוד אין טפסי PDF. "+ טופס PDF" — מעלים את הטופס של הבנק ומסמנים איפה כל לווה חותם.</p>') + '</section>';
+  const T = S.pdfTpls.templates || [], w = S.isOwner && S.canWrite, top = (S.pdfTpls.top || []).map((x) => ({ t: pdfTplOf(x.id), n: x.n })).filter((x) => x.t);
+  S.plLib = S.plLib || {};
+  return '<section class="card formlib"><header><h2>תבניות מסמכים</h2><span class="pill muted">' + T.length + '</span><span class="grow"></span>' + (w && S.mcp ? '<button class="btn small" data-act="pdfDriveImport" title="כל תת-תיקייה = גוף, כל PDF = טופס">📥 ייבוא מדרייב</button>' : '') + (w ? '<button class="btn small primary" data-act="pdfTplAdd">+ טופס PDF</button>' : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 10px">כל טופס נשמר עם המקומות שבהם ממלאים וחותמים — פעם אחת. מעלים את אותו קובץ שוב? המערכת מזהה אותו וטוענת את השדות. ' + (S.pdfTpls.error ? '<span style="color:var(--open)">' + esc(S.pdfTpls.error) + '</span>' : '') + '</p>' +
+    (top.length ? '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><span class="hint">המסמכים הכי פעילים:</span>' + top.map((x) => '<span class="chip">' + esc(x.t.name) + ' <span class="hint">' + x.n + '</span></span>').join('') + '</div>' : '') +
+    '<div id="plLib">' + pdfLibView(S.plLib, 'lib') + '</div></section>';
 }
+/* בחירה מהספרייה לשליחה: אחד או כמה (כמה = מסמך אחד, קישור אחד לכל חותם על כולם) */
+function pdfPicker(c, onPick) {
+  if (!S.pdfTpls) { pdfTplLoad(true).then(() => pdfPicker(c, onPick)); return toast('טוען את הספרייה…'); }
+  const st = { scope: (S.plPick && S.plPick.scope) || 'system', folder: (S.plPick && S.plPick.folder) || '', q: '', sel: [], div: c.division || 'finance' }; S.plPick = st;
+  const paint = () => { const box = $('plPickBody'); if (box) box.innerHTML = pdfLibView(st, 'pick'); const n = st.sel.length, b = $('plPickGo'); if (b) { b.disabled = !n; b.textContent = n > 1 ? 'שלח ' + n + ' טפסים כמסמך אחד' : n ? 'בחר' : 'סמן טופס'; } };
+  $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer wide" role="dialog" aria-modal="true" aria-label="תבניות מסמכים" style="max-width:980px;width:min(980px,100%)"><header><h2 class="grow">תבניות מסמכים</h2><button class="btn small ghost" data-close aria-label="סגור">✕</button></header>' +
+    '<div id="plPickBody" style="overflow:auto"></div><footer><button class="btn primary" id="plPickGo" type="button" disabled>סמן טופס</button><button class="btn" data-close type="button">סגירה</button><span class="hint grow">כמה טפסים מסומנים — נשלחים כמסמך אחד: כל חותם מקבל קישור אחד וחותם על כולם.</span></footer></div></div>';
+  const root = $('scrim'), close = () => { $('layer').innerHTML = ''; };
+  root.addEventListener('click', (e) => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) return close();
+    const sc = e.target.closest('[data-plscope]'); if (sc) { st.scope = sc.dataset.plscope; st.folder = ''; return paint(); }
+    const fo = e.target.closest('[data-plfolder]'); if (fo) { st.folder = fo.dataset.plfolder; return paint(); }
+    const rv = e.target.closest('[data-plreview]'); if (rv) { st.review = !!rv.dataset.plreview; return paint(); }
+    if (e.target.id === 'plPickGo' && st.sel.length) { const ids = st.sel.slice(); close(); return onPick(ids); } });
+  root.addEventListener('change', (e) => { const id = e.target.dataset && e.target.dataset.plsel; if (!id) return; st.sel = e.target.checked ? [...st.sel.filter((x) => x !== id), id] : st.sel.filter((x) => x !== id); paint(); });
+  root.addEventListener('input', (e) => { if (e.target.id === 'plQ') { st.q = e.target.value; const pos = e.target.selectionStart; paint(); const q2 = $('plQ'); if (q2) { q2.focus(); q2.setSelectionRange(pos, pos); } } });
+  paint();
+}
+/* חבילה: השדות של כמה תבניות במזהים כמו בשרת (bundleTemplates: t<i>_<id>) — למילוי מהתיק */
+const pdfBundleIds = (key) => String(key || '').startsWith('pdfs:') ? key.slice(5).split(',').filter(Boolean) : [];
+function pdfBundleFields(ids) { const out = []; ids.forEach((id, i) => { const t = pdfTplOf(id); (t ? t.fields : []).forEach((f) => out.push({ ...f, id: ('t' + i + '_' + f.id).slice(0, 40) })); }); return out; }
 function pdfTplForm(t) {
   const isNew = !t; t = t || { name: '', category: 'bank', folder: '', scope: 'system', division: '', require_otp: true };
   const folders = [...new Set([...BANK_FOLDERS, ...live(S.lenders).map((l) => l.name), ...((S.pdfTpls && S.pdfTpls.templates) || []).map((x) => x.folder).filter(Boolean)])];
   drawer(isNew ? 'טופס PDF חדש' : 'עריכת ' + t.name,
-    fi('name', 'שם הטופס', t.name, 'text', 'required', true) + fs('category', 'סוג', Object.entries(SIGN_CAT), t.category) +
+    fi('name', isNew ? 'שם הטופס (בהעלאה מרוכזת — שם הקובץ)' : 'שם הטופס', t.name, 'text', isNew ? '' : 'required', true) + fs('category', 'סוג', Object.entries(SIGN_CAT), t.category) +
     fi('folder', 'גוף / תיקייה (בנק, חברת ביטוח, קרן)', t.folder || '', 'text', 'list="dlFolders"') + dl('dlFolders', folders) +
     fs('scope', 'שייכות', [['system', 'מסמכי מערכת — לכל המשרד'], ['personal', 'מסמך אישי — רק אני']], t.scope) +
     fs('division', 'חברה', [['', 'שתיהן'], ...DIVS.filter(canSeeDiv).map((d) => [d, L.division[d]])], t.division || '') +
     fs('requireOtp', 'קוד אימות במייל', [['1', 'כן — לפני החתימה'], ['0', 'לא']], t.require_otp ? '1' : '0') +
-    (isNew ? '<label class="fl full">קובץ PDF (עד 5 — יאוחדו לפי הסדר)<input class="f" type="file" id="d_pdfs" accept="application/pdf" multiple></label><p class="full hint">אחרי "המשך" נפתח המסמך ומציבים עליו את השדות.</p>' : ''),
+    (isNew ? '<label class="fl full">קובצי PDF<input class="f" type="file" id="d_pdfs" accept="application/pdf" multiple></label>' +
+      fs('mode', 'כמה קבצים נבחרו?', [['each', 'כל קובץ = טופס נפרד (העלאה מרוכזת — שם הטופס = שם הקובץ)'], ['merge', 'כל הקבצים = טופס אחד (עד 5, יאוחדו לפי הסדר)']], 'each', true) +
+      '<p class="full hint">אחרי "המשך" כל טופס נפתח עם השדות כבר במקום (✨ זיהוי לפי התוויות שעל הטופס: שם, ת״ז, חתימה, תאריך, טלפון, מייל, כתובת). בודקים, מתקנים — ושומרים. אפשר לדלג על טופס.</p>' : ''),
     async (d) => {
+      const files0 = isNew ? [...((($('d_pdfs') || {}).files) || [])] : [];
+      if (isNew && d.mode === 'each' && files0.length > 1) { const metaB = { category: d.category, folder: String(d.folder || '').trim() || null, scope: d.scope, ownerKey: S.myKey || S.me.id || null, division: d.division || null, requireOtp: d.requireOtp === '1' };
+        setTimeout(() => pdfBulkNext(files0, metaB, 0, { saved: 0, skipped: 0 }), 0); return; }
+      if (!String(d.name || '').trim() && files0.length === 1) d.name = files0[0].name.replace(/\.pdf$/i, '');
       if (!String(d.name || '').trim()) return 'חסר שם';
       const meta = { name: d.name.trim(), category: d.category, folder: String(d.folder || '').trim() || null, scope: d.scope, ownerKey: S.myKey || S.me.id || null, division: d.division || null, requireOtp: d.requireOtp === '1' };
       if (!isNew) { await signApiPut('/api/sign/templates/' + t.id, { ...meta, fileId: t.file_id, fields: t.fields }); toast('נשמר'); return pdfTplLoad(true); }
       const files = ($('d_pdfs') || {}).files; if (!files || !files.length) return 'לא נבחר קובץ';
       let up; try { up = await pdfUpload(files, meta.name); } catch (e) { return e.message; }
-      setTimeout(() => pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, title: meta.name + ' — הצבת שדות', onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, fileId: up.fileId, fields }); toast('הטופס נשמר בספרייה'); await pdfTplLoad(true); } }), 0);
+      /* המסמך כבר בספרייה (אותו קובץ בדיוק) — המערכת כבר יודעת איפה ממלאים בו */
+      if (up.known && confirm('הטופס הזה כבר בספרייה: "' + up.known.name + '" (' + (up.known.folder || 'כללי') + '), עם ' + up.known.fields.length + ' שדות שכבר הוצבו.\nלפתוח אותו במקום ליצור כפול?')) {
+        await pdfTplLoad(true); const t0 = pdfTplOf(up.known.id); setTimeout(() => t0 ? pdfEditor({ fileId: t0.file_id, pages: t0.page_sizes, fields: t0.fields, title: t0.name + ' — שדות', onSave: async (fields) => { await signApiPut('/api/sign/templates/' + t0.id, { name: t0.name, category: t0.category, folder: t0.folder, scope: t0.scope, ownerKey: t0.owner_key, division: t0.division, requireOtp: t0.require_otp, fileId: t0.file_id, fields }); toast('נשמר'); await pdfTplLoad(true); } }) : toast('הטופס לא נמצא'), 0); return; }
+      setTimeout(() => pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: !up.known, fields: up.known ? up.known.fields : undefined, title: meta.name + ' — הצבת שדות', onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, fileId: up.fileId, fields }); toast('הטופס נשמר בספרייה'); await pdfTplLoad(true); } }), 0);
     }, '', isNew ? 'המשך — הצבת שדות' : 'שמור');
+}
+/* העלאה מרוכזת: קובץ אחרי קובץ — העלאה → זיהוי שדות → העורך (שמור והמשך / דלג) → הבא */
+async function pdfBulkNext(files, meta, i, tot) {
+  if (i >= files.length) { await pdfTplLoad(true); return toast('הספרייה עודכנה: ' + tot.saved + ' טפסים נשמרו' + (tot.skipped ? ' · ' + tot.skipped + ' דולגו' : '') + ((tot.known || []).length ? ' · ' + tot.known.length + ' כבר היו בספרייה' : '')); }
+  const f = files[i], name = f.name.replace(/\.pdf$/i, '').trim().slice(0, 120) || 'טופס ' + (i + 1); let up;
+  toast('מעלה ' + (i + 1) + '/' + files.length + ': ' + name + '…');
+  try { up = await pdfUpload([f], name); } catch (e) { toast(name + ': ' + e.message); tot.skipped++; return pdfBulkNext(files, meta, i + 1, tot); }
+  if (up.known) { tot.known = (tot.known || []).concat(up.known.name); toast('"' + name + '" כבר בספרייה (' + up.known.name + ') — דילגתי'); return pdfBulkNext(files, meta, i + 1, tot); }
+  pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: true, title: name + ' — ' + (i + 1) + ' מתוך ' + files.length, saveLabel: i + 1 < files.length ? 'שמור והמשך לבא' : 'שמור וסיים', cancelLabel: 'דלג',
+    onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, name, fileId: up.fileId, fields }); tot.saved++; setTimeout(() => pdfBulkNext(files, meta, i + 1, tot), 0); },
+    onCancel: () => { tot.skipped++; setTimeout(() => pdfBulkNext(files, meta, i + 1, tot), 0); } });
+}
+/* ═════ ייבוא הספרייה מתיקייה בדרייב (דן, 18/10: "כל המסמכי בנקים") ═════
+   מדביקים קישור לתיקייה. כל תת-תיקייה = גוף בספרייה (אותו שם), כל PDF בה = טופס; קבצים בשורש — "כללי".
+   לכל טופס: הורדה → העלאה למערכת → זיהוי שדות (pdfDetect) → נשמר כתבנית ומסומן "לבדיקה" עד שפותחים "שדות" ושומרים.
+   קובץ זהה לטופס שכבר בספרייה (למשל "לווה 1" ו"לווה 2" שהם אותו קובץ) — מקבל את השדות שכבר הוצבו.
+   ריצה חוזרת: טופס עם אותו שם באותה תיקייה — לא נוצר שוב (§11.9). ═════ */
+const tplReview = () => new Set(Array.isArray(S.settings.signTplReview) ? S.settings.signTplReview : []);
+async function tplReviewSet(add, del) { const R = tplReview(); (add || []).forEach((id) => R.add(id)); (del || []).forEach((id) => R.delete(id));
+  const T = (S.pdfTpls && S.pdfTpls.templates) || [], ids = [...R].filter((id) => !T.length || T.some((t) => t.id === id) || (add || []).includes(id)).slice(-500);
+  await write('settings/main', { signTplReview: ids }, 'update'); }
+const tplCatGuess = (name, folder) => /ייפוי|יפוי|הסמכה|הרשאה|ויתור\s*(?:על\s*)?סודיות|כתב\s*הסכמה/.test(name) ? 'poa' : folder === 'כללי' ? 'general' : 'bank';
+const driveFolderId = (v) => { const s0 = String(v || '').trim(), m = s0.match(/folders\/([\w-]{10,})/) || s0.match(/[?&]id=([\w-]{10,})/); return m ? m[1] : /^[\w-]{15,}$/.test(s0) ? s0 : null; };
+async function pdfDriveScan(rootId) {
+  const files = [], walk = async (id, folder, depth) => { for (const f of await driveList(id)) {
+    if (isFolder(f)) { if (depth < 3) await walk(f.id, folder || folderCanon(f.title), depth + 1); continue; }
+    files.push({ id: f.id, title: f.title, mimeType: f.mimeType, folder: folder || 'כללי', pdf: f.mimeType === 'application/pdf' || /\.pdf$/i.test(f.title || '') }); } };
+  await walk(rootId, '', 0); return files;
+}
+function pdfDriveImport() {
+  if (!S.mcp) return toast('צריך חיבור לגוגל (הגדרות ← "חבר את גוגל")');
+  const st = { step: 'link', url: '', files: [], off: new Set(), log: [], stop: false, sum: null };
+  const T = () => (S.pdfTpls && S.pdfTpls.templates) || [];
+  const nameOf = (f) => String(f.title || '').replace(/\.pdf$/i, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'טופס';
+  const exists = (f) => T().some((t) => (t.scope || 'system') === 'system' && t.name === nameOf(f) && tplFolderOf(t) === f.folder);
+  const groups = () => { const g = {}; st.files.filter((f) => f.pdf).forEach((f) => { (g[f.folder] = g[f.folder] || { n: 0, have: 0 }).n++; if (exists(f)) g[f.folder].have++; }); return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0], 'he')); };
+  const todo = () => st.files.filter((f) => f.pdf && !st.off.has(f.folder) && !exists(f));
+  const paint = () => { const b = $('pdImpBody'), go = $('pdImpGo'); if (!b) return; let h = '', btn = '';
+    if (st.step === 'link') { h = '<p class="hint" style="margin-top:0">מדביקים קישור לתיקייה בדרייב. כל תת-תיקייה הופכת לגוף בספרייה (אותו שם), וכל PDF בה — לטופס. השדות מוצבים לבד לפי התוויות שעל הטופס, וכל טופס מסומן <span class="pill open">לבדיקה</span> עד שפותחים "שדות" ושומרים. ריצה חוזרת לא יוצרת כפולים.</p>' +
+        '<label class="fl">קישור לתיקייה<input class="f" id="pdImpUrl" dir="ltr" placeholder="https://drive.google.com/drive/folders/…" value="' + esc(st.url) + '"></label>' + (st.err ? '<p class="hint" style="color:var(--open)">' + esc(st.err) + '</p>' : ''); btn = 'סרוק את התיקייה'; }
+    else if (st.step === 'scan') { h = '<p class="hint">סורק את התיקיות…</p>'; }
+    else if (st.step === 'pick') { const G = groups(), nPdf = st.files.filter((f) => f.pdf).length, other = st.files.length - nPdf;
+      h = '<p class="hint" style="margin-top:0">נמצאו ' + nPdf + ' טפסי PDF ב-' + G.length + ' תיקיות' + (other ? ' · ' + other + ' קבצים שאינם PDF — לא ייובאו' : '') + '. מה שכבר בספרייה (אותו שם באותה תיקייה) — לא ייובא שוב.</p>' +
+        '<div class="tpllist">' + G.map(([f, x]) => '<div class="tplrow"><label class="row" style="gap:8px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" class="cb" data-pdimpf="' + esc(f) + '"' + (st.off.has(f) ? '' : ' checked') + '><span><b>📁 ' + esc(f) + '</b><span class="hint"> · ' + x.n + ' טפסים' + (x.have ? ' · ' + x.have + ' כבר בספרייה' : '') + '</span></span></label></div>').join('') + '</div>';
+      const n = todo().length; btn = n ? 'ייבא ' + n + ' טפסים' : 'אין מה לייבא'; }
+    else if (st.step === 'run') { const p = st.prog || {}; h = '<p><b>מייבא ' + (p.i || 0) + ' מתוך ' + (p.n || 0) + '</b>' + (p.name ? ' <span class="hint">· ' + esc(p.name) + '</span>' : '') + '</p><div class="bar" style="height:8px;background:var(--sunk);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;background:var(--text-2);width:' + Math.round(100 * (p.i || 0) / Math.max(1, p.n || 1)) + '%"></span></div>' +
+        '<div class="hint" style="margin-top:8px;max-height:220px;overflow:auto">' + st.log.slice(-12).map(esc).join('<br>') + '</div>'; btn = st.stop ? 'עוצר…' : 'עצור'; }
+    else if (st.step === 'done') { const x = st.sum; h = '<p><b>הספרייה עודכנה' + (x.stopped ? ' (נעצר באמצע — אפשר להריץ שוב, ימשיך מאיפה שנעצר)' : '') + '</b></p><ul style="margin:0 0 8px;padding-inline-start:18px">' +
+        '<li>' + x.created + ' טפסים נוצרו' + (x.reused ? ' (' + x.reused + ' מהם קיבלו את השדות של טופס זהה שכבר בספרייה)' : '') + '</li>' + (x.review ? '<li><span class="pill open">לבדיקה</span> ' + x.review + ' — השדות הוצבו אוטומטית; לפתוח "שדות", לבדוק ולשמור</li>' : '') +
+        (x.same ? '<li>' + x.same + ' כבר היו בספרייה</li>' : '') + (x.failed.length ? '<li style="color:var(--open)">' + x.failed.length + ' נכשלו: ' + x.failed.map((f) => esc(f.name + ' — ' + f.err)).join(' · ') + '</li>' : '') + '</ul>'; btn = x.review ? 'הצג את הטפסים לבדיקה' : 'סגירה'; }
+    b.innerHTML = h; if (go) { go.textContent = btn; go.disabled = st.step === 'scan' || (st.step === 'pick' && !todo().length); go.style.display = btn ? '' : 'none'; } };
+  $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer wide" role="dialog" aria-modal="true" aria-label="ייבוא טפסים מדרייב" style="max-width:760px;width:min(760px,100%)"><header><h2 class="grow">ייבוא טפסים מתיקייה בדרייב</h2><button class="btn small ghost" data-close aria-label="סגור">✕</button></header>' +
+    '<div id="pdImpBody" style="overflow:auto;padding:4px 2px"></div><footer><button class="btn primary" id="pdImpGo" type="button">סרוק</button><button class="btn" data-close type="button">סגירה</button></footer></div></div>';
+  const root = $('scrim'), close = () => { if (st.step === 'run') { st.stop = true; return; } $('layer').innerHTML = ''; };
+  const run = async () => {
+    const list = todo(), R = [], sum = { created: 0, reused: 0, review: 0, same: 0, failed: [] }; st.step = 'run'; st.prog = { i: 0, n: list.length }; paint();
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const flush = async () => { if (R.length) { const ids = R.splice(0); await tplReviewSet(ids).catch(() => {}); } };
+    for (const [k, f] of list.entries()) { if (st.stop) break; const name = nameOf(f); st.prog = { i: k + 1, n: list.length, name: f.folder + ' / ' + name }; paint();
+      try {
+        if (exists(f)) { sum.same++; continue; }
+        const p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id }, { cache: false })), b64 = p.content || ''; if (!b64) throw new Error('הקובץ ריק');
+        const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), up = await pdfUpload([new File([bytes], name + '.pdf', { type: 'application/pdf' })], name);
+        if (up.known && up.known.name === name && (up.known.folder || 'כללי') === f.folder) { sum.same++; st.log.push('✓ ' + name + ' — כבר בספרייה'); continue; }
+        let fields, review = true;
+        if (up.known) { fields = up.known.fields; review = tplReview().has(up.known.id) || R.includes(up.known.id); sum.reused++; }
+        else { const doc = await lib.getDocument({ data: bytes.slice() }).promise; fields = await pdfDetect(doc, up.pages); doc.destroy && doc.destroy(); }
+        const t = await signApi('/api/sign/templates', { name, category: tplCatGuess(name, f.folder), folder: f.folder, scope: 'system', ownerKey: S.myKey || S.me.id || null, division: null, requireOtp: true, fileId: up.fileId, fields });
+        const id = t.id || (t.template && t.template.id); sum.created++; if (review && id) { R.push(id); sum.review++; }
+        if (S.pdfTpls && id) (S.pdfTpls.templates = S.pdfTpls.templates || []).push({ id, name, folder: f.folder, scope: 'system', signers: pdfSignersOf(fields), fields });
+        st.log.push('+ ' + f.folder + ' / ' + name + ' · ' + fields.length + ' שדות' + (up.known ? ' (מטופס זהה)' : ''));
+        if (R.length >= 10) await flush();
+      } catch (e) { sum.failed.push({ name, err: e.message || String(e) }); st.log.push('✗ ' + name + ' — ' + (e.message || e)); } }
+    await flush(); sum.stopped = st.stop; st.sum = sum; st.step = 'done'; st.stop = false; await pdfTplLoad(true); paint(); };
+  root.addEventListener('click', async (e) => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) return close();
+    if (e.target.id !== 'pdImpGo') return;
+    if (st.step === 'link') { st.url = ($('pdImpUrl') || {}).value || ''; const id = driveFolderId(st.url); if (!id) { st.err = 'זה לא נראה כמו קישור לתיקייה בדרייב'; return paint(); }
+      st.err = ''; st.step = 'scan'; paint(); try { if (!S.pdfTpls) await pdfTplLoad(true); st.files = await pdfDriveScan(id); st.step = 'pick'; if (!st.files.length) { st.step = 'link'; st.err = 'התיקייה ריקה, או שאין גישה אליה מחשבון הגוגל המחובר'; } }
+      catch (er) { st.step = 'link'; st.err = 'הסריקה נכשלה: ' + (er.message || er); } return paint(); }
+    if (st.step === 'pick') return run().catch((er) => { st.step = 'pick'; toast('הייבוא נכשל: ' + (er.message || er)); paint(); });
+    if (st.step === 'run') { st.stop = true; return paint(); }
+    if (st.step === 'done') { const rv = st.sum && st.sum.review; $('layer').innerHTML = ''; if (rv) { S.plLib = { ...(S.plLib || {}), scope: 'system', folder: '', review: true }; if (S.view.tab !== 'settings' && S.view.tab !== 'forms') return go('forms'); } return render(); } });
+  root.addEventListener('change', (e) => { const f = e.target.dataset && e.target.dataset.pdimpf; if (f === undefined) return; if (e.target.checked) st.off.delete(f); else st.off.add(f); paint(); });
+  paint(); setTimeout(() => { const i = $('pdImpUrl'); if (i) i.focus(); }, 30);
 }
 async function signApiPut(path, body, method = 'PUT') { const r = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || r.statusText); return j; }
 function signCard(c) {
   if (!S.isOwner && !S.canTask) return ''; const server = !!window.__harelServer, w = S.canWrite || S.canTask;
-  const head = '<section class="card sign"><header><h2>מסמכים לחתימה</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
+  const head = '<section class="card sign" id="signcard"><header><h2>מסמכים לחתימה' + (c._lead ? ' <span class="hint">· למתעניין</span>' : '') + '</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
     (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') + '</header>';
   if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: כל חותם מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב. בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
   S.signRes = S.signRes || {}; const list = S.signRes[c.id]; if (list === undefined) { S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
   if (!S.pdfTpls) setTimeout(() => pdfTplLoad(), 40);
-  const st = (S.signForm = S.signForm || {})[c.id] || {}, pdfMode = String(st.tpl || '').startsWith('pdf:') ? 'tpl' : st.tpl === 'adhoc' ? 'adhoc' : null;
+  const st = (S.signForm = S.signForm || {})[c.id] || {}, bIds = pdfBundleIds(st.tpl), bT = bIds.map(pdfTplOf).filter(Boolean);
+  const pdfMode = bIds.length ? 'bundle' : String(st.tpl || '').startsWith('pdf:') ? 'tpl' : st.tpl === 'adhoc' ? 'adhoc' : null;
   const ptpl = pdfMode === 'tpl' ? pdfTplOf(String(st.tpl).slice(4)) : null;
-  const tpl = pdfMode ? { key: st.tpl, title: ptpl ? ptpl.name : st.adhocName || 'מסמך', category: ptpl ? ptpl.category : st.adhocCat || 'general', lender: ptpl ? ptpl.folder : '', body: '', requireOtp: ptpl ? ptpl.require_otp : true } : signTplOf(c, st.tpl);
+  const tpl = pdfMode === 'bundle' ? { key: st.tpl, title: bT.map((t) => t.name).join(' + '), category: (bT[0] || {}).category || 'general', lender: (bT[0] || {}).folder || '', body: '', requireOtp: true }
+    : pdfMode ? { key: st.tpl, title: ptpl ? ptpl.name : st.adhocName || 'מסמך', category: ptpl ? ptpl.category : st.adhocCat || 'general', lender: ptpl ? ptpl.folder : '', body: '', requireOtp: ptpl ? ptpl.require_otp : true } : signTplOf(c, st.tpl);
   const draft = !pdfMode && isSignDraft(tpl.body), defs = signDefaults(c);
   const flds = signTplFields(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k)), reqF = signTplRequired(tpl.body), last = S.signLast && S.signLast.client === c.id ? S.signLast : null;
-  const pdfN = pdfMode === 'tpl' ? (ptpl ? ptpl.signers : 0) : pdfMode === 'adhoc' ? Math.max(1, pdfSignersOf(st.adhoc && st.adhoc.fields)) : 0;
-  const signers0 = st.signers || signSignerDefaults(c, pdfMode ? 'client_spouse' : tpl.signers), otp = st.otp !== undefined ? st.otp : !!tpl.requireOtp;
-  const signers = pdfMode ? Array.from({ length: pdfN }, (_, i) => ({ ...(signers0[i] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1) })) : signers0;
+  const pdfN = pdfMode === 'bundle' ? bT.reduce((m, t) => Math.max(m, t.signers), 0) : pdfMode === 'tpl' ? (ptpl ? ptpl.signers : 0) : pdfMode === 'adhoc' ? Math.max(1, pdfSignersOf(st.adhoc && st.adhoc.fields)) : 0;
+  const signers0 = st.signers || signSignerDefaults(c, pdfMode ? 'client_spouse' : tpl.signers), otp = st.otp !== undefined ? st.otp : true; /* קוד אימות כברירת מחדל — זיהוי שהמייל / הטלפון שלו (דן, 17/10) */
+  const off = pdfMode === 'tpl' ? pdfOffOf(ptpl) : 0; /* טופס "לווה 2" — השורה של בן/בת הזוג */
+  const signers = pdfMode ? Array.from({ length: pdfN }, (_, i) => ({ ...(signers0[i + off] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1 + off), _k: i + off })) : signers0;
   const pdfUrl = (e) => e.drive_url || (e.pdf_file_id ? '/api/files/' + e.pdf_file_id : '');
   const person = (p, e) => '<span class="chip" style="gap:4px">' + esc(p.label || '') + (p.signer ? ' · ' + esc(p.signer) : '') + ' <span class="pill ' + (p.status === 'signed' ? 'actual' : p.expired ? 'open' : p.status === 'opened' ? 'committed' : p.status === 'cancelled' ? 'muted' : 'expected') + '">' +
     (p.status === 'signed' ? 'חתם' : p.expired ? 'פג' : p.status === 'opened' ? 'פתח' : p.status === 'cancelled' ? 'בוטל' : 'ממתין') + '</span>' + (p.require_otp ? '<span class="hint" title="קוד אימות במייל">' + (p.otp_ok ? '✓קוד' : 'קוד') + '</span>' : '') +
-    (w && e.state !== 'cancelled' && ['sent', 'opened'].includes(p.status) ? '<button class="btn small ghost" data-signremind="' + esc(p.id) + '" title="קישור חדש — הקודם מפסיק לעבוד">תזכורת' + (p.reminders ? ' (' + p.reminders + ')' : '') + '</button>' : '') + '</span>';
+    (w && e.state !== 'cancelled' && ['sent', 'opened'].includes(p.status) ? '<button class="btn small ghost" data-signlink="' + esc(p.id) + '" title="קישור חדש להעתקה / וואטסאפ — הקודם מפסיק לעבוד">קישור</button><button class="btn small ghost" data-signremind="' + esc(p.id) + '" title="קישור חדש במייל — הקודם מפסיק לעבוד">תזכורת' + (p.reminders ? ' (' + p.reminders + ')' : '') + '</button>' : '') + '</span>';
   const rows = Array.isArray(list) && list.length ? '<div class="scroll" style="margin-bottom:10px"><table><tbody>' + list.map((e) => '<tr><td class="wide"><b>' + esc(e.title) + '</b> <span class="hint">' + esc(SIGN_CAT[e.category] || '') + (e.lender ? ' · ' + esc(e.lender) : '') + ' · ' + dLabel(dayOf(e.created_at)) + '</span>' +
       '<div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">' + (e.people || []).map((p) => person(p, e)).join('') + '</div>' + (e.finalize_error ? '<div class="hint" style="color:var(--open)">' + esc(e.finalize_error) + '</div>' : '') + '</td>' +
       '<td><span class="pill ' + ((SIGN_STATE[e.state] || [])[1] || 'muted') + '">' + ((SIGN_STATE[e.state] || [])[0] || e.state) + (e.signers > 1 ? ' ' + e.signed + '/' + e.signers : '') + '</span></td><td>' + (pdfUrl(e) ? '<a class="btn small ghost" href="' + esc(pdfUrl(e)) + '" target="_blank" rel="noopener">PDF ↗</a>' : '') +
       (w && e.state === 'completed' && !e.drive_url ? '<button class="btn small" data-signfin="' + esc(e.id) + '">צור PDF שוב</button>' : '') + (w && !['completed', 'cancelled'].includes(e.state) ? '<button class="btn small ghost danger" data-signcancel="' + esc(e.id) + '">בטל</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
     : (list && list.error ? '<p class="hint" style="color:var(--open)">' + esc(list.error) + '</p>' : '');
   const wa = (l) => l.phone ? '<a class="btn small" target="_blank" rel="noopener" href="https://wa.me/' + esc(String(l.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('שלום ' + String(l.name || c.name || '').split(' ')[0] + ', מצורף קישור אישי לקריאה וחתימה על "' + (last.title || '') + '": ' + l.url) + '">וואטסאפ ↗</a>' : '';
-  const links = last ? '<div class="notice ok" style="margin-bottom:10px;display:block"><b>' + (last.reminder ? 'קישור חדש מוכן' : 'הקישורים מוכנים') + '</b>' + last.links.map((l, i) => '<div class="row" style="align-items:center;margin-top:6px"><span>' + esc(l.label) + (l.email ? ' · <span dir="ltr">' + esc(l.email) + '</span>' : '') + '</span><span class="grow hint" dir="ltr" style="word-break:break-all">' + esc(l.url) + '</span>' +
-    '<button class="btn small" data-signcopy="' + i + '">העתק</button>' + wa(l) + (l.emailQueued ? '<span class="hint">· נשלח במייל</span>' : '') + '</div>').join('') + '</div>' : '';
+  const links = last ? '<div class="notice ok" style="margin-bottom:10px;display:block"><b>' + (last.reminder ? 'קישור חדש מוכן' : 'הקישורים מוכנים') + '</b> <button class="btn small ghost" data-signresult="1">איך זה מגיע ללקוח ←</button>' + last.links.map((l, i) => '<div class="row" style="align-items:center;margin-top:6px"><span>' + esc(l.label) + (l.email ? ' · <span dir="ltr">' + esc(l.email) + '</span>' : '') + '</span><span class="grow hint" dir="ltr" style="word-break:break-all">' + esc(l.url) + '</span>' +
+    '<button class="btn small" data-signcopy="' + i + '">העתק</button>' + wa(l) + (l.emailStatus === 'sent' ? '<span class="hint">· נשלח במייל ✓</span>' : l.email ? '<span class="hint">· המייל ממתין</span>' : '') + '</div>').join('') + '</div>' : '';
+  const quick = w ? signQuickItems(c) : [];
+  const quickRow = quick.length ? '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">שליחה מהירה:</span>' + quick.map((q) => '<button class="btn small" data-signquick="' + esc(q.key) + '" title="הכל ממולא מהכרטיס — רק מאשרים">' + esc(q.label) + '</button>').join('') + '</div>' : '';
   const lib = signLibrary(c.division || 'finance'), ptpls = ((S.pdfTpls && S.pdfTpls.templates) || []).filter((t) => !t.division || t.division === (c.division || 'finance'));
-  const form = w ? '<details' + (st.open ? ' open' : '') + ' data-signdet="' + esc(c.id) + '"><summary><b>שלח מסמך לחתימה</b> <span class="hint">' + lib.length + ' תבניות</span></summary>' +
+  const form = w ? '<details' + (st.open || S.view.tab === 'forms' ? ' open' : '') + ' data-signdet="' + esc(c.id) + '"><summary><b>שלח מסמך לחתימה</b> <span class="hint">' + lib.length + ' תבניות</span></summary>' +
     '<div class="grid2" style="gap:8px"><label class="fl">תבנית<select class="f" id="signTpl"><optgroup label="נוסח מוקלד">' + lib.map((t) => '<option value="' + esc(t.key) + '"' + (t.key === tpl.key ? ' selected' : '') + '>' + esc((SIGN_CAT[t.category] || '') + ' — ' + t.title + (t.lender ? ' · ' + t.lender : '')) + (isSignDraft(t.body) ? ' (טיוטה)' : '') + '</option>').join('') + '</optgroup>' +
       (ptpls.length ? '<optgroup label="טפסי PDF">' + ptpls.map((t) => '<option value="pdf:' + esc(t.id) + '"' + (st.tpl === 'pdf:' + t.id ? ' selected' : '') + '>' + esc((t.folder ? t.folder + ' — ' : '') + t.name) + ' (' + t.signers + ' חותמים)</option>').join('') + '</optgroup>' : '') +
+      (pdfMode === 'bundle' ? '<option value="' + esc(st.tpl) + '" selected>' + esc(bT.length + ' טפסים כמסמך אחד: ' + tpl.title) + '</option>' : '') +
       '<option value="adhoc"' + (pdfMode === 'adhoc' ? ' selected' : '') + '>מסמך מזדמן — העלאת PDF</option></select></label>' +
+    '<div class="full row" style="gap:6px;margin-top:-2px"><button type="button" class="btn small" data-act="signPick">📁 בחר מתבניות המסמכים</button><span class="hint">לפי גוף (בנק, ביטוח, מימון ישיר…) — אפשר לסמן כמה טפסים ולשלוח כמסמך אחד</span></div>' +
+    (pdfMode !== 'adhoc' && pdfMode !== 'bundle' && S.canWrite ? '<div class="full" style="margin-top:-2px"><button type="button" class="btn small ghost" data-signquicktoggle="' + esc(tpl.key) + '">' + (signQuickKeys().includes(tpl.key) ? '★ בשליחה המהירה — הסר' : '☆ שמור לשליחה מהירה') + '</button> <span class="hint">טופס קבוע (הסכם שירותים, הסכמה…) — כפתור בכל כרטיס, הכל ממולא מהתיק</span></div>' : '') +
     '<label class="fl">כותרת<input class="f" id="signTitle" value="' + esc(st.title || (tpl.title + (tpl.category === 'agreement' ? ' — ' + defs.company : tpl.lender ? ' — ' + tpl.lender : ''))) + '"></label></div>' +
     (pdfMode === 'adhoc' ? '<div class="notice info" style="display:block;margin:8px 0">' + (st.adhoc ? '<b>' + esc(st.adhoc.name || 'מסמך') + '</b> · ' + st.adhoc.pages.length + ' עמודים · ' + st.adhoc.fields.length + ' שדות ל-' + pdfN + ' חותמים <button class="btn small" data-act="signAdhocFields">ערוך שדות</button> ' : '') +
       '<label class="fl" style="margin-top:6px">' + (st.adhoc ? 'מסמך אחר' : 'קובץ PDF — עד 5 קבצים, יאוחדו לפי הסדר') + '<input class="f" type="file" id="signPdfFiles" accept="application/pdf" multiple></label>' +
       '<label class="fl" style="margin-top:6px">סוג<select class="f" id="signAdhocCat">' + Object.entries(SIGN_CAT).map(([k, v]) => '<option value="' + k + '"' + ((st.adhocCat || 'general') === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label></div>' : '') +
     (pdfMode === 'tpl' && !ptpl ? '<p class="hint" style="color:var(--open)">הטופס לא נמצא בספרייה (נמחק?) — בחר אחר.</p>' : '') +
+    (pdfMode === 'bundle' ? '<p class="hint">' + bT.length + ' טפסים יאוחדו למסמך אחד (' + bT.reduce((a, t) => a + t.page_sizes.length, 0) + ' עמודים). כל חותם מקבל קישור אחד וחותם על כולם; השדות של כל טופס נשארים במקומם.</p>' : '') +
     (!pdfMode && !st.tpl && !tpl.builtin && tpl.key === signSuggest(c) ? '<p class="hint">התבנית הוצעה לפי המוצר — ' + esc(L.product[c.product] || c.product || '') + '</p>' : '') +
     (draft ? '<p class="hint" style="color:var(--open)">התבנית עדיין טיוטה (מופיע בה הסימון [טיוטה). אי אפשר לשלוח עד שמעדכנים אותה בהגדרות ← "ספריית תבניות לחתימה".</p>' : '') +
     '<h3 class="sec">חותמים' + (tpl.perSigner ? ' <span class="hint">· נוסח נפרד לכל חותם</span>' : pdfMode ? ' <span class="hint">· לפי השדות בטופס</span>' : '') + '</h3>' + (pdfMode && !pdfN ? '<p class="hint">' + (pdfMode === 'adhoc' ? 'מעלים קובץ ומציבים שדות — ואז ממלאים כאן את החותמים.' : '') + '</p>' : '') + signers.map((s, i) => '<div class="row" style="gap:6px;align-items:flex-end;margin-bottom:4px">' + (pdfMode ? '<span class="sgdot" style="--sgc:' + sgc(i + 1) + ';margin-bottom:12px" title="' + esc(s.label) + '"></span>' : '<label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" data-signs="' + i + ':on"' + (s.on ? ' checked' : '') + '></label>') +
-      '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + i + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + i + ':name" value="' + esc(s.name) + '"></label>' +
-      '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + i + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + i + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
-    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות במייל לפני חתימה <span class="hint">(מומלץ לטפסי בנק וייפוי כוח)</span></span></label>' +
+      '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + (s._k ?? i) + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + (s._k ?? i) + ':name" value="' + esc(s.name) + '"></label>' +
+      '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
+    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות לפני החתימה <span class="hint">(במייל, או בוואטסאפ כשמוגדר — מוכיח שהמייל / הטלפון באמת שלו)</span></span></label>' +
+    '<label class="fl" style="margin:6px 0">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" id="signNotes" rows="2" maxlength="2000">' + esc(st.notes || '') + '</textarea></label>' +
+    (pdfMode ? '<p class="hint" style="margin:0 0 4px">השם, ת״ז ושדות שסומנו "מילוי מהתיק" בטופס ימולאו מהכרטיס — הלקוח רואה, בודק וחותם.</p>' : '') +
     (flds.length && !pdfMode ? '<h3 class="sec">שדות בנוסח</h3><div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + (reqF.includes(k) ? '' : ' <span class="hint">· רשות</span>') + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (reqF.includes(k) && !(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' : '') +
     '<div class="row" style="margin-top:8px"><span class="hint grow">כל חותם מקבל קישור אישי. ' + (pdfMode ? 'הלקוח חותם על הטופס עצמו, והחתימות נכתבות על ה-PDF המקורי.' : 'הנוסח נשמר עם טביעה,') + ' הקישורים בתוקף 14 יום. כשכולם חותמים — PDF אחד ' + (c._lead ? 'במערכת' : 'לדרייב') + ' ועותק לכל חותם.</span><button class="btn primary" data-act="signSend"' + (draft || (pdfMode && !pdfN) || (pdfMode === 'tpl' && !ptpl) ? ' disabled' : '') + '>שלח לחתימה</button></div></details>' : '';
-  return head + rows + links + form + '</section>';
+  return head + quickRow + rows + links + form + '</section>';
 }
 /* ══ עיצוב v4 — "טפסים" כמסך משלו בתפריט (דן, 17/10: "מערכת הטפסים צריכה להיות נפרדת גם בדשבורד הראשי")
    אותן פונקציות בדיוק: signCard (שליחה ללקוח/מתעניין), pdfTplCard (ספריית ה-PDF), vSignDocs (מה נשלח). רק בשרת, כמו היום.
@@ -4044,15 +4391,19 @@ function vForms() {
   const ld = (S.can && !S.can('leads')) ? [] : live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey) && isLeadOpen(l) && !l.clientId).sort((a, b) => leadAt(b).localeCompare(leadAt(a))).slice(0, 200);
   const top = ((S.pdfTpls && S.pdfTpls.top) || []).map((x) => ({ t: pdfTplOf(x.id), n: x.n })).filter((x) => x.t);
   const pick = '<section class="card formpick"><header><h2>למי שולחים?</h2><span class="hint">לקוח או מתעניין — הטופס נשלח עם הפרטים שלו</span></header>' +
-    '<label class="fl">לקוח / ליד<select class="f" id="formsSubj"><option value="">בחר לקוח או ליד…</option>' +
+    '<label class="fl">לקוח / ליד<select class="f" id="formsSubj"><option value="">בחר לקוח או ליד…</option><option value="__ext">✎ מישהו אחר — הקלדת פרטים ידנית (בלי לשמור במערכת)</option>' +
+      (subjExt(id) ? '<option value="' + esc(id) + '" selected>' + esc(S.extSubj.name) + ' (ידני)</option>' : '') +
       (cl.length && (!S.can || S.can('clients')) ? '<optgroup label="לקוחות">' + cl.map((c) => '<option value="' + esc(c.id) + '"' + (id === c.id ? ' selected' : '') + '>' + esc(c.name || '—') + '</option>').join('') + '</optgroup>' : '') +
       (ld.length ? '<optgroup label="לידים פתוחים">' + ld.map((l) => '<option value="' + esc(l.id) + '"' + (id === l.id ? ' selected' : '') + '>' + esc(l.name || normPhone(l.phone) || '—') + '</option>').join('') + '</optgroup>' : '') + '</select></label>' +
     (top.length ? '<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><span class="hint">הכי פעילות:</span>' + top.map((x) => '<span class="chip">' + esc(x.t.name) + ' <span class="hint">' + x.n + '</span></span>').join('') + '</div>' : '') + '</section>';
-  const body = subj ? '<div class="row" style="align-items:center;margin:4px 0 -4px"><span class="hint grow">שולחים ל<b>' + esc(subj.name) + '</b></span>' + (subj._lead ? '<button class="btn small ghost" data-leadopen="' + esc(subj.id) + '">לכרטיס הליד ←</button>' : '<button class="btn small ghost" data-client="' + esc(subj.id) + '">לכרטיס הלקוח ←</button>') + '</div>' + signCard(subj)
-    : '<p class="empty">בחר לקוח או ליד — ייפתח טופס השליחה: טופס PDF מהספרייה, מסמך חד-פעמי או הסכם, וכל חותם מקבל קישור אישי.</p>';
+  const body = subj ? '<div class="row" style="align-items:center;margin:4px 0 -4px"><span class="hint grow">שולחים ל<b>' + esc(subj.name) + '</b></span>' + (subj._ext ? '<span class="pill muted">ידני — לא נשמר במערכת</span><button class="btn small ghost" data-act="extEdit">שנה פרטים</button>' : subj._lead ? '<button class="btn small ghost" data-leadopen="' + esc(subj.id) + '">לכרטיס הליד ←</button>' : '<button class="btn small ghost" data-client="' + esc(subj.id) + '">לכרטיס הלקוח ←</button>') + '</div>' + signCard(subj)
+    : '<p class="empty">בחר לקוח או ליד — ייפתח טופס השליחה: טופס PDF מהספרייה, מסמך חד-פעמי או הסכם, וכל חותם מקבל קישור אישי.</p><div class="row" style="justify-content:center"><button class="btn" data-act="extNew">✎ או: מישהו שלא במערכת — הקלדת פרטים</button></div>';
   return head + pick + body;
 }
-document.addEventListener('change', (e) => { if (!e.target || e.target.id !== 'formsSubj') return; S.signForm = S.signForm || {}; go('forms', e.target.value || null); });
+document.addEventListener('input', (e) => { if (!e.target || e.target.id !== 'plQ' || !$('plLib') || e.target.closest('#scrim')) return; S.plLib = S.plLib || {}; S.plLib.q = e.target.value; const pos = e.target.selectionStart; $('plLib').innerHTML = pdfLibView(S.plLib, 'lib'); const q = $('plQ'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } });
+document.addEventListener('input', (e) => { if (!e.target || e.target.id !== 'signNotes') return; const sc = signSubject(); if (!sc) return; const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.notes = e.target.value; f.open = true; });
+document.addEventListener('change', (e) => { if (!e.target || e.target.id !== 'formsSubj') return; if (e.target.value === '__ext') { e.target.value = ''; return extSubjForm(); } S.signForm = S.signForm || {}; go('forms', e.target.value || null); });
+const subjExt = (id) => !!(id && S.extSubj && S.extSubj.id === id);
 function signFormRead(c) { const f = {}; document.querySelectorAll('[data-signf]').forEach((el) => { f[el.dataset.signf] = el.value.trim(); }); return f; }
 /* ═════ "מסמכים לחתימה" — כל המסמכים שנשלחו, בכל הלקוחות, עם מונים לפי מצב (v_sign_overview) ═════ */
 async function signDocsLoad(force) { if (S._sdLoading || (S.signDocs && !force)) return; S._sdLoading = true;
@@ -4078,10 +4429,10 @@ function vSignDocs() {
       '<div class="seg" role="group" aria-label="נמען"><button data-signkind="all" aria-pressed="' + (kind === 'all') + '">הכל</button><button data-signkind="client" aria-pressed="' + (kind === 'client') + '">מסמכי לקוחות</button><button data-signkind="lead" aria-pressed="' + (kind === 'lead') + '">מסמכי מתעניינים</button></div></div>' +
     (top.length ? '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><span class="hint">הטפסים הכי פעילים (90 יום):</span>' + top.map((x) => '<span class="chip">' + esc(x.t.name) + ' <span class="hint">' + x.n + '</span></span>').join('') + '</div>' : '') +
     '<div class="row" style="margin-bottom:8px;align-items:center"><span class="hint grow">' + (D.error ? '<span style="color:var(--open)">' + esc(D.error) + '</span>' : rows.length + ' מסמכים') + '</span><button class="btn small ghost" data-signstate="all">הכל</button><button class="btn small ghost" data-act="signDocsReload">' + (S._sdLoading ? 'טוען…' : 'רענן') + '</button></div>' +
-    (rows.length ? '<section class="card"><div class="scroll"><table><thead><tr><th>נמען</th><th>מסמך</th><th>חותמים</th><th>מצב</th><th>נשלח</th><th>נחתם</th><th></th></tr></thead><tbody>' + rows.map((e) => '<tr><td class="wide">' + (e.recipient_kind === 'lead' ? '<a href="#" data-leadopen="' + esc(e.client_doc) + '"><b>' + esc(e.client_name) + '</b></a> <span class="pill muted">מתעניין</span>' : '<button class="xlink" data-client="' + esc(e.client_doc) + '"><b>' + esc(e.client_name) + '</b></button>') + '</td>' +
+    (rows.length ? '<section class="card"><div class="scroll"><table><thead><tr><th>נמען</th><th>מסמך</th><th>חותמים</th><th>מצב</th><th>נשלח</th><th>נחתם</th><th></th></tr></thead><tbody>' + rows.map((e) => '<tr><td class="wide">' + (isExtDoc(e.client_doc) ? '<b>' + esc(e.client_name) + '</b> <span class="pill muted">ידני</span>' : e.recipient_kind === 'lead' ? '<a href="#" data-leadopen="' + esc(e.client_doc) + '"><b>' + esc(e.client_name) + '</b></a> <span class="pill muted">מתעניין</span>' : '<button class="xlink" data-client="' + esc(e.client_doc) + '"><b>' + esc(e.client_name) + '</b></button>') + '</td>' +
       '<td>' + esc(e.title) + '<div class="hint">' + esc(SIGN_CAT[e.category] || '') + (e.lender ? ' · ' + esc(e.lender) : '') + (e.source_file_id ? ' · PDF ' + e.pages + ' עמ׳' : '') + '</div></td>' +
       '<td>' + (e.people || []).map((p) => '<div style="white-space:nowrap" title="' + esc((p.signer || '') + ' · ' + chan(p)) + '">' + esc(p.label || '') + ' <span class="hint">' + esc(chan(p)) + '</span> <span class="pill ' + (p.status === 'signed' ? 'actual' : p.expired ? 'open' : p.status === 'opened' ? 'committed' : p.status === 'cancelled' ? 'muted' : 'expected') + '">' + (p.status === 'signed' ? 'חתם' : p.expired ? 'פג' : p.status === 'opened' ? 'פתח' : p.status === 'cancelled' ? 'בוטל' : 'ממתין') + '</span>' +
-        (w && !['completed', 'cancelled'].includes(e.state) && ['sent', 'opened'].includes(p.status) ? ' <button class="btn small ghost" data-signremind="' + esc(p.id) + '" data-signclient="' + esc(e.client_doc) + '">תזכורת</button>' : '') + '</div>').join('') + '</td>' +
+        (w && !['completed', 'cancelled'].includes(e.state) && ['sent', 'opened'].includes(p.status) ? ' <button class="btn small ghost" data-signlink="' + esc(p.id) + '" data-signclient="' + esc(e.client_doc) + '">קישור</button><button class="btn small ghost" data-signremind="' + esc(p.id) + '" data-signclient="' + esc(e.client_doc) + '">תזכורת</button>' : '') + '</div>').join('') + '</td>' +
       '<td><span class="pill ' + ((SIGN_STATE[e.state] || [])[1] || 'muted') + '">' + ((SIGN_STATE[e.state] || [])[0] || e.state) + (e.signers > 1 ? ' ' + e.signed + '/' + e.signers : '') + '</span></td>' +
       '<td class="num">' + dLabel(dayOf(e.created_at)) + ' ' + hm(e.created_at) + '</td><td class="num">' + (e.completed_at ? dLabel(dayOf(e.completed_at)) + ' ' + hm(e.completed_at) : '—') + '</td>' +
       '<td>' + (pdfUrl(e) ? '<a class="btn small ghost" href="' + esc(pdfUrl(e)) + '" target="_blank" rel="noopener">PDF ↗</a>' : '') + (w && !['completed', 'cancelled'].includes(e.state) ? '<button class="btn small ghost danger" data-signcancel="' + esc(e.id) + '" data-signclient="' + esc(e.client_doc) + '">בטל</button>' : '') +
@@ -5366,6 +5717,7 @@ function vLead(id) {
       (waLink(l.phone) ? '<a class="btn" href="' + waLink(l.phone) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') + copyBtns('l:' + l.id, true) +
       '<span class="grow"></span>' + (c ? '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח ←</button>' : '') +
       (isRE ? '' : '<button class="btn" data-intake="' + esc(l.id) + '">' + (x ? 'המשך הכר את הלקוח' : 'הכר את הלקוח') + '</button>') +
+      (window.__harelServer && (S.isOwner || S.canTask) ? '<button class="btn" data-act="toSign" title="טופס לחתימה למתעניין — עוד לפני שנפתח לו תיק">שלח לחתימה</button>' : '') +
       (!c && S.canClient ? '<button class="btn" data-convert="' + esc(l.id) + '">' + (isRE ? 'נכנס לתהליך — פתח תיק לקוח' : 'חתם — פתח לקוח') + '</button>' : '') +
       (w ? '<button class="btn small danger ghost" data-leaddel="' + esc(l.id) + '">' + (canApproveDel(leadDiv(l)) ? 'מחק ליד' : 'בקש מחיקה — לאישור ' + delApprover(leadDiv(l))) + '</button>' : '') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end">' +
@@ -10298,7 +10650,7 @@ document.addEventListener('click', (e) => { const a = e.target.closest('a[data-p
 document.addEventListener('click', async (e) => {
   if (e.target.closest('a.lnk')) return;
   const el = e.target.closest('button, tr[data-client], tr[data-attn], tr[data-pm], tr[data-cat], tr[data-owner], tr[data-sm], tr[data-intake], tr[data-lead], a[data-leadopen], tr[data-sdrill], tr[data-expchk], article[data-go], [data-client]');
-  if (!el || (el.closest('#layer') && !el.matches('[data-pick]'))) return;
+  if (!el || (el.closest('#layer') && !el.matches('[data-pick], [data-signcopy]'))) return;
   const d = el.dataset;
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
@@ -10352,17 +10704,22 @@ document.addEventListener('click', async (e) => {
     if (d.signdel) { if (!confirm('למחוק את המסמך מהרשימה? מסמך שעוד פתוח יבוטל (הקישורים יפסיקו לעבוד). מסמך חתום נשאר שמור.')) return;
       try { await signApi('/api/sign/' + encodeURIComponent(d.signdel), { action: 'delete' }); toast('נמחק'); } catch (e) { toast('לא נמחק: ' + e.message); }
       S.signDocs = null; const sc = d.signclient && signSubject(d.signclient); if (sc && S.signRes) delete S.signRes[sc.id]; return render(); }
-    if (d.signfin || d.signcancel || d.signremind) { const c = signSubject(d.signclient || S.view.clientId); el.disabled = true;
+    if (d.signquick) { const c = signSubject(); return c ? signQuickForm(c, d.signquick) : null; }
+    if (d.signquicktoggle) return signQuickToggle(d.signquicktoggle);
+    if (d.signresult) return signResult();
+    if (d.signfin || d.signcancel || d.signremind || d.signlink) { const c = signSubject(d.signclient || S.view.clientId); el.disabled = true;
       if (d.signcancel && !confirm('לבטל את המסמך? הקישורים של כל החותמים יפסיקו לעבוד.')) { el.disabled = false; return; }
-      try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel || d.signremind), { action: d.signfin ? 'finalize' : d.signcancel ? 'cancel' : 'remind' });
-        if (d.signremind) { const pool = [...(c && Array.isArray((S.signRes || {})[c.id]) ? S.signRes[c.id] : []), ...((S.signDocs && S.signDocs.rows) || [])];
-          const e2 = pool.find((x) => (x.people || []).some((p) => p.id === d.signremind)), p = e2 && e2.people.find((x) => x.id === d.signremind);
-          S.signLast = { client: c ? c.id : null, title: e2 ? e2.title : '', reminder: true, links: [{ label: p ? p.label : 'חותם', name: p ? p.signer : '', email: p ? p.email : null, phone: p ? p.phone : null, url: r.url, emailQueued: r.emailQueued }] };
-          toast(r.emailQueued ? 'נשלחה תזכורת במייל — וקישור חדש מוכן' : 'קישור חדש מוכן'); }
+      if (d.signlink && !confirm('ליצור קישור חדש לשליחה בוואטסאפ / העתקה? הקישור הקודם של החותם יפסיק לעבוד.')) { el.disabled = false; return; }
+      const rid = d.signremind || d.signlink;
+      try { const r = await signApi('/api/sign/' + encodeURIComponent(d.signfin || d.signcancel || rid), { action: d.signfin ? 'finalize' : d.signcancel ? 'cancel' : d.signlink ? 'link' : 'remind' });
+        if (rid) { const pool = [...(c && Array.isArray((S.signRes || {})[c.id]) ? S.signRes[c.id] : []), ...((S.signDocs && S.signDocs.rows) || [])];
+          const e2 = pool.find((x) => (x.people || []).some((p) => p.id === rid)), p = e2 && e2.people.find((x) => x.id === rid);
+          S.signLast = { client: c ? c.id : null, title: e2 ? e2.title : '', reminder: true, links: [{ label: p ? p.label : 'חותם', name: p ? p.signer : '', email: d.signlink ? null : (p ? p.email : null), phone: p ? p.phone : null, url: r.url, emailQueued: r.emailQueued, emailStatus: r.emailStatus, emailError: r.emailError, requireOtp: p ? p.require_otp : false }] };
+          setTimeout(() => signResult(c), 0); }
         else toast(d.signfin ? (r.ok ? 'ה-PDF נשמר בדרייב' : 'נכשל: ' + (r.error || '')) : (r.ok ? 'בוטל' : 'לא בוטל'));
       } catch (e) { toast('נכשל: ' + e.message); }
       S.signDocs = null;
-      if (c && (['client', 'lead'].includes(S.view.tab) || (d.signremind && S.signLast && S.signLast.reminder))) { if (!['client', 'lead'].includes(S.view.tab)) S.view = { tab: c._lead ? 'lead' : 'client', clientId: c.id }; return signLoad(c); }
+      if (c && (['client', 'lead', 'forms'].includes(S.view.tab) || (rid && S.signLast && S.signLast.reminder && !c._ext))) { if (!['client', 'lead', 'forms'].includes(S.view.tab)) S.view = { tab: c._lead ? 'lead' : 'client', clientId: c.id }; return signLoad(c); }
       return render(); }
     if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; return l ? copyText(l.url, 'הקישור הועתק') : null; }
     if (d.signstate) { S.f.signState = d.signstate; return render(); }
@@ -10382,11 +10739,12 @@ document.addEventListener('click', async (e) => {
     if (d.dwdel !== undefined) { const x = dashCur(); if (!x || !confirm('להסיר את הווידג׳ט?')) return; const ws = [...x.widgets]; ws.splice(+d.dwdel, 1); await dashSave({ ...x, widgets: ws }); return render(); }
     if (d.dwmove) { const x = dashCur(); if (!x) return; const [i, dir] = d.dwmove.split(':').map(Number), j = i + dir, ws = [...x.widgets]; if (j < 0 || j >= ws.length) return; [ws[i], ws[j]] = [ws[j], ws[i]]; await dashSave({ ...x, widgets: ws }); return render(); }
     if (d.tplgrid !== undefined) { S.f.tplGrid = d.tplgrid === '1'; return render(); }
+    if ((d.plscope || d.plfolder !== undefined || d.plreview !== undefined) && $('plLib') && !el.closest('#scrim')) { S.plLib = S.plLib || {}; if (d.plreview !== undefined) S.plLib.review = !!d.plreview; else if (d.plscope) { S.plLib.scope = d.plscope; S.plLib.folder = ''; } else S.plLib.folder = d.plfolder; $('plLib').innerHTML = pdfLibView(S.plLib, 'lib'); return; }
     if (d.pdftpledit) { const t = pdfTplOf(d.pdftpledit); return t ? pdfTplForm(t) : null; }
     if (d.pdftpldel) { const t = pdfTplOf(d.pdftpldel); if (!t || !confirm('למחוק את הטופס "' + t.name + '" מהספרייה? מסמכים שכבר נשלחו ממנו לא נפגעים.')) return;
       await signApiPut('/api/sign/templates/' + t.id, undefined, 'DELETE').catch((e) => toast(e.message)); toast('נמחק'); return pdfTplLoad(true); }
     if (d.pdftplfields) { const t = pdfTplOf(d.pdftplfields); if (!t) return;
-      return pdfEditor({ fileId: t.file_id, pages: t.page_sizes, fields: t.fields, title: t.name + ' — שדות', onSave: async (fields) => { await signApiPut('/api/sign/templates/' + t.id, { name: t.name, category: t.category, folder: t.folder, scope: t.scope, ownerKey: t.owner_key, division: t.division, fileId: t.file_id, fields, requireOtp: t.require_otp }); toast('השדות נשמרו'); await pdfTplLoad(true); } }); }
+      return pdfEditor({ fileId: t.file_id, pages: t.page_sizes, fields: t.fields, title: t.name + ' — שדות', onSave: async (fields) => { await signApiPut('/api/sign/templates/' + t.id, { name: t.name, category: t.category, folder: t.folder, scope: t.scope, ownerKey: t.owner_key, division: t.division, fileId: t.file_id, fields, requireOtp: t.require_otp }); if (tplReview().has(t.id)) await tplReviewSet([], [t.id]); toast('השדות נשמרו'); await pdfTplLoad(true); } }); }
     if (d.signlibedit) { const x = (S.settings.signLibrary || []).find((t) => t.key === d.signlibedit); return x ? signLibForm(x) : null; }
     if (d.signapprove) { const x = (S.settings.signLibrary || []).find((t) => t.key === d.signapprove); return x ? signApproveForm(x) : null; }
     if (d.signlibdel) { if (!S.canWrite) return; const x = (S.settings.signLibrary || []).find((t) => t.key === d.signlibdel); if (!x || !confirm('למחוק את התבנית "' + x.title + '"? מסמכים שכבר נשלחו לא מושפעים.')) return;
@@ -10769,6 +11127,12 @@ document.addEventListener('click', async (e) => {
             async (x) => { const name = String(x.name || '').trim(); if (!name) return 'חסר שם';
               await write('settings/main', { savedViews: [...(S.settings.savedViews || []), { id: uid(), name: name.slice(0, 60), div: S.division, f: f0, home: !!x.home, by: S.me.id, at: stamp() }] }, 'update'); toast('התצוגה נשמרה'); }, '', 'שמור'); }
         case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
+        case 'signPick': { const sc = signSubject(); if (!sc) return; return pdfPicker(sc, (ids) => { const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.open = true; f.tpl = ids.length > 1 ? 'pdfs:' + ids.join(',') : 'pdf:' + ids[0];
+            const ts = ids.map(pdfTplOf).filter(Boolean); f.title = ts.map((t) => t.name).join(' + '); render(); }); }
+        case 'extNew': return extSubjForm();
+        case 'extEdit': return extSubjForm();
+        case 'toSign': { const sc = signSubject(); if (sc) { const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.open = true; render(); }
+          const el2 = $('signcard'); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'toNotes': { const el = $('cnotes'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'ikExtract': return ikExtract(S.view.clientId);
         case 'repStop': if (S.repBusy) S.repBusy.ctl.abort(); return;
@@ -10817,30 +11181,19 @@ document.addEventListener('click', async (e) => {
         case 'signAdhocFields': { const sc = signSubject(), st = sc && (S.signForm || {})[sc.id]; if (!st || !st.adhoc) return; const a = st.adhoc;
           return pdfEditor({ fileId: a.fileId, pages: a.pages, fields: a.fields, title: (a.name || 'מסמך') + ' — הצבת שדות', onSave: async (fields) => { st.adhoc = { ...a, fields }; st.open = true; render(); } }); }
         case 'pdfTplAdd': return pdfTplForm(null);
+        case 'pdfDriveImport': return pdfDriveImport();
         case 'dashNew': return dashForm(null);
         case 'dashEdit': S.f.dashEdit = !S.f.dashEdit; return render();
         case 'dashSettings': { const x = dashCur(); return x ? dashForm(x) : null; }
         case 'dashDup': { const x = dashCur(); if (!x) return; const nd = { ...JSON.parse(JSON.stringify(x)), id: 'dash-' + uid(), name: x.name + ' (עותק)', owner: S.me.id, createdAt: stamp() }; await dashSave(nd); S.f.dash = nd.id; return render(); }
         case 'dashDel': { const x = dashCur(); if (!x || !confirm('למחוק את הלוח "' + x.name + '"?')) return; await dashSave({ ...x, deletedAt: stamp() }); S.f.dash = null; S.f.dashEdit = false; toast('נמחק'); return render(); }
         case 'signSend': { const c = signSubject(); if (!c) return; const st = (S.signForm = S.signForm || {})[c.id] || {}, key = ($('signTpl') || {}).value || st.tpl || '';
-          if (key.startsWith('pdf:') || key === 'adhoc') { const t = key === 'adhoc' ? null : pdfTplOf(key.slice(4)), ad = key === 'adhoc' ? st.adhoc : null;
-            if (!t && !ad) return toast(key === 'adhoc' ? 'מעלים קובץ ומציבים שדות קודם' : 'הטופס לא נמצא');
-            const N = t ? t.signers : pdfSignersOf(ad.fields), base = st.signers || signSignerDefaults(c, 'client_spouse'), title = (($('signTitle') || {}).value || '').trim() || (t ? t.name : ad.name), otp = !!($('signOtp') || {}).checked;
-            const signers = Array.from({ length: N }, (_, i) => base[i] || {}).map((x, i) => ({ label: 'לווה ' + (i + 1), name: String(x.name || '').trim() || null, email: String(x.email || '').trim() || null, phone: String(x.phone || '').trim() || null, requireOtp: otp && !!String(x.email || x.phone || '').trim() }));
-            const bad = signers.find((x) => !x.email && !x.phone); if (bad) return toast(bad.label + ': חסר מייל או טלפון');
-            el.disabled = true; el.textContent = 'שולח…';
-            try { const r = await signApi('/api/sign', { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', title, category: t ? t.category : st.adhocCat || 'general', lender: t ? t.folder || null : null, recipientKind: c._lead ? 'lead' : 'client',
-                ...(t ? { pdfTemplateId: t.id } : { pdf: { fileId: ad.fileId, fields: ad.fields } }), signers });
-              S.signLast = { client: c.id, title, links: r.links.map((l, i) => ({ ...l, name: signers[i].name })) }; S.signForm[c.id] = {}; S.signDocs = null; S.pdfTpls = null; toast(r.links.length > 1 ? 'נשלח ל-' + r.links.length + ' חותמים' : 'הקישור לחתימה מוכן'); return signLoad(c); }
-            catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
-          const tpl = signTplOf(c, key); if (isSignDraft(tpl.body)) return toast('התבנית עדיין טיוטה — לעדכן בהגדרות');
-          const fields = signFormRead(c), title = (($('signTitle') || {}).value || '').trim(), otp = !!($('signOtp') || {}).checked;
-          const miss = signTplRequired(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !fields[k]); if (miss.length) return toast('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
-          const signers = (st.signers || signSignerDefaults(c, tpl.signers)).filter((x) => x.on).map((x) => ({ label: String(x.label || '').trim() || 'חותם', name: String(x.name || '').trim() || null, email: String(x.email || '').trim() || null, phone: String(x.phone || '').trim() || null, requireOtp: otp && !!String(x.email || x.phone || '').trim() }));
-          if (!signers.length) return toast('לא נבחר אף חותם'); const bad = signers.find((x) => !x.email && !x.phone); if (bad) return toast(bad.label + ': חסר מייל או טלפון');
+          const pdfK = key.startsWith('pdf:') || key.startsWith('pdfs:') || key === 'adhoc', N = pdfK ? (key === 'adhoc' ? pdfSignersOf((st.adhoc || {}).fields) : key.startsWith('pdfs:') ? pdfBundleIds(key).map(pdfTplOf).filter(Boolean).reduce((m, t) => Math.max(m, t.signers), 0) : (pdfTplOf(key.slice(4)) || {}).signers || 0) : 0;
+          const base = (st.signers || signSignerDefaults(c, pdfK ? 'client_spouse' : signTplOf(c, key).signers)).map((x, i) => ({ ...x, _i: i + 1 }));
+          const off = pdfKeyOff(key), rows = pdfK ? Array.from({ length: N }, (_, i) => ({ ...(base[i + off] || { name: '', email: '', phone: '' }), on: true, _i: i + 1 + off })) : base;
           el.disabled = true; el.textContent = 'שולח…';
-          try { const r = await signApi('/api/sign', { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', title, template: tpl.body, category: tpl.category, templateKey: tpl.key, lender: tpl.lender || null, perSigner: !!tpl.perSigner, fields, signers, recipientKind: c._lead ? 'lead' : 'client' });
-            S.signLast = { client: c.id, title, links: r.links.map((l, i) => ({ ...l, name: signers[i].name })) }; S.signForm[c.id] = {}; S.signDocs = null; toast((r.links.length > 1 ? 'נשלח ל-' + r.links.length + ' חותמים' : 'הקישור לחתימה מוכן') + ((r.warnings || []).length ? ' · ' + r.warnings.join(' · ') : '')); return signLoad(c); }
+          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat });
+            S.signForm[c.id] = {}; return; }
           catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
         case 'signLibAdd': return signLibForm(null);
         case 'signLibLoad': return signLibLoadUI();
@@ -10868,10 +11221,11 @@ document.addEventListener('click', async (e) => {
 });
 
 document.addEventListener('change', async (e) => {
-  if (e.target && e.target.id === 'signTpl' && ['client', 'lead'].includes(S.view.tab)) { S.signForm = S.signForm || {}; const prev = S.signForm[S.view.clientId] || {}; S.signForm[S.view.clientId] = { open: true, tpl: e.target.value, signers: prev.signers, adhoc: prev.adhoc, adhocCat: prev.adhocCat }; return render(); }
+  if (e.target && e.target.id === 'signTpl' && ['client', 'lead', 'forms'].includes(S.view.tab)) { S.signForm = S.signForm || {}; const prev = S.signForm[S.view.clientId] || {}; S.signForm[S.view.clientId] = { open: true, tpl: e.target.value, signers: prev.signers, adhoc: prev.adhoc, adhocCat: prev.adhocCat }; return render(); }
   if (e.target && e.target.id === 'signAdhocCat') { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.adhocCat = e.target.value; return; }
   if (e.target && e.target.id === 'signPdfFiles' && e.target.files.length) { const sc = signSubject(); if (!sc) return; const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.open = true; f.tpl = 'adhoc';
     const files = [...e.target.files], name = files[0].name.replace(/\.pdf$/i, ''); toast('מעלה…'); let up; try { up = await pdfUpload(files, name); } catch (err) { return toast(err.message); }
+    if (up.known && pdfTplOf(up.known.id)) { f.tpl = 'pdf:' + up.known.id; f.title = f.title || up.known.name; toast('זוהה: "' + up.known.name + '" מהספרייה — השדות כבר במקום'); return render(); }
     return pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 1, title: name + ' — הצבת שדות', onSave: async (fields) => { f.adhoc = { fileId: up.fileId, pages: up.pages, fields, name }; f.title = f.title || name; render(); } }); }
   if (e.target && (e.target.id === 'sdFrom' || e.target.id === 'sdTo')) { S.f[e.target.id] = e.target.value; return render(); }
   if (e.target && e.target.id === 'dashWho') { S.f.dashWho = e.target.value; return render(); }
@@ -11039,7 +11393,7 @@ document.addEventListener('change', (e) => { const el = e.target && e.target.clo
   const b = $('ikApplyBtn'); if (b) b.textContent = 'החל את המסומנים (' + S.ikSug.rows.filter((q) => q.on).length + ')'; });
 document.addEventListener('input', async (e) => {
   if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
-  if (e.target.dataset && (e.target.dataset.signf || e.target.dataset.signs || ['signTitle', 'signOtp'].includes(e.target.id)) && ['client', 'lead'].includes(S.view.tab)) { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
+  if (e.target.dataset && (e.target.dataset.signf || e.target.dataset.signs || ['signTitle', 'signOtp'].includes(e.target.id)) && ['client', 'lead', 'forms'].includes(S.view.tab)) { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
     if (e.target.dataset.signs) { const c = signSubject(), [i, k] = e.target.dataset.signs.split(':'), pm = String(f.tpl || '').startsWith('pdf:') || f.tpl === 'adhoc'; f.signers = f.signers || signSignerDefaults(c, pm ? 'client_spouse' : signTplOf(c, f.tpl).signers);
       while (f.signers.length <= Number(i)) f.signers.push({ on: true, label: '', name: '', email: '', phone: '' }); const row = f.signers[Number(i)]; if (row) row[k] = k === 'on' ? e.target.checked : e.target.value; return; }
     if (e.target.id === 'signOtp') { f.otp = e.target.checked; return; }
