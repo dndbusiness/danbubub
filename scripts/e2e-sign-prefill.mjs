@@ -25,7 +25,7 @@ if (!url) { console.error('DATABASE_URL לא מוגדר'); process.exit(1) }
 const sql = postgres(url, { max: 1, onnotice: () => {} })
 const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); throw new Error(m) } console.log(`✓ ${m}`) }
-const CLIENT = 'e2e-prefill-client'
+const CLIENT = 'e2e-prefill-client', LEAD = 'e2e-prefill-lead'
 
 async function form(title) {
   const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica)
@@ -156,6 +156,28 @@ try {
   assert(/לא נמצא|בוטל|פג/.test(await old.locator('body').innerText()), 'הקישור הקודם לא עובד')
   const [ev2] = await sql`select fields->'@events' ev from sign_requests where id = ${s2.body.links[1].id}`
   assert(ev2.ev.some((e) => e.kind === 'link_renewed'), 'בתיעוד: קישור חדש')
+  step('מתעניין (ליד): "שלח לחתימה" בראש הכרטיס → שליחה מהירה → החותם רואה את שמו ממולא')
+  await page.evaluate(async (id) => { await write('leads/' + id, { id, name: 'מתעניין בדיקה', phone: '0501112233', email: 'lead@example.com', idNumber: '000000042', division: 'finance', stage: 'new', createdAt: stamp(), updatedAt: stamp(), log: [] }) }, LEAD)
+  await page.waitForFunction((id) => S.leads.has(id), LEAD, { timeout: 15000 })
+  await page.evaluate((id) => go('lead', id), LEAD); await page.waitForTimeout(1200)
+  await page.click('[data-act="toSign"]'); await page.waitForTimeout(500)
+  assert(await page.locator('#signcard').isVisible() && /למתעניין/.test(await page.locator('#signcard h2').innerText()), 'בכרטיס הליד: "מסמכים לחתימה · למתעניין" נפתח')
+  await page.click(`#signcard [data-signquick="pdf:${tplId}"]`); await page.waitForTimeout(400)
+  assert(/ת״ז 000000042/.test(await page.locator('.drawer').innerText()), 'במגירה: ת״ז מהליד')
+  // טופס לשני לווים — בלי פרטים ללווה 2 השליחה נעצרת עם הודעה ברורה; ממלאים טלפון ושולחים
+  await page.click('#dsave'); await page.waitForTimeout(800)
+  assert(/לווה 2: חסר מייל או טלפון/.test(await page.locator('#derr').innerText()), 'בלי פרטים ללווה 2 — "לווה 2: חסר מייל או טלפון"')
+  await page.fill('.drawer input[name="name1"]', 'בן זוג בדיקה'); await page.fill('.drawer input[name="phone1"]', '0503334455')
+  await page.click('#dsave'); await page.waitForTimeout(2500)
+  const lurls = await page.$$eval('.drawer input[readonly]', (xs) => xs.map((x) => x.value))
+  assert(lurls.length === 2, 'קישורים למתעניין מוכנים')
+  const [lenv] = await sql`select id, recipient_kind from sign_envelopes where client_doc = ${LEAD} and deleted_at is null order by created_at desc limit 1`
+  envIds.push(lenv.id)
+  assert(lenv.recipient_kind === 'lead', 'המסמך נרשם כמתעניין (לא לקוח)')
+  const [ll] = await sql`select data->'log'->0->>'text' t from crm_docs where coll = 'leads' and doc_id = ${LEAD}`
+  assert(/נשלח לחתימה/.test(ll.t), 'ביומן הליד: ' + ll.t)
+  const lp = await sctx.newPage(); await lp.goto(lurls[0]); await lp.waitForTimeout(800)
+  assert(await lp.inputValue('#name') === 'מתעניין בדיקה' && await lp.inputValue('#idn') === '000000042', 'בדף החותם: שם ות״ז של המתעניין ממולאים')
   assert(!pageErrs.length, 'בלי שגיאות JS בדף ה-CRM ' + pageErrs.join(' | '))
   console.log('\n✓ מילוי מהתיק, שליחה מהירה, הערות, מסירה ותיעוד — עובדים מקצה לקצה.')
 } finally {
@@ -163,6 +185,6 @@ try {
   for (const id of envIds) await sql`update sign_requests set deleted_at = coalesce(deleted_at, now()) where envelope_id = ${id}`.catch(() => {})
   if (tplId) await sql`update sign_templates set deleted_at = now() where id = ${tplId}`.catch(() => {})
   await sql`update crm_docs set data = data || ${sql.json({ signQuick: quickBefore ?? [] })} where coll = 'settings' and doc_id = 'main'`.catch(() => {})
-  await sql`update crm_docs set deleted_at = now() where coll = 'clients' and doc_id = ${CLIENT}`.catch(() => {})
+  await sql`update crm_docs set deleted_at = now() where (coll, doc_id) in (('clients', ${CLIENT}), ('leads', ${LEAD}))`.catch(() => {})
   await sql.end(); await b.close()
 }

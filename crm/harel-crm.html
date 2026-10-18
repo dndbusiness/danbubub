@@ -3971,7 +3971,7 @@ const PDF_KINDS = { signature: 'חתימה', initials: 'ראשי תיבות', na
 const PDF_SIZE = { signature: [0.28, 0.06], initials: [0.1, 0.035], name: [0.25, 0.03], id_number: [0.18, 0.03], date: [0.15, 0.03], text: [0.25, 0.03], checkbox: [0.028, 0.02] };
 const BANK_FOLDERS = ['בנק טפחות', 'בנק הפועלים', 'בנק דיסקונט', 'בנק לאומי', 'הבינלאומי', 'בנק ירושלים', 'מרכנתיל', 'חברות ביטוח', 'מימון ישיר', 'כללי'];
 const sgc = (i) => 'var(--sg' + (((Number(i) || 1) - 1) % 6 + 1) + ')';
-const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', _lead: true });
+const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', idNumber: l.idNumber || '', address: l.address || '', _lead: true });
 /* מי מקבל את המסמך במסך הנוכחי: לקוח, או מתעניין (ליד) */
 function signSubject(id) { const v = S.view; id = id || v.clientId; if (S.clients.has(id)) return S.clients.get(id); const l = S.leads.get(id); return l ? leadSignObj(l) : null; }
 async function pdfTplLoad(force) { if (!window.__harelServer || S._ptLoading || (S.pdfTpls && !force)) return; S._ptLoading = true;
@@ -4089,7 +4089,7 @@ function pdfTplForm(t) {
 async function signApiPut(path, body, method = 'PUT') { const r = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || r.statusText); return j; }
 function signCard(c) {
   if (!S.isOwner && !S.canTask) return ''; const server = !!window.__harelServer, w = S.canWrite || S.canTask;
-  const head = '<section class="card sign"><header><h2>מסמכים לחתימה</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
+  const head = '<section class="card sign" id="signcard"><header><h2>מסמכים לחתימה' + (c._lead ? ' <span class="hint">· למתעניין</span>' : '') + '</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
     (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') + '</header>';
   if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: כל חותם מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב. בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
   S.signRes = S.signRes || {}; const list = S.signRes[c.id]; if (list === undefined) { S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
@@ -5478,6 +5478,7 @@ function vLead(id) {
       (waLink(l.phone) ? '<a class="btn" href="' + waLink(l.phone) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') + copyBtns('l:' + l.id, true) +
       '<span class="grow"></span>' + (c ? '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח ←</button>' : '') +
       (isRE ? '' : '<button class="btn" data-intake="' + esc(l.id) + '">' + (x ? 'המשך הכר את הלקוח' : 'הכר את הלקוח') + '</button>') +
+      (window.__harelServer && (S.isOwner || S.canTask) ? '<button class="btn" data-act="toSign" title="טופס לחתימה למתעניין — עוד לפני שנפתח לו תיק">שלח לחתימה</button>' : '') +
       (!c && S.canClient ? '<button class="btn" data-convert="' + esc(l.id) + '">' + (isRE ? 'נכנס לתהליך — פתח תיק לקוח' : 'חתם — פתח לקוח') + '</button>' : '') +
       (w ? '<button class="btn small danger ghost" data-leaddel="' + esc(l.id) + '">' + (canApproveDel(leadDiv(l)) ? 'מחק ליד' : 'בקש מחיקה — לאישור ' + delApprover(leadDiv(l))) + '</button>' : '') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:flex-end">' +
@@ -10886,6 +10887,8 @@ document.addEventListener('click', async (e) => {
             async (x) => { const name = String(x.name || '').trim(); if (!name) return 'חסר שם';
               await write('settings/main', { savedViews: [...(S.settings.savedViews || []), { id: uid(), name: name.slice(0, 60), div: S.division, f: f0, home: !!x.home, by: S.me.id, at: stamp() }] }, 'update'); toast('התצוגה נשמרה'); }, '', 'שמור'); }
         case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
+        case 'toSign': { const sc = signSubject(); if (sc) { const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.open = true; render(); }
+          const el2 = $('signcard'); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'toNotes': { const el = $('cnotes'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         case 'ikExtract': return ikExtract(S.view.clientId);
         case 'repStop': if (S.repBusy) S.repBusy.ctl.abort(); return;
