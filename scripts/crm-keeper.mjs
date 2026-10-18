@@ -25,7 +25,9 @@ export async function keep({ base, key = '', secret = '', waitMs = 4 * 60e3, exe
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'he-IL', timezoneId: 'Asia/Jerusalem' })
     await ctx.addInitScript(() => { window.__CRM_KEEPER = true })
     // כניסה אישית בשרת (lib/crm/auth.ts): השומר נכנס כבעלים עם JOBS_SECRET — רק בבקשות ל-API של המערכת, לא לשום כתובת אחרת
-    if (secret) await ctx.route(BASE + '/api/**', (r) => r.continue({ headers: { ...r.request().headers(), 'x-crm-keeper': secret } }))
+    // או אסימון OIDC של GitHub Actions (בלי סוד) — מתחדש כל 2 דקות, כי הוא קצר-מועד
+    const oidc = githubOidcSource()
+    if (secret || oidc) await ctx.route(BASE + '/api/**', async (r) => r.continue({ headers: { ...r.request().headers(), ...(secret ? { 'x-crm-keeper': secret } : {}), ...(oidc ? { 'x-gh-oidc': await oidc() } : {}) } }))
     if (setup) await setup(ctx)
     const page = await ctx.newPage()
     const errors = []
@@ -67,6 +69,18 @@ export async function keep({ base, key = '', secret = '', waitMs = 4 * 60e3, exe
     await browser.close()
   }
   return !failed
+}
+
+/** אסימון זהות מ-GitHub Actions (רק כשה-workflow קיבל id-token: write). מחוץ ל-Actions — אין. */
+function githubOidcSource() {
+  const url = process.env.ACTIONS_ID_TOKEN_REQUEST_URL, tok = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
+  if (!url || !tok) return null
+  let cur = null, at = 0
+  return async () => {
+    if (cur && Date.now() - at < 120e3) return cur
+    const r = await fetch(url + '&audience=harel-jobs', { headers: { authorization: 'bearer ' + tok } })
+    cur = (await r.json().catch(() => ({}))).value || ''; at = Date.now(); return cur
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {

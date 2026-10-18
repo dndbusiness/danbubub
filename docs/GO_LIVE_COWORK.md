@@ -77,7 +77,7 @@ Settings ← Environment Variables. **הערכים הסודיים — דן מד�
 |---|---|---|
 | `APP_PASSWORD` | דן | סיסמת הכניסה למשרד |
 | `SECRETS_KEY` | דן | אקראי, 32+ תווים |
-| `JOBS_SECRET` | דן | אקראי, 32+ תווים |
+| `JOBS_SECRET` | — | לא חובה מאז 18/10 (OIDC של GitHub). אם מוגדר — זהה ב-GitHub |
 | `SIGN_SECRET` | דן | אקראי, 32+ תווים |
 | `APP_BASE_URL` | Cowork | `https://<הכתובת>` — בלי `/` בסוף |
 | `CHROMIUM_PACK_URL` | Cowork | הערך מ-`docs/DEPLOY.md` §3 (קישור לחבילת Chromium ב-GitHub) |
@@ -126,10 +126,11 @@ Settings ← Environment Variables. **הערכים הסודיים — דן מד�
 
 ### שלב 7 — הג'ובים והשומר (GitHub Actions)
 
-1. GitHub ← הריפו ← Settings ← Secrets and variables ← Actions ← New repository secret. **דן מדביק את הערכים** — אותם ערכים כמו ב-Vercel:
-   - `APP_BASE_URL`
-   - `APP_PASSWORD`
-   - `JOBS_SECRET`
+1. GitHub ← הריפו ← Settings ← Secrets and variables ← Actions ← New repository secret:
+   - `APP_BASE_URL` — הכתובת (לא סוד, Cowork יכול).
+   - `APP_PASSWORD` — סיסמת הכניסה למערכת (דן מקליד). רק השומר (crm-keeper) צריך אותה.
+   - **`JOBS_SECRET` כבר לא נדרש** (18/10): הג'ובים והשומר מזדהים מול השרת באסימון OIDC של GitHub (`lib/gh-oidc.ts`).
+     השרת מקבל רק ריצות של המאגר הזה, מ-main. אם `JOBS_SECRET` מוגדר בשני המקומות — הוא ממשיך לעבוד גם הוא.
 2. Actions: אם הזרימות כבויות — Enable.
 3. מריצים ידנית:
    - **crm-keeper** ← Run workflow. צפוי ירוק. במצב שכפול הוא מדלג, וזה תקין.

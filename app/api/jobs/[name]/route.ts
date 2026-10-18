@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { envSecret, secretEq } from '@/lib/secret'
+import { githubOidc } from '@/lib/gh-oidc'
 import { dayCloseJob } from '@/lib/jobs/day-close'
 import { alertsEvalJob } from '@/lib/jobs/alerts-eval'
 import { anchorReminderJob } from '@/lib/jobs/anchor-reminder'
@@ -49,21 +50,24 @@ const JOBS = {
 } as const
 
 /**
- * הרשאה: `x-jobs-secret` (ה-cron שלנו), או `Authorization: Bearer $CRON_SECRET`
+ * הרשאה: אסימון OIDC של GitHub Actions (`x-gh-oidc`, בלי סוד), או `x-jobs-secret`, או `Authorization: Bearer $CRON_SECRET`
  * (הפורמט ש-Vercel Cron שולח). בלי סוד מוגדר — רק בפיתוח. רווחים בקצוות לא נחשבים (lib/secret.ts).
  */
-function authorized(req: Request): { ok: boolean; why?: Record<string, boolean> } {
+async function authorized(req: Request): Promise<{ ok: boolean; why?: Record<string, boolean | string> }> {
   const secret = envSecret('JOBS_SECRET'), cronSecret = envSecret('CRON_SECRET')
-  if (!secret && !cronSecret) return { ok: process.env.NODE_ENV !== 'production', why: { serverHasSecret: false } }
   const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
   const given = req.headers.get('x-jobs-secret') ?? ''
   if (secretEq(given, secret) || secretEq(bearer, secret) || secretEq(bearer, cronSecret)) return { ok: true }
+  // GitHub Actions של המאגר הזה, מ-main — בלי סוד משותף (lib/gh-oidc.ts)
+  const oidc = await githubOidc(req)
+  if (oidc.ok) return { ok: true }
+  if (!secret && !cronSecret && process.env.NODE_ENV !== 'production') return { ok: true }
   // לאבחון בלי לחשוף את הסוד: רק מה הגיע ומה מוגדר — אף פעם לא ערכים
-  return { ok: false, why: { serverHasSecret: true, sentJobsHeader: Boolean(given.trim()), sentBearer: Boolean(bearer.trim()) } }
+  return { ok: false, why: { serverHasSecret: Boolean(secret || cronSecret), sentJobsHeader: Boolean(given.trim()), sentBearer: Boolean(bearer.trim()), oidc: oidc.reason } }
 }
 
 async function run(req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const auth = authorized(req)
+  const auth = await authorized(req)
   if (!auth.ok) return NextResponse.json({ error: 'לא מורשה', ...auth.why }, { status: 401 })
   const { name } = await params
   const job = JOBS[name as keyof typeof JOBS]
