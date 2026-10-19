@@ -145,7 +145,12 @@
   /* ── כניסה אישית בשרת (lib/crm/auth.ts): הסיסמה נבדקת בשרת, לא בדפדפן. הדף קורא לזה ממסך הנעילה ── */
   window.__crmLogin = function (username, password) {
     return fetch('/api/crm/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password || '' }) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw Object.assign(new Error(j.message || 'כניסה נכשלה'), { code: j.code }); return j; }); });
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw Object.assign(new Error(j.message || 'השרת לא ענה (' + r.status + ') — נסו שוב בעוד רגע'), { code: j.code || 'unavailable' }); return j; }); });
+  };
+  /* כניסה בקוד לוואטסאפ / למייל (app/api/crm/login/code) */
+  window.__crmCode = function (action, username, code) {
+    return fetch('/api/crm/login/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: action, username: username || '', code: code || '' }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw Object.assign(new Error(j.message || 'השרת לא ענה — נסו שוב'), { code: j.code }); return j; }); });
   };
   window.__crmLogout = function () { return fetch('/api/crm/login', { method: 'DELETE' }).catch(function () {}); };
 

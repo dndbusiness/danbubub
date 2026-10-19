@@ -29,6 +29,7 @@ export const SECRET_MARK = 'srv'
 
 const DIVS = ['finance', 'realestate']
 const normUser = (u: unknown) => String(u ?? '').trim().toLowerCase()
+export const normUserKey = normUser
 
 function secret(): string {
   const s = process.env.SECRETS_KEY || process.env.APP_PASSWORD
@@ -140,8 +141,36 @@ export function verifyLogin(settings: Settings, username: string, password: stri
   const u = (settings.users ?? []).find((x) => normUser(x.username) === normUser(username))
   if (!u?.hash || !u.salt) return null
   if (!sameHex(pwHash(password, u.salt, u.iter || 210000), u.hash)) return null
+  return userSession(u, now)
+}
+
+function userSession(u: UserRec, now: number): CrmSession {
   const r = roleOf(u)
-  return { k: u.resp || normUser(u.username), r, d: divsOf(u, r), l: u.label || u.username || '', e }
+  return { k: u.resp || normUser(u.username), r, d: divsOf(u, r), l: u.label || u.username || '', e: now + SESSION_DAYS * 86400e3 }
+}
+
+/**
+ * כניסה בקוד (דן, 19/10): קוד חד-פעמי לנייד (וואטסאפ) ולמייל, במקום לזכור סיסמה.
+ * מייל ברירת המחדל לקודים — תיבת הכספים (דן: "לכלל העובדים גם ניסים והדס"), אלא אם לעובד יש מייל משלו
+ * או שבהגדרות נקבע אחר (settings.loginEmail).
+ */
+export const DEFAULT_LOGIN_EMAIL = 'finance@harelinvest.co.il'
+const OWNER_NAMES = ['', 'dan', 'דן']
+export interface CodeLogin { session: CrmSession; email: string | null; phone: string | null }
+type CodeSettings = Settings & { ownerEmail?: string; ownerPhone?: string; loginEmail?: string; notifyPhones?: Record<string, string> }
+
+/** למי שולחים קוד ולאן. null = אין משתמש כזה (דן: רק כשהמערכת נעולה בסיסמה). עובד לא צריך סיסמה כדי להיכנס בקוד. */
+export function codeLoginFor(settings: CodeSettings, username: string, now = Date.now()): CodeLogin | null {
+  const fallback = String(settings.loginEmail ?? '').trim() || DEFAULT_LOGIN_EMAIL
+  const phones = settings.notifyPhones ?? {}
+  if (OWNER_NAMES.includes(normUser(username))) {
+    if (!lockConfigured(settings)) return null
+    return { session: { k: 'dan', r: 'owner', d: DIVS, l: 'דן', e: now + SESSION_DAYS * 86400e3 }, email: String(settings.ownerEmail ?? '').trim() || fallback, phone: String(settings.ownerPhone ?? phones.dan ?? '').trim() || null }
+  }
+  const u = (settings.users ?? []).find((x) => normUser(x.username) === normUser(username)) as (UserRec & { email?: string; phone?: string }) | undefined
+  if (!u) return null
+  const s = userSession(u, now)
+  return { session: s, email: String(u.email ?? '').trim() || fallback, phone: String(u.phone ?? phones[s.k] ?? '').trim() || null }
 }
 
 /** דן — נכנס בסיסמת הנעילה בלבד (בלי שם משתמש) */
