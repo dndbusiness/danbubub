@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import {
   canRead, canWrite, decodeSession, encodeSession, pwHash, restoreSecrets, sanitizeSettings, verifyLogin, SECRET_MARK, type CrmSession,
   permsOf, sessionPerms, guardPerms, AREAS, DAN_GRANT, isOwnerSession, memberId, pickMember,
+  codeLoginFor, DEFAULT_LOGIN_EMAIL,
 } from '@/lib/crm/auth'
 import { readFileSync } from 'node:fs'
 
@@ -183,5 +184,28 @@ describe('כל עובד בשמו (S.me) — לא דן', () => {
     expect(pickMember([], eden)).toEqual({ id: 'u-eden', name: 'עדן' })
     expect(memberId(' Eden Cohen ')).toBe('u-eden_cohen')
     expect(memberId('a/b')).toBe('u-a_b') // בלי / — נתיב מסמך חוקי
+  })
+})
+
+describe('כניסה בקוד — למי ולאן (codeLoginFor)', () => {
+  const st = { lock: { hash: 'h', salt: 's' }, ownerEmail: 'dan@x.co', notifyPhones: { dan: '050-1111111', hadas: '052-2222222' },
+    users: [{ username: 'Hadas', resp: 'hadas', role: 'admin', label: 'הדס' }, { username: 'eden', role: 'center', divs: ['realestate'], email: 'eden@x.co', phone: '053-3333333' }] }
+  it('דן = שם ריק / "דן" / dan; מייל ונייד של דן', () => {
+    for (const n of ['', 'דן', 'DAN']) expect(codeLoginFor(st, n, 0)).toMatchObject({ session: { k: 'dan', r: 'owner' }, email: 'dan@x.co', phone: '050-1111111' })
+  })
+  it('עובד בלי מייל משלו — תיבת הכספים; נייד מהגדרות ההתראות', () => {
+    expect(codeLoginFor(st, 'hadas', 0)).toMatchObject({ session: { k: 'hadas', r: 'admin', l: 'הדס' }, email: DEFAULT_LOGIN_EMAIL, phone: '052-2222222' })
+    expect(DEFAULT_LOGIN_EMAIL).toBe('finance@harelinvest.co.il')
+  })
+  it('עובד עם מייל ונייד משלו; לא צריך סיסמה', () => {
+    expect(codeLoginFor(st, 'eden', 0)).toMatchObject({ session: { k: 'eden', r: 'center', d: ['realestate'] }, email: 'eden@x.co', phone: '053-3333333' })
+  })
+  it('loginEmail בהגדרות גובר על ברירת המחדל; משתמש לא קיים = null; דן בלי נעילה = null', () => {
+    expect(codeLoginFor({ ...st, loginEmail: 'office@x.co' }, 'hadas', 0)?.email).toBe('office@x.co')
+    expect(codeLoginFor(st, 'nobody', 0)).toBeNull()
+    expect(codeLoginFor({ users: [] }, '', 0)).toBeNull()
+  })
+  it('הסשן ל-14 יום', () => {
+    expect(codeLoginFor(st, 'eden', 1000)?.session.e).toBe(1000 + 14 * 86400e3)
   })
 })

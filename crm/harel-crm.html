@@ -8300,7 +8300,7 @@ async function pwHash(pw, salt, iter) {
 const normUser = (u) => String(u || '').trim().toLowerCase();
 async function userOk(username, pw) {
   /* בשרת: הסיסמה נבדקת בשרת (lib/crm/auth.ts), והגיבובים בכלל לא מגיעים לדפדפן */
-  if (window.__crmLogin) { try { const j = await window.__crmLogin(username, pw); return (S.settings.users || []).find((x) => normUser(x.username) === normUser(username)) || { username, resp: j.key, label: j.label }; } catch (e) { if (e.code === 'rate_limited') toast(e.message); return null; } }
+  if (window.__crmLogin) { try { const j = await window.__crmLogin(username, pw); return (S.settings.users || []).find((x) => normUser(x.username) === normUser(username)) || { username, resp: j.key, label: j.label }; } catch (e) { if (e.code === 'rate_limited') toast(e.message); if (e.code !== 'unauthenticated') S.loginErr = e.message; return null; } }
   const u = (S.settings.users || []).find((x) => normUser(x.username) === normUser(username));
   if (!u || !u.hash) return null;
   return (await pwHash(pw, u.salt, u.iter || 210000)) === u.hash ? u : null;
@@ -8321,14 +8321,15 @@ function usersCard() {
     '<div class="fl">חברות (למוקד)<div class="row" style="margin-top:4px">' + DIVS.map((dv) => '<label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" name="uDiv" value="' + dv + '"' + (d0.includes(dv) ? ' checked' : '') + (S.role === 'admin_re' && dv !== 'realestate' ? ' disabled' : '') + '><span>' + L.division[dv] + '</span></label>').join('') + '</div></div>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uFree"' + (ed && ed.freelancer ? ' checked' : '') + '><span>פרילנסר (עמלות בלבד)</span></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uSales"' + ((ed ? (ed.sales != null ? ed.sales : userRole(ed) === 'center') : true) ? ' checked' : '') + '><span>מכירות / טלפנות</span></label>' +
-    '<label class="fl">מייל (להתראות "לחזור מאוחר יותר")<input class="f" type="email" dir="ltr" id="uEmail" value="' + esc(ed && ed.email ? ed.email : '') + '"></label>' +
+    '<label class="fl">מייל (להתראות ולקוד כניסה — ריק = ' + esc(S.settings.loginEmail || 'finance@harelinvest.co.il') + ')<input class="f" type="email" dir="ltr" id="uEmail" value="' + esc(ed && ed.email ? ed.email : '') + '"></label>' +
+    '<label class="fl">נייד (קוד כניסה בוואטסאפ)<input class="f" dir="ltr" inputmode="tel" id="uPhone" value="' + esc(ed && ed.phone ? ed.phone : '') + '" placeholder="050-0000000"></label>' +
     '<label class="fl" style="max-width:150px">תעריף לשעה (₪)<input class="f" type="number" min="0" step="1" id="uHourly" value="' + esc(ed && ed.hourly != null ? ed.hourly : '') + '"></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="uConv"' + ((ed ? (ed.conv != null ? ed.conv : userRole(ed) === 'partner' || userRole(ed) === 'admin') : false) ? ' checked' : '') + '><span>רואה את טבלת יחס ההמרה</span></label>' +
     '<label class="fl">סיסמה' + (ed ? ' — ריק = בלי שינוי' : ' — אפשר להשאיר ריק ולהגדיר אחר כך') + '<input class="f" type="password" id="uPw" autocomplete="new-password" placeholder="6 תווים לפחות"></label></div>' +
     '<div class="row" style="margin-top:10px"><button class="btn small primary" type="submit">' + (ed ? 'שמור שינויים' : 'הוסף משתמש') + '</button>' + (ed ? '<button class="btn small ghost" type="button" data-edituser="">ביטול</button>' : '') + '</div>' +
     '<p class="hint">מנהל מערכת ושותף מקבלים את החברות של התפקיד. מוקד רואה רק לידים ומשימות שמשויכים אליו, בחברות שסימנת. ' + (S.role === 'admin_re' ? 'אתה יכול לפתוח משתמשים להר-אל השקעות בלבד.' : '') + '</p></form>';
   return '<section class="card"><header><h2>משתמשים והרשאות</h2><span class="pill muted">' + shown.length + '</span></header>' + permMatrix(shown) +
-    (S.isDan ? '<div class="row" style="align-items:flex-end;margin:0 0 10px"><label class="fl">המייל של דן להתראות<input class="f" type="email" dir="ltr" id="ownerEmail" value="' + esc(S.settings.ownerEmail || '') + '"></label><button class="btn small" data-act="ownerEmailSave">שמור</button></div>' : '') + '<p class="hint" style="margin:-4px 0 10px">שם משתמש וסיסמה למסך הכניסה, תפקיד וחברות. כדי להיכנס בכלל, כל אחד צריך גם שהדף ישותף איתו מחשבון Claude שלו (תפריט השיתוף) — מנהלי מערכת בהרשאת עריכה. הפרייבט נפתח רק בסיסמה של דן.</p>' +
+    (S.isDan ? '<div class="row" style="align-items:flex-end;margin:0 0 10px"><label class="fl">המייל של דן להתראות<input class="f" type="email" dir="ltr" id="ownerEmail" value="' + esc(S.settings.ownerEmail || '') + '"></label><label class="fl">הנייד של דן (קוד כניסה)<input class="f" dir="ltr" inputmode="tel" id="ownerPhone" value="' + esc(S.settings.ownerPhone || '') + '" placeholder="050-0000000"></label><label class="fl">מייל לקודי כניסה (למי שאין מייל משלו)<input class="f" type="email" dir="ltr" id="loginEmail" value="' + esc(S.settings.loginEmail || '') + '" placeholder="finance@harelinvest.co.il"></label><button class="btn small" data-act="ownerEmailSave">שמור</button></div>' : '') + '<p class="hint" style="margin:-4px 0 10px">שם משתמש וסיסמה למסך הכניסה, תפקיד וחברות. כדי להיכנס בכלל, כל אחד צריך גם שהדף ישותף איתו מחשבון Claude שלו (תפריט השיתוף) — מנהלי מערכת בהרשאת עריכה. הפרייבט נפתח רק בסיסמה של דן.</p>' +
     (shown.length ? '<div class="tlist">' + shown.map(row).join('') + '</div>' : '<p class="empty">אין משתמשים.</p>') + form + '</section>';
 }
 /* עמודה לכל אזור, שורה לכל משתמש. וי = רואה את האזור בתפריט ובדשבורד. כספים / לוח בקרה / הנה״ח — רק דן מסמן. */
@@ -8354,7 +8355,7 @@ function areaInfo(k) {
     (who.some((x) => !x.on) ? '<h3 class="sec">מי לא</h3><p class="hint">' + who.filter((x) => !x.on).map((x) => esc(x.label)).join(' · ') + '</p>' : ''), async () => null, '', 'סגור');
 }
 async function pwOk(pw) { const lk = S.settings.lock; if (!lk || !lk.hash) return true;
-  if (window.__crmLogin) { try { await window.__crmLogin('', pw); return true; } catch (e) { if (e.code === 'rate_limited') toast(e.message); return false; } }
+  if (window.__crmLogin) { try { await window.__crmLogin('', pw); return true; } catch (e) { if (e.code === 'rate_limited') toast(e.message); if (e.code !== 'unauthenticated') S.loginErr = e.message; return false; } }
   return (await pwHash(pw, lk.salt, lk.iter || 210000)) === lk.hash; }
 const UNLOCK_MS = 8 * 36e5, IDLE_MS = 30 * 6e4, PRIV_MS = 10 * 6e4;
 let lastAct = Date.now(), pwFails = 0;
@@ -8362,6 +8363,9 @@ try { S.loginAs = JSON.parse(sessionStorage.getItem('harel-user') || 'null'); } 
 const LEVEL = { owner: 'בעלים', admin: 'עריכה (Can edit)', interact: 'אינטראקציה (Can interact)', view: 'צפייה בלבד' };
 /* התפקיד נקבע לפי הכניסה במערכת, לא לפי חשבון ה-Claude: סיסמת דן = הכל; zoos = ניסים (שותף); משתמש צוות = צוות */
 function applyRole() {
+  const ss = window.__crmLogin && window.__crmSession;
+  if (ss && (!S.loginAs || S.loginAs.resp !== ss.key)) { const su = (S.settings.users || []).find((x) => userKey(x) === ss.key);
+    S.loginAs = ss.key === 'dan' && ss.role === 'owner' ? { resp: 'dan', label: 'דן' } : { username: su ? su.username : ss.key, resp: ss.key, label: (su && su.label) || L.resp[ss.key] || ss.key }; }
   const full = ['owner', 'admin'].includes(S.level), w = S.cw !== false;
   const r = S.loginAs && S.loginAs.resp;
   const u = r && r !== 'dan' ? (S.settings.users || []).find((x) => userKey(x) === r || (S.loginAs.username && normUser(x.username) === normUser(S.loginAs.username))) : null;
@@ -8375,16 +8379,35 @@ function applyRole() {
   S.canManageUsers = ROLES[role] && ROLES[role].manage && full && w && S.can('settings');
   S.canTask = w; S.canWrite = S.isOwner && w && full; S.canClient = (S.isOwner || S.isPartner) && w && full; S.canExpense = S.canClient;
 }
-function logout() { if (window.__crmLogout) window.__crmLogout(); setUnlocked(false); S.privUntil = 0; S.loginAs = null; try { sessionStorage.removeItem('harel-user'); } catch (e) {} render(); }
+function logout() { if (window.__crmLogout) { window.__crmLogout(); window.__crmSession = null; } setUnlocked(false); S.privUntil = 0; S.loginAs = null; try { sessionStorage.removeItem('harel-user'); } catch (e) {} render(); }
 function storedUnlock() { try { return Number(sessionStorage.getItem('harel-unlock') || 0); } catch (e) { return 0; } }
-function isLocked() { const lk = S.settings.lock; if (!lk || !lk.hash) return false; return Date.now() > Math.max(S.unlockUntil || 0, storedUnlock()); }
+/* בשרת: עוגיית הכניסה (14 יום, lib/crm/auth.ts) היא המנעול — בלי 8 שעות ובלי נעילה אחרי חוסר פעילות (דן, 19/10) */
+function isLocked() { const lk = S.settings.lock; if (window.__crmLogin && '__crmSession' in window) return !window.__crmSession; if (!lk || !lk.hash) return false; return Date.now() > Math.max(S.unlockUntil || 0, storedUnlock()); }
 function setUnlocked(on) { S.unlockUntil = on ? Date.now() + UNLOCK_MS : 0; try { if (on) sessionStorage.setItem('harel-unlock', String(S.unlockUntil)); else sessionStorage.removeItem('harel-unlock'); } catch (e) {} }
 ['click', 'keydown', 'pointerdown'].forEach((ev) => document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
-setInterval(() => { if (S.settings.lock && !isLocked() && Date.now() - lastAct > IDLE_MS) { setUnlocked(false); S.privUntil = 0; render(); } }, 60000);
+setInterval(() => { if (!window.__crmLogin && S.settings.lock && !isLocked() && Date.now() - lastAct > IDLE_MS) { setUnlocked(false); S.privUntil = 0; render(); } }, 60000);
 const lockForm = (id, title, lede) => '<section class="card lockcard"><h1>' + title + '</h1><p class="hint">' + lede + '</p>' +
-  '<form class="row" id="' + id + '" autocomplete="off">' + (id === 'lockForm' ? '<input class="f grow" id="lockFormUser" autocomplete="username" autocapitalize="none" spellcheck="false" aria-label="שם משתמש" placeholder="שם משתמש (דן — להשאיר ריק)">' : '') +
+  '<form class="row" id="' + id + '" autocomplete="off">' + (id === 'lockForm' ? '<input class="f grow" id="lockFormUser" autocomplete="username" autocapitalize="none" spellcheck="false" aria-label="שם משתמש" placeholder="שם משתמש (דן — להשאיר ריק)" value="' + esc(S.lockUser || '') + '">' : '') +
   '<input class="f grow" type="password" id="' + id + 'Pw" autocomplete="current-password" aria-label="סיסמה" placeholder="סיסמה"><button class="btn primary" type="submit">כניסה</button></form>' +
-  '<p id="' + id + 'Err" class="hint" style="color:var(--open)" role="alert"></p></section>';
+  '<p id="' + id + 'Err" class="hint" style="color:var(--open)" role="alert"></p>' + (id === 'lockForm' && window.__crmCode ? codeBox() : '') + '</section>';
+/* כניסה בקוד לנייד / למייל (דן, 19/10) — השם מהשדה למעלה; דן — ריק */
+const codeBox = () => '<div class="codebox" style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px"><p class="hint" style="margin:0 0 8px">או בלי סיסמה: קוד לוואטסאפ ולמייל. נשארים מחוברים 14 יום.</p>' +
+  '<div class="row"><button class="btn" type="button" data-code="send">שלחו לי קוד</button><input class="f" id="codeIn" inputmode="numeric" maxlength="6" autocomplete="one-time-code" aria-label="קוד" placeholder="הקוד (6 ספרות)" value="' + esc(S.codeVal || '') + '" style="max-width:170px;direction:ltr;text-align:center"><button class="btn primary" type="button" data-code="go">כניסה בקוד</button></div>' +
+  '<p id="codeMsg" class="hint" role="status"' + (S.codeMsg && S.codeMsg.bad ? ' style="color:var(--open)"' : '') + '>' + esc((S.codeMsg && S.codeMsg.t) || '') + '</p></div>';
+/* המסך מצויר מחדש כשמגיע עדכון מהשרת — מה שהוקלד במסך הכניסה נשמר */
+document.addEventListener('input', (e) => { const id = e.target && e.target.id; if (id === 'codeIn') S.codeVal = e.target.value; else if (id === 'lockFormUser') S.lockUser = e.target.value; }, true);
+async function codeLogin(step) {
+  const msg = $('codeMsg'), uname = ($('lockFormUser') && $('lockFormUser').value.trim()) || '', show = (t, bad) => { S.codeMsg = { t, bad }; const m = $('codeMsg') || msg; if (m) { m.textContent = t; m.style.color = bad ? 'var(--open)' : ''; } };
+  try {
+    if (step === 'send') { show('שולח…'); const j = await window.__crmCode('send', uname); show('הקוד נשלח ל: ' + j.to.join(' · ') + '. הקלידו אותו כאן.'); const c = $('codeIn'); if (c) c.focus(); return; }
+    const code = (($('codeIn') && $('codeIn').value) || '').replace(/\D/g, '');
+    if (code.length !== 6) return show('6 ספרות', true);
+    const j = await window.__crmCode('verify', uname, code);
+    S.loginAs = j.key === 'dan' && j.role === 'owner' ? { resp: 'dan', label: 'דן' } : { username: uname, resp: j.key, label: j.label };
+    try { sessionStorage.setItem('harel-user', JSON.stringify(S.loginAs)); } catch (e) {}
+    S.codeVal = S.codeMsg = null; setUnlocked(true); location.reload();
+  } catch (e) { show(e.message || 'לא הצליח', true); }
+}
 const vLock = () => '<div class="lockbrand"><img src="' + LOGO_FIN_FULL + '" alt="הר-אל פתרונות מימון חכמים">' + LOGO_RE + '</div>' + lockForm('lockForm', 'הר-אל', 'המערכת נעולה. ניסים / הדס — שם משתמש וסיסמה. דן — רק סיסמה.') + accessHint();
 function accessHint() {
   if (!S.level) return '';
@@ -10738,6 +10761,7 @@ document.addEventListener('click', async (e) => {
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
     if (d.areainfo) return areaInfo(d.areainfo);
+    if (d.code) return codeLogin(d.code);
     if (d.leadback != null) return leadBackGo();
     if (d.cbopen) { S.leadBack = null; return go('lead', d.cbopen); }
     if (d.cbsnooze) return cbSet(d.cbsnooze, { at: addMinIso(10), on: true }, 'תזכורת — עוד 10 דקות');
@@ -11048,7 +11072,7 @@ document.addEventListener('click', async (e) => {
         case 'reSummary': return formReSummary(c);
         case 'reCfgSave': return reCfgSave();
         case 'pfApply': return pfApply();
-        case 'ownerEmailSave': await write('settings/main', { ownerEmail: ($('ownerEmail').value || '').trim() }, 'update'); return toast('נשמר');
+        case 'ownerEmailSave': await write('settings/main', { ownerEmail: ($('ownerEmail').value || '').trim(), ...($('ownerPhone') ? { ownerPhone: $('ownerPhone').value.trim() } : {}), ...($('loginEmail') ? { loginEmail: $('loginEmail').value.trim() } : {}) }, 'update'); return toast('נשמר');
         case 'expPreset': return formExpense({ name: d.name, frequency: 'monthly', day: Number(d.day) || 15, category: d.cat, division: S.division === 'all' ? 'finance' : S.division, amount: '' });
         case 'leadDatesClear': S.f.leadFrom = ''; S.f.leadTo = ''; return render();
         case 'pfCancel': S.pfImport = null; return render();
@@ -11524,7 +11548,7 @@ document.addEventListener('submit', async (e) => {
     if (role === 'center' && !divs.length) return toast('סמן לפחות חברה אחת');
     if (S.role === 'admin_re' && role === 'center' && divs.some((d) => d !== 'realestate')) return toast('אפשר לתת רק הר-אל השקעות');
     const resp = old && old.resp ? old.resp : role === 'partner' && !us.some((x) => x.resp === 'nissim' && x !== old) ? 'nissim' : name;
-    const rec = { ...(old || {}), username: name, resp, role, label: label || (old && old.label) || L.resp[resp] || name, divs: role === 'center' ? divs : ROLES[role].divs, freelancer: !!($('uFree') && $('uFree').checked), conv: !!($('uConv') && $('uConv').checked), sales: !!($('uSales') && $('uSales').checked), hourly: $('uHourly') && $('uHourly').value !== '' ? r2($('uHourly').value) : null, email: $('uEmail') ? $('uEmail').value.trim() : (old && old.email) || '', setAt: stamp(), setBy: S.myKey || null };
+    const rec = { ...(old || {}), username: name, resp, role, label: label || (old && old.label) || L.resp[resp] || name, divs: role === 'center' ? divs : ROLES[role].divs, freelancer: !!($('uFree') && $('uFree').checked), conv: !!($('uConv') && $('uConv').checked), sales: !!($('uSales') && $('uSales').checked), hourly: $('uHourly') && $('uHourly').value !== '' ? r2($('uHourly').value) : null, email: $('uEmail') ? $('uEmail').value.trim() : (old && old.email) || '', phone: $('uPhone') ? $('uPhone').value.trim() : (old && old.phone) || '', setAt: stamp(), setBy: S.myKey || null };
     if (pw) { const salt = hex(crypto.getRandomValues(new Uint8Array(16))), iter = 210000; Object.assign(rec, { salt, iter, hash: await pwHash(pw, salt, iter) }); }
     try { await write('settings/main', { users: [...us.filter((x) => normUser(x.username) !== name), rec] }, 'update'); S.f.userEdit = null;
       toast(pw && pw === name ? 'נשמר — הסיסמה זהה לשם המשתמש, כדאי להחליף' : pw ? 'המשתמש נשמר' : old ? 'השינויים נשמרו' : 'המשתמש נוסף — ממתין לסיסמה'); render(); } catch (err) {}
@@ -11548,7 +11572,7 @@ document.addEventListener('submit', async (e) => {
     /* בשרת: אחרי כניסה הנתונים נטענים לפי ההרשאה של מי שנכנס — טוענים מחדש (פרייבט של דן שכבר מחובר — בלי) */
     if (window.__crmLogin && (f.id === 'lockForm' || !(window.__crmSession && window.__crmSession.role === 'owner'))) { location.reload(); return; }
     render(); }
-  else { pwFails++; errEl.textContent = uname ? 'שם משתמש או סיסמה שגויים' : 'סיסמה שגויה'; pwEl.value = ''; pwEl.focus(); }
+  else { pwFails++; errEl.textContent = S.loginErr || (uname ? 'שם משתמש או סיסמה שגויים' : 'סיסמה שגויה'); S.loginErr = null; pwEl.value = ''; pwEl.focus(); }
 });
 
 /* ═════════════════════════ חיבור ═════════════════════════ */
