@@ -9,8 +9,9 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { GATE_COOKIE, gateToken } from '@/lib/gate'
 import { storeLocalFile } from '@/lib/files'
+import { isServerless, storageDir } from '@/lib/storage-dir'
 
-export const REPORTS_DIR = process.env.HAREL_REPORTS_DIR ?? path.join(process.cwd(), 'storage', 'reports')
+export const REPORTS_DIR = process.env.HAREL_REPORTS_DIR ?? storageDir('reports')
 
 /** נתיב ה-Chromium: CHROMIUM_PATH, או הדפדפן ש-Playwright התקין ב-PLAYWRIGHT_BROWSERS_PATH. */
 export function chromiumPath(): string | undefined {
@@ -23,10 +24,7 @@ export function chromiumPath(): string | undefined {
   } catch { return undefined }
 }
 
-/** האם אנחנו ב-serverless (Vercel / Lambda) — שם אין דפדפן מותקן. */
-export function isServerless(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.VERCEL || env.AWS_LAMBDA_FUNCTION_NAME || env.AWS_EXECUTION_ENV)
-}
+export { isServerless }
 
 /**
  * הפעלת דפדפן. מקומית — ה-Chromium של Playwright. ב-serverless — @sparticuz/chromium-min,
