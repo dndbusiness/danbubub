@@ -110,6 +110,7 @@ node scripts/e2e-sign-pdf.mjs    # טפסים מ-PDF: העלאה ואיחוד �
 node scripts/e2e-sign-prefill.mjs # חתימות: מילוי מהתיק → ★ שליחה מהירה + הערות → קישור/וואטסאפ/מייל → החותם רואה הכל ממולא → ת"ז שונה = ⚠️ → עמוד תיעוד מלא
 node scripts/e2e-sign-detect.mjs  # "שילמד את התבניות": טפסים בעברית → העלאה מרוכזת → ✨ שדות במקום (2 לווים) → שמור/דלג → שליחה לנמען ידני (לא נשמר במערכת)
 node scripts/e2e-sign-drive.mjs   # ייבוא הספרייה מתיקייה בדרייב (מדומה): תת-תיקייה = גוף → ✨ שדות → "לבדיקה" → ריצה שנייה = 0 → טופס "לווה 2" נשלח לבן הזוג
+node scripts/e2e-pipeline.mjs     # ציר תיק משכנתא: מכירה → מסמכים → בדיקה (דן) → תוכנית → הגשה (הדס) → אישור בלי שליחה (דן) → שליחה → מעקב → שמאות; אחראי מההגדרות
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup

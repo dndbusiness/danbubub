@@ -30,6 +30,7 @@ export async function driveIntakeScanJob(asOf: string): Promise<{ rowsTouched: n
         if (!dl.ok) throw new Error(`Drive download ${dl.status}`)
         const r = await processIntakeFile({ source: 'drive', sourceRef: f.id, fileName: f.name, buf: Buffer.from(await dl.arrayBuffer()), receivedAt: f.modifiedTime })
         if (r.status === 'created') created++; else duplicates++
+        await sql`update tasks set status = 'done', notes = coalesce(notes, '') || ' · נקלט בניסיון חוזר' where auto_key = ${`drive_failed:${f.id}`} and status <> 'done'`
       } catch (e) {
         failed++
         await sql`insert into tasks (title, due_date, priority, auto_generated, auto_key, notes) values (${`קליטה מדרייב נכשלה: ${f.name}`}, ${asOf}, 'normal', true, ${`drive_failed:${f.id}`}, ${(e as Error).message.slice(0, 500)}) on conflict do nothing`

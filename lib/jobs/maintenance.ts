@@ -6,6 +6,7 @@ import { stageProbability } from '@/lib/rules/probability'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
 import { runJob } from './run'
+import { storageDir } from '@/lib/storage-dir'
 
 /**
  * חלק ג' `deal_decay` (02:00 יומי) — SPEC §2.3: תיק בלי פעילות מאבד הסתברות
@@ -44,7 +45,7 @@ export async function dealDecayJob(asOf: string): Promise<{ rowsTouched: number;
   })
 }
 
-export const BACKUP_DIR = process.env.HAREL_BACKUP_DIR ?? path.join(process.cwd(), 'storage', 'backups')
+export const BACKUP_DIR = process.env.HAREL_BACKUP_DIR ?? storageDir('backups')
 
 /**
  * חלק ג' `db_backup` (03:00 יומי) — SPEC §6 שכבה 2.

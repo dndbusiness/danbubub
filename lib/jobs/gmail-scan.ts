@@ -36,6 +36,8 @@ export async function gmailScanJob(asOf: string): Promise<{ rowsTouched: number;
           if (r.status === 'created') { created++; any = true } else if (r.status === 'duplicate') duplicates++
         }
         if (labels && any) await addLabel(token, id, labels.done)
+        // ניסיון קודם שנכשל (למשל לפני תיקון) — המשימה שנפתחה עליו נסגרת כשהמייל נקלט
+        await sql`update tasks set status = 'done', notes = coalesce(notes, '') || ' · נקלט בניסיון חוזר' where auto_key = ${`gmail_failed:${id}`} and status <> 'done'`
       } catch (e) {
         failed++
         if (labels) await addLabel(token, id, labels.failed).catch(() => {})

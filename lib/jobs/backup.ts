@@ -8,10 +8,11 @@ import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/sto
 import { settingValues } from '@/lib/queries/cashflow'
 import { enqueueOutbox, flushOutbox } from './outbox'
 import { runJob } from './run'
+import { storageDir } from '@/lib/storage-dir'
 
 type Out = { rowsTouched: number; skipped?: string; detail?: Record<string, unknown> }
 
-const STORAGE = process.env.STORAGE_DIR ?? join(process.cwd(), 'storage')
+const STORAGE = storageDir('')
 
 /**
  * חלק ג' `reports_to_drive` — "אחרי כל הפקה · סעיף 6 שכבה 2".

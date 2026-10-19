@@ -36,6 +36,8 @@ export async function keep({ base, key = '', secret = '', waitMs = 4 * 60e3, exe
     // ?key= פותח את שער הכניסה ושומר עוגייה (middleware.ts); הסיסמה לא נכתבת ללוג
     const res = await page.goto(`${BASE}/api/crm/mode${key ? `?key=${encodeURIComponent(key)}` : ''}`, { waitUntil: 'load', timeout: 60e3 })
     const mode = await res?.json().catch(() => null)
+    // סיסמה שגויה או חסרה: השער מפנה ל-/gate, שעונה 200 עם דף כניסה ולא עם JSON
+    if (!mode && /\/gate\b/.test(page.url())) throw new Error('נעצרתי בשער הכניסה — APP_PASSWORD ב-GitHub Secrets חסר או לא זהה לזה שב-Vercel')
     if (!mode) throw new Error(`לא הצלחתי לקרוא את מצב המערכת (${res?.status()}) — בדקו APP_BASE_URL / APP_PASSWORD`)
     if (mode.mode !== 'live') { log(`מדלג: המערכת במצב "${mode.mode}" — הדף ב-Claude עדיין המקור`); return true }
 

@@ -16,8 +16,9 @@ import { INVOICE_MATCH, matchTarget } from '@/lib/match/invoices'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
 import { enqueueOutbox } from '@/lib/jobs/outbox'
+import { storageDir } from '@/lib/storage-dir'
 
-export const INTAKE_DIR = process.env.HAREL_INTAKE_DIR ?? path.join(process.cwd(), 'storage', 'intake')
+export const INTAKE_DIR = process.env.HAREL_INTAKE_DIR ?? storageDir('intake')
 
 export interface IntakeInput {
   source: 'gmail' | 'drive' | 'manual_upload'
