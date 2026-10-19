@@ -2257,10 +2257,89 @@ function approvalsCard() {
       '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
 }
+/* ── אישרתי לאחרונה (דן 19/10: "התיקים שאישרתי — לראות בלוח, ולהחזיר אחורה אם לא בוצע כמו שצריך") ──
+   14 יום אחורה: הגשות שאישרתי, מחיקות שאישרתי, ושלב בציר שסיימתי (האחרון בכל תיק). לכל שורה — החזרה. */
+const MY_DONE_DAYS = 14;
+const undone = (a) => !!a.undoneAt && String(a.undoneAt) > String(a.decidedAt || '');
+function myDecisions() {
+  const me = S.me.id, from = addDays(today(), -MY_DONE_DAYS), out = [];
+  for (const a of live(S.approvals)) {
+    if (a.decidedBy !== me || a.status !== 'approved' || undone(a) || dayOf(a.decidedAt || '') < from) continue;
+    if (!['submission', 'delete'].includes(a.kind) || !canApproveDel(a.division || 'finance')) continue;
+    out.push({ kind: a.kind, at: a.decidedAt, a, c: a.clientId ? S.clients.get(a.clientId) : null });
+  }
+  for (const c of live(S.clients)) {
+    if (c.division === 'realestate' || !c.proc || !inDiv(c)) continue;
+    const hist = c.proc.hist || {}, ci = procIdx(c, procCur(c));
+    /* אישור ההגשה מופיע כבר כשורת הגשה — לא כפול */
+    const mine = procSteps(c).map((s, i) => ({ s, i, h: hist[s[0]] })).filter((x) => x.s[0] !== 'submitApprove' && x.h && x.h.by === me && x.h.done && dayOf(x.h.done) >= from && x.i < ci)
+      .sort((x, y) => String(y.h.done).localeCompare(String(x.h.done)))[0];
+    if (mine) out.push({ kind: 'step', at: mine.h.done, c, step: mine.s });
+  }
+  return out.sort((x, y) => String(y.at).localeCompare(String(x.at)));
+}
+function myDecisionsCard() {
+  if (!(S.isDan || canApproveDel('realestate'))) return '';
+  const R = myDecisions(); if (!R.length) return '';
+  const link = (c) => c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '';
+  /* שורה = טקסט + תגית + כפתורים, נשבר לשורות במובייל (לא טבלה — הכפתורים לא נחתכים ב-390) */
+  const line = (main, sub, pill, btns) => '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)"><div class="grow" style="min-width:220px">' + main + '<div class="hint">' + sub + '</div></div>' + pill + '<div class="row" style="gap:6px">' + btns + '</div></div>';
+  const row = (x) => {
+    if (x.kind === 'submission') { const a = x.a, [t, tone] = subStatePill(a);
+      return line('<b>הגשה:</b> ' + link(x.c) + ' ← ' + esc(a.bank || ''), 'אישרת ' + dLabel(dayOf(a.decidedAt)) + ' · ' + (a.files || []).length + ' קבצים', '<span class="pill ' + tone + '">' + esc(t) + '</span>',
+        (subUnsent(a) ? '<button class="btn small ghost" data-myundo="sub:' + esc(a.id) + '" title="חוזר ל&quot;ממתין לאישורך&quot;">בטל אישור</button>' : '') + '<button class="btn small" data-myundo="fix:' + esc(a.id) + '">החזר לתיקון</button>'); }
+    if (x.kind === 'delete') { const a = x.a;
+      return line('<b>מחיקה:</b> ' + esc(a.label), 'אישרת ' + dLabel(dayOf(a.decidedAt)) + ' · ביקש ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות'), '<span class="pill muted">נמחק</span>', '<button class="btn small" data-myundo="del:' + esc(a.id) + '">שחזר</button>'); }
+    const c = x.c, cur = procSteps(c)[procIdx(c, procCur(c))], who = cur && procOwner(c, cur[0]);
+    return line('<b>שלב:</b> ' + link(c) + ' — ' + esc(x.step[1]), 'סיימת ' + dLabel(dayOf(x.at)) + ' · עכשיו: ' + esc(cur ? cur[1] : '') + (who ? ' (' + esc(L.resp[who]) + ')' : ''), '<span class="pill actual">אושר</span>', '<button class="btn small" data-myundo="step:' + esc(c.id) + '">החזר אחורה</button>');
+  };
+  const TOP = 6;
+  return '<section class="card"><header><h2>אישרתי לאחרונה</h2><span class="pill muted">' + R.length + '</span><span class="hint">' + MY_DONE_DAYS + ' ימים אחרונים · משהו לא בוצע כמו שצריך? מחזירים מכאן</span></header>' +
+    R.slice(0, TOP).map(row).join('') + (R.length > TOP ? '<details><summary class="hint">עוד ' + (R.length - TOP) + '</summary>' + R.slice(TOP).map(row).join('') + '</details>' : '') + '</section>';
+}
+async function myUndo(v) {
+  const i = v.indexOf(':'), k = v.slice(0, i), id = v.slice(i + 1);
+  if (k === 'step') return formStepBack(id);
+  const a = S.approvals.get(id); if (!a || a.decidedBy !== S.me.id || a.status !== 'approved' || undone(a)) return;
+  const mark = { undoneAt: stamp(), undoneBy: S.me.id };
+  if (k === 'del') {
+    if (!confirm('לשחזר: ' + a.label + '?')) return;
+    await write(a.coll + '/' + a.docId, { deletedAt: null, deletedBy: null, deleteApprovedBy: null }, 'update');
+    await write('approvals/' + id, { ...mark, status: 'restored' }, 'update');
+    return toast('שוחזר — ' + a.label);
+  }
+  const c = S.clients.get(a.clientId); if (!c) return toast('הלקוח לא נמצא');
+  const back = async (to, note) => { const cc = S.clients.get(c.id); if (cc && procType(cc) === 'mortgage' && procIdx(cc, procCur(cc)) > procIdx(cc, to)) { await procAdvance(cc, to, { note }); return true; } return false; };
+  if (k === 'sub') {
+    if (!subUnsent(a)) return toast('ההגשה כבר נשלחה — אפשר רק להחזיר לתיקון');
+    await write('approvals/' + id, { ...mark, status: 'pending', noSend: null, decidedAt: null, decidedBy: null }, 'update');
+    await logClient(c.id, 'האישור להגשה ל' + a.bank + ' בוטל — חזר לממתין לאישור').catch(() => {});
+    if (procCur(S.clients.get(c.id) || c) === 'submit') await back('submitApprove', 'האישור להגשה ל' + a.bank + ' בוטל');
+    return toast('האישור בוטל — ההגשה חזרה ל"ממתין לאישורך"');
+  }
+  if (k !== 'fix') return;
+  const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח ובמשימה)', ''); if (note === null || !note.trim()) return;
+  const unsent = subUnsent(a), text = 'ההגשה ל' + a.bank + ' הוחזרה לתיקון אחרי שאושרה' + (unsent ? '' : ' ונשלחה') + ': ' + note.trim();
+  await write('approvals/' + id, { ...mark, fixNote: note.trim(), ...(unsent ? { status: 'rejected', note: note.trim() } : {}) }, 'update');
+  await logClient(c.id, text).catch(() => {});
+  /* לא נשלחה: התיק חוזר להכנת ההגשה (משימה להדס עם ההערה). נשלחה: התיק לא זז — גופים אחרים אולי כבר במעקב — ונפתחת משימת תיקון */
+  if (unsent && ['submitApprove', 'submit'].includes(procCur(S.clients.get(c.id) || c)) && await back('submitTech', text)) return toast('הוחזר לתיקון');
+  await procTask(c, 'subfix:' + id, 'תיקון הגשה ל' + a.bank, procOwner(c, 'submitTech') || 'hadas', { priority: 'high', notes: text });
+  toast('הוחזר לתיקון — נפתחה משימה ל' + (L.resp[procOwner(c, 'submitTech') || 'hadas'] || 'הדס'));
+}
+function formStepBack(cid) {
+  const c = S.clients.get(cid); if (!c) return; const st = procSteps(c), ci = procIdx(c, procCur(c)); if (ci <= 0) return;
+  const mine = myDecisions().find((x) => x.kind === 'step' && x.c.id === cid);
+  const opts = st.slice(0, ci).map((s) => [s[0], s[1] + (procOwner(c, s[0]) ? ' (' + L.resp[procOwner(c, s[0])] + ')' : '')]);
+  drawer('החזרה אחורה — ' + c.name, '<p class="hint full" style="margin:0 0 8px">התיק עכשיו בשלב <b>' + esc(st[ci][1]) + '</b>. המשימה של השלב הזה נסגרת, ומי שאחראי על השלב שתבחר מקבל משימה עם ההערה.</p>' +
+    fs('step', 'להחזיר לשלב', opts, mine ? mine.step[0] : opts[opts.length - 1][0], true) + ft('note', 'מה לא בוצע כמו שצריך?', ''),
+  async (fd) => { if (!fd.step || procIdx(c, fd.step) < 0) return 'בחר שלב'; if (!String(fd.note || '').trim()) return 'כתוב מה לתקן';
+    await procAdvance(S.clients.get(cid) || c, fd.step, { note: 'הוחזר ע״י ' + whoAmI() + ': ' + fd.note.trim() }); }, '', 'החזר');
+}
 function partnerBar() {
   const mine = live(S.approvals).filter((a) => a.by === S.me.id).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 5);
   return '<section class="card"><div class="row"><button class="btn primary" data-act="partnerExpense">+ הוצאה להתחשבנות</button><span class="hint grow">הוצאה שתוזן נכנסת להתחשבנות של פתרונות. מחיקה של נתון כספי — דרך "בקש מחיקה", באישור דן.</span></div>' +
-    (mine.length ? '<div class="hint" style="margin-top:6px">הבקשות שלך: ' + mine.map((a) => esc(a.label) + ' — <span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open' }[a.status]) + '">' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'נדחה' }[a.status]) + '</span>').join(' · ') + '</div>' : '') + '</section>';
+    (mine.length ? '<div class="hint" style="margin-top:6px">הבקשות שלך: ' + mine.map((a) => esc(a.label) + ' — <span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open', restored: 'muted' }[a.status]) + '">' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'נדחה', restored: 'שוחזר' }[a.status]) + '</span>').join(' · ') + '</div>' : '') + '</section>';
 }
 /* ── לוח בקרה — הר-אל השקעות נדל״ן: נפרד לגמרי מהר-אל פתרונות ── */
 function reExpected(cl) {
@@ -2454,7 +2533,7 @@ function dashWidgetForm(d, i, type) {
 }
 function vHome() {
   const d = dashCur(); if (d) return dashTabs(d.id) + vDash(d);
-  return dashTabs('') + approvalsCard() + vHomeBase();
+  return dashTabs('') + approvalsCard() + myDecisionsCard() + vHomeBase();
 }
 function vHomeBase() {
   if (S.division === 'realestate') return vHomeRE();
@@ -10709,7 +10788,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: () => approvalsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -10968,6 +11047,7 @@ document.addEventListener('click', async (e) => {
     if (d.carplate) { const v = intakeDoc(S.view.clientId).car || {}; return copyText(String(v.plate || ''), 'מספר הרכב הועתק'); }
     if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
+    if (d.myundo) return myUndo(d.myundo);
     if (d.repay != null && el.matches('[data-repay]')) return formTx(null, { nature: 'draw', division: 'realestate', vatMode: 'exempt', counterparty: d.repay, partner: d.repay, net: -n(d.amt), date: today(), description: 'התחשבנות ' + hMonth(S.f.reMonth || today().slice(0, 7)) });
     if (d.rereturn != null && el.matches('[data-rereturn]')) return formReturn(d.rereturn, d.amt);
     if (d.mkt) { S.f.mkt = d.mkt; return render(); }
