@@ -1272,7 +1272,28 @@ table.leads td.c-src { max-width: 150px; }
 .lacts .btn.small { min-height: 38px; border-radius: 12px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; }
 .lacts a.btn.call { background: var(--brand-soft); color: var(--brand-text); border-color: transparent; font-weight: 600; }
 .lacts .lcopy { min-height: 38px; }
-@media (max-width: 1180px) and (min-width: 768px) { .lacts a.btn.wa span { display: none; } }
+@media (max-width: 1500px) and (min-width: 768px) { .lacts a.btn.wa span { display: none; } }
+table.leads .show-mid, table.leads .st-days, table.leads .show-narrow { display: none; }
+/* מחשב: הטבלה נכנסת ברוחב המסך, בלי גלילה הצידה (דן, 20/10) — "אחרון", מקור והכפתורים נשברים לשורות */
+@media (min-width: 768px) {
+  table.leads td.c-last, table.leads td.c-src, table.leads td.c-act { white-space: normal; }
+  table.leads td.c-last { max-width: 220px; min-width: 110px; }
+  table.leads td.c-act { min-width: 190px; }
+  table.leads .lacts { flex-wrap: wrap; justify-content: flex-start; max-width: 250px; }
+  table.leads .lacts .lcopy { padding: 0 8px; }
+  table.leads select[data-leadstage], table.leads select[data-leadresp] { max-width: 140px; }
+}
+/* מחשב צר (עם התפריט הצדדי): מקור עובר מתחת לשם, "בסטטוס" מתחת לסטטוס — שתי עמודות פחות */
+@media (min-width: 768px) and (max-width: 1500px) {
+  table.leads .c-src, table.leads .c-days { display: none; }
+  table.leads .show-mid { display: inline; }
+  table.leads .st-days { display: block; font-size: 11.5px; margin-top: 3px; }
+  table.leads .st-days.lt-open { color: var(--open); font-weight: 600; }
+  table.leads .lacts { max-width: 200px; gap: 4px; }
+  table.leads td.c-act { min-width: 168px; } table.leads td.c-last { min-width: 80px; }
+  table.leads .lacts .btn.small { min-height: 34px; padding: 0 8px; }
+}
+@media (min-width: 768px) and (max-width: 1100px) { table.leads .c-last, table.leads .c-fu { display: none; } table.leads .show-narrow { display: inline; } }
 @media (max-width: 1023px) { .lkpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; } }
 @media (max-width: 767px) {
   /* כותרת כהה: הכותרת, ➕ והכרטיסים כגלולות — כמו "לידים" בקנבס של הנייד */
@@ -5734,9 +5755,9 @@ function vLeadsList(seg) {
       (rows.length ? '<div class="lclegend" aria-label="מקרא צבעים">' + LEAD_ROW_LEGEND.map(([k, v]) => '<span class="lc-' + k + '" style="display:inline-flex;align-items:center"><span class="lcdot"></span>' + v + '</span>').join('') + '<span>לבן — חדש</span></div>' : '') +
       (rows.length ? '' + leadColsPick() + '<div class="scroll"><table class="leads' + leadColsCls() + '"><thead><tr>' + (canAlloc ? '<th style="width:28px"><input type="checkbox" class="cb" data-lselall aria-label="בחר את כל המוצגים"' + (shown.length && shown.every((l) => SEL.has(l.id)) ? ' checked' : '') + '></th>' : '') + '<th>ליד</th><th class="hide-m c-src">מקור</th><th class="hide-m c-st">סטטוס</th><th class="hide-m c-days">בסטטוס</th><th class="hide-m c-resp">אחראי</th><th class="hide-m c-fu">מעקב</th><th class="hide-m c-last">אחרון</th><th class="c-act"><span class="sr">פעולות</span></th></tr></thead><tbody>' +
         shown.map((l) => '<tr class="clickable' + (leadRowTone(l) ? ' lc-' + leadRowTone(l) : '') + (leadKept(l) && !isLeadOpen(l) ? ' kept' : '') + '" data-lead="' + esc(l.id) + '"' + (leadKept(l) && !isLeadOpen(l) ? ' title="טופל — יירד מהרשימה כשתשנה סינון"' : '') + '>' + (canAlloc ? '<td><input type="checkbox" class="cb" data-lsel="' + esc(l.id) + '"' + (SEL.has(l.id) ? ' checked' : '') + ' aria-label="בחר"></td>' : '') + '<td class="wide c-lead"><div class="lwho">' + avaOf(l.name) + '<div class="lnm"><b>' + esc(l.name || '—') + '</b> <span class="show-m lpill">' + leadPill(l) + '</span>' +
-            '<div class="hint num">' + [l.city ? esc(l.city) : '', dLabel(dayOf(l.createdAt)) + (leadTime(l) ? ' ' + esc(leadTime(l)) : '')].filter(Boolean).join(' · ') + '<span class="show-m">' + esc(' · ' + leadChannel(l)) + (l.followUp ? ' · מעקב ' + dLabel(l.followUp).slice(0, 5) : '') + '</span></div>' +
+            '<div class="hint num">' + [l.city ? esc(l.city) : '', dLabel(dayOf(l.createdAt)) + (leadTime(l) ? ' ' + esc(leadTime(l)) : '')].filter(Boolean).join(' · ') + '<span class="show-mid">' + esc(' · ' + leadChannel(l)) + '</span>' + (l.followUp ? '<span class="show-narrow">' + esc(' · מעקב ' + dLabel(l.followUp).slice(0, 5)) + '</span>' : '') + '<span class="show-m">' + esc(' · ' + leadChannel(l)) + (l.followUp ? ' · מעקב ' + dLabel(l.followUp).slice(0, 5) : '') + '</span></div>' +
             (l.clientId || (l.returns || []).length ? '<div>' + (l.clientId ? '<span class="pill actual">לקוח</span> ' : '') + ((l.returns || []).length ? '<span class="pill open" title="אותו טלפון נכנס שוב כליד">נכנס שוב ×' + l.returns.length + '</span>' : '') + '</div>' : '') + '</div></div></td>' +
-          '<td class="hide-m c-src">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m c-st">' + stSel(l) + '</td><td class="hide-m num c-days">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m c-resp">' + respSel(l) + '</td>' +
+          '<td class="hide-m c-src">' + esc(leadChannel(l)) + (l.ad ? '<div class="hint">' + esc(l.ad) + '</div>' : '') + '</td><td class="hide-m c-st">' + stSel(l) + (daysIn(l) == null ? '' : '<div class="st-days ' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'lt-open' : 'hint') + '">' + daysIn(l) + ' ימים בסטטוס</div>') + '</td><td class="hide-m num c-days">' + (daysIn(l) == null ? '<span class="hint">—</span>' : '<span class="' + (daysIn(l) >= 7 && isLeadOpen(l) ? 'pill open' : 'hint') + '" title="מאז ' + dLabel(dayOf(stSince(l))) + '">' + daysIn(l) + ' ימים</span>') + '</td><td class="hide-m c-resp">' + respSel(l) + '</td>' +
           '<td class="hide-m c-fu">' + (l.followUp ? '<span class="pill ' + (leadDue(l, t0) ? 'open' : 'muted') + '">' + dLabel(l.followUp) + '</span>' : '<span class="hint">—</span>') + '</td>' +
           '<td class="hide-m c-last"><span class="hint">' + linkify(leadLast(l), 70) + '</span></td><td class="c-act">' + leadActs(l) + '</td></tr>').join('') + '</tbody></table></div>' +
         (rows.length > lim ? '<p style="text-align:center"><button class="btn small" data-leadmore>הצג עוד ' + Math.min(120, rows.length - lim) + ' (מתוך ' + rows.length + ')</button></p>' : '')
