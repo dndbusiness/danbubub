@@ -7768,7 +7768,21 @@ const BACKUP_MAILS = ['danbusiness1000@gmail.com', 'finance@harelinvest.co.il'];
 const backupEmails = () => (Array.isArray(S.settings.backupEmails) ? S.settings.backupEmails : BACKUP_MAILS).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
 const bytesB64 = (buf) => { let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); return btoa(s); };
 /* גיבוי יומי: קובץ דחוס לדרייב + מייל עם הקובץ (ואקסל קריא) לשתי הכתובות. מספיק שאחד מהם הצליח כדי שהגיבוי ייחשב תקין. */
+/* בשרת: הקובץ יורד למחשב (עותק מחוץ לשרת) ונרשם כגיבוי תקין; בלילה הג'וב db_backup שולח לדרייב ולמייל כשגוגל מחובר */
+async function serverBackup() {
+  if (driveBusy) return; driveBusy = true; toast('מכין גיבוי…');
+  try {
+    const r = await fetch('/api/crm/backup', { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) { let m = ''; try { m = (await r.json()).message; } catch (e) {} throw new Error(m || String(r.status)); }
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || 'harel-crm-' + today() + '.json.gz';
+    const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast('הגיבוי ירד למחשב: ' + name + ' (' + (r.headers.get('x-crm-docs') || '') + ' רשומות)', 6000);
+  } catch (e) { toast('הגיבוי נכשל: ' + (e.message || e)); }
+  driveBusy = false;
+}
 async function driveBackup(manual = false) {
+  if (window.__crmLogin) return S.isOwner ? serverBackup() : toast('הגיבוי זמין רק לדן');
   if (driveBusy || !S.mcp || !S.isOwner || !S.canWrite) { if (manual) toast('הגיבוי זמין רק לבעל הדף'); return; }
   driveBusy = true;
   const day = today(), json = JSON.stringify(backupDump());
@@ -7809,6 +7823,13 @@ function autoDriveBackup() {
 }
 function driveRow() {
   const o = S.runs.get('drive');
+  if (window.__crmLogin) return '<div class="trow"><div class="tname"><b>גיבוי יומי</b> <span class="hint">· כל לילה 03:00 מהשרת</span><div class="hint">עותק מלא של כל הנתונים לתיקיית הגיבויים בדרייב, ובמייל אל: <span dir="ltr">' + esc(backupEmails().join(', ') || '—') + '</span> — כשגוגל מחובר. "גבה עכשיו" מוריד את הקובץ למחשב.' +
+    (o && o.status === 'ok' ? ' · אחרון: ' + (o.via === 'download' ? 'הורדה למחשב' : (o.driveOk ? 'דרייב ✓' : 'דרייב ✗') + ' ' + (o.mailOk ? 'מייל ✓' : 'מייל ✗')) : '') +
+    (o && o.lastFail && (!o.at || o.lastFail.at > o.at) ? ' · <span style="color:var(--open)">הלילה לא נשמר עותק: ' + esc(o.lastFail.error || 'שגיאה') + '</span>' : '') +
+    (o && o.status === 'ok' && o.viewUrl ? ' <a class="xlink" href="' + esc(o.viewUrl) + '" target="_blank" rel="noopener">הקובץ האחרון ↗</a>' : '') + '</div></div><div class="row">' +
+    (o && o.status ? '<span class="pill ' + (o.status === 'ok' ? 'actual' : 'open') + '">' + (o.status === 'ok' ? 'תקין' : 'נכשל') + ' · ' + dLabel(dayOf(o.at)) + '</span>' : '<span class="pill muted">עוד לא רץ</span>') +
+    (S.isOwner ? '<button class="btn small" data-act="driveNow">גבה עכשיו</button>' : '') + '</div></div>' +
+    (S.canWrite ? '<div class="row" style="margin:4px 0 8px"><label class="fl grow">מיילים לגיבוי (מופרדים בפסיק)<input class="f" id="backupEmails" dir="ltr" value="' + esc(backupEmails().join(', ')) + '"></label></div>' : '');
   return '<div class="trow"><div class="tname"><b>גיבוי יומי — דרייב ומייל</b> <span class="hint">· פעם ביום, כשאתה נכנס</span><div class="hint">עותק מלא של כל הנתונים לתיקיית הגיבויים בדרייב, ובמייל (קובץ לשחזור + אקסל) אל: <span dir="ltr">' + esc(backupEmails().join(', ') || '—') + '</span>' +
     (o && o.status === 'ok' ? ' · ' + (o.driveOk ? 'דרייב ✓' : 'דרייב ✗') + ' ' + (o.mailOk ? 'מייל ✓' : 'מייל ✗') : '') + '.' +
     (o && o.status === 'ok' && o.viewUrl ? ' <a class="xlink" href="' + esc(o.viewUrl) + '" target="_blank" rel="noopener">הקובץ האחרון ↗</a>' : '') + '</div></div><div class="row">' +
