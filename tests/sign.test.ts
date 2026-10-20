@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { escapeHtml, expiryFrom, isValidIsraeliId, normalizeIsraeliId, renderAgreement, signState, templateFields, validateSubmission } from '@/lib/rules/sign.js'
+import { escapeHtml, expiryFrom, isValidIsraeliId, normalizeIsraeliId, renderAgreement, signState, templateFields, validateSubmission, withNotes, SIGN_HERE_HTML, PAGE_BREAK_HTML } from '@/lib/rules/sign.js'
 
 describe('חתימה — ת"ז', () => {
   it('ספרת ביקורת', () => {
@@ -104,5 +104,28 @@ describe('מערכת חתימות — כמה חותמים, קוד אימות', a
   it('PDF משותף: חותמים עם אותו נוסח יחד, נוסח נפרד לחותם — קבוצה משלו, לפי סדר החותמים', () => {
     const g = groupByDocument([{ doc_hash: 'b', signer_order: 3 }, { doc_hash: 'a', signer_order: 1 }, { doc_hash: 'a', signer_order: 2 }])
     expect(g.map((x) => [x.doc_hash, x.rows.map((r) => r.signer_order)])).toEqual([['a', [1, 2]], ['b', [3]]])
+  })
+})
+
+describe('הסכמים של דן (20/10): חתימות בגוף, עמוד חדש, שורות רשות, הערות בסוף', () => {
+  it('@@חתימות@@ ו-@@עמוד חדש@@ — סימונים, לא טקסט', () => {
+    const { html, missing } = renderAgreement('# הסכם\nטקסט {{client_name}}\n@@חתימות@@\n@@עמוד חדש@@\n# שטר חוב\n@@חתימות@@', { client_name: 'יוסי' })
+    expect(missing).toEqual([])
+    expect(html.split(SIGN_HERE_HTML).length - 1).toBe(2)
+    expect(html).toContain(PAGE_BREAK_HTML)
+    expect(html).not.toContain('@@')
+  })
+  it('שורה שכל השדות בה רשות וריקים — לא מוצגת; עם ערך — מוצגת', () => {
+    const t = 'לקוח: {{client_name}}\nבן/בת זוג: {{spouse_name?}} · ת"ז: {{spouse_id?}}\nסוף'
+    expect(renderAgreement(t, { client_name: 'א' }).html).not.toContain('בן/בת זוג')
+    expect(renderAgreement(t, { client_name: 'א', spouse_name: 'ב' }).html).toContain('בן/בת זוג: <b>ב</b> · ת&quot;ז: —')
+  })
+  it('הערות: בהסכם תמיד יש סעיף; לפני מסמך מצורף (שטר) ולא אחריו', () => {
+    expect(withNotes('# הסכם\nגוף', '', true)).toBe('# הסכם\nגוף\n\n# הערות\nאין הערות.')
+    expect(withNotes('# הסכם\nגוף', '')).toBe('# הסכם\nגוף')
+    const t = withNotes('# הסכם\nגוף\n\n@@עמוד חדש@@\n\n# שטר חוב\n@@חתימות@@', 'הנחה של 500 ₪', true)
+    expect(t.indexOf('# הערות')).toBeLessThan(t.indexOf('@@עמוד חדש@@'))
+    expect(t).toContain('# הערות\nהנחה של 500 ₪')
+    expect(withNotes('x', '@@חתימות@@ בהערה', true)).toContain('‏@@חתימות@@') // הערה לא יכולה להוסיף מקום חתימה
   })
 })

@@ -66,8 +66,9 @@ describe('הצעת הסכם לפי מוצר', () => {
   const items = mergeLibrary([], lib, { at: '2026-10-17T00:00:00Z', by: 'dan' }).library
   const s = (division: string, product: string) => suggestTemplate(items, { division, product })
   it('כל מוצר עם הסכם מתאים, ונפילה להסכם ההתקשרות של החברה', () => {
-    expect(s('finance', 'car_loan')).toBe(libItemKey('finance-car-credit'))
-    expect(s('finance', 'vehicle_lien')).toBe(libItemKey('finance-car-credit'))
+    // דן, 20/10: כתב המינוי שדן שלח הוא ההסכם הקבוע לרכב (order 9, לפני ההסכם המלא והמקוצר)
+    expect(s('finance', 'car_loan')).toBe(libItemKey('finance-car-advisor'))
+    expect(s('finance', 'vehicle_lien')).toBe(libItemKey('finance-car-advisor'))
     expect(s('finance', 'refinance')).toBe(libItemKey('finance-mortgage-refinance'))
     expect(s('finance', 'state_guarantee')).toBe(libItemKey('finance-business-plan'))
     expect(s('finance', 'business_nonbank')).toBe(libItemKey('finance-business-plan'))
@@ -78,7 +79,8 @@ describe('הצעת הסכם לפי מוצר', () => {
     expect(s('realestate', 'secondhand')).toBe(libItemKey('realestate-service-order'))
     expect(s('finance', 'presale')).toBe('agreement:finance') // מוצר נדל"ן בחברת המימון — לא מציעים הסכם של החברה השנייה
     expect(s('finance', '')).toBe('agreement:finance')
-    expect(suggestTemplate(items.map((x) => ({ ...x, deletedAt: x.key === libItemKey('finance-car-credit') ? 'x' : null })), { division: 'finance', product: 'car_loan' })).toBe(libItemKey('finance-car-credit-short'))
+    expect(suggestTemplate(items.map((x) => ({ ...x, deletedAt: x.key === libItemKey('finance-car-advisor') ? 'x' : null })), { division: 'finance', product: 'car_loan' })).toBe(libItemKey('finance-car-credit'))
+    expect(s('finance', 'business_credit')).toBe(libItemKey('finance-business-plan'))
   })
 })
 
@@ -86,9 +88,15 @@ describe('טעינת הספרייה ל-settings.signLibrary', () => {
   const at = '2026-10-17T10:00:00Z', at2 = '2026-10-18T10:00:00Z'
   const first = mergeLibrary([], lib, { at, by: 'dan' })
 
-  it('כל מה שנטען — טיוטה שלא נשלחת', () => {
+  it('כל מה שנטען — טיוטה שלא נשלחת; נוסח שדן שלח בעצמו (providedBy: dan) — מאושר מיד', () => {
     expect(first.report.every((r) => r.action === 'added')).toBe(true)
-    for (const x of first.library) { expect(isSignDraft(x.body)).toBe(true); expect(x.body.startsWith(LIB_DRAFT)).toBe(true); expect(isPristine(x)).toBe(true) }
+    const own = lib.filter((t) => t.providedBy === 'dan').map((t) => libItemKey(t.key))
+    expect(own.sort()).toEqual(['finance-business-plan', 'finance-car-advisor', 'finance-promissory-note', 'finance-property-pledge-loan'].map(libItemKey).sort())
+    for (const x of first.library) {
+      expect(isPristine(x)).toBe(true)
+      if (own.includes(x.key)) { expect(isSignDraft(x.body)).toBe(false); expect(x.approvedVersion).toBe(x.libVersion) }
+      else { expect(isSignDraft(x.body)).toBe(true); expect(x.body.startsWith(LIB_DRAFT)).toBe(true) }
+    }
   })
 
   it('idempotent: טעינה חוזרת = אותה ספרייה, הכל "ללא שינוי"', () => {
