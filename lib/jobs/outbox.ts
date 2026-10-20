@@ -27,8 +27,20 @@ export async function enqueueOutbox(rows: OutboxRow[], refs: { alertId?: string;
 
 export interface FlushResult { sent: number; failed: number; waiting: number; noTransport: string[] }
 
+/**
+ * אירועי יומן שממתינים ותאריכם עבר — מבוטלים (calendarExpired). רץ לפני כל שליחה וב-calendar_sync,
+ * כך שגם חודשים בלי חיבור לגוגל לא מצטברים, ולא תופסים מקום מ-50 השורות של כל ריצה.
+ */
+export async function cancelExpiredCalendar(today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())): Promise<number> {
+  const r = await sql`
+    update outbox set status = 'cancelled', last_error = ${'תאריך האירוע עבר — לא נשלח ליומן'}
+    where channel = 'calendar' and status = 'pending' and deleted_at is null and payload->'event'->>'date' < ${today}`
+  return r.count
+}
+
 export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch } = {}): Promise<FlushResult> {
   const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp
+  await cancelExpiredCalendar()
   const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: ({ pdfPath?: string; fileId?: string; fileName?: string } & Partial<CalendarPayload>) | null; attempts: number; max_attempts: number }[]>`
     select id, channel, target, subject, body, payload, attempts, max_attempts from outbox
     where status = 'pending' and deleted_at is null and next_attempt_at <= now()

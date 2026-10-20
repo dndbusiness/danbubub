@@ -150,3 +150,12 @@ export function isEmployeeMeeting(title: string, employeeName: string): boolean 
 export function eventFingerprint(e: CalendarEvent): string {
   return [e.title, e.date, e.time ?? '', e.durationMinutes ?? '', e.description, [...e.attendees].sort().join(',')].join('|')
 }
+
+/**
+ * outbox — אירוע יומן שממתין ותאריכו כבר עבר לא נשלח (אחרת חיבור גוגל אחרי שבועות היה ממלא את היומן באירועי עבר).
+ * today = התאריך בישראל.
+ */
+export const calendarExpired = (eventDate: string | null | undefined, today: IsoDate): boolean => !!eventDate && eventDate < today
+
+/** dedup_key של אירוע: cal:<ruleKey>:<fingerprint>. כל הגרסאות של אותו אירוע חולקות את התחילית. */
+export const calendarKeyPrefix = (ruleKey: string) => `cal:${ruleKey}:`
