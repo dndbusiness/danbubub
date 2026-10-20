@@ -3,6 +3,7 @@ import { sql } from '@/lib/db'
 import { writeDoc } from '@/lib/crm/store'
 import { crmSettings } from '@/lib/crm/auth'
 import { callFromVoicenter, keyOk, phoneVariants } from '@/lib/crm/inbound'
+import { repMap } from '@/lib/rules/voicenter'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +19,8 @@ export async function POST(req: Request) {
   try { const ct = req.headers.get('content-type') ?? ''; body = ct.includes('json') ? await req.json() : Object.fromEntries((await req.formData()).entries()) as Record<string, unknown> }
   catch { return NextResponse.json({ code: 'invalid_argument' }, { status: 400 }) }
   const s = await crmSettings() as Record<string, unknown>
-  const r = callFromVoicenter(body, (s.voicenterReps as Record<string, string>) ?? {})
+  /* נציג / שלוחה → עובד: השלוחות מהגדרות המשתמשים + מיפוי ידני (voicenterReps) */
+  const r = callFromVoicenter(body, repMap(s as never))
   if ('error' in r) return NextResponse.json({ ok: false, message: r.error })
   const variants = r.phones.flatMap(phoneVariants)
   const [lead] = await sql<{ doc_id: string; data: { calls?: { id: string }[] } }[]>`select doc_id, data from crm_docs where coll = 'leads' and deleted_at is null
