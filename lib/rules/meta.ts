@@ -38,8 +38,10 @@ export function campaignsFromInsights(rows: MetaInsightRow[], division: string, 
     const cid = String(r.campaign_id ?? '').trim(); if (!cid) continue
     const id = 'meta-' + cid, month = String(r.date_start ?? '').slice(0, 7); if (!/^\d{4}-\d{2}$/.test(month)) continue
     const prev = existing[id] ?? {}
+    // חשבון מודעות משותף לשתי החברות (division = 'auto'): מה שכבר נקבע בקמפיין (גם ידנית) — נשאר; קמפיין חדש — לפי השם
+    const div = division === 'auto' ? String(prev.division || divisionOfCampaign(String(r.campaign_name ?? ''))) : division
     const doc = by.get(id) ?? {
-      ...prev, id, name: String(r.campaign_name ?? prev.name ?? cid), platform: 'פייסבוק', division, source: 'meta' as const, metaId: cid, metaAccount: account,
+      ...prev, id, name: String(r.campaign_name ?? prev.name ?? cid), platform: 'פייסבוק', division: div, source: 'meta' as const, metaId: cid, metaAccount: account,
       monthly: { ...(prev.monthly ?? {}) }, metaLeads: { ...(prev.metaLeads ?? {}) }, spend: 0,
       leadCampaigns: [...new Set([...(prev.leadCampaigns ?? []), String(r.campaign_name ?? '')].filter(Boolean))],
       syncedAt: now, updatedAt: now,
@@ -57,8 +59,20 @@ export function campaignsFromInsights(rows: MetaInsightRow[], division: string, 
   return [...by.values()]
 }
 
-/** החשבונות מהסביבה: META_AD_ACCOUNT_FINANCE (הר-אל פתרונות) / META_AD_ACCOUNT_REALESTATE (הר-אל השקעות) */
+/** קמפיין של הר-אל השקעות לפי השם (נדל"ן / השקעות / פריסייל); כל השאר — הר-אל פתרונות. ("נכסים" = הלוואה כנגד נכס — פתרונות) */
+export const divisionOfCampaign = (name: string): 'finance' | 'realestate' => /נדל["״']?ן|השקע|פריסייל|real\s*estate|invest|presale/i.test(name) ? 'realestate' : 'finance'
+
+/**
+ * החשבונות מהסביבה:
+ *   META_AD_ACCOUNT — חשבון אחד לשתי החברות (דן, 20/10: act_2166211937175095) → החברה לפי שם הקמפיין
+ *   META_AD_ACCOUNT_FINANCE / META_AD_ACCOUNT_REALESTATE — חשבון לכל חברה (אם יפוצל בעתיד)
+ * אותו חשבון פעמיים = משותף.
+ */
 export function metaAccounts(env: Record<string, string | undefined>): { division: string; account: string }[] {
-  return [['finance', env.META_AD_ACCOUNT_FINANCE], ['realestate', env.META_AD_ACCOUNT_REALESTATE]]
-    .filter(([, a]) => a && String(a).trim()).map(([division, account]) => ({ division: division!, account: String(account).trim().replace(/^act_/, '') }))
+  const clean = (a: string | undefined) => String(a ?? '').trim().replace(/^act_/, '')
+  const out: { division: string; account: string }[] = []
+  const add = (division: string, a: string | undefined) => { const account = clean(a); if (!account) return
+    const hit = out.find((x) => x.account === account); if (hit) { hit.division = 'auto'; return } out.push({ division, account }) }
+  add('auto', env.META_AD_ACCOUNT); add('finance', env.META_AD_ACCOUNT_FINANCE); add('realestate', env.META_AD_ACCOUNT_REALESTATE)
+  return out
 }
