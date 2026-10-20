@@ -6,6 +6,10 @@ import { stageProbability } from '@/lib/rules/probability'
 import { ensureFolderPath, reportFolder, uploadFile } from '@/lib/google/drive'
 import { googleAccessToken, googleIntegration, hasScope } from '@/lib/google/store'
 import { runJob } from './run'
+import { enqueueOutbox, flushOutbox } from './outbox'
+import { crmBackup, recordBackupRun } from '@/lib/crm/backup'
+import { crmSettings, DEFAULT_LOGIN_EMAIL } from '@/lib/crm/auth'
+import { storeFile } from '@/lib/files'
 import { storageDir } from '@/lib/storage-dir'
 
 /**
@@ -82,6 +86,56 @@ export async function dbBackupJob(asOf: string): Promise<{ rowsTouched: number; 
     await withActor(async (tx) => {
       await tx`insert into report_runs (report_type, period, file_url, file_format) values ('db_backup', ${asOf}, ${driveUrl ?? local}, 'csv')`
     })
-    return { rowsTouched: rows, skipped: driveUrl ? undefined : 'גוגל לא מחובר — הגיבוי נשמר מקומית בלבד', detail: { tables: TABLES.length, rows, sizeKb: Math.round(payload.length / 1024), drive: Boolean(driveUrl) } }
+    // נתוני ה-CRM (crm_docs) — קובץ נפרד, באותו מבנה כמו הגיבוי של הדף, כדי שישוחזר באותה דרך
+    const crm = await crmBackupNightly(asOf).catch((e) => ({ ok: false, docs: 0, error: (e as Error).message }) as CrmNightly)
+    return { rowsTouched: rows + crm.docs, skipped: driveUrl || crm.ok ? undefined : 'גוגל לא מחובר — הגיבוי נשמר מקומית בלבד',
+      detail: { tables: TABLES.length, rows, sizeKb: Math.round(payload.length / 1024), drive: Boolean(driveUrl), crm } }
   })
+}
+
+type CrmNightly = { ok: boolean; docs: number; drive?: boolean; mail?: boolean; sizeKb?: number; error?: string }
+
+/**
+ * הגיבוי הלילי של ה-CRM: לדרייב (אם מחובר), ובמייל לכתובות הגיבוי (אם Gmail מחובר).
+ * הקובץ מצורף למייל רק כשהדרייב לא הצליח — אחרת קישור בלבד, כדי לא לשמור עותק כל לילה במסד.
+ * בלי גוגל — אין עותק מחוץ לשרת: הדף מציג "אין גיבוי תקין" ו"גבה עכשיו" מוריד את הקובץ למחשב.
+ */
+async function crmBackupNightly(asOf: string): Promise<CrmNightly> {
+  const now = new Date()
+  const b = await crmBackup(now, asOf)
+  const sizeKb = Math.round(b.gz.length / 1024)
+  const google = await googleIntegration()
+  let viewUrl: string | null = null, driveErr: string | null = null
+  if (hasScope(google, 'https://www.googleapis.com/auth/drive.file')) {
+    try {
+      const token = await googleAccessToken()
+      viewUrl = (await uploadFile(token, await ensureFolderPath(token, reportFolder('backup', '')), b.name, 'application/gzip', b.gz)).webViewLink
+    } catch (e) { driveErr = 'דרייב: ' + (e as Error).message }
+  } else driveErr = 'גוגל דרייב לא מחובר'
+
+  const settings = (await crmSettings()) as { backupEmails?: unknown; ownerEmail?: string }
+  const mailTo = (Array.isArray(settings.backupEmails) ? settings.backupEmails.map(String) : [settings.ownerEmail ?? '', DEFAULT_LOGIN_EMAIL])
+    .map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))
+  let mailOk = false, mailErr: string | null = null
+  if (mailTo.length && hasScope(google, 'https://www.googleapis.com/auth/gmail.send')) {
+    const dedupKey = `crm_backup:${asOf}`
+    const body = `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif"><p>גיבוי מלא של ה-CRM מהשרת נכון ל-${asOf}: ${b.total} רשומות (${sizeKb} KB).</p>` +
+      `<p>${viewUrl ? `הקובץ בדרייב: <a href="${viewUrl}">${b.name}</a>` : `הקובץ מצורף (${b.name}) — הדרייב לא זמין.`}</p>` +
+      `<p style="color:#6B7280;font-size:12px">לשחזור: scripts/crm-mirror.mjs --force, או "ייבוא גיבוי" במערכת.</p></div>`
+    if (await enqueueOutbox([{ channel: 'email', target: mailTo.join(','), subject: `[הר-אל] גיבוי CRM מהשרת — ${asOf}`, body, dedupKey }])) {
+      if (!viewUrl) {
+        const fileId = await storeFile(b.gz, b.name, 'application/gzip', 'backup')
+        await sql`update outbox set payload = ${sql.json({ fileId, fileName: b.name } as never)} where dedup_key = ${dedupKey} and deleted_at is null`
+      }
+      await flushOutbox()
+    }
+    const [ob] = await sql<{ status: string; last_error: string | null }[]>`select status, last_error from outbox where dedup_key = ${dedupKey} and deleted_at is null`
+    mailOk = ob?.status === 'sent'
+    if (!mailOk) mailErr = 'מייל: ' + (ob?.last_error ?? ob?.status ?? 'לא נשלח')
+  } else if (mailTo.length) mailErr = 'Gmail לא מחובר'
+
+  const ok = Boolean(viewUrl) || mailOk
+  const error = [driveErr, mailErr].filter(Boolean).join(' · ') || null
+  await recordBackupRun({ day: asOf, at: now.toISOString(), ok, via: 'nightly', b, driveOk: Boolean(viewUrl), mailOk, mailTo, viewUrl, error })
+  return { ok, docs: b.total, drive: Boolean(viewUrl), mail: mailOk, sizeKb, ...(error ? { error } : {}) }
 }

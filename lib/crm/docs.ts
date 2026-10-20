@@ -68,3 +68,21 @@ export function docsFromDump(dump: BackupDump): { docs: DumpDoc[]; colls: string
   if (isPlainObject(dump.settings)) { docs.push({ coll: 'settings', id: 'main', data: dump.settings }); colls.push('settings') }
   return { docs, colls }
 }
+
+/**
+ * הכיוון ההפוך של docsFromDump: מסמכי השרת → קובץ גיבוי באותו מבנה כמו backupDump של הדף,
+ * כך שהוא משוחזר באותה דרך (scripts/crm-mirror.mjs / POST /api/crm/import). settings/main → settings.
+ */
+export function dumpFromDocs(rows: { coll: string; doc_id: string; data: CrmDoc }[], exportedAt: string, skip: readonly string[] = []):
+  BackupDump & { source: 'server'; counts: Record<string, number> } {
+  const collections: Record<string, Record<string, CrmDoc>> = {}
+  const counts: Record<string, number> = {}
+  let settings: CrmDoc | undefined
+  for (const r of rows) {
+    if (skip.includes(r.coll) || !COLL_RE.test(r.coll)) continue
+    if (r.coll === 'settings' && r.doc_id === 'main') { settings = r.data; continue }
+    ;(collections[r.coll] ??= {})[r.doc_id] = r.data
+    counts[r.coll] = (counts[r.coll] ?? 0) + 1
+  }
+  return { app: 'harel-crm', source: 'server', exportedAt, ...(settings ? { settings } : {}), collections, counts }
+}
