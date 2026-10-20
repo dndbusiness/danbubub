@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { campaignsFromInsights, insightsUrl, leadsOf, metaAccounts } from '@/lib/rules/meta'
+import { campaignsFromInsights, divisionOfCampaign, insightsUrl, leadsOf, metaAccounts } from '@/lib/rules/meta'
 
 const now = '2026-10-20T10:00:00.000Z'
 describe('Meta — עלויות קמפיינים', () => {
@@ -23,6 +23,15 @@ describe('Meta — עלויות קמפיינים', () => {
   it('חשבונות לפי חברה', () => {
     expect(metaAccounts({ META_AD_ACCOUNT_FINANCE: 'act_111', META_AD_ACCOUNT_REALESTATE: ' 222 ' })).toEqual([{ division: 'finance', account: '111' }, { division: 'realestate', account: '222' }])
     expect(metaAccounts({})).toEqual([])
+    expect(metaAccounts({ META_AD_ACCOUNT: 'act_2166211937175095' })).toEqual([{ division: 'auto', account: '2166211937175095' }])
+    expect(metaAccounts({ META_AD_ACCOUNT_FINANCE: '5', META_AD_ACCOUNT_REALESTATE: 'act_5' })).toEqual([{ division: 'auto', account: '5' }])
+  })
+  it('חשבון משותף: החברה לפי שם הקמפיין; מה שנקבע בקמפיין קיים — נשאר', () => {
+    expect(divisionOfCampaign('השקעות נדל"ן — פריסייל צפון')).toBe('realestate')
+    expect(divisionOfCampaign('הלוואה כנגד נכס — אוקטובר')).toBe('finance')
+    const rows = [{ campaign_id: '1', campaign_name: 'נדל"ן — יד שנייה', spend: 100, date_start: '2026-10-01' }, { campaign_id: '2', campaign_name: 'רכב', spend: 50, date_start: '2026-10-01' }, { campaign_id: '3', campaign_name: 'השקעות', spend: 10, date_start: '2026-10-01' }]
+    const d = campaignsFromInsights(rows, 'auto', '216', { 'meta-3': { division: 'finance' } as never }, now)
+    expect(d.map((x) => x.division)).toEqual(['realestate', 'finance', 'finance'])
   })
   it('כתובת', () => {
     const u = new URL(insightsUrl('act_111', '2026-05-01', '2026-10-20', 'TOK'))
