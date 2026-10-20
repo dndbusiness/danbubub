@@ -1698,11 +1698,11 @@ const prioVar = (t) => 'var(--p-' + (['urgent', 'high', 'normal', 'low'].include
 /* "בוצע" בטעות → בטל (8 שניות), ובכל זמן אפשר להוריד את הסימון */
 function toastUndo(msg, fn) { clearTimeout(toastT); let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
   t.textContent = msg; const b = document.createElement('button'); b.className = 'undo'; b.textContent = 'בטל'; b.onclick = async () => { t.remove(); await fn(); }; t.appendChild(b); toastT = setTimeout(() => t.remove(), 8000); }
-function toast(msg) {
+function toast(msg, ms = 3200) {
   clearTimeout(toastT);
   let t = document.querySelector('.toast');
   if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
-  t.textContent = msg; toastT = setTimeout(() => t.remove(), 3200);
+  t.textContent = msg; toastT = setTimeout(() => t.remove(), ms);
 }
 
 /* ── אנשים ───────────────────────────────────────────────────────────────── */
@@ -6420,7 +6420,8 @@ async function docBlob(f) {
 }
 async function docReview(c, files, opt = {}) {
   if (S._revBusy) return toast('הסקירה כבר רצה'); if (!S.mcp) return toast('דרייב לא זמין בתצוגה הזו');
-  const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('Claude לא זמין בתצוגה הזו');
+  const sample = await claude.use('sample').catch(() => null); S.ai = !!sample; document.body.classList.toggle('noai', !S.ai);
+  if (!sample) return toast(window.__harelServer ? 'Claude לא מחובר כרגע — צריך להוסיף בשרת את מפתח Claude, או להפעיל את שגרת התור (מדריך "חיבור Claude למערכת")' : 'Claude לא זמין בתצוגה הזו', 9000);
   const list = files.filter((f) => !f.folderLink && /pdf|image|google-apps\.document/.test(f.mimeType || '') ).slice(0, 25); if (!list.length) return toast('אין מסמכים לסקירה (PDF או תמונה)');
   S._revBusy = true; const items = [], set = (t) => { S.revStatus = { cid: c.id, text: t }; const el = document.querySelector('[data-revstatus]'); if (el) el.textContent = t; else render(); };
   try {
@@ -6428,7 +6429,9 @@ async function docReview(c, files, opt = {}) {
       set('קורא מסמך ' + (i + 1) + ' מתוך ' + list.length + ': ' + f.title + (window.__crmAiQueue ? ' (בתור ל-Claude — כמה דקות לכל מסמך)' : ''));
       try { const r = await askDoc(await docBlob(f), DOC_REVIEW_PROMPT, null, 'סקירת מסמך — ' + c.name + ' — ' + f.title);
         items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), type: String(r.type || ''), owner: String(r.owner || ''), issuer: String(r.issuer || ''), period: String(r.period || ''), facts: (r.facts || []).map(String).slice(0, 6), amounts: (r.amounts || []).map(String).slice(0, 6), issues: (r.issues || []).map(String).slice(0, 6), summary: String(r.summary || '') }); }
-      catch (e) { items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), error: e && e.code === 'resource_exhausted' ? 'תקרת Claude להיום נגמרה' : 'לא נקרא' }); if (e && e.code === 'resource_exhausted') break; }
+      catch (e) { items.push({ id: f.id, title: f.title, cat: f.cat || docGuess(f.title), error: e && e.code === 'resource_exhausted' ? 'תקרת Claude להיום נגמרה' : e && e.code === 'not_granted' ? 'Claude התנתק באמצע' : 'לא נקרא' + (e && e.message ? ' (' + String(e.message).slice(0, 80) + ')' : '') }); if (e && ['resource_exhausted', 'not_granted'].includes(e.code)) break; }
+      /* נשמר אחרי כל מסמך — דף שנסגר באמצע לא מאבד את מה שכבר נקרא */
+      if (i % 3 === 2 || i === list.length - 1) { const x0 = intakeDoc(c.id); await write('intakes/' + c.id, { ...JSON.parse(JSON.stringify(x0)), id: c.id, clientId: c.id, docReview: { at: stamp(), by: S.me.id, items, analysis: '', partial: true, scope: opt.scope || 'docs' }, updatedAt: stamp() }).catch(() => {}); }
     }
     set('מנתח את התיק על בסיס ' + items.filter((x) => !x.error).length + ' מסמכים…');
     const x = intakeDoc(c.id), need = intakeDocs(x).map((d) => d.d), m = clientMoney(c);
@@ -7826,6 +7829,8 @@ function formTx(t, preset = {}) {
     fi('description', 'תיאור', t.description || '', 'text', '', true) + dl('dlCats', S.settings.categories || []),
     async (d) => {
       let amt = r2(d.amount); if (!(amt > 0)) return 'הסכום חייב להיות גדול מאפס';
+      /* דן, 20/10 (התראת "בשדה הספק רשום מספר"): ספק הוא שם — מספר חשבונית / קבלה שייך לתיאור */
+      if (/^[\d,.\s₪-]+$/.test(String(d.counterparty || '').trim())) return 'בשדה "ספק / משלם" כתוב שם (למשל שם השמאי), לא מספר. מספר חשבונית או קבלה — בשדה התיאור';
       if (d.vatMode === 'incl') amt = r2(amt / (1 + n(S.settings.vatRate)));
       const id = isNew ? uid() : t.id;
       const body = withVat({ ...t, id, date: d.date, nature: d.nature, net: d.nature === 'income' ? amt : -amt, vatMode: d.vatMode, vatRate: S.settings.vatRate, clientId: d.clientId || null,
@@ -8582,14 +8587,20 @@ function instCard(c, w) {
       : '<p class="empty">אין פעימות. גם תיק שהושלם יכול לקבל פעימות — כל אחת נכנסת לצפי התשלומים.</p>') +
     (w ? '<div class="row" style="margin-top:8px"><input class="f" id="instAmt" type="number" min="0" step="1" placeholder="סכום ₪" aria-label="סכום הפעימה" style="width:110px"><select class="f" id="instVat" aria-label="מע״מ"><option value="plus">+ מע״מ</option><option value="incl">כולל מע״מ</option><option value="none">בלי מע״מ</option></select><input class="f" id="instDue" type="date" aria-label="מועד"><input class="f grow" id="instNote" placeholder="הערה (פעימה 2, אחרי חתימה…)" aria-label="הערה"><button class="btn small primary" data-act="addInst">+ פעימה</button></div>' : '') + '</section>';
 }
+/* דן, 20/10: תוצאות החיפוש נשמרות בדפדפן — רענון לא מוחק אותן; דן בוחר מה לשמור ולעקוב ומה להסתיר לתמיד */
+const mailKeep = (cid, threads) => { try { localStorage.setItem('harel-mail-' + cid, JSON.stringify({ at: stamp(), threads: threads.slice(0, 50) })); } catch (e) {} };
+const mailKept = (cid) => { try { return JSON.parse(localStorage.getItem('harel-mail-' + cid) || 'null'); } catch (e) { return null; } };
+document.addEventListener('change', (e) => { const id = e.target && e.target.dataset && e.target.dataset.mailpick; if (!id) return; S.mailSel = S.mailSel || new Set(); if (e.target.checked) S.mailSel.add(id); else S.mailSel.delete(id); render(); });
 function mailCard(c) {
   const st = (S.mailRes[c.id] = S.mailRes[c.id] || {});
+  if (!st.threads && !st.loading) { const k = mailKept(c.id); if (k && Array.isArray(k.threads)) { st.threads = k.threads; st.keptAt = k.at; } }
+  const hide = new Set(c.mailHide || []), sel = (S.mailSel = S.mailSel || new Set());
   const linked = (c.emails || []).filter((t) => !isSysMail(t));
-  const row = (t, isLinked) => '<div class="mailrow"><div class="grow"><b>' + esc(t.subject || '(ללא נושא)') + '</b>' + (t.fin ? ' <span class="pill muted" title="' + FIN_BOX + '">finance@</span>' : '') + '<div class="hint">' + esc(t.from || '') + ' · ' + (t.date ? dLabel(dayOf(t.date)) : '') + '</div>' +
+  const row = (t, isLinked) => '<div class="mailrow">' + (S.canWrite && !isLinked ? '<input type="checkbox" class="cb" data-mailpick="' + esc(t.id) + '"' + (sel.has(t.id) ? ' checked' : '') + ' aria-label="בחר מייל">' : '') + '<div class="grow"><b>' + esc(t.subject || '(ללא נושא)') + '</b>' + (t.fin ? ' <span class="pill muted" title="' + FIN_BOX + '">finance@</span>' : '') + '<div class="hint">' + esc(t.from || '') + ' · ' + (t.date ? dLabel(dayOf(t.date)) : '') + '</div>' +
       (t.snippet ? '<div class="snip">' + esc(t.snippet) + '</div>' : '') + (st.read && st.read[t.id] ? '<pre class="mailtext">' + esc(st.read[t.id]) + '</pre>' : '') + '</div><div class="row">' +
       (t.url ? '<a class="btn small" href="' + esc(t.url) + '" target="_blank" rel="noopener">Gmail ↗</a>' : '') + '<button class="btn small ghost" data-mailread="' + esc(t.id) + '">קרא</button>' +
-      (S.canWrite && !isLinked ? '<button class="btn small" data-maillink="' + esc(t.id) + '">תייג ושייך</button>' : '') + (S.canWrite && isLinked ? '<button class="btn small ghost" data-mailunlink="' + esc(t.id) + '" aria-label="הסר שיוך">×</button>' : '') + '</div></div>';
-  const found = (st.threads || []).filter((t) => !linked.some((l) => l.id === t.id));
+      (S.canWrite && !isLinked ? '<button class="btn small" data-maillink="' + esc(t.id) + '">שמור ועקוב</button><button class="btn small ghost" data-mailhide="' + esc(t.id) + '" title="לא יופיע שוב בחיפושים של הלקוח הזה">לא רלוונטי</button>' : '') + (S.canWrite && isLinked ? '<button class="btn small ghost" data-mailunlink="' + esc(t.id) + '" aria-label="הסר שיוך">×</button>' : '') + '</div></div>';
+  const found = (st.threads || []).filter((t) => !linked.some((l) => l.id === t.id) && !hide.has(t.id)), nSel = found.filter((t) => sel.has(t.id)).length;
   if (linked.length) setTimeout(() => mailAutoFiles(c), 50);
   const nFiles = (c.scans || []).filter((x) => x.key === 'מייל').length;
   return '<section class="card"><header><h2>מיילים וקבצים</h2><span class="hint">תווית ב-Gmail: תיקי לקוחות/' + esc(c.name) + '</span><span class="grow"></span>' +
@@ -8600,7 +8611,9 @@ function mailCard(c) {
       '<label class="fl grow">קישור למייל, נושא או שולח<input class="f" id="mailPaste" placeholder="הדבק קישור מ-Gmail או כתוב נושא / כתובת"></label><button class="btn small" data-act="mailPaste">מצא ושייך</button></div>' : '') +
     (!S.mcp ? '<p class="hint">חיבור Gmail לא זמין בתצוגה הזו.</p>' : '') + (st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') +
     (linked.length ? '<h3 class="sec">משויכים לתיק</h3>' + linked.map((t) => row(t, true)).join('') : '') +
-    (found.length ? '<h3 class="sec">נמצאו ב-Gmail</h3>' + found.map((t) => row(t, false)).join('') : st.threads && !found.length ? '<p class="empty">לא נמצאו מיילים נוספים.</p>' : '') +
+    (found.length ? '<h3 class="sec">נמצאו ב-Gmail' + (st.keptAt ? ' <span class="hint">· מהחיפוש של ' + dLabel(dayOf(st.keptAt)) + ' ' + hm(st.keptAt) + '</span>' : '') + '</h3>' +
+      (S.canWrite ? '<div class="row" style="margin-bottom:6px"><span class="hint grow">סמן את המיילים ששייכים לתיק — "שמור ועקוב" מתייג אותם ב-Gmail ושומר בתיק (לא נמחקים ברענון); "לא רלוונטי" — לא יופיעו שוב.</span><button class="btn small primary" data-act="mailLinkSel"' + (nSel ? '' : ' disabled') + '>שמור ועקוב (' + nSel + ')</button><button class="btn small ghost" data-act="mailHideSel"' + (nSel ? '' : ' disabled') + '>לא רלוונטי (' + nSel + ')</button></div>' : '') +
+      found.map((t) => row(t, false)).join('') : st.threads && !found.length ? '<p class="empty">לא נמצאו מיילים נוספים.</p>' : '') +
     (!linked.length && !st.threads ? '<p class="empty">חיפוש לפי התווית, השם, המייל והטלפון של הלקוח — כולל מיילים שעברו דרך ' + FIN_BOX + '. מיילי מערכת לא נכללים.</p>' : '') + '</section>';
 }
 function privCard(c) {
@@ -8658,7 +8671,8 @@ async function mailSearch(c) {
     String(c.mailAlias || '').split(/[,;\n]+/).map((a) => a.trim()).filter(Boolean).forEach((a) => /@/.test(a) ? parts.push('from:' + a, 'to:' + a) : parts.push('"' + a.replace(/"/g, '') + '"'));
     const p = await gmail('search_threads', { query: '{' + parts.join(' ') + '} ' + SYS_Q, pageSize: 50 });
     st.threads = ((p && p.threads) || []).map((t) => { const M = t.messages || [], m = M[0] || {}, all = M.flatMap((x) => [x.sender, ...(x.toRecipients || []), ...(x.ccRecipients || [])]).join(' ').toLowerCase();
-      return { id: t.id, subject: m.subject || '', from: m.sender || '', date: (M[M.length - 1] || m).date || '', snippet: decodeHtml(m.snippet || ''), url: t.viewUrl || m.viewUrl || '', fin: all.includes(FIN_BOX) }; }).filter((t) => !isSysMail(t)).slice(0, 15);
+      return { id: t.id, subject: m.subject || '', from: m.sender || '', date: (M[M.length - 1] || m).date || '', snippet: decodeHtml(m.snippet || ''), url: t.viewUrl || m.viewUrl || '', fin: all.includes(FIN_BOX) }; }).filter((t) => !isSysMail(t) && !(c.mailHide || []).includes(t.id)).slice(0, 25);
+    st.keptAt = null; mailKeep(c.id, st.threads);
   } catch (e) { st.error = MAIL_FIX[e && e.code] || 'החיפוש ב-Gmail נכשל' + (e && e.code ? ' (' + e.code + ')' : ''); }
   st.loading = false; render();
 }
@@ -8683,6 +8697,22 @@ async function mailLink(c, id, given) {
     toast(lab ? 'תויג ב-Gmail ושויך לתיק' : 'שויך לתיק (התווית לא נוצרה)');
   } catch (e) { toast(MAIL_FIX[e && e.code] || 'התיוג נכשל'); return; }
   const k = await mailFilesToDrive(S.clients.get(c.id) || c, [id], true).catch(() => 0); if (k) toast(k + ' קבצים מהמייל נשמרו בתיקייה בדרייב');
+}
+/* כמה מיילים בבת אחת — תווית לכל שרשור, וכתיבה אחת לתיק (שלא ידרסו זה את זה) */
+async function mailLinkMany(c, ids) {
+  const st = S.mailRes[c.id] || {}, ts = ids.map((id) => (st.threads || []).find((x) => x.id === id)).filter(Boolean); if (!ts.length) return;
+  toast('מתייג ' + ts.length + ' מיילים…');
+  try {
+    const name = clientLabelName(c);
+    let lab = (await gLabels()).find((l) => l.name === name);
+    if (!lab) { await gmail('create_label', { displayName: name }); lab = (await gLabels(true)).find((l) => l.name === name); }
+    if (lab) for (const t of ts) await gmail('label_thread', { threadId: t.id, labelIds: [lab.labelId] });
+    const cur = S.clients.get(c.id) || c;
+    await write('clients/' + c.id, { emails: [...ts.map((t) => ({ id: t.id, subject: t.subject, from: t.from, date: t.date, url: t.url })), ...(cur.emails || []).filter((x) => !ts.some((t) => t.id === x.id))].slice(0, 100), updatedAt: stamp() }, 'update');
+    await logClient(c.id, ts.length + ' מיילים שויכו לתיק: ' + ts.map((t) => t.subject).join(' · ').slice(0, 200)).catch(() => {});
+    toast(ts.length + ' מיילים נשמרו בתיק' + (lab ? ' ותויגו ב-Gmail' : ''));
+  } catch (e) { return toast(MAIL_FIX[e && e.code] || 'התיוג נכשל'); }
+  const k = await mailFilesToDrive(S.clients.get(c.id) || c, ts.map((t) => t.id), true).catch(() => 0); if (k) toast(k + ' קבצים מהמיילים נשמרו בתיקייה בדרייב');
 }
 /* ── קישור למייל שהודבק (thread-f:מספר או מזהה) — או נושא / שולח, ואז חיפוש ── */
 function gmailIdFromLink(s0) {
@@ -11129,6 +11159,7 @@ document.addEventListener('click', async (e) => {
       await write('clients/' + c.id, { installments: list, updatedAt: stamp() }, 'update'); await logClient(c.id, 'פעימה נכנסה: ' + plain(it.amount)); return toast('נרשם תקבול של ' + plain(it.amount)); }
     if (d.mailread) return mailRead(S.clients.get(S.view.clientId), d.mailread);
     if (d.maillink) return mailLink(S.clients.get(S.view.clientId), d.maillink);
+    if (d.mailhide) { const c = S.clients.get(S.view.clientId); await write('clients/' + c.id, { mailHide: [...new Set([...(c.mailHide || []), d.mailhide])].slice(-500), updatedAt: stamp() }, 'update'); return toast('לא יופיע שוב'); }
     if (d.mailunlink) { const c = S.clients.get(S.view.clientId); await write('clients/' + c.id, { emails: (c.emails || []).filter((x) => x.id !== d.mailunlink), updatedAt: stamp() }, 'update'); return toast('השיוך הוסר (התווית ב-Gmail נשארת)'); }
     if (d.closeStep != null) {
       if (S.f.closeStep === 2 && Number(d.closeStep) !== 2) await saveAnswers();
@@ -11270,6 +11301,8 @@ document.addEventListener('click', async (e) => {
         case 'addInst': { const amt = r2($('instAmt').value), due = $('instDue').value || null, note = $('instNote').value.trim(), vat = ($('instVat') || {}).value || 'plus'; if (!(amt > 0)) return toast('חסר סכום');
           await write('clients/' + c.id, { installments: [...(c.installments || []), { id: uid(), amount: amt, vat, due, paid: false, note }], updatedAt: stamp() }, 'update'); await logClient(c.id, 'נוספה פעימה: ' + plain(amt) + (due ? ' ל-' + dLabel(due) : '')); return toast('הפעימה נוספה'); }
         case 'mailSearch': return mailSearch(c);
+        case 'mailLinkSel': { const ids = [...(S.mailSel || [])].filter((id) => ((S.mailRes[c.id] || {}).threads || []).some((t) => t.id === id)); await mailLinkMany(c, ids); ids.forEach((id) => S.mailSel.delete(id)); return render(); }
+        case 'mailHideSel': { const ids = [...(S.mailSel || [])]; await write('clients/' + c.id, { mailHide: [...new Set([...(c.mailHide || []), ...ids])].slice(-500), updatedAt: stamp() }, 'update'); ids.forEach((id) => S.mailSel.delete(id)); return toast(ids.length + ' מיילים לא יופיעו שוב'); }
         case 'calSearch': return calSearch(c);
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
