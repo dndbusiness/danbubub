@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
 import { sql } from '@/lib/db'
-import { eventFingerprint, planCalendarEvents, type CalendarEvent } from '@/lib/rules/calendar-events'
+import { calendarExpired, calendarKeyPrefix, eventFingerprint, planCalendarEvents, type CalendarEvent } from '@/lib/rules/calendar-events'
 import { averageRecentAdvances } from '@/lib/rules/cashflow'
 import { addDays, addMonths, monthOf } from '@/lib/rules/period'
 import { bankAccount, latestAnchor, settingValues } from '@/lib/queries/cashflow'
 import { closingBlockers } from '@/lib/queries/nissim'
 import { googleIntegration, hasScope } from '@/lib/google/store'
-import { enqueueOutbox, flushOutbox } from './outbox'
+import { cancelExpiredCalendar, enqueueOutbox, flushOutbox } from './outbox'
 import { runJob } from './run'
 
 export interface CalendarPayload { event: CalendarEvent; fingerprint: string; calendarIds: string[] }
@@ -71,10 +71,27 @@ export async function calendarSyncJob(asOf: string): Promise<{ rowsTouched: numb
     for (const e of events) {
       const fingerprint = createHash('sha1').update(eventFingerprint(e)).digest('hex').slice(0, 16)
       const payload: CalendarPayload = { event: e, fingerprint, calendarIds }
-      const n = await enqueueOutbox([{ channel: 'calendar', target: calendarIds.join(','), subject: e.title, body: e.description, dedupKey: `cal:${e.ruleKey}:${fingerprint}` }])
-      if (n) { await sql`update outbox set payload = ${sql.json(payload as never)} where dedup_key = ${`cal:${e.ruleKey}:${fingerprint}`}`; queued++ }
+      if (calendarExpired(e.date, asOf)) continue
+      const prefix = calendarKeyPrefix(e.ruleKey), key = prefix + fingerprint
+      // מה שכבר ביומן — הגרסה האחרונה שנשלחה. אם היא זו, אין מה לשלוח.
+      const [last] = await sql<{ dedup_key: string }[]>`
+        select dedup_key from outbox where channel = 'calendar' and status = 'sent' and deleted_at is null and left(dedup_key, ${prefix.length}) = ${prefix}
+        order by sent_at desc nulls last limit 1`
+      if (last?.dedup_key !== key) {
+        const n = await enqueueOutbox([{ channel: 'calendar', target: calendarIds.join(','), subject: e.title, body: e.description, dedupKey: key }])
+        // גרסה שכבר הייתה (תוכן שחזר לקודם) — מחזירים אותה לתור במקום שורה חדשה
+        const r = n ? await sql`update outbox set payload = ${sql.json(payload as never)} where dedup_key = ${key} and deleted_at is null`
+          : await sql`update outbox set status = 'pending', attempts = 0, next_attempt_at = now(), last_error = null, payload = ${sql.json(payload as never)}
+              where dedup_key = ${key} and deleted_at is null and status <> 'pending'`
+        if (r.count) queued++
+      }
+      // כל גרסה ישנה של אותו אירוע שעוד ממתינה — מבוטלת. נשאר בתור רק הנוסח האחרון (גוגל לא מחובר = לא מצטברים עשרות).
+      await sql`
+        update outbox set status = 'cancelled', last_error = ${'הוחלף בנוסח חדש'}
+        where channel = 'calendar' and status = 'pending' and deleted_at is null and left(dedup_key, ${prefix.length}) = ${prefix} and dedup_key <> ${key}`
     }
+    const expired = await cancelExpiredCalendar(asOf)
     const flush = canWrite ? await flushOutbox() : null
-    return { rowsTouched: queued, detail: { planned: events.length, queued, calendarIds, calendarConnected: canWrite, flush }, skipped: canWrite ? undefined : `${queued} אירועים ממתינים ב-outbox — יומן לא מחובר (calendar.events)` }
+    return { rowsTouched: queued, detail: { planned: events.length, queued, expired, calendarIds, calendarConnected: canWrite, flush }, skipped: canWrite ? undefined : `${queued} אירועים ממתינים ב-outbox — יומן לא מחובר (calendar.events)` }
   })
 }
