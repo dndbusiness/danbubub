@@ -209,3 +209,13 @@ describe('כניסה בקוד — למי ולאן (codeLoginFor)', () => {
     expect(codeLoginFor(st, 'eden', 1000)?.session.e).toBe(1000 + 14 * 86400e3)
   })
 })
+
+describe('בקשות שינוי במערכת — רק דן', () => {
+  const dan: CrmSession = { k: 'dan', r: 'owner', d: ['finance', 'realestate'], l: 'דן', e: 0 }
+  const hadas: CrmSession = { k: 'hadas', r: 'admin', d: ['finance', 'realestate'], l: 'הדס', e: 0 }
+  it('דן קורא וכותב; מנהלת מערכת ומוקד — לא', () => {
+    expect(canRead(dan, 'devRequests')).toBe(true); expect(canWrite(dan, 'devRequests')).toBe(true)
+    expect(canRead(hadas, 'devRequests')).toBe(false); expect(canWrite(hadas, 'devRequests')).toBe(false)
+    expect(canRead({ ...hadas, k: 'x', r: 'center' }, 'devRequests')).toBe(false)
+  })
+})

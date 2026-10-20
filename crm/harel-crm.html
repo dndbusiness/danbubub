@@ -933,6 +933,12 @@ nav.tabs .badge.soft { background: var(--sunk); color: var(--text-2); box-shadow
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>") center / contain no-repeat; }
 .tbell.on::after { content: ""; position: absolute; top: 11px; inset-inline-end: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--open); box-shadow: 0 0 0 2px var(--surface); }
 .tbell[hidden] { display: none !important; }
+/* בקשת שינוי במערכת (דן, 20/10) — עיפרון במקום פעמון; נקודה = יש שינוי שמחכה לאישור שלך */
+.tdev::before { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") center / contain no-repeat; }
+.devlist { display: grid; gap: 8px; margin-top: 12px; }
+.devlist .devrq { border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; background: var(--surface); }
+.devlist .devrq p { margin: 4px 0; white-space: pre-wrap; }
 .tadd { flex: none; align-items: center; gap: 8px; min-height: 48px; padding: 0 20px; border: 0; border-radius: 16px; cursor: pointer; font-weight: 600; font-size: 15px;
   background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%); color: var(--on-brand); box-shadow: 0 8px 20px color-mix(in srgb, var(--fab-2) 30%, transparent); transition: filter var(--t-fast), transform .12s ease; }
 .tadd::before { content: "+"; font-size: 20px; font-weight: 400; line-height: 1; }
@@ -1525,6 +1531,7 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
       <button type="button" data-d="realestate" aria-pressed="false" title="הר-אל השקעות">השקעות</button>
     </div>
     <span class="push"></span>
+    <button type="button" class="tbell tdev" id="topDev" aria-label="בקשת שינוי במערכת" title="בקשת שינוי במערכת — Claude בונה, אתה מאשר" hidden></button>
     <button type="button" class="tbell" id="topBell" data-go="tasks" aria-label="משימות פתוחות" title="משימות פתוחות"></button>
     <button type="button" class="tadd" id="topAdd" aria-label="הוספה מהירה">חדש</button>
     <span class="who" id="who"></span>
@@ -1594,7 +1601,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'leadBills', 'valuations'];
+const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'leadBills', 'valuations', 'devRequests'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -8232,7 +8239,7 @@ window.HAREL_JOBS = {
    דן (בעל הדף) עורך הכל. הצוות כותב רק משימות, תיקים מנוהלים, ימי עבודה, פניות, לידים ומיילים.
    ההרשאות נאכפות במסד (rules) — לא רק במסך. הנעילה בסיסמה היא שכבה נוספת על המכשיר:
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
-const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills'];
+const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills', 'devRequests'];
 const PARTNER_WRITE = ['clients', 'transactions'];
 const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
@@ -10697,9 +10704,47 @@ function liabilitiesCard() {
 /* ══ עיצוב v4 — מעטפת (דן, 17/10: "תמזג לפי זה") ══
    פעמון = משימות פתוחות שלך (באיחור / להיום) — אותו מעבר של "משימות באיחור". כרטיס משתמש בתחתית התפריט: שם, תפקיד, נקודה חיה (מצב החיבור).
    "יציאה" נשארת כמו שהייתה (data-act="logout"). אין כאן חישוב חדש — רק הצגה. */
+/* ── בקשות שינוי במערכת: דן כותב, שגרה של Claude Code בונה (docs/DEV_REQUESTS.md), דן מאשר לפני שזה עולה לאוויר ── */
+const devOk = () => !!window.__harelServer && S.isDan;
+const DEV_ST = { new: ['חדשה — ממתינה ל-Claude', 'muted'], working: ['Claude עובד על זה', 'muted'], question: ['Claude שואל שאלה', 'open'], ready: ['מוכן — מחכה לאישור שלך', 'expected'],
+  approved: ['אושר — עולה לאוויר', 'expected'], merged: ['באוויר', 'actual'], rejected: ['בוטל', 'muted'], failed: ['נכשל', 'open'] };
+const devTabLabel = () => { const t = S.view && S.view.tab; const b = t && document.querySelector('nav.tabs [data-tab="' + t + '"]'); if (!b) return t || ''; const c = b.cloneNode(true); c.querySelectorAll('.badge, .lx').forEach((x) => x.remove()); return c.textContent.replace(/\d+/g, '').trim() || t; };
+function devRow(r) {
+  const st = DEV_ST[r.status] || [r.status, 'muted'];
+  return '<div class="devrq"><div class="row" style="align-items:center"><span class="pill ' + st[1] + '">' + esc(st[0]) + '</span><span class="hint">' + esc(dLabel(dayOf(r.createdAt))) + (r.screen ? ' · ' + esc(r.screen) : '') + '</span></div>' +
+    '<p>' + esc(r.text) + '</p>' +
+    (r.question && r.status === 'question' ? '<p><b>Claude שואל:</b> ' + esc(r.question) + '</p><textarea class="f" rows="2" data-devans="' + esc(r.id) + '" placeholder="התשובה שלך"></textarea><div class="row"><button type="button" class="btn small primary" data-devact="answer" data-id="' + esc(r.id) + '">שלח תשובה</button></div>' : '') +
+    (r.summary ? '<p class="hint"><b>מה נעשה:</b> ' + esc(r.summary) + '</p>' : '') + (r.note ? '<p class="hint">' + esc(r.note) + '</p>' : '') +
+    (r.previewUrl ? '<p><a class="lnk" href="' + esc(r.previewUrl) + '" target="_blank" rel="noopener">לראות את השינוי לפני שמאשרים ←</a></p>' : '') +
+    (r.status === 'ready' ? '<div class="row"><button type="button" class="btn small primary" data-devact="approve" data-id="' + esc(r.id) + '">אשר — להעלות לאוויר</button><button type="button" class="btn small ghost" data-devact="reject" data-id="' + esc(r.id) + '">בטל</button></div>' : '') +
+    (['new', 'question', 'failed'].includes(r.status) ? '<div class="row"><button type="button" class="btn small ghost" data-devact="reject" data-id="' + esc(r.id) + '">בטל בקשה</button></div>' : '') + '</div>';
+}
+function devDrawer() {
+  if (!devOk()) return;
+  const rows = live(S.devRequests).filter((r) => r.status !== 'rejected').sort((a, b) => String(b.createdAt).localeCompare(a.createdAt)).slice(0, 15);
+  drawer('בקשת שינוי במערכת', '<label class="fl">מה לשנות? כתוב במילים פשוטות<textarea class="f" name="text" rows="4" placeholder="למשל: בדשבורד, להזיז את כרטיס &quot;חתמו&quot; להיות ראשון ולהגדיל את המספר"></textarea></label>' +
+    '<p class="hint">המסך הנוכחי (' + esc(devTabLabel()) + ') מצורף לבקשה. Claude בונה את השינוי תוך כמה דקות, ושום דבר לא עולה לאוויר לפני שאתה לוחץ "אשר". נוסחאות כסף, הרשאות וסיסמאות — לא משתנים מכאן.</p>' +
+    (rows.length ? '<h3 class="sec">הבקשות שלך</h3><div class="devlist">' + rows.map(devRow).join('') + '</div>' : ''),
+    async (fd) => {
+      const text = String(fd.text || '').trim(); if (text.length < 5) return 'כתוב מה לשנות';
+      const id = 'r' + Date.now().toString(36);
+      await write('devRequests/' + id, { id, text, screen: devTabLabel(), status: 'new', by: S.myKey || 'dan', createdAt: stamp() });
+      toast('הבקשה נשלחה ל-Claude'); return null;
+    }, '', 'שלח בקשה');
+  const box = document.querySelector('#layer .devlist'); if (!box) return;
+  box.addEventListener('click', async (e) => {
+    const bt = e.target.closest('[data-devact]'); if (!bt) return; const id = bt.dataset.id, a = bt.dataset.devact;
+    if (a === 'approve') await write('devRequests/' + id, { status: 'approved', approvedAt: stamp() }, 'update');
+    else if (a === 'reject') await write('devRequests/' + id, { status: 'rejected', rejectedAt: stamp() }, 'update');
+    else if (a === 'answer') { const t = (document.querySelector('[data-devans="' + id + '"]') || {}).value || ''; if (!t.trim()) return toast('כתוב תשובה');
+      const r = S.devRequests.get(id) || {}; await write('devRequests/' + id, { status: 'new', answers: [...(r.answers || []), { q: r.question || '', a: t.trim(), at: stamp() }], question: null }, 'update'); }
+    toast(a === 'approve' ? 'אושר — עולה לאוויר בדקות הקרובות' : a === 'reject' ? 'בוטל' : 'התשובה נשלחה'); $('layer').innerHTML = ''; devDrawer();
+  });
+}
 const formsOk = () => !!window.__harelServer && !!(S.isOwner || S.canTask) && (!S.can || S.can('clients') || S.can('leads'));
 function shellChrome(mine) {
   const late = live(S.tasks).filter((t) => t.status !== 'done' && t.due && t.due < today() && isMyTask(t, S.me.id)).length, b = $('topBell');
+  const dv = $('topDev'); if (dv) { dv.hidden = !devOk(); dv.classList.toggle('on', devOk() && live(S.devRequests).some((r) => ['ready', 'question', 'failed'].includes(r.status))); }
   if (b) { b.dataset.go = late ? 'tasks:late' : 'tasks'; b.classList.toggle('on', !!mine); b.title = mine ? mine + ' משימות שלך להיום ובאיחור' : 'משימות'; b.setAttribute('aria-label', b.title); b.hidden = !!(S.can && !S.can('tasks')); }
   const u = $('navUser'); if (!u) return;
   const name = (S.loginAs && S.loginAs.label) || S.me.name || '', role = (ROLES[S.role] || {}).label || LEVEL[S.level] || '';
@@ -11668,6 +11713,7 @@ async function boot() {
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.title = b.textContent.trim(); });
   $('tabs').addEventListener('click', (e) => { if (e.target.closest('[data-tab]')) close(); });
   $('topAdd').addEventListener('click', (e) => { e.stopPropagation(); add.click(); });
+  $('topDev').addEventListener('click', (e) => { e.stopPropagation(); devDrawer(); });
   q.addEventListener('click', () => setTimeout(close, 0));
   document.addEventListener('click', (e) => { if ((document.body.classList.contains('more-open') && !e.target.closest('#tabs')) || (document.body.classList.contains('add-open') && !e.target.closest('#qadd'))) close(); }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
