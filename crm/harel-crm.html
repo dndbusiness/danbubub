@@ -1230,6 +1230,10 @@ button.chip.dc { cursor: pointer; } button.chip.dc:hover { border-color: var(--b
 .ltools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 2px; }
 .ltools:not(:has(.btn, label)) .hint:empty { display: none; }
 .lkpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.lkpis.dsq { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 4px 0 16px; } .lkpis.dsq .lkpi small { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+@media (max-width: 767px) { .lkpis.dsq { grid-template-columns: 1fr; gap: 8px; } }
+.ltypewrap { margin-bottom: 14px; } .lkpis.ltypes { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; } .lkpis.ltypes .lkpi .v { font-size: 26px; }
+@media (max-width: 767px) { .lkpis.ltypes { gap: 8px; } .lkpis.ltypes .lkpi { padding: 12px; } .lkpis.ltypes .lkpi small { font-size: 11px; } }
 .card.lkpi { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 20px 22px; min-width: 0; text-align: start; font: inherit; color: var(--text); }
 button.card.lkpi { cursor: pointer; transition: transform var(--t-fast), box-shadow var(--t-fast), border-color var(--t-fast); } button.card.lkpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
 .card.lkpi.on { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring), var(--shadow-card); }
@@ -1609,7 +1613,7 @@ const S = {
   canWrite: false, canTask: false, isOwner: false, ready: false, unlockUntil: 0, privUntil: 0, mailRes: {}, bank: null,
   settings: { tags: [], sources: [], platforms: [], categories: [], vatRate: 0.18, lossSharing: 'shared', nissimPct: 0.5, openingBalance: null, dayCopyToOwner: true },
   view: { tab: 'day', clientId: null }, division: 'all',
-  f: { leadSt: 'todo', leadLim: 120, clientQ: '', clientStatus: 'open', clientTag: '', clientStage: '', clientOwner: '', txQ: '', txNature: '', txMonth: '', taskView: 'lanes', laneDone: false, clientView: 'board', clientAppr: '', clientResp: '', books: 'invoices', bookMonth: null, pnlMonth: null, pnlMode: 'distributable',
+  f: { leadSt: 'todo', leadLim: 120, leadPer: (() => { try { return localStorage.getItem('harel-leadper') || 'month'; } catch (e) { return 'month'; } })(), clientQ: '', clientStatus: 'open', clientTag: '', clientStage: '', clientOwner: '', txQ: '', txNature: '', txMonth: '', taskView: 'lanes', laneDone: false, clientView: 'board', clientAppr: '', clientResp: '', books: 'invoices', bookMonth: null, pnlMonth: null, pnlMode: 'distributable',
        money: 'pnl', mkt: 'funnel', rep: 'weekly', repWeek: null, repMonth: null, svc: 'open', closeStep: 0 },
 };
 if (window.__harelServer) COLL.push('aiJobs'); /* בשרת: בקשות הניתוח שבתור ל-Claude על המנוי — כדי שהכרטיס יראה מה ממתין */
@@ -2113,7 +2117,14 @@ function vDay() {
   const feed = dayFeed();
   const dmTiles = S.can('money') ? '<div class="dmini">' + kpi('נכנס היום', money(dm.income, { tone: dm.income ? 'actual' : 'muted' }), dm.incomeRows.length ? dm.incomeRows.map((t) => esc(cname(t.clientId) || t.counterparty || '')).join(' · ') : 'עוד לא נכנס כסף היום', null) +
       kpi('פוטנציאל שנחתם היום', money(dm.potential, { tone: dm.potential ? 'expected' : 'muted' }), dm.signed.length ? dm.signed.map((c) => esc(c.name)).join(' · ') : 'אין החתמות היום — תאריך חתימה נקבע בכרטיס', null) + '</div>' : '';
-  return '<div class="vday">' + phead + head.replace('<!--DCHIPS-->', chips) + qacts +
+  /* דן, 20/10: שלושה ריבועי כניסה — משימות דחופות · עובדים במשמרת · אישורים לדן. כל אחד פותח את מה שמרכיב אותו */
+  const urgent = tasks.filter((t) => t.priority === 'urgent' || t.priority === 'high' || (t.due && t.due < t0));
+  const apprP = live(S.approvals).filter((a) => a.status === 'pending' && canApproveDel(a.division || 'finance'));
+  const onShift = S.isOwner ? live(S.attendance).filter((a) => a.date === t0 && a.in && !a.out) : [];
+  const sq = '<div class="lkpis dsq">' + lkpi('alert', 'משימות דחופות', '<span class="num">' + urgent.length + '</span>', urgent.length ? urgent.slice(0, 2).map((t) => esc(t.title)).join(' · ') + (urgent.length > 2 ? ' ועוד ' + (urgent.length - 2) : '') : 'אין דחוף כרגע', 'data-go="tasks:late"', false, urgent.length ? 'open' : '') +
+    (S.isOwner ? lkpi('user', 'עובדים במשמרת', '<span class="num">' + onShift.length + '</span>', onShift.length ? onShift.map((a) => esc(a.label || a.key)).join(' · ') : 'אף אחד לא נכנס למשמרת', 'data-sqto="sqTeam"', false, onShift.length ? 'actual' : '') : '') +
+    (S.isOwner || apprP.length ? lkpi('check', S.isDan ? 'אישורים לדן' : 'ממתין לאישורך', '<span class="num">' + apprP.length + '</span>', apprP.length ? apprP.slice(0, 2).map((a) => esc(a.label || '')).join(' · ') : 'אין מה לאשר', 'data-sqto="sqAppr"', false, apprP.length ? 'expected' : '') : '') + '</div>';
+  return '<div class="vday">' + phead + head.replace('<!--DCHIPS-->', chips) + sq + qacts +
     '<div class="dgrid12">' + (B.hero ? '<div class="c5">' + B.hero + '</div>' : '') + '<div class="' + (B.hero ? 'c7' : 'c12') + ' dside">' + (B.money ? '<div class="dmoney">' + B.money + '</div>' : '') + B.suggest + '</div></div>' +
     funnelCard + (!B.funnel && !B.stages && B.seg ? '<div class="row">' + B.seg + '</div>' : '') +
     '<div class="dgrid12">' + (stagesCard ? '<div class="c7">' + stagesCard + '</div>' : '') + '<div class="' + (stagesCard ? 'c5' : 'c12') + '">' + feed + dmTiles + '</div></div>' +
@@ -2277,7 +2288,7 @@ async function decideApproval(aid, ok, opt = {}) {
 function approvalsCard() {
   const P = live(S.approvals).filter((a) => a.status === 'pending' && canApproveDel(a.division || 'finance')).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   if (!P.length) return '';
-  return '<section class="card"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
+  return '<section class="card" id="sqAppr"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
     P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>הגשה לביקורת:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
         '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
         '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
@@ -3704,7 +3715,7 @@ function attLive() { if (!S.isOwner) return ''; const d = today(), us = S.settin
   const idle = rows.filter((r) => !r.a.out && r.idle >= ATT.idleMin && mine(r.a.key));
   if (!rows.length && !pend.length) return '';
   const by = (iso) => hm(new Date(Date.parse(iso) + ATT.awayGraceMin * 60e3).toISOString());
-  return '<section class="card"><header><h2>הצוות עכשיו</h2><span class="hint">' + rows.filter((r) => !r.a.out).length + ' במשמרת</span><span class="grow"></span><button class="btn small ghost" data-go="reports:att">דוח נוכחות</button></header>' +
+  return '<section class="card" id="sqTeam"><header><h2>הצוות עכשיו</h2><span class="hint">' + rows.filter((r) => !r.a.out).length + ' במשמרת</span><span class="grow"></span><button class="btn small ghost" data-go="reports:att">דוח נוכחות</button></header>' +
     away.map((a) => '<div class="notice bad" role="alert" style="margin-bottom:8px;flex-wrap:wrap;align-items:center"><b>' + esc(attAlertText('away', a.label || a.key, a.awayAt)) + '</b><span class="grow">בלי אישור עד ' + by(a.awayAt) + ' — יציאה אוטומטית מהמשמרת בשעה ' + hm(a.awayAt) + '</span><span class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn primary" data-atthome="' + esc(a.id) + '|approved">אשר עבודה מהבית</button><button class="btn" data-atthome="' + esc(a.id) + '|rejected">לא לאשר</button></span></div>').join('') +
     (idle.length ? '<div class="notice bad" style="margin-bottom:8px"><b>שעה בלי פעילות</b><span>' + idle.map((r) => esc(r.a.label) + ' — ' + r.idle + ' דק׳ (מאז ' + hm(r.a.lastActive || r.a.in.at) + ')').join(' · ') + ' · השעון ממשיך לרוץ</span></div>' : '') +
     (pend.length ? pend.map((a) => '<div class="row" style="margin-bottom:6px"><span class="grow">' + esc(a.label) + ' — עבודה מהבית ' + dLabel(a.date) + (a.home.note ? ' · ' + esc(a.home.note) : '') + '</span><button class="btn small primary" data-atthome="' + esc(a.id) + '|approved">אשר</button><button class="btn small ghost" data-atthome="' + esc(a.id) + '|rejected">לא</button></div>').join('') : '') +
@@ -5723,7 +5734,10 @@ function allocBar(rows) {
 function vLeadsList(seg) {
   const all = live(S.leads).filter((l) => (S.division === 'all' || leadDiv(l) === S.division) && (!S.isCenter || l.resp === S.myKey)), t0 = today(), w = S.canTask, f = S.f, st = f.leadSt || 'todo';
   const open = all.filter((l) => isLeadOpen(l) && !pfOld(l)), pfo = all.filter((l) => isLeadOpen(l) && pfOld(l)), fresh = all.filter((l) => (l.stage || 'new') === 'new'), due = all.filter((l) => leadDue(l, t0)), won = all.filter((l) => l.stage === 'won'), cr = all.filter(isCredit);
-  const billable = all.filter(billableLead).length, spendAll = all.filter(billableLead).reduce((a, l) => a + leadCostOf(l), 0), cost = leadCost(), mk = leadMarketer(), cr2 = all.filter(creditable);
+  /* דן, 20/10: הריבועים — מתחילת החודש או מתחילת הפעילות (חם עכשיו / מעקב להיום הם מצב נוכחי ולא תלויים בזה) */
+  const per = f.leadPer === 'all' ? 'all' : 'month', ms = t0.slice(0, 7) + '-01', inPer = (l) => per === 'all' || String(l.createdAt || '').slice(0, 10) >= ms;
+  const pAll = all.filter(inPer), wonP = pAll.filter((l) => l.stage === 'won'), perTxt = per === 'all' ? 'מתחילת הפעילות' : 'מתחילת ' + mLabel(t0.slice(0, 7));
+  const billable = pAll.filter(billableLead).length, spendAll = pAll.filter(billableLead).reduce((a, l) => a + leadCostOf(l), 0), cost = leadCost(), mk = leadMarketer(), cr2 = pAll.filter(creditable);
   const srcs = leadSources(), runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || '') + ' ' + (r ? 'סונכרן ' + dLabel(dayOf(r.at)) + ' ' + hm(r.at) : 'עוד לא סונכרן'); }).join(' · ');
   const cnt = (k) => k === 'todo' ? open.length : k === 'pfold' ? pfo.length : k === 'due' ? due.length : k === 'all' ? all.length : k === 'credit' ? cr.length : all.filter((l) => stKey(l) === k || (!l.sub && (l.stage || 'new') === k) || (!ownSetOf(S.division) && (l.stage || 'new') === k)).length;
   const ownSet = ownSetOf(S.division);
@@ -5747,8 +5761,12 @@ function vLeadsList(seg) {
     '<div class="lkpis">' + lkpi('flame', 'חם עכשיו', '<span class="num">' + open.length + '</span>', fresh.length + ' חדשים שעוד לא טופלו', 'data-leadst="todo"', st === 'todo', open.length ? 'open' : '') +
       lkpi('clock', 'מעקב להיום', '<span class="num">' + due.length + '</span>', due.length ? 'כולל מעקבים באיחור' : 'אין מעקבים פתוחים להיום', 'data-leadst="due"', st === 'due', due.length ? 'open' : '') +
       (S.division === 'realestate' ? lkpi('cal', 'פגישות זום החודש', '<span class="num">' + all.filter((l) => l.zoom && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + '</span>', all.filter((l) => l.zoom && l.zoom.attended && String(l.zoom.at || '').slice(0, 7) === t0.slice(0, 7)).length + ' הגיעו בפועל', '', false, 'committed') + lkpi('check', 'רכשו', '<span class="num">' + won.length + '</span>', 'מכל הלידים של הר-אל השקעות', 'data-leadst="won"', st === 'won', 'actual') :
-      lkpi('trend', 'חתמו', '<span class="num">' + won.length + '</span>', LEAD_TYPES.map((t) => { const b = all.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · '), 'data-leadst="won"', st === 'won', 'actual') +
-      (S.isOwner || S.isPartner ? lkpi('wallet', 'עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'data-go="marketing"', false, '') : lkpi('note', 'לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', 'data-leadst="credit"', st === 'credit', ''))) + '</div>' +
+      lkpi('trend', 'חתמו', '<span class="num">' + wonP.length + '</span>', perTxt + ' · ' + (LEAD_TYPES.map((t) => { const b = pAll.filter((l) => leadType(l) === t && !isCredit(l)); return b.length ? t + ' ' + Math.round(b.filter((l) => l.stage === 'won').length / b.length * 1000) / 10 + '%' : ''; }).filter(Boolean).join(' · ') || 'אין עדיין'), 'data-leadst="won"', st === 'won', 'actual') +
+      (S.isOwner || S.isPartner ? lkpi('wallet', 'עלות לידים — ' + esc(mk), money(spendAll, { tone: 'open' }), perTxt + ' · ' + billable + ' לחיוב × ' + plain(cost) + ' · ' + cr2.length + ' לזיכוי', 'data-go="marketing"', false, '') : lkpi('note', 'לזיכוי', '<span class="num">' + cr.length + '</span>', 'כחול / אדום בטבלה', 'data-leadst="credit"', st === 'credit', ''))) + '</div>' +
+    /* ריבוע לכל סוג ליד — רכב / עסקים / נכסים (לא רק מקור ההגעה); לחיצה מסננת את הטבלה לסוג */
+    (S.division === 'realestate' ? '' : '<div class="row lper" style="align-items:center;margin:4px 0 8px"><div class="seg" role="group" aria-label="תקופת הריבועים"><button type="button" data-leadper="month" aria-pressed="' + (per === 'month') + '">מתחילת החודש</button><button type="button" data-leadper="all" aria-pressed="' + (per === 'all') + '">מתחילת הפעילות</button></div></div>' +
+      '<div class="ltypewrap"><div class="lkpis ltypes">' + LEAD_TYPES.map((t) => { const b = pAll.filter((l) => leadType(l) === t), ok = b.filter((l) => !isCredit(l)), w2 = b.filter((l) => l.stage === 'won').length, op = all.filter((l) => leadType(l) === t && isLeadOpen(l) && !pfOld(l)).length;
+        return lkpi('user', t, '<span class="num">' + b.length + '</span>', (b.length ? 'חתמו ' + w2 + (ok.length ? ' · ' + Math.round(w2 / ok.length * 1000) / 10 + '%' : '') + ' · ' : '') + op + ' פתוחים עכשיו', 'data-leadtypek="' + esc(t) + '"', f.leadType === t, ''); }).join('') + '</div></div>') +
     (S.isCenter || S.division === 'realestate' || !canConv() ? '' : '<details class="card convbox"' + (S.f.convOpen ? ' open' : '') + '><summary><b>יחס המרה — לפי חודש וקמפיין</b> <span class="hint">לחיצה לפתיחה</span></summary>' + leadMonthHtml() + '</details>') + (S.isOwner && w ? allocCard() : '') +
     pfCard() + viewChips() + '<section class="card lfcard"><div class="seg lstat" role="group" aria-label="סטטוס">' + chips.map(([k, v]) => '<button data-leadst="' + k + '" aria-pressed="' + (st === k) + '">' + v + ' <span class="hint">' + cnt(k) + '</span></button>').join('') + '</div>' +
       '<div class="row lsearch" style="margin-top:10px;align-items:flex-end"><label class="fl grow">חיפוש<input class="f" type="search" id="fLeadQ" value="' + esc(f.leadQ || '') + '" placeholder="שם, טלפון, עיר, מקור, קמפיין, הערה"></label>' +
@@ -10996,6 +11014,9 @@ document.addEventListener('click', async (e) => {
     if (d.credit) { if (['approved', 'rejected'].includes(d.credit) && !canApproveCredit()) return toast('אישור זיכוי — דן או ניסים'); return creditSet([d.id], d.credit); }
     if (d.creditall) { const from = d.creditall === 'approved' ? 'requested' : 'pending'; if (d.creditall === 'approved' && !canApproveCredit()) return; return creditSet(live(S.leads).filter((l) => creditable(l) && creditOf(l) === from).map((l) => l.id), d.creditall); }
     if (d.leadst) { S.f.leadCost = null; }
+    if (d.sqto) { const el = document.getElementById(d.sqto); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('אין כרגע מה להציג'); return; }
+    if (d.leadper) { S.f.leadPer = d.leadper; try { localStorage.setItem('harel-leadper', d.leadper); } catch (e) {} return render(); }
+    if (d.leadtypek) { S.f.leadType = S.f.leadType === d.leadtypek ? '' : d.leadtypek; S.f.leadLim = 120; return render(); }
     if (d.leadst) { S.f.leadSt = d.leadst; S.f.leadReach = null; S.f.leadLim = 120; return render(); }
     if (d.leadmore != null && el.matches('[data-leadmore]')) { S.f.leadLim = (S.f.leadLim || 120) + 120; return render(); }
     if (d.leadquick) return leadQuick(d.id, d.leadquick);
