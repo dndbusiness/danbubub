@@ -16,6 +16,10 @@ export const AGREEMENT_FIELDS: Record<string, string> = {
   fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ כולל מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', lien_holder: 'הגורם המשעבד', known_limits: 'הגבלות ידועות על הרכב',
   projects: 'הפרויקטים שהוצגו', payment_option: 'חלופת תשלום',
+  /* דן, 20/10 — הסכם התוכנית העסקית ושטר החוב */
+  pay_days: 'ימים לתשלום שכ״ט ההצלחה', card_type: 'סוג כרטיס האשראי', card_last4: '4 ספרות אחרונות בכרטיס', installments: 'מספר תשלומים',
+  check_date: 'תאריך השיק / ההרשאה', check_amount: 'סכום השיק / ההרשאה',
+  note_amount: 'סכום שטר החוב (₪)', note_amount_words: 'הסכום במילים', guarantor_name: 'ערב — שם', guarantor_id: 'ערב — ת״ז / ח.פ', guarantor_address: 'ערב — כתובת', guarantor_phone: 'ערב — טלפון',
 }
 /** שדות שהחותם עצמו ממלא בנוסח נפרד לכל חותם — לא נשאלים בטופס */
 export const SIGNER_FIELDS = ['signer_name', 'signer_label']
@@ -31,6 +35,8 @@ export interface LibTemplate {
   key: string; version: number; order: number; title: string; category: SignCategory; division: Division
   products: string[]; signers: 'client' | 'client_spouse'; perSigner: boolean; requireOtp: boolean
   source: string; sourceId: string; note: string; body: string
+  /** 'dan' = דן שלח את הנוסח בעצמו (קובץ) — נטען מאושר, בלי שלב "אשר נוסח" */
+  providedBy?: string; attachment?: boolean
 }
 
 /** front-matter פשוט: key: value · רשימה [a, b] · true/false · מספר. */
@@ -79,6 +85,7 @@ export function parseAgreement(md: string, fileName = ''): { ok: true; tpl: LibT
       key, version, order: typeof meta.order === 'number' ? meta.order : 100, title, category: category as SignCategory, division: division as Division,
       products, signers: signers as LibTemplate['signers'], perSigner: meta.perSigner === true, requireOtp: meta.requireOtp === true,
       source: str('source'), sourceId: str('sourceId'), note: str('note'), body,
+      ...(str('providedBy') ? { providedBy: str('providedBy') } : {}), ...(meta.attachment === true ? { attachment: true } : {}),
     },
   }
 }
@@ -110,6 +117,10 @@ export interface LibItem {
 export const libItemKey = (libKey: string) => 'lib:' + libKey
 
 function itemOf(t: LibTemplate, at: string, by: string): LibItem {
+  if (t.providedBy === 'dan') return { ...draftItem(t, at, by), body: t.body, approvedAt: at, approvedBy: 'דן (שלח את הנוסח כקובץ)', approvedVersion: t.version, ...(t.attachment ? { attachment: true } : {}) }
+  return draftItem(t, at, by)
+}
+function draftItem(t: LibTemplate, at: string, by: string): LibItem {
   return {
     key: libItemKey(t.key), title: t.title, category: t.category, lender: '', division: t.division, signers: t.signers, perSigner: t.perSigner, requireOtp: t.requireOtp,
     body: LIB_DRAFT + '\n\n' + t.body, products: t.products, order: t.order, source: t.source, sourceId: t.sourceId, note: t.note,
@@ -118,9 +129,10 @@ function itemOf(t: LibTemplate, at: string, by: string): LibItem {
   }
 }
 
-/** הפריט לא נגעו בו מאז הטעינה: לא אושר, לא נמחק, והנוסח (בלי סימון הטיוטה) זהה למה שנטען. */
+/** הפריט לא נגעו בו מאז הטעינה: לא נמחק, הנוסח זהה למה שנטען, ולא אושר — או שאושר בטעינה כי דן שלח אותו (approvedVersion = הגרסה שנטענה). */
 export function isPristine(e: LibItem): boolean {
-  return !e.deletedAt && !e.approvedAt && !!e.libHash && textHash(stripLibDraft(e.body)) === e.libHash
+  const autoApproved = !!e.approvedAt && String(e.approvedBy ?? '').startsWith('דן (שלח') && e.approvedVersion === e.libVersion
+  return !e.deletedAt && (!e.approvedAt || autoApproved) && !!e.libHash && textHash(stripLibDraft(e.body)) === e.libHash
 }
 
 export type LoadAction = 'added' | 'updated' | 'unchanged' | 'conflict' | 'overwritten'

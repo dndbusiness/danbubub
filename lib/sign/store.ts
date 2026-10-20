@@ -33,6 +33,7 @@ import { readFile } from 'node:fs/promises'
 import { checkSignerValues, fieldsOf, signerInputs, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 import { appendPdf, readPageSizes, stampPdf } from './pdf'
 import { flushOutbox } from '@/lib/jobs/outbox'
+import { currentStampId } from './stamp'
 import { greenApiConfig } from '@/lib/outbox/green-api'
 
 export const AGREEMENTS_FOLDER = 'הסכמי התקשרות'
@@ -41,7 +42,7 @@ const folderFor = (category: string) => (category === 'agreement' ? AGREEMENTS_F
 
 export interface SignRow {
   id: string; envelope_id: string | null; client_doc: string; client_name: string; division: 'finance' | 'realestate'; title: string; body_html: string; doc_hash: string
-  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[] }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
+  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[]; '@stamp'?: string }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
   expires_at: string; opened_at: string | null; signed_at: string | null; signer_name: string | null; signer_id_number: string | null
   signature_png: string | null; signer_ip: string | null; signer_ua: string | null; pdf_path: string | null; drive_file_id: string | null; drive_url: string | null
   finalize_error: string | null; created_at: string; deleted_at: string | null
@@ -122,6 +123,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
   // נוסח מוקלד שעדיין טיוטה לא נשלח — גם אם הדף לא חסם (הסימון "[טיוטה", כמו isSignDraft בדף)
   if (!input.pdf && isSignDraft(input.template)) return { error: 'הנוסח עדיין טיוטה — לאשר אותו בהגדרות לפני שליחה', missing: [] }
   const notes = cleanNotes(input.notes)
+  const stampId = await currentStampId()
   const category: SignCategory = input.category && input.category in SIGN_CATEGORIES ? input.category : 'agreement'
   const kind = input.recipientKind === 'lead' ? 'lead' : 'client'
   let bodies: { html: string; missing: string[]; hash?: string }[]
@@ -141,7 +143,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
         missing: [], hash: pdfSignerHash(sha256, fileHash, mine, notes) }
     })
   } else {
-    bodies = input.signers.map((s) => renderAgreement(withNotes(input.template, notes), input.perSigner
+    bodies = input.signers.map((s) => renderAgreement(withNotes(input.template, notes, category === 'agreement'), input.perSigner
       ? { ...input.fields, ...(s.fields ?? {}), signer_name: s.name ?? '', signer_label: s.label }
       : input.fields))
   }
@@ -164,7 +166,7 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
         insert into sign_requests (envelope_id, token_hash, client_doc, client_name, division, title, body_html, doc_hash, fields, send_email, send_phone,
                                    expires_at, signer_label, signer_order, require_otp)
         values (${env!.id}, ${sha256(tokens[i]!)}, ${input.clientDoc}, ${s.name || input.clientName}, ${input.division}, ${input.title}, ${html}, ${bodies[i]!.hash ?? sha256(html)},
-                ${tx.json(signerFields(input, s, i, pdf, notes, now) as never)}, ${cleanEmail(s.email)}, ${cleanPhone(s.phone)},
+                ${tx.json(signerFields(input, s, i, pdf, notes, now, stampId) as never)}, ${cleanEmail(s.email)}, ${cleanPhone(s.phone)},
                 ${expires}, ${s.label}, ${i + 1}, ${Boolean(s.requireOtp)})
         returning id`
       ids.push(row!.id)
@@ -191,15 +193,28 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
 }
 
 /** מה נשמר בשורת החותם: שדות הנוסח, מה שמולא מהתיק, ההערות, ותחילת התיעוד. */
-function signerFields(input: EnvelopeInput, s: SignerInput, i: number, pdf: { fields: PdfField[] } | null, notes: string, now: Date): Record<string, unknown> {
+function signerFields(input: EnvelopeInput, s: SignerInput, i: number, pdf: { fields: PdfField[] } | null, notes: string, now: Date, stampId: string | null = null): Record<string, unknown> {
   const base = input.perSigner ? { ...input.fields, ...(s.fields ?? {}) } : { ...input.fields }
   const allowed = pdf ? signerInputs(pdf.fields, i + 1).filter((f) => f.kind === 'text' && f.src !== 'notes').map((f) => f.id) : []
   const pre = cleanPrefill(s.prefill, allowed)
   const out: Record<string, unknown> = { ...base }
   if (pre.name || pre.idNumber || pre.values) out['@prefill'] = pre
   if (notes) out['@notes'] = notes
+  if (stampId) out['@stamp'] = stampId
   out['@events'] = [signEvent('sent', now, { detail: [input.sentBy ? 'ע"י ' + input.sentBy : '', cleanEmail(s.email) ? 'מייל ' + cleanEmail(s.email) : '', cleanPhone(s.phone) ? 'טלפון ' + cleanPhone(s.phone) : ''].filter(Boolean).join(' · ') || null })]
   return out
+}
+
+/**
+ * הקישור נמסר לחותם — בוואטסאפ (לאיזה מספר) או הועתק להעברה ידנית (דן, 20/10: "לאיזה מספר זה נשלח ואיך — שיתועד").
+ * רק לשורה שעוד לא נחתמה; מי מסר — שם המשתמש שנכנס.
+ */
+export async function markShared(signerId: string, channel: 'whatsapp' | 'copy', target: string | null, by: string | null, now: Date): Promise<boolean> {
+  const row = await byId(signerId)
+  if (!row || !['sent', 'opened'].includes(row.status)) return false
+  const t = channel === 'whatsapp' ? cleanPhone(target) || cleanPhone(row.send_phone) : null
+  await addEvent(row.id, signEvent('shared', now, { detail: (channel === 'whatsapp' ? 'בוואטסאפ' + (t ? ' ל-' + t : '') : 'הקישור הועתק להעברה ידנית') + (by ? ' · ע"י ' + by : '') }))
+  return true
 }
 
 /** אירוע בתיעוד החתימה. עד החתימה בלבד — אחריה השורה נעולה (016). */

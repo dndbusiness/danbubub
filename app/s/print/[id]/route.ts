@@ -1,5 +1,6 @@
 import { checkPrintKey, envelopeById, envelopeSigners } from '@/lib/sign/store'
 import { messagePage, printPage } from '@/lib/sign/pages'
+import { stampDataUrl } from '@/lib/sign/stamp'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,5 +13,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const env = await envelopeById(id)
   const rows = env ? (await envelopeSigners(env.id)).filter((r) => r.status === 'signed') : []
   if (!env || !rows.length) return new Response(messagePage('לא נמצא מסמך חתום', '', 'bad'), { status: 404, headers })
-  return new Response(printPage(env, rows, { auditOnly: sp.get('audit') === '1' }), { headers })
+  // החותמת שנשמרה עם המסמך בזמן השליחה (@stamp) — לא החותמת של היום
+  const stamp = await stampDataUrl(rows.map((r) => r.fields?.['@stamp']).find(Boolean))
+  return new Response(printPage(env, rows, { auditOnly: sp.get('audit') === '1', stamp }), { headers })
 }
