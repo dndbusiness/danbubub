@@ -15,6 +15,21 @@ describe('Gmail — בניית הודעה (ב.4, ב.7)', () => {
     expect(mime).toContain('multipart/mixed')
     expect(mime).toContain('Content-Disposition: attachment')
   })
+  it('הגשה לגוף: שם קובץ בעברית מקודד בשתי הכותרות, ושורות base64 של עד 76 תווים (מגבלת 998 של SMTP)', () => {
+    const big = Buffer.alloc(5000, 7)
+    const mime = buildMime({ to: ['fund@x'], cc: ['finance@x'], subject: 'הגשת תיק — לקוח לדוגמה — הר-אל פתרונות מימון — בקשה להלוואה', html: 'x'.repeat(3000), attachments: [{ fileName: 'תלוש שכר.pdf', mimeType: 'application/pdf', content: big }] })
+    expect(mime).toContain('Cc: finance@x')
+    expect(mime).toContain(`name="=?UTF-8?B?${Buffer.from('תלוש שכר.pdf').toString('base64')}?="`)
+    expect(mime).toContain(`filename="=?UTF-8?B?${Buffer.from('תלוש שכר.pdf').toString('base64')}?="`)
+    expect(Math.max(...mime.split('\r\n').map((l) => l.length))).toBeLessThanOrEqual(998)
+    expect(/[^\x00-\x7F]/.test(mime)).toBe(false)
+    // הקובץ חוזר שלם אחרי פענוח
+    const att = mime.split('\r\n\r\n')[3]!.split('\r\n--')[0]!
+    expect(Buffer.from(att.replace(/\r\n/g, ''), 'base64').equals(big)).toBe(true)
+    // הנושא הארוך מתפרק ל-encoded-words ומתחבר חזרה
+    const subj = mime.split('\r\n').filter((l, i, A) => l.startsWith('Subject:') || (A.slice(0, i).some((x) => x.startsWith('Subject:')) && l.startsWith(' ') && !A.slice(0, i).some((x) => x.startsWith('MIME'))))
+    expect(subj.join('').replace(/^Subject: /, '').split(/\s+/).map((w) => Buffer.from(w.slice(10, -2), 'base64').toString()).join('')).toBe('הגשת תיק — לקוח לדוגמה — הר-אל פתרונות מימון — בקשה להלוואה')
+  })
   it('base64url בלי padding', () => { expect(base64url('hi?')).toBe('aGk_') })
   it('POST ל-messages/send עם raw', async () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

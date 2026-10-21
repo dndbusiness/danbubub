@@ -2243,11 +2243,47 @@ async function subSendApproved(aid) {
   const a = S.approvals.get(aid); if (!a || !subUnsent(a)) return; const c = S.clients.get(a.clientId); if (!c) return toast('הלקוח לא נמצא');
   if (!S.mcp) return toast('צריך חיבור לגוגל כדי לשלוח');
   if (!confirm('לשלוח עכשיו ל' + a.bank + ' (' + (a.to || []).join(', ') + ') עם ' + (a.files || []).length + ' קבצים?')) return;
-  const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files: a.files || [] });
+  const files = await subApprovedFiles(a); if (!files) return;
+  const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files });
   if (!r || !r.sent) return;
   await write('approvals/' + aid, { sentAt: stamp(), sentBy: S.me.id, partial: !!r.partial }, 'update');
-  await logClient(c.id, 'ההגשה ל' + a.bank + ' נשלחה (' + (a.files || []).length + ' קבצים) — אחרי אישור דן').catch(() => {});
+  await logClient(c.id, 'ההגשה ל' + a.bank + ' נשלחה (' + files.length + ' קבצים מתיקיית "מאושר לשליחה") — אחרי אישור').catch(() => {});
   return subAfterSend(c.id, aid);
+}
+/* ── תיקיית "מאושר לשליחה" (דן 21/10): הגשה פנימית → אישור מסמכים → המסמכים עוברים לתיקייה של המאושרים → שליחה רק משם.
+   תיקיית הביקורת של ההגשה עוברת (עם הקבצים) לתוך "מאושר לשליחה" בתיקיית הלקוח, ומקבלת שם חדש. ── */
+const APPROVED_DIR = 'מאושר לשליחה';
+async function subApprovedRoot(c) {
+  const cur = S.clients.get(c.id) || c; if (cur.approvedFolder) return cur.approvedFolder; if (!cur.driveFolder) return null;
+  const have = (await driveList(cur.driveFolder).catch(() => [])).find((f) => isFolder(f) && f.title === APPROVED_DIR);
+  const id = have ? have.id : (await S.mcp.callTool('Google Drive', 'create_file', { title: APPROVED_DIR, mimeType: 'application/vnd.google-apps.folder', parentId: cur.driveFolder }, { cache: false }).then((r) => { const p = drivePayload(r); return p.id || p.fileId || null; }).catch(() => null));
+  if (id) await write('clients/' + c.id, { approvedFolder: id }, 'update').catch(() => {});
+  return id;
+}
+async function subMoveApproved(c, a) {
+  if (a.approvedFolderId) return true; if (!S.mcp || !a.folderId) return false;
+  const root = await subApprovedRoot(c); if (!root) return false;
+  const title = 'הגשה — ' + a.bank + ' — ' + dLabel(dayOf(a.at)) + ' (מאושר לשליחה)';
+  const ok = await S.mcp.callTool('Google Drive', 'update_file', { fileId: a.folderId, parentId: root, title }, { cache: false }).then(() => true).catch(() => false);
+  if (ok) { await write('approvals/' + a.id, { approvedFolderId: a.folderId, approvedRootId: root, movedAt: stamp() }, 'update'); a.approvedFolderId = a.folderId; }
+  return ok;
+}
+/* ביטול אישור / החזרה לתיקון לפני שליחה: התיקייה יוצאת מ"מאושר לשליחה" וחוזרת לתיקיית הלקוח */
+async function subUnmoveApproved(c, a, tag) {
+  if (!a.approvedFolderId || !S.mcp) return true; const cur = S.clients.get(c.id) || c; if (!cur.driveFolder) return false;
+  const ok = await S.mcp.callTool('Google Drive', 'update_file', { fileId: a.approvedFolderId, parentId: cur.driveFolder, title: 'הגשה — ' + a.bank + ' — ' + dLabel(dayOf(a.at)) + ' (' + tag + ')' }, { cache: false }).then(() => true).catch(() => false);
+  if (ok) await write('approvals/' + a.id, { approvedFolderId: null }, 'update');
+  return ok;
+}
+/* שליחה רק מתוך תיקיית המאושרים: הקבצים של ההגשה שעדיין בה. קובץ שהוצא מהתיקייה — לא נשלח, ועוצרים */
+async function subApprovedFiles(a) {
+  if (!S.mcp) { toast('צריך חיבור לגוגל כדי לשלוח'); return null; }
+  if (!a.approvedFolderId) { toast('ההגשה לא בתיקיית "מאושר לשליחה" — קודם מאשרים את המסמכים'); return null; }
+  const inDir = await driveList(a.approvedFolderId).catch(() => null); if (!inDir) { toast('לא הצלחתי לקרוא את תיקיית "מאושר לשליחה"'); return null; }
+  const ids = new Set(inDir.map((f) => f.id)), files = (a.files || []).filter((f) => ids.has(f.id)), gone = (a.files || []).filter((f) => !ids.has(f.id));
+  if (gone.length) { toast('לא בתיקיית "מאושר לשליחה": ' + gone.map((f) => f.title).join(', ') + ' — לא שולחים. החזר לתיקון והכן הגשה חדשה.'); return null; }
+  if (!files.length) { toast('תיקיית "מאושר לשליחה" ריקה'); return null; }
+  return files;
 }
 /* כשכל ההגשות המאושרות נשלחו — התיק עובר למעקב אישור */
 async function subAfterSend(cid, aid) { const c = S.clients.get(cid); if (!c) return; if (subsOfClient(c).some((x) => x.id !== aid && (x.status === 'pending' || subUnsent(x)))) return; await procReach(cid, 'tracking'); }
@@ -2278,6 +2314,8 @@ async function decideApproval(aid, ok, opt = {}) {
     if (!ok) { const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח)', '') ; if (note === null) return; await write('approvals/' + aid, { status: 'rejected', note: note.trim(), decidedAt: stamp(), decidedBy: S.me.id }, 'update'); await logClient(c.id, 'ההגשה ל' + a.bank + ' הוחזרה לתיקון' + (note.trim() ? ': ' + note.trim() : '')).catch(() => {});
       const cc = S.clients.get(c.id); if (cc && procType(cc) === 'mortgage' && procCur(cc) === 'submitApprove') await procAdvance(cc, 'submitTech', { note: 'ההגשה ל' + a.bank + ' הוחזרה לתיקון' + (note.trim() ? ': ' + note.trim() : '') });
       return toast('הוחזר לתיקון'); }
+    /* דן 21/10: מסמכים שאושרו עוברים לתיקיית "מאושר לשליחה" של הלקוח — ושולחים רק משם */
+    if (!(await subMoveApproved(c, a))) return toast('לא הצלחתי להעביר את המסמכים לתיקיית "מאושר לשליחה" בדרייב — נסה שוב');
     if (opt.noSend) { /* דן מאשר, הדס שולחת (18/10) */
       await write('approvals/' + aid, { status: 'approved', noSend: true, decidedAt: stamp(), decidedBy: S.me.id, okBy: { ...(a.okBy || {}), [apprMe()]: stamp() } }, 'update');
       await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה — ממתינה לשליחה').catch(() => {});
@@ -2285,10 +2323,11 @@ async function decideApproval(aid, ok, opt = {}) {
       return toast('אושר — ההגשה ל' + a.bank + ' עוברת לשליחה'); }
     if (!S.mcp) return toast('צריך חיבור לגוגל כדי לשלוח');
     if (!confirm('לשלוח עכשיו ל' + a.bank + ' (' + (a.to || []).join(', ') + ') עם ' + (a.files || []).length + ' קבצים?')) return;
-    const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files: a.files || [] });
+    const files = await subApprovedFiles(S.approvals.get(aid) || a); if (!files) return;
+    const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files });
     if (!r || !r.sent) return; /* fundSend כבר הודיע מה נכשל — הבקשה נשארת ממתינה */
     await write('approvals/' + aid, { status: 'approved', sentAt: stamp(), decidedAt: stamp(), decidedBy: S.me.id, partial: !!r.partial, okBy: { ...(a.okBy || {}), [apprMe()]: stamp() } }, 'update');
-    await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה ונשלחה (' + (a.files || []).length + ' קבצים מתיקיית הביקורת)').catch(() => {});
+    await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה ונשלחה (' + files.length + ' קבצים מתיקיית "מאושר לשליחה")').catch(() => {});
     return subAfterSend(c.id, aid);
   }
   if (ok && a.kind === 'delete') await write(a.coll + '/' + a.docId, { deletedAt: stamp(), deletedBy: a.by, deleteApprovedBy: S.me.id }, 'update');
@@ -2299,10 +2338,10 @@ function approvalsCard() {
   const P = live(S.approvals).filter((a) => a.status === 'pending' && canDecide(a)).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   if (!P.length) return '';
   return '<section class="card" id="sqAppr"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
-    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>הגשה לביקורת:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
+    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>אישור מסמכים להגשה:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
         '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
         '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
-          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approkonly="' + esc(a.id) + '" title="ההגשה חוזרת להדס לשליחה">אשר בלי לשלוח</button> <button class="btn small ghost" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
+          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approkonly="' + esc(a.id) + '" title="המסמכים עוברים לתיקיית מאושר לשליחה, והדס שולחת">אשר מסמכים</button> <button class="btn small ghost" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
       '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
 }
@@ -2314,7 +2353,7 @@ function myDecisions() {
   const me = S.me.id, from = addDays(today(), -MY_DONE_DAYS), out = [];
   for (const a of live(S.approvals)) {
     if (a.decidedBy !== me || a.status !== 'approved' || undone(a) || dayOf(a.decidedAt || '') < from) continue;
-    if (!['submission', 'delete'].includes(a.kind) || !canApproveDel(a.division || 'finance')) continue;
+    if (!['submission', 'delete'].includes(a.kind) || !(canApproveDel(a.division || 'finance') || (a.kind === 'submission' && S.myKey === 'nissim'))) continue;
     out.push({ kind: a.kind, at: a.decidedAt, a, c: a.clientId ? S.clients.get(a.clientId) : null });
   }
   for (const c of live(S.clients)) {
@@ -2328,7 +2367,7 @@ function myDecisions() {
   return out.sort((x, y) => String(y.at).localeCompare(String(x.at)));
 }
 function myDecisionsCard() {
-  if (!(S.isDan || canApproveDel('realestate'))) return '';
+  if (!(S.isDan || canApproveDel('realestate') || S.myKey === 'nissim')) return '';
   const R = myDecisions(); if (!R.length) return '';
   const link = (c) => c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '';
   /* שורה = טקסט + תגית + כפתורים, נשבר לשורות במובייל (לא טבלה — הכפתורים לא נחתכים ב-390) */
@@ -2361,7 +2400,9 @@ async function myUndo(v) {
   const back = async (to, note) => { const cc = S.clients.get(c.id); if (cc && procType(cc) === 'mortgage' && procIdx(cc, procCur(cc)) > procIdx(cc, to)) { await procAdvance(cc, to, { note }); return true; } return false; };
   if (k === 'sub') {
     if (!subUnsent(a)) return toast('ההגשה כבר נשלחה — אפשר רק להחזיר לתיקון');
-    await write('approvals/' + id, { ...mark, status: 'pending', noSend: null, decidedAt: null, decidedBy: null }, 'update');
+    if (!(await subUnmoveApproved(c, a, 'לביקורת'))) return toast('לא הצלחתי להוציא את התיקייה מ"מאושר לשליחה" — נסה שוב');
+    const okBy = { ...(a.okBy || {}) }; delete okBy[apprMe()];
+    await write('approvals/' + id, { ...mark, status: 'pending', noSend: null, decidedAt: null, decidedBy: null, okBy }, 'update');
     await logClient(c.id, 'האישור להגשה ל' + a.bank + ' בוטל — חזר לממתין לאישור').catch(() => {});
     if (procCur(S.clients.get(c.id) || c) === 'submit') await back('submitApprove', 'האישור להגשה ל' + a.bank + ' בוטל');
     return toast('האישור בוטל — ההגשה חזרה ל"ממתין לאישורך"');
@@ -2369,6 +2410,7 @@ async function myUndo(v) {
   if (k !== 'fix') return;
   const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח ובמשימה)', ''); if (note === null || !note.trim()) return;
   const unsent = subUnsent(a), text = 'ההגשה ל' + a.bank + ' הוחזרה לתיקון אחרי שאושרה' + (unsent ? '' : ' ונשלחה') + ': ' + note.trim();
+  if (unsent && !(await subUnmoveApproved(c, a, 'הוחזר לתיקון'))) return toast('לא הצלחתי להוציא את התיקייה מ"מאושר לשליחה" — נסה שוב');
   await write('approvals/' + id, { ...mark, fixNote: note.trim(), ...(unsent ? { status: 'rejected', note: note.trim() } : {}) }, 'update');
   await logClient(c.id, text).catch(() => {});
   /* לא נשלחה: התיק חוזר להכנת ההגשה (משימה להדס עם ההערה). נשלחה: התיק לא זז — גופים אחרים אולי כבר במעקב — ונפתחת משימת תיקון */
@@ -4908,9 +4950,8 @@ function sendFundBox(c, files) {
     '<label class="fl">נושא<input class="f" id="fundSubj" value="' + esc('הגשת תיק — ' + c.name + ' — ' + co) + '"></label>' +
     '<label class="fl">גוף המייל<textarea class="f" id="fundBody" rows="5">' + esc('שלום,\n\nמצורפים המסמכים של ' + c.name + (c.baseAmount ? ' לבקשה בסך ' + plain(c.baseAmount) : '') + '.\nנשמח לבדיקה ולתשובה.\n\nבברכה,\n' + (S.loginAs && S.loginAs.label || 'דן') + '\n' + co) + '</textarea></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
-    (canApproveDel(c.division || 'finance') ? '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div>'
-      : '<div class="row"><span class="hint grow">לפי הנוהל: נפתחת תיקיית הגשה חדשה עם עותקים של הקבצים, ו' + delApprover(c.division || 'finance') + ' עובר עליה בבקרה. רק אחרי אישור — המייל יוצא.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הכן לביקורת (' + sel.length + ' קבצים)</button></div>') +
-    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + subStatePill(a)[1] + '">' + subStatePill(a)[0] + '</span>' + subActions(a) + '<span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקייה ↗</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
+    '<div class="row"><span class="hint grow"><b>1.</b> הגשה פנימית — תיקיית ביקורת חדשה עם עותקים של הקבצים · <b>2.</b> אישור מסמכים (' + (c.division === 'realestate' ? 'אביב / דן' : 'דן / ניסים') + ') — הקבצים עוברים לתיקיית "' + APPROVED_DIR + '" · <b>3.</b> שליחה — רק משם, עם ' + FIN_BOX + ' בעותק.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הגשה פנימית — לאישור מסמכים (' + sel.length + ' קבצים)</button></div>' +
+    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + subStatePill(a)[1] + '">' + subStatePill(a)[0] + '</span>' + subActions(a) + '<span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.approvedFolderId ? folderUrl(a.approvedFolderId) : a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">' + (a.approvedFolderId ? 'מאושר לשליחה ↗' : 'תיקייה ↗') + '</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
 }
 /* תמונה גדולה (צילום טלפון) → JPEG מוקטן לצד ארוך 2000px. מסמך נשאר קריא, והמשקל יורד פי 5-10 */
 async function shrinkImage(b64, mime) {
@@ -4921,6 +4962,8 @@ async function shrinkImage(b64, mime) {
 const FUND_PART_MAX = window.__harelServer ? 2.5e6 : 4e6; /* בשרת: תקרת בקשה של 4.5MB ב-Vercel, וה-base64 מנפח בשליש */ /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
 async function fundSend(c, O) {
   if (S._fundBusy) return toast('השליחה כבר בדרך — רגע');
+  /* דן 21/10: שולחים רק מתוך תיקיית "מאושר לשליחה" — כלומר רק הגשה שאושרה (O מגיע מאישור), לא ישר מהתיק */
+  if (!O || !O.files) return toast('שולחים רק מתיקיית "מאושר לשליחה": הגשה פנימית ← אישור מסמכים ← שליחה');
   const pick = O ? O.pick || '' : ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
   const extra = (O ? (O.extra || []).join(',') : (($('fundMail') || {}).value || '')).split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])], to = tos.join(', ');
@@ -4980,7 +5023,7 @@ async function fundPrepare(c) {
   const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])]; if (!tos.length) return toast('בחר נמען או כתוב מייל');
   const st = (S.docRes || {})[c.id] || {}, files = (st.files || []).filter((f) => (S.docSel || new Set()).has(f.id) && !f.folderLink); if (!files.length) return toast('סמן מסמכים');
-  const bank = l ? l.name : ct ? (ct.org || ct.name) : tos[0], div = c.division || 'finance', ap = delApprover(div);
+  const bank = l ? l.name : ct ? (ct.org || ct.name) : tos[0], div = c.division || 'finance', ap = div === 'realestate' ? 'אביב' : 'דן / ניסים';
   S._fundBusy = true; const btn = document.querySelector('[data-act="fundPrepare"]'); if (btn) { btn.disabled = true; btn.textContent = 'פותח תיקייה…'; }
   try {
     const fold = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: 'הגשה — ' + bank + ' — ' + dLabel(today()) + ' (לביקורת)', mimeType: 'application/vnd.google-apps.folder', parentId: c.driveFolder }, { cache: false }));
@@ -4991,15 +5034,15 @@ async function fundPrepare(c) {
     const rid = uid(), who = (S.loginAs && S.loginAs.resp) || respOf(S.me.id) || '';
     await write('approvals/' + rid, { id: rid, kind: 'submission', clientId: c.id, division: div, label: 'הגשה ל' + bank + ' — ' + c.name, bank, pick, extra, to: tos, subj: ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body: ($('fundBody') || {}).value || '', wantSub: !!($('fundSub') || {}).checked,
       files: copies, srcIds: files.map((f) => f.id), folderId: fid, folderUrl: fold.viewUrl || folderUrl(fid), by: S.me.id, byResp: who, at: stamp(), status: 'pending' });
-    await logClient(c.id, 'הוכנה הגשה ל' + bank + ' — ' + copies.length + ' קבצים בתיקיית ביקורת. ממתינה לאישור ' + ap + (miss.length ? ' · לא שוכפלו: ' + miss.join(', ') : '')).catch(() => {});
-    S.docSel = new Set(); toast('נשלח לביקורת של ' + ap + ' — ' + copies.length + ' קבצים בתיקייה חדשה' + (miss.length ? ' (' + miss.length + ' לא שוכפלו)' : ''));
+    await logClient(c.id, 'הגשה פנימית ל' + bank + ' — ' + copies.length + ' קבצים בתיקיית ביקורת. ממתינה לאישור מסמכים (' + ap + ')' + (miss.length ? ' · לא שוכפלו: ' + miss.join(', ') : '')).catch(() => {});
+    S.docSel = new Set(); toast('הגשה פנימית — ' + copies.length + ' קבצים בתיקיית ביקורת, ממתינה לאישור מסמכים' + (miss.length ? ' (' + miss.length + ' לא שוכפלו)' : ''));
     await procReach(c.id, 'submitApprove').catch(() => {});
   } finally { S._fundBusy = false; render(); }
 }
 /* מצב הגשה: ממתין לביקורת → אושר (בלי שליחה) → נשלח; או הוחזר לתיקון. (דן, 18/10: דן מאשר, הדס שולחת) */
 const subUnsent = (a) => a.status === 'approved' && a.noSend && !a.sentAt;
-const subStatePill = (a) => a.status === 'pending' ? ['ממתין לאישור דן', 'expected'] : subUnsent(a) ? ['אושר — לשליחה', 'committed'] : a.status === 'approved' ? ['נשלח' + (a.sentAt ? ' ' + dLabel(dayOf(a.sentAt)) : ''), 'actual'] : a.status === 'rejected' ? ['הוחזר לתיקון', 'open'] : [a.status, 'muted'];
-const subActions = (a) => (subUnsent(a) && S.canTask ? '<button class="btn small primary" data-subsend="' + esc(a.id) + '">שלח עכשיו</button>' : '') + (a.status === 'pending' && canApproveDel(a.division || 'finance') ? '<button class="btn small" data-approkonly="' + esc(a.id) + '">אשר בלי לשלוח</button>' : '');
+const subStatePill = (a) => a.status === 'pending' ? ['באישור מסמכים', 'expected'] : subUnsent(a) ? ['מאושר לשליחה', 'committed'] : a.status === 'approved' ? ['נשלח' + (a.sentAt ? ' ' + dLabel(dayOf(a.sentAt)) : ''), 'actual'] : a.status === 'rejected' ? ['הוחזר לתיקון', 'open'] : [a.status, 'muted'];
+const subActions = (a) => (subUnsent(a) && S.canTask ? '<button class="btn small primary" data-subsend="' + esc(a.id) + '">שלח עכשיו</button>' : '') + (a.status === 'pending' && canApproveDel(a.division || 'finance') ? '<button class="btn small" data-approkonly="' + esc(a.id) + '">אשר מסמכים</button>' : '');
 /* העברה לתפעול (ניסים סיים את שיחת המכירה והקמת הלקוח): שלב המכירה נסגר, והתיק נפתח אצל הדס לאיסוף מסמכים */
 async function procFromSale(cid) {
   const c = S.clients.get(cid); if (!c || c.division === 'realestate' || procType(c) !== 'mortgage' || (c.proc || {}).step) return;

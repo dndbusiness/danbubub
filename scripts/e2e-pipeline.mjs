@@ -76,23 +76,39 @@ try {
   assert(ask.resp === 'dan' && ask.priority === 'high' && ask.notes === 'הלקוח שואל על גרייס' && await cur(CID) === 'docs', 'שאלה לדן, השלב לא זז')
 
   step('docs → docsReview → analysis → prep → submitTech (הדס)')
-  for (const k of ['docsReview', 'analysis', 'prep', 'submitTech']) { await next(); await waitStep(CID, k); await settle(CID, k) }
+  for (const k of ['docsReview', 'analysis', 'prep', 'submitTech']) {
+    /* דן 20/10: בלי "הנחיות להגשה" לא עוברים מהכנה להגשה */
+    if (k === 'submitTech') await page.evaluate(async (id) => { const c = S.clients.get(id); await write('clients/' + id, { proc: { ...c.proc, prep: { ...((c.proc || {}).prep || {}), note: 'בנק בדיקה — 400 אלף, פריים + קבועה' } } }, 'update') }, CID)
+    if (k === 'submitTech') await page.waitForFunction((id) => procNote(S.clients.get(id), 'prep'), CID)
+    await next(); await waitStep(CID, k); await settle(CID, k) }
   const t5 = await open(CID, 'submitTech')
   assert(t5[0]?.resp === 'hadas', 'הגשה טכנית אצל הדס')
 
-  step('הגשה לביקורת → דן מאשר בלי לשלוח → הדס שולחת → מעקב אישור')
-  await page.evaluate(async ([cid, aid]) => { await write('approvals/' + aid, { id: aid, kind: 'submission', clientId: cid, division: 'finance', label: 'הגשה לבנק בדיקה — לקוח', bank: 'בנק בדיקה', to: ['bank@example.com'], files: [{ id: 'f1', title: 'תלוש.pdf' }], by: S.me.id, byResp: 'hadas', at: stamp(), status: 'pending' }); await procReach(cid, 'submitApprove') }, [CID, APR])
+  step('הגשה פנימית → דן מאשר מסמכים (עוברים ל"מאושר לשליחה") → הדס שולחת רק משם → מעקב אישור')
+  /* דרייב ו-Gmail מדומים בדף: נרשמת כל קריאה, כדי לבדוק מה זז לאן ומה יצא במייל */
+  await page.evaluate((cid) => { window.__calls = []; S.mcp = { callTool: async (srv, tool, input) => { window.__calls.push({ srv, tool, input })
+    if (tool === 'search_files') { const q = String(input.query || ''); return { files: q.includes("'appr-root'") ? [] : q.includes("'fold-1'") ? [{ id: 'f1', title: 'תלוש.pdf', mimeType: 'application/pdf' }] : [] } }
+    if (tool === 'create_file') return { id: 'appr-root' }
+    if (tool === 'download_file_content') return { content: btoa('%PDF-1.4 test'), mimeType: 'application/pdf' }
+    return {} } }
+    return write('clients/' + cid, { driveFolder: 'client-root' }, 'update') }, CID)
+  await page.evaluate(async ([cid, aid]) => { await write('approvals/' + aid, { id: aid, kind: 'submission', clientId: cid, division: 'finance', label: 'הגשה לבנק בדיקה — לקוח', bank: 'בנק בדיקה', to: ['bank@example.com'], files: [{ id: 'f1', title: 'תלוש.pdf' }], folderId: 'fold-1', by: S.me.id, byResp: 'hadas', at: stamp(), status: 'pending' }); await procReach(cid, 'submitApprove') }, [CID, APR])
   await waitStep(CID, 'submitApprove'); await settle(CID, 'submitApprove', ['submitTech'])
   assert((await open(CID, 'submitApprove'))[0]?.resp === 'dan', 'אישור ההגשה — משימה לדן')
   await page.evaluate(() => go('home')); await page.waitForSelector(`[data-approkonly="${APR}"]`, { timeout: 10000 })
   await page.click(`[data-approkonly="${APR}"]`); await waitStep(CID, 'submit'); await settle(CID, 'submit', ['submitApprove'])
   const ap = await page.evaluate((id) => S.approvals.get(id), APR)
   assert(ap.status === 'approved' && ap.noSend && !ap.sentAt, 'אושר בלי שליחה')
+  const mv = await page.evaluate(() => window.__calls.filter((x) => x.tool === 'update_file' || x.tool === 'create_file').map((x) => x.input))
+  assert(mv.some((x) => x.title === 'מאושר לשליחה' && x.parentId === 'client-root') && mv.some((x) => x.fileId === 'fold-1' && x.parentId === 'appr-root' && /מאושר לשליחה/.test(x.title)) && ap.approvedFolderId === 'fold-1',
+    'תיקיית ההגשה עברה לתוך "מאושר לשליחה" בתיקיית הלקוח')
 
   step('"אישרתי לאחרונה" בלוח: ביטול האישור → חוזר ל"ממתין לאישורך", והתיק לאישור ההגשה')
   await page.evaluate(() => go('home')); await page.waitForSelector(`[data-myundo="sub:${APR}"]`, { timeout: 10000 })
   await page.click(`[data-myundo="sub:${APR}"]`); await waitStep(CID, 'submitApprove'); await settle(CID, 'submitApprove', ['submit'])
   assert((await page.evaluate((id) => S.approvals.get(id).status, APR)) === 'pending', 'ההגשה חזרה להמתנה')
+  assert(await page.evaluate(() => window.__calls.some((x) => x.tool === 'update_file' && x.input.fileId === 'fold-1' && x.input.parentId === 'client-root')) && !(await page.evaluate((id) => S.approvals.get(id).approvedFolderId, APR)), 'התיקייה יצאה מ"מאושר לשליחה"')
+  await page.evaluate(() => { window.__calls = [] })
   await page.waitForSelector(`[data-approkonly="${APR}"]`, { timeout: 10000 })
   assert(await page.waitForSelector(`[data-myundo="sub:${APR}"]`, { state: 'detached', timeout: 10000 }).then(() => true, () => false), 'יצאה מ"אישרתי לאחרונה"')
   await page.click(`[data-approkonly="${APR}"]`); await waitStep(CID, 'submit'); await settle(CID, 'submit', ['submitApprove'])
@@ -101,7 +117,16 @@ try {
   await page.evaluate((id) => go('client', id), CID); await page.waitForSelector(`[data-subsend="${APR}"]`)
   assert(true, 'בכרטיס: "שלח עכשיו" להגשה שאושרה')
   if (process.env.E2E_OUT) await page.screenshot({ path: path.join(process.env.E2E_OUT, 'pipeline-submit@1280.png') })
-  await page.evaluate(async ([cid, aid]) => { await write('approvals/' + aid, { sentAt: stamp(), sentBy: S.me.id }, 'update'); await subAfterSend(cid, aid) }, [CID, APR])
+  /* קובץ שהוצא מהתיקייה — לא שולחים */
+  await page.evaluate(() => { const t = S.mcp.callTool; S.mcp._t = t; S.mcp.callTool = async (srv, tool, input) => tool === 'search_files' ? (window.__calls.push({ srv, tool, input }), { files: [] }) : t(srv, tool, input) })
+  await page.click(`[data-subsend="${APR}"]`); await page.waitForTimeout(800)
+  assert(!(await page.evaluate(() => window.__calls.some((x) => x.tool === 'send_message'))) && !(await page.evaluate((id) => S.approvals.get(id).sentAt, APR)), 'קובץ שלא בתיקיית "מאושר לשליחה" — לא נשלח כלום')
+  await page.evaluate(() => { S.mcp.callTool = S.mcp._t })
+  await page.click(`[data-subsend="${APR}"]`)
+  await page.waitForFunction((id) => S.approvals.get(id).sentAt, APR, { timeout: 10000 })
+  const sent = await page.evaluate(() => window.__calls.filter((x) => x.tool === 'send_message').map((x) => x.input))
+  assert(sent.length === 1 && sent[0].to.includes('bank@example.com') && (sent[0].cc || []).some((x) => /^finance@/.test(x)) && sent[0].attachments.length === 1 && sent[0].attachments[0].filename === 'תלוש.pdf' && atob(sent[0].attachments[0].content).startsWith('%PDF'),
+    'המייל לגוף: הנמען, finance@ בעותק, והקובץ מתיקיית "מאושר לשליחה"')
   await waitStep(CID, 'tracking'); await settle(CID, 'tracking', ['submit'])
   const tr = await open(CID, 'tracking')
   assert(tr[0]?.resp === 'hadas' && (await open(CID, 'submit')).length === 0, 'מעקב אישור — משימה להדס, השליחה נסגרה')
