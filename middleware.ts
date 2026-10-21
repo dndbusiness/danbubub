@@ -10,8 +10,8 @@ import { GATE_COOKIE, gateToken, sameToken } from '@/lib/gate'
  */
 // המניפסט והאייקונים של ה-CRM נטענים בלי עוגיות (כך הדפדפן מבקש מניפסט) — אין בהם נתונים
 // /s ו-/api/s — דף החתימה של הלקוח (הטוקן בקישור הוא ההרשאה; /s/print מוגן ב-HMAC)
-// /api/crm/inbound — לידים ושיחות ממערכות חיצוניות; כל נתיב מאמת מפתח משלו (LEADS_API_KEY / VOICENTER_SECRET)
-const OPEN_PATHS = ['/api/health', '/api/jobs', '/api/crm/inbound', '/api/google/callback', '/gate', '/s', '/api/s', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
+// /api/crm/inbound, /api/voicenter/cdr|popup — לידים ושיחות ממערכות חיצוניות; כל נתיב מאמת מפתח משלו (LEADS_API_KEY / VOICENTER_WEBHOOK_SECRET)
+const OPEN_PATHS = ['/api/health', '/api/jobs', '/api/crm/inbound', '/api/voicenter/cdr', '/api/voicenter/popup', '/api/google/callback', '/gate', '/s', '/api/s', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
 
 export async function middleware(req: NextRequest) {
   const password = process.env.APP_PASSWORD

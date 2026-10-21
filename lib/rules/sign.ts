@@ -37,8 +37,15 @@ const BLANK = '__________'
  * שדה בלי ערך מוצג כקו ריק ומדווח ב-missing — כדי שלא יישלח הסכם עם חור בלי לדעת.
  * {{שדה?}} = שדה רשות (למשל בן/בת זוג): בלי ערך מוצג "—" ולא נחשב חסר.
  */
+export const SIGN_HERE = '@@חתימות@@'
+export const PAGE_BREAK = '@@עמוד חדש@@'
+/** מה שהשורות המיוחדות הופכות ל-HTML — דף החתימה וה-PDF מחליפים את SIGN_HERE_HTML בחתימות + חותמת החברה */
+export const SIGN_HERE_HTML = '<div class="signhere"></div>'
+export const PAGE_BREAK_HTML = '<div class="pagebreak"></div>'
+
 export function renderAgreement(template: string, fields: Record<string, FieldValue>): { html: string; missing: string[] } {
   const missing = new Set<string>()
+  const empty = (k: string) => { const v = fields[k]; return v === null || v === undefined || String(v).trim() === '' }
   const fill = (line: string) => escapeHtml(line).replace(PLACEHOLDER, (_m, key: string, opt?: string) => {
     const v = fields[key]
     if (v === null || v === undefined || String(v).trim() === '') { if (opt) return '—'; missing.add(key); return BLANK }
@@ -51,6 +58,12 @@ export function renderAgreement(template: string, fields: Record<string, FieldVa
   for (const raw of String(template ?? '').replace(/\r\n?/g, '\n').split('\n')) {
     const line = raw.trim()
     if (!line) { flushPara(); flushList(); continue }
+    /* @@חתימות@@ — מקום חתימה (הלקוח + חותמת החברה) · @@עמוד חדש@@ — מסמך מצורף (שטר חוב) מתחיל בעמוד חדש */
+    if (line === SIGN_HERE) { flushPara(); flushList(); out.push(SIGN_HERE_HTML); continue }
+    if (line === PAGE_BREAK) { flushPara(); flushList(); out.push(PAGE_BREAK_HTML); continue }
+    /* שורה שכל השדות בה רשות וכולם ריקים (בן/בת זוג, ערב) — לא מוצגת בכלל, במקום "—, ת״ז —" */
+    const ph = [...line.matchAll(PLACEHOLDER)]
+    if (ph.length && ph.every((m) => m[2] && empty(m[1] ?? ''))) continue
     if (line.startsWith('# ')) { flushPara(); flushList(); out.push('<h2>' + fill(line.slice(2)) + '</h2>'); continue }
     if (line.startsWith('- ')) { flushPara(); list.push(fill(line.slice(2))); continue }
     flushList(); para.push(fill(line))
@@ -225,9 +238,16 @@ export function cleanNotes(raw: unknown): string {
 }
 
 /** נוסח מוקלד + הערות בסוף, כחלק מהמסמך (נכנס לטביעה ולמה שנחתם). "- " בתחילת שורה — שלא תהפוך לרשימה בטעות. */
-export function withNotes(template: string, notes: string): string {
-  if (!notes) return template
-  return String(template ?? '').replace(/\s+$/, '') + '\n\n# הערות\n' + notes.split('\n').map((l) => (l.startsWith('# ') || l.startsWith('- ') ? '‏' + l : l)).join('\n')
+/**
+ * הערות החברה בסוף הטופס (דן, 20/10: "מקום להערות שלנו בכל סוף טופס, ונמלא רק הערות במועד ההחתמה").
+ * בהסכם (always) — תמיד יש סעיף הערות, גם ריק ("אין הערות"). מסמך מצורף (שטר חוב, אחרי @@עמוד חדש@@) — ההערות לפניו, בסוף ההסכם.
+ */
+export function withNotes(template: string, notes: string, always = false): string {
+  if (!notes && !always) return template
+  const body = notes ? notes.split('\n').map((l) => (l.startsWith('# ') || l.startsWith('- ') || l.startsWith('@@') ? '‏' + l : l)).join('\n') : 'אין הערות.'
+  const t = String(template ?? ''), i = t.indexOf('\n' + PAGE_BREAK)
+  const sec = '\n\n# הערות\n' + body
+  return i >= 0 ? t.slice(0, i).replace(/\s+$/, '') + sec + '\n' + t.slice(i) : t.replace(/\s+$/, '') + sec
 }
 
 /** טופס PDF: הטביעה של מה שהחותם רואה = הקובץ + השדות שלו + ההערות (אם יש). */
@@ -247,11 +267,11 @@ export function identityCheck(prefill: Prefill | null | undefined, name: string,
 }
 
 /** אירוע בתיעוד החתימה (נשמר בשורת החותם עד החתימה, ואז ננעל איתה). */
-export type SignEventKind = 'sent' | 'email_queued' | 'link_renewed' | 'opened' | 'otp_sent' | 'otp_verified' | 'otp_failed' | 'signed'
+export type SignEventKind = 'sent' | 'email_queued' | 'link_renewed' | 'shared' | 'opened' | 'otp_sent' | 'otp_verified' | 'otp_failed' | 'signed'
 export interface SignEvent { at: string; kind: SignEventKind; ip?: string | null; ua?: string | null; detail?: string | null }
 
 export const SIGN_EVENT_LABELS: Record<SignEventKind, string> = {
-  sent: 'נשלח לחתימה', email_queued: 'הזמנה במייל', link_renewed: 'קישור חדש (הקודם בוטל)', opened: 'המסמך נפתח',
+  sent: 'נשלח לחתימה', email_queued: 'הזמנה במייל', link_renewed: 'קישור חדש (הקודם בוטל)', shared: 'הקישור נמסר', opened: 'המסמך נפתח',
   otp_sent: 'נשלח קוד אימות', otp_verified: 'הקוד אומת', otp_failed: 'קוד שגוי', signed: 'נחתם',
 }
 export const MAX_SIGN_EVENTS = 60

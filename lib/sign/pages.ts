@@ -6,7 +6,7 @@
  * טופס PDF בדף החותם: העמודים מוצגים עם pdf.js, השדות של החותם מסומנים וממולאים בזמן אמת
  * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
-import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, type SignState } from '@/lib/rules/sign'
+import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, SIGN_HERE_HTML, type SignState } from '@/lib/rules/sign'
 import { FIELD_KINDS, fieldsOf, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
@@ -24,6 +24,7 @@ h1{font-size:20px;margin:0 0 2px}h2{font-size:17px;margin:14px 0 6px}.hint{color
 .doc p{margin:0 0 10px}.doc ol{margin:0 0 10px;padding-inline-start:22px}.doc li{margin-bottom:4px}
 label{display:block;font-size:14px;margin:10px 0 4px}
 input[type=text]{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)}
+.sighere{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;margin:10px 0 14px}.sighere .slot{border:1.5px dashed var(--text-2);border-radius:10px;padding:18px 22px;color:var(--text-2);font-size:13px}.sighere .co img{height:84px;display:block}.pagebreak{border-top:2px dashed var(--border,#E6E8EC);margin:26px 0 8px}
 .pad{position:relative;border:1.5px dashed var(--text-2);border-radius:12px;background:#fff;touch-action:none;height:190px}
 .pad canvas{width:100%;height:100%;display:block;border-radius:12px}
 .pad .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9CA3AF;pointer-events:none;font-size:14px}
@@ -56,7 +57,7 @@ export function messagePage(title: string, text: string, tone: 'ok' | 'bad' | 'm
   return shell(title, `<div class="wrap"><div class="card" style="text-align:center"><h1>${esc(title)}</h1><p class="${tone === 'muted' ? 'hint' : ''}" style="${tone === 'bad' ? 'color:var(--bad)' : tone === 'ok' ? 'color:var(--ok)' : ''}">${esc(text)}</p><p class="hint">הר-אל</p></div></div>`)
 }
 
-export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date; pdf?: { fields: PdfField[]; pages: { w: number; h: number }[] } | null } = {}): string {
+export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date; stamp?: string | null; pdf?: { fields: PdfField[]; pages: { w: number; h: number }[] } | null } = {}): string {
   const company = COMPANY[row.division] ?? 'הר-אל'
   const total = opts.total ?? 1
   // קוד אימות: עד שאומת — הטופס מוסתר, והשרת דוחה חתימה בלי אימות בכל מקרה
@@ -83,7 +84,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   const body = `<div class="wrap">
   <div class="card"><div class="hint">${esc(company)}</div><h1>${esc(row.title)}</h1><div class="hint">בתוקף עד ${esc(il(row.expires_at))}</div>
     <div class="who">חותם/ת: ${esc(row.client_name)}${row.signer_label && row.signer_label !== 'הלקוח' ? ' · ' + esc(row.signer_label) : ''}${total > 1 ? ` · אחד/ת מ-${total} חותמים` : ''}</div></div>
-  ${pdf ? pdfHtml : `<div class="card doc">${row.body_html}</div>`}
+  ${pdf ? pdfHtml : `<div class="card doc">${String(row.body_html).split(SIGN_HERE_HTML).join(`<div class="sighere"><div class="slot">כאן תופיע החתימה שלך</div>${opts.stamp ? `<div class="co"><img src="${esc(opts.stamp)}" alt="חותמת החברה"><div class="hint">חותמת החברה</div></div>` : ''}</div>`)}</div>`}
   ${notesHtml}
   ${needOtp ? `<div class="card otp" id="otp"><h2 style="margin-top:0">אימות לפני חתימה</h2>
     <p class="hint">נשלח קוד חד-פעמי ${row.send_email ? 'למייל ' + esc(maskEmail(row.send_email)) : 'בוואטסאפ ל-' + esc(maskPhone(row.send_phone))}.</p>
@@ -171,16 +172,18 @@ function eventsTable(r: SignRow): string {
   return `<div class="hint" style="margin:8px 0 2px">ציר הזמן</div><table>${ev.map((e) => `<tr><td>${esc(il(e.at))}</td><td>${esc(SIGN_EVENT_LABELS[e.kind] ?? e.kind)}${e.detail ? ' · ' + esc(e.detail) : ''}${e.ip ? ' · <span class="mono">' + esc(e.ip) + '</span>' : ''}${e.ua ? ' · ' + esc(deviceLabel(e.ua)) : ''}</td></tr>`).join('')}</table>`
 }
 
-export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?: boolean } = {}): string {
+export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?: boolean; stamp?: string | null } = {}): string {
   const company = COMPANY[env.division] ?? 'הר-אל'
   const signed = rows.filter((r) => r.status === 'signed')
   const css = `<style>@page{size:A4}body{background:#fff;color:#111827;font-size:13.5px}.wrap{max-width:none;padding:0}.card{border:0;padding:0}
   .sigs{display:flex;flex-wrap:wrap;gap:24px 36px;border-top:1px solid #E6E8EC;padding-top:12px;margin-top:18px}.sig img{height:84px;border-bottom:1px solid #111827;display:block}
   table{border-collapse:collapse;width:100%;font-size:12px}td{border-bottom:1px solid #E6E8EC;padding:6px 4px;vertical-align:top}td:first-child{color:#6B7280;width:30%}
-  .audit{page-break-before:always}.doc2{page-break-before:always}.mono{font-family:ui-monospace,Menlo,monospace;direction:ltr;text-align:right;word-break:break-all}h3{font-size:14px;margin:16px 0 4px}</style>`
+  .audit{page-break-before:always}.doc2{page-break-before:always}.pagebreak{page-break-before:always;break-before:page}
+  .signhere-row{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;margin:10px 0 16px}.sig img.stamp{height:96px;border:0;opacity:.95}.mono{font-family:ui-monospace,Menlo,monospace;direction:ltr;text-align:right;word-break:break-all}h3{font-size:14px;margin:16px 0 4px}</style>`
+  const stampSig = opts.stamp ? `<div class="sig"><img class="stamp" src="${esc(opts.stamp)}" alt="חותמת החברה"><div>${esc(company)}</div><div class="hint">חותמת וחתימת החברה</div></div>` : ''
   const sig = (r: SignRow) => `<div class="sig"><img src="${esc(r.signature_png)}" alt="חתימה"><div>${esc(r.signer_name)}${r.signer_label && r.signer_label !== 'הלקוח' ? ' · ' + esc(r.signer_label) : ''}</div><div class="hint">ת"ז ${esc(r.signer_id_number)} · ${esc(il(r.signed_at))}</div></div>`
   // חותמים עם אותו נוסח — חתימות זו לצד זו; נוסח נפרד לחותם — עמוד משלו
-  const docs = groupByDocument(signed).map((g, i) => `<div class="${i ? 'doc2' : ''}">${i ? `<h2>${esc(env.title)} — ${esc(g.rows.map((r) => r.signer_label ?? r.signer_name).join(', '))}</h2>` : ''}<div class="doc" style="margin-top:14px">${g.rows[0]!.body_html}</div><div class="sigs">${g.rows.map(sig).join('')}</div></div>`).join('')
+  const docs = groupByDocument(signed).map((g, i) => `<div class="${i ? 'doc2' : ''}">${i ? `<h2>${esc(env.title)} — ${esc(g.rows.map((r) => r.signer_label ?? r.signer_name).join(', '))}</h2>` : ''}<div class="doc" style="margin-top:14px">${String(g.rows[0]!.body_html).split(SIGN_HERE_HTML).join(`<div class="signhere-row">${g.rows.map(sig).join('')}${stampSig}</div>`)}</div>${String(g.rows[0]!.body_html).includes(SIGN_HERE_HTML) ? '' : `<div class="sigs">${g.rows.map(sig).join('')}${stampSig}</div>`}</div>`).join('')
   const auditRows = (r: SignRow) => `<h3>${esc(r.signer_name)}${r.signer_label ? ' · ' + esc(r.signer_label) : ''}</h3><table>
     <tr><td>מזהה חותם</td><td class="mono">${esc(r.id)}</td></tr>
     <tr><td>טביעת הנוסח (SHA-256)</td><td class="mono">${esc(r.doc_hash)}</td></tr>

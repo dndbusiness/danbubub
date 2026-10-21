@@ -236,7 +236,8 @@
   function getSample() {
     if (sampleP) return sampleP;
     sampleP = fetch('/api/crm/sample', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (j) {
-      if (!j.enabled) return null;
+      /* לא מחובר עכשיו — לא זוכרים את זה: הקריאה הבאה בודקת שוב (מפתח שנוסף / תור שהתעורר אחרי שהדף נפתח) */
+      if (!j.enabled) { sampleP = null; return null; }
       window.__crmAiQueue = j.mode === 'queue'; /* הדף מתאים את הטקסטים: "תוך כמה דקות" במקום "עד דקה" */
       var f = function (input, opts) { return runSample(input, opts); };
       f.json = function (input, opts) {

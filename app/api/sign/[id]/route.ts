@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { cancelEnvelope, deleteEnvelope, finalizeEnvelope, remind } from '@/lib/sign/store'
+import { cancelEnvelope, deleteEnvelope, finalizeEnvelope, markShared, remind } from '@/lib/sign/store'
+import { effectiveSession } from '@/lib/crm/auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -11,8 +12,9 @@ export const maxDuration = 60
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const body = (await req.json().catch(() => ({}))) as { action?: string }
+  const body = (await req.json().catch(() => ({}))) as { action?: string; channel?: string; target?: string }
   const now = new Date()
+  if (body.action === 'shared') { const s = await effectiveSession(req); return NextResponse.json({ ok: await markShared(id, body.channel === 'whatsapp' ? 'whatsapp' : 'copy', body.target ?? null, s ? s.l || s.k : null, now) }) }
   if (body.action === 'cancel') return NextResponse.json({ ok: await cancelEnvelope(id, now) })
   if (body.action === 'delete') return NextResponse.json({ ok: await deleteEnvelope(id, now) })
   if (body.action === 'finalize') return NextResponse.json(await finalizeEnvelope(id, now))

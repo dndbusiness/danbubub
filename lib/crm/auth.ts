@@ -24,6 +24,8 @@ export interface CrmSession { k: string; r: CrmRole; d: string[]; l: string; e: 
 export const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills']
 /** מה המוקד כן כותב — כמו TEAM_WRITE בדף */
 export const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations']
+/** רק דן קורא וכותב: פרייבט, סנכרון הבנק, ובקשות שינוי במערכת (docs/DEV_REQUESTS.md) */
+export const OWNER_ONLY = ['private', 'stmts', 'devRequests']
 /** סימן במקום גיבוב שלא נשלח לדפדפן */
 export const SECRET_MARK = 'srv'
 
@@ -198,14 +200,14 @@ export function canRead(s: CrmSession | null, coll: string, perms?: string[] | n
   if (coll === 'settings') return true
   if (SERVER_ONLY.includes(coll)) return false
   if (!s) return false
-  if (coll === 'private' || coll === 'stmts') return s.r === 'owner'
+  if (OWNER_ONLY.includes(coll)) return s.r === 'owner'
   if (s.r === 'center') return !OWNER_READ.includes(coll)
   return !areaBlocks(coll, perms)
 }
 
 export function canWrite(s: CrmSession | null, coll: string, perms?: string[] | null): boolean {
   if (!s || SERVER_WRITE.includes(coll)) return false
-  if (coll === 'private' || coll === 'stmts') return s.r === 'owner'
+  if (OWNER_ONLY.includes(coll)) return s.r === 'owner'
   if (s.r === 'center') return TEAM_WRITE.includes(coll)
   return !areaBlocks(coll, perms)
 }
