@@ -2964,7 +2964,7 @@ function vClient(id) {
           (ctasks.length ? '' + ctasks.map((t) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + esc(t.title) + '</span></label>' + respChip(taskResp(t)) +
             '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + tmrBtn(t) + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
           (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>' +
-        (S.isOwner ? instCard(c, w) : '') + mailCard(c) + calCard(c) +
+        (S.isOwner ? instCard(c, w) : '') + (c.division === 'realestate' ? '' : oshCard(c.id, S.canTask)) + mailCard(c) + calCard(c) +
         '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
           (tot ? '<div class="progress" style="margin-bottom:8px"><i style="width:' + pct(done, tot) + '%"></i></div>' +
             (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
@@ -3229,27 +3229,94 @@ const STMT_PROMPT = (kind, from, to, N) => 'זה ' + (kind === 'card' ? 'פיר�
   'חלץ את כל התנועות בעמודים האלה, אחת לאחת, בלי לדלג ובלי להמציא. לכל תנועה: date (YYYY-MM-DD; בישראל כותבים יום/חודש/שנה; אם חסרה שנה — לפי התקופה בדף), desc (שם בית העסק / תיאור הפעולה כפי שכתוב), amount — מספר בש״ח: ' +
   (kind === 'card' ? 'כל חיוב שלילי (למשל -120.5), זיכוי חיובי. בעסקת תשלומים — סכום החיוב החודשי, לא סכום העסקה. בעסקה במט״ח — הסכום בש״ח.' : 'חובה / משיכה שלילי, זכות / הפקדה חיובי.') +
   ' שורות סיכום, יתרות וכותרות — לא תנועות.\nהחזר JSON בלבד: {"rows":[{"date":"2026-10-03","desc":"…","amount":-120.5}],"period":"MM/YYYY אם מופיע","account":"4 ספרות אחרונות אם מופיעות"}';
-async function stmtImport(file, kind, label, say) {
+/* קריאת דף: CSV / אקסל ישירות; PDF / צילום — Claude מציע (הנחיה 17: עד שאדם עובר על השורות זו הצעה). משותף להוצאות של המשרד ול"עו״ש לאקסל" של לקוח */
+async function stmtReadRows(file, kind, say, opt = {}) {
   let rows = null, status = 'file', meta = {};
-  if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) { rows = await sheetRowsOf(file); if (!rows) return; rows = rows.map((r) => ({ date: r.date, desc: r.desc, amount: kind === 'card' && r.amount > 0 && !/זיכוי/.test(r.desc) ? -r.amount : r.amount })); }
+  if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) { rows = await sheetRowsOf(file); if (!rows) return null; rows = rows.map((r) => ({ date: r.date, desc: r.desc, amount: kind === 'card' && r.amount > 0 && !/זיכוי/.test(r.desc) ? -r.amount : r.amount, ...(opt.balance && r.balance != null ? { balance: r.balance } : {}) })); }
   else {
-    const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('קריאת PDF / צילום צריכה את Claude — בתצוגה הזו אפשר להעלות CSV או אקסל');
+    const sample = await claude.use('sample').catch(() => null); if (!sample) { toast('קריאת PDF / צילום צריכה את Claude — בתצוגה הזו אפשר להעלות CSV או אקסל'); return null; }
     const lim = await sample.limits().catch(() => null), P = await docPages(file, say), per = P.kind === 'img' ? Math.max(1, Math.min(4, (lim && lim.images && lim.images.maxCount) || 3)) : 3;
-    if (P.kind === 'img' && !(lim && lim.images)) return toast('קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט או CSV');
+    if (P.kind === 'img' && !(lim && lim.images)) { toast('קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט או CSV'); return null; }
     rows = [];
     for (let i = 0; i < P.n; i += per) { const from = i + 1, to = Math.min(P.n, i + per); say('Claude קורא עמודים ' + from + '–' + to + ' מתוך ' + P.n + (window.__crmAiQueue ? ' · בתור, כמה דקות לכל מנה — השאר את הדף פתוח' : '') + '…');
       const chunk = P.pages.slice(i, to), txt = P.kind === 'text' ? chunk.join('\n\n— עמוד —\n\n') : '';
-      const r = await sample.json(STMT_PROMPT(kind, from, to, P.n) + (txt ? '\n\nתוכן העמודים:\n' + txt.slice(0, 30000) : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, ...(P.kind === 'img' ? { images: chunk } : {}), ...aiSrv({ label: 'דף ' + (kind === 'card' ? 'אשראי' : 'בנק') + ' — עמודים ' + from + '–' + to }) });
-      (r && Array.isArray(r.rows) ? r.rows : []).forEach((x) => { const d = dateOf(x.date) || (/^\d{4}-\d{2}-\d{2}$/.test(String(x.date)) ? x.date : null), a = r2(n(x.amount)); if (d && a) rows.push({ date: d, desc: String(x.desc || '').trim().slice(0, 120), amount: a }); });
+      const r = await sample.json(STMT_PROMPT(kind, from, to, P.n) + (opt.balance ? '\nאם יש עמודת יתרה — הוסף לכל תנועה גם balance (היתרה אחרי התנועה, מספר).' : '') + (txt ? '\n\nתוכן העמודים:\n' + txt.slice(0, 30000) : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, ...(P.kind === 'img' ? { images: chunk } : {}), ...aiSrv({ label: 'דף ' + (kind === 'card' ? 'אשראי' : 'בנק') + ' — עמודים ' + from + '–' + to }) });
+      (r && Array.isArray(r.rows) ? r.rows : []).forEach((x) => { const d = dateOf(x.date) || (/^\d{4}-\d{2}-\d{2}$/.test(String(x.date)) ? x.date : null), a = r2(n(x.amount)); if (d && a) rows.push({ date: d, desc: String(x.desc || '').trim().slice(0, 120), amount: a, ...(opt.balance && x.balance != null && x.balance !== '' ? { balance: r2(n(x.balance)) } : {}) }); });
       if (r && r.account) meta.account = String(r.account).slice(-4); }
     status = 'proposal';
   }
+  return { rows, status, meta };
+}
+async function stmtImport(file, kind, label, say) {
+  const R0 = await stmtReadRows(file, kind, say); if (!R0) return; let { rows } = R0; const { status, meta } = R0;
   const seen = new Set(); rows = rows.filter((r) => { const k = stmtKey(r); if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) return toast('לא נמצאו תנועות בקובץ');
   const id = uid();
   await write('stmts/' + id, { id, kind, label: label || STMT_KIND[kind] + (meta.account ? ' ' + meta.account : ''), file: file.name, status, rows: rows.map((r) => ({ date: r.date, desc: r.desc, amount: r.amount })), from: rows[0].date, to: rows[rows.length - 1].date, division: S.division === 'all' ? null : S.division, createdAt: stamp(), by: S.me.id });
   say(rows.length + ' תנועות נקראו · ' + dLabel(rows[0].date) + '–' + dLabel(rows[rows.length - 1].date) + (status === 'proposal' ? ' · Claude קרא — עבור על השורות ואשר' : ''));
   toast(rows.length + ' תנועות נכנסו לניתוח');
+}
+/* ═════ עו״ש לאקסל (דן 21/10): מעלים דף עו״ש של לקוח (PDF / צילום / CSV / אקסל) → אקסל לניתוח, להורדה או לתיקיית הלקוח בדרייב ═════
+   גיליונות: תנועות (עם קטגוריה וחודש), סיכום חודשי, לפי קטגוריה, דגלים (חזרות, הלוואות, הימורים, משיכות גדולות).
+   מ-PDF / צילום Claude קורא — האקסל מסומן "הצעה — לבדוק מול הדף" (הנחיה 17). השורות לא נשמרות במערכת; נשמר רק הקובץ בדרייב. */
+const OSH_CATS = [['משכורת והכנסה', /משכורת|שכר|מעביד|ביטוח לאומי.*(קצב|גמל)|קצבה|הפקדת שכר/i], ['החזרי הלוואות ומשכנתא', /הלוואה|הלואה|משכנתא|החזר הלו|פרעון|פירעון|טפחות|ירושלים מש|לאומי למשכנתאות/i],
+  ['כרטיסי אשראי', CARD_PAY_RX], ['צ׳קים וחיובים שחזרו', /חזר|הוחזר|לא כובד|אין כיסוי|ביטול חיוב/i], ['עמלות וריבית', /עמל|ריבית|דמי ניהול|דמי כרטיס/i], ['ביטוח', /ביטוח|מגדל|הפניקס|מנורה|איילון|כלל ביט|הראל ביט/i],
+  ['משיכת מזומן', /כספומט|משיכת מזומן|מזומן|atm/i], ['העברות וביט', /העברה|העב'|ביט\b|bit\b|paybox|פייבוקס|פיי בוקס/i], ['מיסים ורשויות', /מס הכנסה|מע"?מ|ארנונה|עירי|רשות/i], ['הימורים', /טוטו|לוטו|ווינר|winner|הימור|טופ ?ווין|פיס\b/i],
+  ['שיקים', /שיק|צ'ק|צ׳ק|המחאה/i], ['חשבונות בית', /חשמל|מים|גז|סלקום|פרטנר|בזק|הוט\b|hot\b|פלאפון/i]];
+const oshCat = (r) => (OSH_CATS.find(([, re]) => re.test(r.desc || '')) || [r.amount > 0 ? 'זיכויים אחרים' : 'אחר'])[0];
+function oshAnalysis(rows) {
+  const R = rows.map((r) => ({ ...r, month: r.date.slice(0, 7), cat: oshCat(r) })), months = [...new Set(R.map((r) => r.month))].sort();
+  const M = months.map((m) => { const x = R.filter((r) => r.month === m), inn = r2(x.filter((r) => r.amount > 0).reduce((a, r) => a + r.amount, 0)), out = r2(x.filter((r) => r.amount < 0).reduce((a, r) => a - r.amount, 0));
+    const last = [...x].reverse().find((r) => r.balance != null); return { m, inn, out, net: r2(inn - out), n: x.length, returned: x.filter((r) => r.cat === 'צ׳קים וחיובים שחזרו').length, bal: last ? last.balance : null }; });
+  const cats = [...new Set(R.map((r) => r.cat))];
+  const absAmts = R.map((r) => Math.abs(r.amount)).sort((a, b) => a - b), med = absAmts.length ? absAmts[Math.floor(absAmts.length / 2)] : 0;
+  const flags = R.filter((r) => ['צ׳קים וחיובים שחזרו', 'הימורים', 'החזרי הלוואות ומשכנתא'].includes(r.cat) || (r.amount < 0 && Math.abs(r.amount) >= Math.max(5000, med * 5)));
+  const avg = (k) => months.length ? r2(M.reduce((a, x) => a + x[k], 0) / months.length) : 0;
+  return { R, months, M, cats, flags, avgIn: avg('inn'), avgOut: avg('out'), salary: r2(R.filter((r) => r.cat === 'משכורת והכנסה').reduce((a, r) => a + r.amount, 0) / Math.max(1, months.length)), loans: r2(R.filter((r) => r.cat === 'החזרי הלוואות ומשכנתא').reduce((a, r) => a - r.amount, 0) / Math.max(1, months.length)) };
+}
+function oshBook(A, meta) {
+  const wb = XLSX.utils.book_new(), note = meta.status === 'proposal' ? 'הצעה של Claude מתוך ' + meta.file + ' — לבדוק מול הדף לפני שמשתמשים' : 'נקרא מהקובץ ' + meta.file;
+  const sheet = (aoa, cols) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = cols.map((w) => ({ wch: w })); ws['!views'] = [{ RTL: true }]; return ws; };
+  XLSX.utils.book_append_sheet(wb, sheet([[meta.name + ' — עו״ש · ' + note], [], ['תאריך', 'חודש', 'תיאור', 'חובה', 'זכות', 'סכום', 'יתרה', 'קטגוריה'],
+    ...A.R.map((r) => [r.date, r.month, r.desc, r.amount < 0 ? -r.amount : '', r.amount > 0 ? r.amount : '', r.amount, r.balance ?? '', r.cat])], [12, 9, 40, 12, 12, 12, 12, 22]), 'תנועות');
+  XLSX.utils.book_append_sheet(wb, sheet([['סיכום חודשי · ' + note], [], ['חודש', 'הכנסות / זכות', 'הוצאות / חובה', 'נטו', 'תנועות', 'חזרות', 'יתרה בסוף החודש'], ...A.M.map((x) => [x.m, x.inn, x.out, x.net, x.n, x.returned, x.bal ?? '']),
+    [], ['ממוצע חודשי', A.avgIn, A.avgOut, r2(A.avgIn - A.avgOut)], ['משכורת / הכנסה קבועה — ממוצע', A.salary], ['החזרי הלוואות ומשכנתא — ממוצע', A.loans]], [26, 16, 16, 14, 10, 8, 16]), 'סיכום חודשי');
+  XLSX.utils.book_append_sheet(wb, sheet([['לפי קטגוריה (נטו: זכות פחות חובה)'], [], ['קטגוריה', ...A.months, 'סה״כ'],
+    ...A.cats.map((k) => { const v = A.months.map((m) => r2(A.R.filter((r) => r.cat === k && r.month === m).reduce((a, r) => a + r.amount, 0))); return [k, ...v, r2(v.reduce((a, b) => a + b, 0))]; })], [26, ...A.months.map(() => 12), 14]), 'לפי קטגוריה');
+  XLSX.utils.book_append_sheet(wb, sheet([['דגלים — חזרות, הלוואות, הימורים ומשיכות גדולות'], [], ['תאריך', 'תיאור', 'סכום', 'למה'], ...A.flags.map((r) => [r.date, r.desc, r.amount, ['צ׳קים וחיובים שחזרו', 'הימורים', 'החזרי הלוואות ומשכנתא'].includes(r.cat) ? r.cat : 'סכום גדול'])], [12, 40, 12, 24]), 'דגלים');
+  return wb;
+}
+async function oshUpload(cid, file) {
+  const say = (t) => { S.oshSay = t; const el = $('oshSt'); if (el) el.textContent = t; };
+  say('קורא את ' + file.name + '…');
+  const R0 = await stmtReadRows(file, 'bank', say, { balance: true }).catch((e) => { say('לא הצלחתי לקרוא: ' + ((e && e.message) || '')); return null; }); if (!R0) return;
+  const rows = R0.rows.filter((r) => r.date && r.amount).sort((a, b) => a.date.localeCompare(b.date)); if (!rows.length) return say('לא נמצאו תנועות בקובץ');
+  S.osh = { cid, file: file.name, status: R0.status, rows, at: stamp() }; say(''); render();
+}
+const oshName = (cid) => ((S.clients.get(cid) || S.leads.get(cid) || {}).name || 'לקוח');
+const oshFileName = (cid) => 'עו״ש — ' + oshName(cid) + ' — ' + today() + '.xlsx';
+async function oshDownload(cid) { const O = S.osh; if (!O || O.cid !== cid) return;
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו — שמור בדרייב');
+  try { await dlc.save({ filename: oshFileName(cid), data: XLSX.write(oshBook(oshAnalysis(O.rows), { ...O, name: oshName(cid) }), { type: 'array', bookType: 'xlsx', compression: true }) }); } catch (e) { toast('ההורדה בוטלה'); } }
+async function oshDrive(cid) {
+  const O = S.osh; if (!O || O.cid !== cid) return; if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו');
+  const folder = (S.clients.get(cid) || {}).driveFolder || (S.intakes.get(cid) || {}).driveFolder; if (!folder) return toast('אין ללקוח תיקייה בדרייב — הורד את הקובץ במקום');
+  const b64 = XLSX.write(oshBook(oshAnalysis(O.rows), { ...O, name: oshName(cid) }), { type: 'base64', bookType: 'xlsx' });
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: oshFileName(cid), base64Content: b64, contentMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', disableConversionToGoogleType: true, parentId: folder }, { cache: false }).catch(() => null));
+  const id = p.id || p.fileId; if (!id) return toast('השמירה בדרייב נכשלה');
+  O.driveId = id; O.driveUrl = p.viewUrl || 'https://drive.google.com/file/d/' + id + '/view';
+  if (S.clients.get(cid)) await logClient(cid, 'עו״ש לאקסל: ' + O.file + ' → ' + O.rows.length + ' תנועות · נשמר בתיקייה').catch(() => {});
+  toast('נשמר בתיקיית הלקוח'); render();
+}
+function oshCard(cid, w) {
+  const O = S.osh && S.osh.cid === cid ? S.osh : null, A = O ? oshAnalysis(O.rows) : null;
+  return '<section class="card"><header><h2>עו״ש לאקסל</h2><span class="grow"></span>' + (w ? '<label class="btn small primary">העלה דף עו״ש<input type="file" id="oshFile" accept=".pdf,.csv,.xlsx,.xls,image/*" hidden></label>' : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 8px">PDF, צילום, CSV או אקסל מהבנק → אקסל עם התנועות, סיכום חודשי, קטגוריות ודגלים (חזרות, הלוואות, הימורים, משיכות גדולות).' + (O ? '' : ' השורות לא נשמרות במערכת — רק הקובץ שתשמור בדרייב.') + ' <span id="oshSt">' + esc(S.oshSay || '') + '</span></p>' +
+    (A ? (O.status === 'proposal' ? '<div class="notice warn" style="margin-bottom:8px"><b>Claude קרא את הדף</b><span>זו הצעה — עבור על האקסל מול הדף לפני שמסתמכים עליו.</span></div>' : '') +
+      '<div class="grid4" style="margin-bottom:8px">' + kpi('תנועות', '<span class="num">' + O.rows.length + '</span>', dLabel(O.rows[0].date) + '–' + dLabel(O.rows[O.rows.length - 1].date), null) + kpi('הכנסות — ממוצע לחודש', money(A.avgIn, { tone: 'actual' }), 'משכורת: ' + plain(A.salary), null) +
+        kpi('הוצאות — ממוצע לחודש', money(-A.avgOut), 'הלוואות: ' + plain(A.loans), null) + kpi('דגלים', '<span class="num">' + A.flags.length + '</span>', A.M.reduce((a, x) => a + x.returned, 0) + ' חזרות', null, A.flags.length ? 'open' : '') + '</div>' +
+      '<div class="scroll"><table><thead><tr><th>חודש</th><th>זכות</th><th>חובה</th><th>נטו</th><th>חזרות</th><th>יתרה</th></tr></thead><tbody>' + A.M.map((x) => '<tr><td>' + mLabel(x.m) + '</td><td>' + money(x.inn, { tone: 'actual' }) + '</td><td>' + money(-x.out) + '</td><td>' + money(x.net) + '</td><td class="num">' + x.returned + '</td><td>' + (x.bal != null ? money(x.bal) : '—') + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="row" style="margin-top:8px"><button class="btn primary" data-act="oshDl">הורד אקסל</button>' + (w ? '<button class="btn" data-act="oshDrive">' + (O.driveId ? 'נשמר ✓ — שמור שוב' : 'שמור בתיקיית הלקוח בדרייב') + '</button>' : '') + (O.driveUrl ? '<a class="btn small ghost" href="' + esc(O.driveUrl) + '" target="_blank" rel="noopener">פתח ↗</a>' : '') + '<span class="hint">' + esc(O.file) + '</span></div>' : '') + '</section>';
 }
 function expPeriod() { const p = S.f.expPeriod || 'month', t0 = today();
   if (p === 'week') return { from: addDays(t0, -6), to: t0, prevFrom: addDays(t0, -13), prevTo: addDays(t0, -7), label: '7 הימים האחרונים', prevLabel: 'השבוע שלפני' };
@@ -10951,7 +11018,7 @@ function vIntake(cid) {
         '<tr class="tot"><td>סה״כ היום</td><td class="num">' + plain(C.oblAll) + '</td><td class="num">' + plain(C.debt) + '</td></tr>' +
         '<tr><td>מתוכן ייסגרו בעסקה</td><td>' + cell('oblPaidOff', x.oblPaidOff) + '</td><td>' + cell('balPaidOff', x.balPaidOff, '1000') + '</td></tr>' +
         '<tr class="tot"><td>נשאר אחרי העסקה</td><td class="num">' + plain(C.obl) + '</td><td class="num">' + plain(C.debt - C.paidBal) + '</td></tr></tbody></table></div></section>' +
-    repCard(x, w) +
+    repCard(x, w) + (KD === 'car' ? '' : oshCard(cid, w)) +
     (KD === 'car' ? carCard(x, w) : KD === 'business' ? bizCard(x, w, true) + (hasProp(x) ? propSec() : reqSec) : propSec()) +
     '<section class="card"><header><h2>דירוג והתנהלות בנקאית</h2></header><div class="row">' + pick('credit.bdi', 'דירוג BDI', IK.bdi, cr.bdi) + inp('credit.mortReturns', 'חזרות משכנתא ב-12 חודשים', cr.mortReturns, 'number', 'min="0" step="1" style="width:80px"') + chk('credit.checks', 'חזרות צ׳קים בודדות', cr.checks) + '</div><div class="row">' +
       '<span class="hint">חמור:</span>' + chk('credit.restricted', 'חשבון מוגבל', cr.restricted) + chk('credit.execution', 'תיקים בהוצל״פ', cr.execution) + chk('credit.bankruptcy', 'פשיטת רגל / כינוס', cr.bankruptcy) + '</div>' +
@@ -11360,6 +11427,8 @@ document.addEventListener('click', async (e) => {
     if (d.cboff) return cbSet(d.cboff, { on: false, offAt: stamp() }, 'התזכורת בוטלה (הסטטוס נשאר)');
     if (d.callend) return callEnd(d.callend);
     if (d.tasktimer) return formTimer(d.tasktimer);
+    if (d.act === 'oshDl') return oshDownload(S.view.clientId);
+    if (d.act === 'oshDrive') return oshDrive(S.view.clientId);
     if (d.tmrstop) return tmrStop(true);
     if (d.tmrx) { if (confirm('לבטל את השעון בלי לשמור?')) return tmrStop(false); return; }
     if (d.callfix) { const [lid, id, k] = d.callfix.split('|'); return callFix(lid, id, k); }
@@ -12084,6 +12153,7 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.trproof != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); const P = JSON.parse(JSON.stringify(c2.proc || {})), t = P.tranches[Number(el.dataset.trproof)]; t.proofAt = el.checked ? stamp() : null;
       return procSave(c2, P, el.checked ? 'התקבלה אסמכתא לפעימה ' + (Number(el.dataset.trproof) + 1) : null); }
     if (el.dataset.proctype != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); S.f.procView = null; return procSave(c2, { type: el.value, step: null }, 'סוג תהליך: ' + PROC[el.value].label); }
+    if (el.id === 'oshFile' && el.files && el.files[0]) return oshUpload(S.view.clientId, el.files[0]);
     if (el.id === 'repFile' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], ($('repWho') || {}).value);
     if (el.id === 'repMore' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], null, Number(el.dataset.ri));
     if (el.dataset.rk && S.view.tab === 'intake') { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))), [ri, path] = el.dataset.rk.split('|'), r = x.reports[Number(ri)];
