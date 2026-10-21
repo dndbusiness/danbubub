@@ -10,6 +10,8 @@ import { readStoredFile } from '@/lib/files'
 import { bundleFields, cleanField, mostActive, signersNeeded, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 import { SIGN_CATEGORIES, type SignCategory } from '@/lib/rules/sign'
 import { readPageSizes } from './pdf'
+import { formTypeOf, type FormType } from '@/lib/rules/form-types'
+import { curatedFor } from './curated'
 
 export interface TemplateRow {
   id: string; name: string; category: SignCategory; folder: string | null; scope: 'system' | 'personal'; owner_key: string | null
@@ -96,19 +98,42 @@ export async function bundleTemplates(ids: string[], readBytes: (fileId: string)
 }
 
 /** הספרייה למשתמש: מערכת + האישיות שלו. עם "הכי פעילות" ב-90 הימים האחרונים. */
-export async function listTemplates(viewer: string | null, now: Date): Promise<{ templates: (TemplateRow & { uses: number })[]; top: { id: string; n: number }[] }> {
-  const rows = await sql<TemplateRow[]>`
-    select * from sign_templates where deleted_at is null and (scope = 'system' or owner_key = ${viewer ?? ''})
-    order by category, coalesce(folder, ''), name`
+export async function listTemplates(viewer: string | null, now: Date): Promise<{ templates: (TemplateRow & { uses: number; type: FormType; curated: boolean })[]; top: { id: string; n: number }[] }> {
+  const rows = await sql<(TemplateRow & { sha256?: string | null })[]>`
+    select t.*, f.sha256 from sign_templates t left join stored_files f on f.id = t.file_id
+    where t.deleted_at is null and (t.scope = 'system' or t.owner_key = ${viewer ?? ''})
+    order by t.category, coalesce(t.folder, ''), t.name`
   const since = new Date(now.getTime() - 90 * 86_400_000)
   const used = await sql<{ template_key: string | null; created_at: string }[]>`
     select template_key, created_at from sign_envelopes where deleted_at is null and template_key like 'pdf:%' and created_at >= ${since}`
   const counts = mostActive(used, since, 1000)
   const n = new Map(counts.map((c) => [c.key, c.n]))
   return {
-    templates: rows.map((t) => ({ ...t, uses: n.get(templateKey(t.id)) ?? 0 })),
+    // סוג הטופס: מהשדות המוכנים אם הקובץ מוכר, אחרת מהשם. curated — השדות שנבדקו מראש (הדף מציע להחיל אותם)
+    templates: rows.map(({ sha256, ...t }) => { const c = sha256 ? curatedFor(sha256) : null
+      return { ...t, uses: n.get(templateKey(t.id)) ?? 0, type: c?.type ?? formTypeOf(t.name), curated: !!c && c.pages === t.page_sizes.length } }),
     top: counts.filter((c) => rows.some((t) => templateKey(t.id) === c.key)).slice(0, 5).map((c) => ({ id: c.key.slice(4), n: c.n })),
   }
+}
+
+/**
+ * טפסים שכבר בספרייה (יובאו לפני שהשדות המוכנים נוספו, או סומנו "לבדיקה"): אם הקובץ שלהם הוא טופס מוכן
+ * (אותה טביעה) — השדות מוחלפים בשדות שנבדקו. רק התבניות שהדף שלח (אלה שעוד לא נבדקו ידנית).
+ */
+export async function applyCurated(ids: string[]): Promise<{ applied: string[] }> {
+  const want = ids.filter((id) => /^[0-9a-f-]{36}$/.test(id)).slice(0, 500)
+  if (!want.length) return { applied: [] }
+  const rows = await sql<(TemplateRow & { sha256: string | null })[]>`
+    select t.*, f.sha256 from sign_templates t join stored_files f on f.id = t.file_id
+    where t.id = any(${want}) and t.deleted_at is null and t.scope = 'system'`
+  const applied: string[] = []
+  for (const t of rows) {
+    const c = t.sha256 ? curatedFor(t.sha256) : null
+    if (!c || c.pages !== t.page_sizes.length) continue
+    const r = await updateTemplate(t.id, { name: t.name, category: t.category, folder: t.folder, scope: 'system', ownerKey: null, division: t.division, fileId: t.file_id, fields: c.fields, requireOtp: t.require_otp })
+    if ('ok' in r) applied.push(t.id)
+  }
+  return { applied }
 }
 
 /** גוף הבקשה מהדף (POST / PUT). */

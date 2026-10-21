@@ -41,12 +41,20 @@ export interface PdfField {
  */
 export const PREFILL_KEYS = {
   signer_email: 'מייל החותם', signer_phone: 'טלפון החותם', signer_address: 'כתובת החותם',
+  // טפסי הגופים מבקשים שם פרטי ושם משפחה בנפרד — מהשם המלא (המילה הראשונה / השאר); החותם מתקן אם צריך
+  signer_first_name: 'שם פרטי של החותם', signer_last_name: 'שם משפחה של החותם',
   client_name: 'שם הלקוח (לווה 1)', client_id: 'ת״ז הלקוח (לווה 1)', spouse_name: 'שם בן/בת הזוג', spouse_id: 'ת״ז בן/בת הזוג',
   company: 'שם החברה', amount: 'סכום הבקשה', fee: 'שכר טרחה', service: 'השירות',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור',
   notes: 'הערות השולח (לקריאה בלבד)',
+  // פרטי היועץ (הגדרות ← "פרטי היועץ בטפסים"): בטפסי הגופים יש טבלה "מסמיכים את" — ממולא מהמשרד, לקריאה בלבד אצל החותם
+  advisor_name: 'שם היועץ / החברה', advisor_id: 'ח.פ / ת״ז היועץ', advisor_license: 'מספר רישיון היועץ',
+  advisor_company: 'שם חברת הייעוץ', advisor_company_id: 'ח.פ חברת הייעוץ',
+  advisor_phone: 'טלפון היועץ', advisor_email: 'מייל היועץ', advisor_address: 'כתובת היועץ',
 } as const
 export type PrefillKey = keyof typeof PREFILL_KEYS
+/** שדות שהשולח ממלא והחותם רק רואה (ההערות, פרטי היועץ) — החותם לא יכול לשנות אותם. */
+export const senderFilled = (src: string | undefined) => src === 'notes' || String(src ?? '').startsWith('advisor_')
 
 export interface PageSize { w: number; h: number }
 
@@ -102,6 +110,12 @@ export function validatePdfFields(fields: PdfField[], pages: number, signers: nu
   return [...new Set(errs)]
 }
 
+/**
+ * טופס עם מקום לשני לווים ולקוח עם לווה אחד (דן, 21/10 — כתבי ההסמכה של הגופים בנויים ל-2): נשלח רק ל-n הלווים
+ * הראשונים, והשדות של האחרים נשארים ריקים בטופס החתום. רק מהסוף — לווה 2 לא נעלם כשלווה 3 נשאר.
+ */
+export const fieldsForSigners = (fields: PdfField[], n: number) => fields.filter((f) => f.signer <= Math.max(1, n))
+
 /** כמה חותמים התבנית צריכה = מספר החותם הגבוה ביותר שיש לו שדה. */
 export const signersNeeded = (fields: PdfField[]) => fields.reduce((m, f) => Math.max(m, f.signer), 0)
 
@@ -118,12 +132,14 @@ export function signerInputs(fields: PdfField[], signer: number): PdfField[] {
 }
 
 /** בדיקת הערכים שהחותם מילא. מחזיר את הערכים הנקיים (רק השדות שלו). */
-export function checkSignerValues(fields: PdfField[], signer: number, raw: unknown, notes = ''): { values: Record<string, string>; errors: string[] } {
+export function checkSignerValues(fields: PdfField[], signer: number, raw: unknown, notes = '', fixed: Record<string, string> = {}): { values: Record<string, string>; errors: string[] } {
   const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const values: Record<string, string> = {}, errors: string[] = []
   for (const f of signerInputs(fields, signer)) {
     // ההערות של השולח — לא בידי החותם: נכתב מה שנשלח, גם אם הדפדפן שלח משהו אחר
     if (f.src === 'notes') { if (notes) values[f.id] = notes.slice(0, 200); continue }
+    // פרטי היועץ — מה שהשולח מילא (מההגדרות), לא מה שהדפדפן שלח
+    if (senderFilled(f.src)) { const v = String(fixed[f.id] ?? '').trim().slice(0, 200); if (v) values[f.id] = v; continue }
     const v = f.kind === 'checkbox' ? (src[f.id] === true || src[f.id] === 'on' || src[f.id] === '1' ? '1' : '') : String(src[f.id] ?? '').trim().slice(0, 200)
     if (v) values[f.id] = v
     else if (f.required) errors.push(f.kind === 'checkbox' ? `נא לסמן: ${f.label ?? 'תיבת הסימון'}` : `נא למלא: ${f.label ?? 'שדה טקסט'}`)

@@ -164,10 +164,13 @@ try {
   assert(await page.locator('#signcard').isVisible() && /למתעניין/.test(await page.locator('#signcard h2').innerText()), 'בכרטיס הליד: "מסמכים לחתימה · למתעניין" נפתח')
   await page.click(`#signcard [data-signquick="pdf:${tplId}"]`); await page.waitForTimeout(400)
   assert(/ת״ז 000000042/.test(await page.locator('.drawer').innerText()), 'במגירה: ת״ז מהליד')
-  // טופס לשני לווים — בלי פרטים ללווה 2 השליחה נעצרת עם הודעה ברורה; ממלאים טלפון ושולחים
+  // טופס לשני לווים — לווה 2 עם שם ובלי מייל/טלפון: השליחה נעצרת עם הודעה ברורה; ממלאים טלפון ושולחים
+  // (לווה 2 ריק לגמרי = לא נשלח אליו — נבדק ב-e2e-sign-curated)
+  assert(/אין לווה 2 בתיק/.test(await page.locator('.drawer').innerText()), 'במגירה: "אין לווה 2 בתיק — אם נשאר ריק, לא יישלח אליו"')
+  await page.fill('.drawer input[name="name1"]', 'בן זוג בדיקה')
   await page.click('#dsave'); await page.waitForTimeout(800)
-  assert(/לווה 2: חסר מייל או טלפון/.test(await page.locator('#derr').innerText()), 'בלי פרטים ללווה 2 — "לווה 2: חסר מייל או טלפון"')
-  await page.fill('.drawer input[name="name1"]', 'בן זוג בדיקה'); await page.fill('.drawer input[name="phone1"]', '0503334455')
+  assert(/לווה 2: חסר מייל או טלפון/.test(await page.locator('#derr').innerText()), 'לווה 2 עם שם ובלי פרטי קשר — "לווה 2: חסר מייל או טלפון"')
+  await page.fill('.drawer input[name="phone1"]', '0503334455')
   await page.click('#dsave'); await page.waitForTimeout(2500)
   const lurls = await page.$$eval('.drawer input[readonly]', (xs) => xs.map((x) => x.value))
   assert(lurls.length === 2, 'קישורים למתעניין מוכנים')

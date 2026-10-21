@@ -7,7 +7,7 @@
  * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
 import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, SIGN_HERE_HTML, type SignState } from '@/lib/rules/sign'
-import { FIELD_KINDS, fieldsOf, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
+import { FIELD_KINDS, fieldsOf, senderFilled, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -43,6 +43,7 @@ input[type=text]{width:100%;font:inherit;padding:10px 12px;border:1px solid var(
 .fld.filled{background:rgba(22,163,74,.08);border-color:#16A34A}.fld img{max-width:100%;max-height:100%}
 .fld .t{white-space:nowrap;direction:rtl;padding:0 2px}
 .pre{font-size:12px;color:var(--text-2);margin-top:-2px}.notes{white-space:pre-wrap}
+input[readonly]{background:var(--bg);color:var(--text-2)}
 .who{display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-size:13px;margin-top:6px}
 `
 
@@ -79,6 +80,8 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
     ? `<label class="check"><input type="checkbox" data-fid="${esc(f.id)}"><span>${esc(f.label || 'אישור')}${f.required ? ' *' : ''}</span></label>`
     : f.src === 'notes'
       ? `<label for="v_${esc(f.id)}">${esc(f.label || 'הערות')}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" value="${esc(notes.replace(/\n+/g, ' · ').slice(0, 200))}" readonly>`
+      : senderFilled(f.src)
+      ? `<label for="v_${esc(f.id)}">${esc(f.label || 'פרטי היועץ')}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" value="${esc(pre.values?.[f.id] ?? '')}" readonly>`
       : `<label for="v_${esc(f.id)}">${esc(f.label || 'טקסט')}${f.required ? ' *' : ''}</label><input type="text" id="v_${esc(f.id)}" data-fid="${esc(f.id)}" maxlength="200" value="${esc(pre.values?.[f.id] ?? '')}">${pre.values?.[f.id] ? preHint : ''}`).join('')
   const notesHtml = pdf && notes ? `<div class="card"><h2 style="margin-top:0">הערות למסמך</h2><div class="notes">${esc(notes)}</div><p class="hint" style="margin-bottom:0">ההערות הן חלק מהמסמך שעליו חותמים, ונשמרות איתו.</p></div>` : ''
   const body = `<div class="wrap">
