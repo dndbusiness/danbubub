@@ -42,7 +42,7 @@ const folderFor = (category: string) => (category === 'agreement' ? AGREEMENTS_F
 
 export interface SignRow {
   id: string; envelope_id: string | null; client_doc: string; client_name: string; division: 'finance' | 'realestate'; title: string; body_html: string; doc_hash: string
-  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[]; '@stamp'?: string }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
+  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[]; '@stamp'?: string; '@otpVia'?: string }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
   expires_at: string; opened_at: string | null; signed_at: string | null; signer_name: string | null; signer_id_number: string | null
   signature_png: string | null; signer_ip: string | null; signer_ua: string | null; pdf_path: string | null; drive_file_id: string | null; drive_url: string | null
   finalize_error: string | null; created_at: string; deleted_at: string | null
@@ -319,17 +319,20 @@ export async function markOpened(token: string, now: Date, meta: { ip?: string |
 
 const otpHashOf = (id: string, code: string) => sha256(`otp:${id}:${code}`)
 
-export async function sendOtp(token: string, now: Date, meta: { ip?: string | null; ua?: string | null } = {}): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
+export async function sendOtp(token: string, now: Date, meta: { ip?: string | null; ua?: string | null } = {}, want?: string | null): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
   const row = await byToken(token)
   if (!row || signState(row, now) !== 'open') return { ok: false, error: 'הקישור לא פעיל' }
   if (!row.require_otp) return { ok: false, error: 'לא נדרש קוד למסמך הזה' }
-  const channel = otpChannel(row, !!greenApiConfig())
+  const channel = otpChannel(row, !!greenApiConfig(), want)
   if (!channel) return { ok: false, error: 'אין מייל או וואטסאפ לשליחת הקוד — נא לפנות אלינו' }
   const to = channel === 'email' ? maskEmail(row.send_email) : 'וואטסאפ ' + maskPhone(row.send_phone)
   if (row.otp_verified_at) return { ok: true, to }
-  if (!canResendOtp(row.otp_sent_at, now)) return { ok: false, error: channel === 'email' ? 'קוד נשלח לפני פחות מדקה — בדקו את המייל (גם בספאם)' : 'קוד נשלח לפני פחות מדקה — בדקו את הוואטסאפ' }
+  // מעבר ערוץ (וואטסאפ לא הגיע → מייל) — מותר מיד; אותו ערוץ שוב — אחרי דקה
+  if (channel === row.fields?.['@otpVia'] && !canResendOtp(row.otp_sent_at, now)) return { ok: false, error: channel === 'email' ? 'קוד נשלח לפני פחות מדקה — בדקו את המייל (גם בספאם)' : 'קוד נשלח לפני פחות מדקה — בדקו את הוואטסאפ' }
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-  await sql`update sign_requests set otp_hash = ${otpHashOf(row.id, code)}, otp_expires_at = ${new Date(now.getTime() + OTP_TTL_MS)}, otp_attempts = 0, otp_sent_at = ${now}
+  // הערוץ נשמר — לעמוד התיעוד ("אימות קוד בוואטסאפ / במייל")
+  await sql`update sign_requests set otp_hash = ${otpHashOf(row.id, code)}, otp_expires_at = ${new Date(now.getTime() + OTP_TTL_MS)}, otp_attempts = 0, otp_sent_at = ${now},
+            fields = fields || ${sql.json({ '@otpVia': channel })}
             where id = ${row.id} and otp_verified_at is null`
   if (channel === 'whatsapp') await sql`insert into outbox (channel, target, subject, body, dedup_key)
     values ('whatsapp', ${waTarget(row.send_phone)}, ${'קוד אימות לחתימה'},

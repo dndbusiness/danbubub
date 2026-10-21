@@ -135,6 +135,17 @@ try {
   const advIn = signer.locator('input[data-fid="' + adv.id + '"]')
   assert(await advIn.inputValue() === 'הר-אל פתרונות מימון בע"מ' && (await advIn.getAttribute('readonly')) !== null, 'בעמוד החתימה: פרטי היועץ מוצגים לקריאה בלבד')
   if (process.env.E2E_OUT) await signer.screenshot({ path: path.join(process.env.E2E_OUT, 'sign-advisor@1280.png'), fullPage: true })
+  // קוד אימות: וואטסאפ קודם, והחותם יכול לבחור מייל (דן, 21/10). רק כשהשרת רץ עם GREEN_API_* (E2E_WA=1 — אפשר עם GREEN_API_HOST מדומה)
+  if (process.env.E2E_WA) {
+    const btns = await signer.$$eval('[data-otpvia]', (xs) => xs.map((x) => x.dataset.otpvia + (x.classList.contains('primary') ? '*' : '')))
+    assert(btns.join(',') === 'whatsapp*,email', 'קוד אימות: "שלחו לי בוואטסאפ" (ראשי) ו"שלחו לי במייל" (' + btns.join(',') + ')')
+    await signer.click('[data-otpvia="whatsapp"]'); await signer.waitForTimeout(1200)
+    const [o] = await sql`select channel, target from outbox where dedup_key like 'sign-otp:%' order by created_at desc limit 1`
+    assert(o && o.channel === 'whatsapp' && o.target === '972521234567', 'הקוד יצא בוואטסאפ למספר של החותמת')
+    await signer.click('[data-otpvia="email"]'); await signer.waitForTimeout(1200)
+    const [o2] = await sql`select channel, target from outbox where dedup_key like 'sign-otp:%' order by created_at desc limit 1`
+    assert(o2 && o2.channel === 'email' && o2.target === 'dana@example.com', 'מעבר למייל מיד (בלי לחכות דקה)')
+  }
   await signer.close()
   assert(!pageErrs.length, 'אין שגיאות בדף' + (pageErrs.length ? ': ' + pageErrs.join(' | ') : ''))
   console.log('\nשדות מוכנים לטפסי הגופים — עבר.')

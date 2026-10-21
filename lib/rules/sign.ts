@@ -162,11 +162,18 @@ export function maskPhone(phone: string | null | undefined): string {
   return d.length < 7 ? '' : `${d.slice(0, 3)}***${d.slice(-4)}`
 }
 
-/** לאן נשלח קוד האימות: מייל אם יש; אחרת וואטסאפ (Green-API, דרך outbox) כשמוגדר ויש טלפון. */
-export function otpChannel(r: { send_email?: string | null; send_phone?: string | null }, whatsappReady: boolean): 'email' | 'whatsapp' | null {
-  if (String(r.send_email ?? '').trim()) return 'email'
-  if (whatsappReady && String(r.send_phone ?? '').replace(/\D/g, '').length >= 9) return 'whatsapp'
-  return null
+export type OtpChannel = 'email' | 'whatsapp'
+/** הערוצים שאפשר לשלוח בהם קוד לחותם הזה: וואטסאפ (Green-API, כשמוגדר ויש טלפון) ומייל (כשיש). וואטסאפ ראשון (דן, 21/10). */
+export function otpChannels(r: { send_email?: string | null; send_phone?: string | null }, whatsappReady: boolean): OtpChannel[] {
+  const out: OtpChannel[] = []
+  if (whatsappReady && String(r.send_phone ?? '').replace(/\D/g, '').length >= 9) out.push('whatsapp')
+  if (String(r.send_email ?? '').trim()) out.push('email')
+  return out
+}
+/** לאן נשלח קוד האימות: הערוץ שהחותם בחר (אם זמין), אחרת וואטסאפ, אחרת מייל (דן, 21/10: "בוואטסאפ ולא במייל"). */
+export function otpChannel(r: { send_email?: string | null; send_phone?: string | null }, whatsappReady: boolean, want?: string | null): OtpChannel | null {
+  const ch = otpChannels(r, whatsappReady)
+  return ch.find((c) => c === want) ?? ch[0] ?? null
 }
 
 /** טלפון ישראלי → יעד וואטסאפ בינלאומי: "052-1234567" → "972521234567" */

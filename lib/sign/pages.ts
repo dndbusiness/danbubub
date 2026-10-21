@@ -6,7 +6,7 @@
  * טופס PDF בדף החותם: העמודים מוצגים עם pdf.js, השדות של החותם מסומנים וממולאים בזמן אמת
  * (חתימה, שם, ת"ז, תאריך), ושדות הטקסט / הסימון שלו מופיעים בטופס.
  */
-import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, SIGN_HERE_HTML, type SignState } from '@/lib/rules/sign'
+import { deviceLabel, groupByDocument, identityCheck, maskEmail, maskPhone, otpChannels, otpState, SIGN_CATEGORIES, SIGN_EVENT_LABELS, SIGN_HERE_HTML, type SignState } from '@/lib/rules/sign'
 import { FIELD_KINDS, fieldsOf, senderFilled, signerInputs, type PdfField } from '@/lib/rules/sign-pdf'
 import type { EnvelopeRow, SignRow } from './store'
 
@@ -58,11 +58,13 @@ export function messagePage(title: string, text: string, tone: 'ok' | 'bad' | 'm
   return shell(title, `<div class="wrap"><div class="card" style="text-align:center"><h1>${esc(title)}</h1><p class="${tone === 'muted' ? 'hint' : ''}" style="${tone === 'bad' ? 'color:var(--bad)' : tone === 'ok' ? 'color:var(--ok)' : ''}">${esc(text)}</p><p class="hint">הר-אל</p></div></div>`)
 }
 
-export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date; stamp?: string | null; pdf?: { fields: PdfField[]; pages: { w: number; h: number }[] } | null } = {}): string {
+export function signPage(row: SignRow, state: SignState, token: string, opts: { total?: number; now?: Date; stamp?: string | null; wa?: boolean; pdf?: { fields: PdfField[]; pages: { w: number; h: number }[] } | null } = {}): string {
   const company = COMPANY[row.division] ?? 'הר-אל'
   const total = opts.total ?? 1
   // קוד אימות: עד שאומת — הטופס מוסתר, והשרת דוחה חתימה בלי אימות בכל מקרה
   const needOtp = row.require_otp && otpState(row, opts.now ?? new Date()) !== 'verified'
+  // וואטסאפ ראשון (דן, 21/10); אם אין אף ערוץ — הכפתור נשאר והשרת מסביר
+  const otpCh = otpChannels(row, !!opts.wa).length ? otpChannels(row, !!opts.wa) : ['email' as const]
   if (state === 'signed') return messagePage('המסמך נחתם', `חתמת ב-${il(row.signed_at)}. ${total > 1 ? 'כשכל החותמים יחתמו יישלח' : 'נשלח'} אליך עותק חתום${row.send_email ? ' במייל' : ''}. תודה!`, 'ok')
   if (state === 'expired') return messagePage('תוקף הקישור פג', 'נא לפנות אלינו לקבלת קישור חדש.', 'bad')
   if (state === 'cancelled') return messagePage('הקישור בוטל', 'נא לפנות אלינו אם יש שאלה.', 'bad')
@@ -90,8 +92,8 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   ${pdf ? pdfHtml : `<div class="card doc">${String(row.body_html).split(SIGN_HERE_HTML).join(`<div class="sighere"><div class="slot">כאן תופיע החתימה שלך</div>${opts.stamp ? `<div class="co"><img src="${esc(opts.stamp)}" alt="חותמת החברה"><div class="hint">חותמת החברה</div></div>` : ''}</div>`)}</div>`}
   ${notesHtml}
   ${needOtp ? `<div class="card otp" id="otp"><h2 style="margin-top:0">אימות לפני חתימה</h2>
-    <p class="hint">נשלח קוד חד-פעמי ${row.send_email ? 'למייל ' + esc(maskEmail(row.send_email)) : 'בוואטסאפ ל-' + esc(maskPhone(row.send_phone))}.</p>
-    <div class="row"><button type="button" class="btn" id="otpSend">שלחו לי קוד</button></div>
+    <p class="hint">נשלח אליך קוד חד-פעמי — ${otpCh.map((c) => c === 'whatsapp' ? 'בוואטסאפ ל-' + esc(maskPhone(row.send_phone)) : 'במייל ל-' + esc(maskEmail(row.send_email))).join(' או ')}.</p>
+    <div class="row">${otpCh.map((c, i) => `<button type="button" class="btn${i ? '' : ' primary'}"${i ? '' : ' id="otpSend"'} data-otpvia="${c}">${otpCh.length > 1 ? (c === 'whatsapp' ? 'שלחו לי בוואטסאפ' : 'שלחו לי במייל') : 'שלחו לי קוד'}</button>`).join('')}</div>
     <label for="otpCode">הקוד שקיבלת</label><input type="text" id="otpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
     <div class="err" id="otpErr" role="alert"></div>
     <button type="button" class="btn primary" id="otpGo" style="margin-top:10px">אימות</button></div>` : ''}
@@ -116,7 +118,7 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   post({action:'open'}).catch(function(){});
   var oe=document.getElementById('otpErr');
   function otpMsg(m,ok){if(!oe)return;oe.textContent=m;oe.style.display=m?'block':'none';oe.style.background=ok?'var(--ok-bg)':'';oe.style.color=ok?'var(--ok)':''}
-  var os=document.getElementById('otpSend');if(os)os.onclick=function(){os.disabled=true;post({action:'otp_send'}).then(function(j){otpMsg(j.ok?'הקוד נשלח ל-'+j.to+(j.to.indexOf('@')>0?' (גם בספאם)':''):(j.error||'השליחה נכשלה'),j.ok);setTimeout(function(){os.disabled=false},j.ok?60000:2000)}).catch(function(){otpMsg('אין חיבור');os.disabled=false})};
+  document.querySelectorAll('[data-otpvia]').forEach(function(os){os.onclick=function(){os.disabled=true;post({action:'otp_send',via:os.dataset.otpvia}).then(function(j){otpMsg(j.ok?'הקוד נשלח ל-'+j.to+(j.to.indexOf('@')>0?' (גם בספאם)':''):(j.error||'השליחה נכשלה'),j.ok);setTimeout(function(){os.disabled=false},j.ok?60000:2000)}).catch(function(){otpMsg('אין חיבור');os.disabled=false})}});
   var og=document.getElementById('otpGo');if(og)og.onclick=function(){var c=document.getElementById('otpCode').value.replace(/\D/g,'');if(c.length!==6)return otpMsg('6 ספרות');og.disabled=true;post({action:'otp_verify',code:c}).then(function(j){og.disabled=false;if(j.ok){document.getElementById('otp').style.display='none';document.getElementById('f').hidden=false;setTimeout(size,0)}else otpMsg(j.error||'קוד שגוי')}).catch(function(){og.disabled=false;otpMsg('אין חיבור')})};
   var cv=document.getElementById('cv'),pad=document.getElementById('pad'),ph=document.getElementById('ph'),ctx=cv.getContext('2d'),drawing=false,pts=0,last=null;
   function size(){var r=pad.getBoundingClientRect(),d=window.devicePixelRatio||1,img=pts?cv.toDataURL():null;cv.width=Math.round(r.width*d);cv.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#111827';if(img){var i=new Image();i.onload=function(){ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(i,0,0,cv.width,cv.height);ctx.setTransform(d,0,0,d,0,0)};i.src=img}}
@@ -192,7 +194,7 @@ export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?:
     <tr><td>טביעת הנוסח (SHA-256)</td><td class="mono">${esc(r.doc_hash)}</td></tr>
     <tr><td>נשלח</td><td>${esc(il(r.created_at))}${r.send_email ? ' · במייל ל-' + esc(r.send_email) : ''}${r.send_phone ? ' · וואטסאפ ' + esc(r.send_phone) : ''}${r.reminders_sent ? ' · תזכורות: ' + r.reminders_sent : ''}</td></tr>
     <tr><td>נפתח לראשונה</td><td>${esc(il(r.opened_at))}</td></tr>
-    ${r.require_otp ? `<tr><td>אימות קוד ${r.send_email ? 'במייל' : 'בוואטסאפ'}</td><td>${esc(il(r.otp_verified_at))}</td></tr>` : ''}
+    ${r.require_otp ? `<tr><td>אימות קוד ${(r.fields?.['@otpVia'] ?? (r.send_email ? 'email' : 'whatsapp')) === 'whatsapp' ? 'בוואטסאפ' : 'במייל'}</td><td>${esc(il(r.otp_verified_at))}</td></tr>` : ''}
     <tr><td>נחתם</td><td>${esc(il(r.signed_at))}</td></tr>
     <tr><td>החותם</td><td>${esc(r.signer_name)} · ת"ז ${esc(r.signer_id_number)}</td></tr>
     <tr><td>כתובת IP</td><td class="mono">${esc(r.signer_ip ?? '—')}</td></tr>
