@@ -170,12 +170,16 @@ export async function driveTool(tool: string, input: ToolInput, token: string, f
       const u = new URL(DRIVE)
       u.searchParams.set('q', driveQuery(String(input.query ?? '')))
       u.searchParams.set('pageSize', String(Math.min(Math.max(Number(input.pageSize) || 50, 1), 1000)))
-      u.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink,parents)')
+      u.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink,parents,shortcutDetails(targetId,targetMimeType))')
       u.searchParams.set('supportsAllDrives', 'true'); u.searchParams.set('includeItemsFromAllDrives', 'true')
       if (input.pageToken) u.searchParams.set('pageToken', String(input.pageToken))
-      const r = await g(token, u, {}, fetchImpl) as { nextPageToken?: string; files?: { id: string; name: string; mimeType: string; modifiedTime?: string; size?: string; webViewLink?: string; parents?: string[] }[] }
+      const r = await g(token, u, {}, fetchImpl) as { nextPageToken?: string; files?: { id: string; name: string; mimeType: string; modifiedTime?: string; size?: string; webViewLink?: string; parents?: string[]; shortcutDetails?: { targetId?: string; targetMimeType?: string } }[] }
       return {
-        files: (r.files ?? []).map((f) => ({ id: f.id, title: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime ?? null, fileSize: f.size ?? null, viewUrl: f.webViewLink ?? null, parentId: f.parents?.[0] ?? null })),
+        // קיצור דרך (WiseCard שומר כך חלק מהמסמכים) — מחזירים את הקובץ שהוא מצביע עליו, כדי שיוצג, ייפתח ויישלח כמו קובץ רגיל
+        files: (r.files ?? []).map((f) => {
+          const sc = f.mimeType === 'application/vnd.google-apps.shortcut' && f.shortcutDetails?.targetId ? f.shortcutDetails : null
+          return { id: sc ? sc.targetId! : f.id, title: f.name, mimeType: sc ? sc.targetMimeType ?? f.mimeType : f.mimeType, modifiedTime: f.modifiedTime ?? null, fileSize: f.size ?? null, viewUrl: sc ? null : f.webViewLink ?? null, parentId: f.parents?.[0] ?? null, ...(sc ? { shortcut: true } : {}) }
+        }),
         ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}),
       }
     }

@@ -4085,10 +4085,13 @@ async function docsLoad(c, force) {
   try { const folders = {}, files = [], seen = new Set(), add = (f) => { if (!seen.has(f.id)) { seen.add(f.id); files.push(f); } };
     for (const [ri, r] of docRoots(c).entries()) { const root = await driveList(r.id), pre = ri ? (r.title || 'תיקייה מקושרת') : '', others = [];
       for (const f of root) { if (isFolder(f)) { const cat = (DOC_CATS.find(([, l]) => l === String(f.title).trim()) || [])[0];
-          if (cat) { if (!ri) folders[cat] = f.id; (await driveList(f.id)).filter((x) => !isFolder(x)).forEach((x) => add({ ...x, ri, cat: (c.docCats || {})[x.id] || cat, inFolder: !ri, sub: pre ? pre + '/' + f.title : '' })); } else others.push(f); }
+          if (cat) { if (!ri) folders[cat] = f.id;
+            /* גם תת-תיקיות בתוך תיקיית קטגוריה (למשל הכנסות/<שם הלווה>) — עד 6 רמות, באותה קטגוריה */
+            const take = async (d, sub, depth) => { for (const x of await driveList(d.id)) { if (isFolder(x)) { if (depth < 6) await take(x, sub ? sub + '/' + x.title : x.title, depth + 1); } else add({ ...x, ri, cat: (c.docCats || {})[x.id] || cat, inFolder: !ri && depth === 1, sub }); } };
+            await take(f, pre ? pre + '/' + f.title : '', 1); } else others.push(f); }
         else add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: pre }); }
-      const walk = async (d, path, depth) => { const kids = await driveList(d.id); let n = 0; /* תת-תיקייה שאינה קטגוריה (למשל "מסמכי משכנתא" של WISE): הקבצים שבה, עד 3 רמות, משויכים לפי השם */
-        for (const f of kids) { if (isFolder(f)) { if (depth < 3) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
+      const walk = async (d, path, depth) => { const kids = await driveList(d.id); let n = 0; /* תת-תיקייה שאינה קטגוריה (למשל "מסמכי משכנתא" של WISE): הקבצים שבה, עד 6 רמות, משויכים לפי השם */
+        for (const f of kids) { if (isFolder(f)) { if (depth < 6) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
       for (const d of others) if (!(await walk(d, (pre ? pre + '/' : '') + d.title, 1))) add({ ...d, ri, cat: 'other', sub: pre, folderLink: true }); }
     st.files = files.sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || ''))); st.folders = folders; st.at = stamp();
   } catch (e) { st.error = e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'קריאת התיקייה בדרייב נכשלה (' + ((e && e.code) || 'שגיאה') + ')'; }
@@ -4931,7 +4934,9 @@ function docViewer(c, files) {
 function docsCard(c) {
   if (!S.isOwner) return ''; const st = (S.docRes || {})[c.id], w = S.canWrite, on = hasDocs(c); if (on && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
   const files = (st && st.files) || [], sel = (S.docSel = S.docSel || new Set()), cur = (S.f.docCat = S.f.docCat || 'all'), cnt = (k) => files.filter((f) => f.cat === k).length;
-  const cand = (c.driveLinks || []).length || (st && st.files && st.files.length) || (on && !(st && st.files)) ? [] : rootMatches(c); /* רק כשאין עדיין מסמכים */
+  /* תיקיות WiseCard בשם הלקוח: כשאין מסמכים — כל ההתאמות; כשכבר יש (למשל הסכם שהמערכת שמרה, או תיקייה אחת כבר משויכת) — רק התאמה מלאה שעוד לא שויכה (דן 21/10: "הסנכרון מ-WiseCard לא תקין") */
+  const none = !(c.driveLinks || []).length && !(st && st.files && st.files.length);
+  const cand = on && !(st && st.files) ? [] : rootMatches(c).filter((m) => none || m.full);
   const chips = '<div class="dchips" role="group" aria-label="סוג מסמך"><button class="dchip" data-doccat="all" aria-pressed="' + (cur === 'all') + '">הכל <span class="num">' + files.length + '</span></button>' +
     DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') +
     (files.length ? '<button class="btn small" data-docview="all" style="margin-inline-start:auto">פתח את כל המסמכים יחד</button>' : '') + '</div>';
