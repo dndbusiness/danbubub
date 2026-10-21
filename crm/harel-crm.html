@@ -107,6 +107,12 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
   @media (max-width: 700px) { .grid3 { grid-template-columns: 1fr; } }
 
   .kpi { display: flex; flex-direction: column; gap: 4px; }
+  .csum { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+  .csum > div { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .csum h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+  .csum .big { font-size: 22px; font-weight: 700; line-height: 1.2; }
+  .csum .ln { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
+  .csum .ln b { font-size: 16px; }
   .kpi h3 { margin: 0; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
   .kpi .v { font-size: 25px; font-weight: 700; line-height: 1.15; }
   .kpi .sub { font-size: 12px; color: var(--text-3); }
@@ -382,6 +388,16 @@ body.locked .mark { display: none; }
 #callbar { position: fixed; inset-inline: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; margin-inline: auto;
   background: var(--surface); border: 1px solid var(--border); border-inline-start: 4px solid var(--brand-accent); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
 #callbar > span { flex: 1 1 auto; }
+/* שעון בכל מסך + שעון עצר / טיימר למשימה (דן 21/10) */
+.tclock { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 0 12px; border-radius: 999px; border: 0; cursor: pointer; background: var(--surface); color: var(--text); box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border); font: 600 16px/1 var(--font-body); }
+.tclock.run { box-shadow: var(--shadow-card), inset 0 0 0 2px var(--committed); }
+.tclock .tl { font-size: 13px; color: var(--committed); }
+#tmrbar { position: fixed; inset-inline: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 59; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; margin-inline: auto;
+  background: var(--surface); border: 1px solid var(--border); border-inline-start: 4px solid var(--committed); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
+#tmrbar.over { border-inline-start-color: var(--open); }
+#tmrbar > span { flex: 1 1 auto; min-width: 0; }
+#callbar ~ #tmrbar { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 767px) { #tmrbar { bottom: calc(var(--bnav-h) + 10px + env(safe-area-inset-bottom, 0px)); } header.top .tclock { order: 3; min-height: 36px; padding: 0 10px; background: rgba(255,255,255,.12); color: #fff; box-shadow: none; font-size: 14px; } }
 @media (max-width: 767px) { #callbar { bottom: calc(var(--bnav-h) + 10px + env(safe-area-inset-bottom, 0px)); } }
 .calload th, .calload td { text-align: center; white-space: nowrap; } .calload td:first-child { text-align: start; } .calload .calgap { background: var(--open-bg); color: var(--open); }
 tr.tot td { font-weight: 700; background: var(--sunk); }
@@ -1535,6 +1551,7 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
       <button type="button" data-d="realestate" aria-pressed="false" title="הר-אל השקעות">השקעות</button>
     </div>
     <span class="push"></span>
+    <button type="button" class="tclock" id="topClock" aria-label="שעון — לחיצה פותחת שעון עצר או טיימר" title="שעון עצר / טיימר"><span id="clockNow" class="num">--:--</span></button>
     <button type="button" class="tbell tdev" id="topDev" aria-label="בקשת שינוי במערכת" title="בקשת שינוי במערכת — Claude בונה, אתה מאשר" hidden></button>
     <button type="button" class="tbell" id="topBell" data-go="tasks" aria-label="משימות פתוחות" title="משימות פתוחות"></button>
     <button type="button" class="tadd" id="topAdd" aria-label="הוספה מהירה">חדש</button>
@@ -2111,7 +2128,7 @@ function vDay() {
     return '<label class="check" style="border-inline-start:4px solid ' + prioVar(t) + '"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + (t.time ? '<span class="hint num">' + esc(t.time) + '</span> ' : '') + esc(t.title) +
       (c ? ' · <button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '') + '</span>' +
       (t.priority === 'urgent' || t.priority === 'high' ? '<span class="pill open">' + L.priority[t.priority] + '</span>' : '') +
-      '<span class="hint num">' + dLabel(t.due) + '</span></label>'; };
+      '<span class="hint num">' + dLabel(t.due) + '</span>' + tmrBtn(t) + '</label>'; };
   const funnelCard = B.funnel ? '<section class="card dfun"><header><span class="grow"><h2>' + B.funnelHead + '</h2><small class="hint">כל שלב מול מה שנכנס בתחילת התהליך</small></span>' + B.seg + '</header>' + B.funnel + '</section>' : '';
   const stagesCard = B.stages ? '<section class="card dstg"><header><span class="grow"><h2>איפה התיקים עומדים</h2><small class="hint">תיקים פתוחים לפי שלב</small></span>' + (B.funnel ? '' : B.seg) + '</header>' + B.stages + '</section>' : '';
   const feed = dayFeed();
@@ -2338,7 +2355,7 @@ function approvalsCard() {
   const P = live(S.approvals).filter((a) => a.status === 'pending' && canDecide(a)).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   if (!P.length) return '';
   return '<section class="card" id="sqAppr"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
-    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>אישור מסמכים להגשה:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
+    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>אישור מסמכים להגשה:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' + (S.clients.get(a.clientId) ? '<div class="hint"><b>' + esc((pledgeInfo(S.clients.get(a.clientId)) || { text: 'לא סומן אם הלקוח גר בנכס המשועבד' }).text) + '</b></div>' : '') + '' +
         '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
         '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
           (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approkonly="' + esc(a.id) + '" title="המסמכים עוברים לתיקיית מאושר לשליחה, והדס שולחת">אשר מסמכים</button> <button class="btn small ghost" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
@@ -2849,13 +2866,48 @@ function clientTable(rows, compact) {
       ($$ ? '<td>' + money(m.fee) + '</td>' + (compact ? '' : '<td>' + money(m.collected, { tone: m.collected ? 'actual' : 'muted' }) + '</td>') +
         '<td>' + (m.open ? money(m.open, { tone: 'expected' }) : '<span class="pill actual">✓</span>') + '</td>' : '') +
       '<td class="num">' + (ot ? '<span class="pill committed">' + ot + '</span>' : '<span class="hint">0</span>') + (S.canTask && !compact ? ' <button class="btn small ghost" data-addtaskfor="' + esc(c.id) + '" aria-label="משימה ל' + esc(c.name) + '">+</button>' : '') + '</td>' +
-      '<td class="wide" style="min-width:150px">' + ((ls) => ls ? '<span class="hint">' + ls.kind + ':</span> <span class="' + (ls.late ? 'm open' : '') + '">' + linkify(ls.text, 90) + (ls.date ? ' · ' + dLabel(ls.date) : '') + '</span>' : '<span class="hint">—</span>')(latestStatus(c)) + '</td></tr>';
+      '<td class="wide" style="min-width:150px">' + ((ls) => ls ? '<span class="hint">' + ls.kind + ':</span> <span class="' + (ls.late ? 'm open' : '') + '">' + linkify(ls.text, 90) + (ls.date ? ' · ' + dLabel(ls.date) : '') + '</span>' : '<span class="hint">—</span>')(latestStatus(c)) +
+        /* הדס 21/10: הערה קבועה בטבלה — לא משימה, ולא נדחקת כשנפתחת משימה חדשה */
+        (c.tableNote ? '<div style="margin-top:3px"><span class="hint">הערה:</span> ' + linkify(c.tableNote, 140) + '</div>' : '') +
+        (S.canClient && !compact ? ' <button class="btn small ghost" data-tablenote="' + esc(c.id) + '" title="הערה שמופיעה כאן — לא משימה">' + (c.tableNote ? '✎' : '+ הערה') + '</button>' : '') + '</td></tr>';
   }).join('');
   return '<div class="scroll"><table><thead><tr><th>לקוח</th><th>אחראי</th><th>אישור</th><th>שלב</th>' + ($$ ? '<th>שכ״ט</th>' + (compact ? '' : '<th>נגבה</th>') + '<th>פתוח</th>' : '') + '<th>משימות</th><th>מצב / הצעד הבא</th></tr></thead><tbody>' + body + '</tbody>' +
     (compact || !$$ ? '' : '<tfoot><tr><td>' + rows.length + ' לקוחות</td><td></td><td></td><td></td><td>' + money(tf) + '</td><td>' + money(tc, { tone: 'actual' }) + '</td><td>' + money(to, { tone: 'expected' }) + '</td><td></td><td></td></tr></tfoot>') + '</table></div>';
 }
 
 /* ── כרטיס לקוח ──────────────────────────────────────────────────────────── */
+/* ── תמצית התיק (דן 21/10): מעל הכרטיס — לאן להגיש, מה הוגש, מה אושר, על איזה סכום, והלקוח בקצרה ── */
+const SUB_TONE = { prep: 'muted', submitted: 'expected', review: 'expected', approved: 'committed', executed: 'actual', declined: 'open' };
+function caseSummaryCard(c) {
+  if ((c.division || 'finance') === 'realestate') return '';
+  const x0 = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)) || null, x = x0 ? (x0.kind ? x0 : { ...x0, kind: intakeKind(x0, c.id) }) : null, C = x ? intakeCalc(x) : null;
+  const subs = (c.submissions || []).filter((s0) => s0 && s0.bank), done = new Set(subs.map((s0) => s0.bank));
+  const flow = subsOfClient(c).filter((a) => a.status === 'pending' || subUnsent(a));
+  const amount = n(c.baseAmount) || (C && C.amount) || 0;
+  /* לאן להגיש: גופים שמופיעים ב"הנחיות להגשה" של דן ועוד לא הוגש אליהם; אחרת — ההתאמה מ"הכר את הלקוח" */
+  const guide = procNote(c, 'prep'), named = guide ? live(S.lenders).filter((l) => l.name && guide.includes(l.name)).map((l) => l.name) : [];
+  const match = x && x.kind !== 'car' && C ? fundMatch(x, C).top.map((o) => o.f.name) : [];
+  /* "פריסבי" בהגשה = "פריסבי / אלבר" בהתאמה — משווים לפי כל חלק בשם */
+  const same = (a, b) => { const P = (x) => String(x || '').split('/').map((y) => y.trim()).filter(Boolean); return P(a).some((x) => P(b).some((y) => x === y || x.includes(y) || y.includes(x))); };
+  const todo = (named.length ? named : match).filter((b) => ![...done].some((d0) => same(d0, b)) && !flow.some((a) => same(a.bank, b)));
+  const tile = (h, body) => '<div><h3>' + h + '</h3>' + body + '</div>';
+  const ln = (b, pill, extra) => '<div class="ln"><b>' + esc(b) + '</b>' + pill + (extra ? '<span class="hint">' + extra + '</span>' : '') + '</div>';
+  const subLines = subs.map((s0) => ln(s0.bank, '<span class="pill ' + (SUB_TONE[s0.status] || 'muted') + '">' + esc(SUBST[s0.status] || s0.status || 'הוגש') + '</span>', s0.amount ? plain(s0.amount) : '')).join('') +
+    flow.map((a) => ln(a.bank, '<span class="pill ' + subStatePill(a)[1] + '">' + esc(subStatePill(a)[0]) + '</span>', '')).join('');
+  const appr = subs.filter((s0) => ['approved', 'executed'].includes(s0.status));
+  const B = x ? (x.borrowers || []).filter((b) => b && (b.name || b.income)) : [], pl = pledgeInfo(c);
+  const brief = x ? [B.length ? (B.map((b) => b.name || 'לווה').join(' + ')) : '', C && C.inc ? 'הכנסות ' + plain(C.inc) : '', C && C.value ? 'נכס ' + plain(C.value) + (C.ltvNow != null ? ' · שעבוד ' + pctTxt(C.ltvNow) : '') : '',
+    (x.credit || {}).bdi ? 'BDI ' + IK.bdi[x.credit.bdi] : '', x.track ? IK.track[x.track] : '', (x.request || {}).purpose ? IK.purpose[x.request.purpose] : ''].filter(Boolean) : [];
+  return '<section class="card" aria-label="תמצית התיק"><header><h2>תמצית התיק</h2>' + (c.phone ? '<span class="hint"><bdi>' + esc(normPhone(c.phone)) + '</bdi></span>' : '') + '</header><div class="csum">' +
+    tile('סכום ההגשה', '<div class="big">' + (amount ? plain(amount) : '—') + '</div><div class="hint">' + esc([L.product[c.product] || '', c.feePct ? 'שכ״ט ' + r2(c.feePct * 100) + '%' : c.feeFixed ? 'שכ״ט ' + plain(c.feeFixed) : ''].filter(Boolean).join(' · ')) + '</div>') +
+    tile('הוגש ל־', subLines || '<p class="hint" style="margin:0">עוד לא הוגש</p>') +
+    tile('אושר', appr.length ? appr.map((s0) => ln(s0.bank, '<span class="pill ' + SUB_TONE[s0.status] + '">' + esc(SUBST[s0.status]) + '</span>', s0.amount ? plain(s0.amount) : '')).join('') +
+      ((pr) => pr.managerName || pr.managerPhone ? '<div class="hint">מנהל התיק' + (pr.fund ? ' ב' + esc(pr.fund) : '') + ': <b>' + esc(pr.managerName || '') + '</b>' + (pr.managerPhone ? ' · <a href="tel:' + esc(normPhone(pr.managerPhone)) + '" dir="ltr">' + esc(normPhone(pr.managerPhone)) + '</a>' : '') + '</div>' : '')((c.proc || {}).principle || {}) : '<p class="hint" style="margin:0">עוד אין אישור</p>') +
+    tile('צריך להגיש ל־', todo.length ? todo.map((b) => ln(b, '', '')).join('') + '<div class="hint">' + (named.length ? 'לפי ההנחיות להגשה' : 'לפי ההתאמה ב"הכר את הלקוח"') + '</div>' : '<p class="hint" style="margin:0">' + (guide ? esc(guide.slice(0, 120)) : 'אין עדיין הנחיות להגשה') + '</p>') +
+    tile('הלקוח בקצרה', brief.length ? '<p style="margin:0">' + brief.map(esc).join(' · ') + '</p>' : '<p class="hint" style="margin:0">"הכר את הלקוח" עוד לא מולא</p>') +
+    tile('הנכס המשועבד', pl ? '<p style="margin:0">' + (pl.isHome ? '<span class="pill ' + (pl.isHome === 'yes' ? 'committed' : 'expected') + '">' + (pl.isHome === 'yes' ? 'גר בנכס' : 'לא גר בנכס') + '</span> ' : '<span class="pill open">לא סומן</span> ') + esc(pl.address || '') + '</p>' + (pl.isHome === 'no' && pl.home ? '<div class="hint">כתובת המגורים: ' + esc(pl.home) + '</div>' : '') : '<p style="margin:0"><span class="pill open">לא סומן</span> <button class="xlink" data-intake="' + esc(c.id) + '">לסמן ב"הכר את הלקוח"</button></p>') +
+    '</div></section>';
+}
 function vClient(id) {
   const c = S.clients.get(id);
   if (!c || c.deletedAt || !canSeeDiv(c.division)) return '<p class="empty">הלקוח לא נמצא. <button class="xlink" data-go="clients">חזרה ללקוחות</button></p>';
@@ -2880,7 +2932,7 @@ function vClient(id) {
       '<div class="chacts">' + (wa0 ? '<a class="btn wa" href="' + esc(wa0) + '" target="_blank" rel="noopener">' + IC('wa') + 'וואטסאפ</a>' : '') + (c.phone ? '<a class="btn call chcall" href="tel:' + esc(normPhone(c.phone)) + '">' + IC('call') + 'חיוג</a>' + vcBtn(c.phone, true, 'client:' + c.id) : '') +
         (formsOk() ? '<button class="btn ghost" data-formsfor="' + esc(c.id) + '">' + IC('note') + 'שליחה לחתימה</button>' : '') + (w ? '<button class="btn primary" data-intake="' + esc(c.id) + '">' + IC('spark') + 'הכר את הלקוח</button>' : '') + '</div></div>' +
       (st0 ? '<div class="chprog" aria-hidden="true">' + st0.map((x, i) => '<i class="' + (i < ci0 ? 'done' : i === ci0 ? 'cur' : '') + '"></i>').join('') + '</div>' : '') +
-      '</section><section class="card chmgmt" aria-label="ניהול התיק">' + '<div class="row">' + (S.canTask ? '<button class="btn ' + ((fileOf(c.id) || {}).needsDan ? 'danger' : 'ghost') + '" data-needsdan="' + esc(c.id) + '">' + ((fileOf(c.id) || {}).needsDan ? (S.isDan ? '✓ אישרתי' : 'ממתין לאישור דן ✕') : 'לאישור דן') + '</button>' : '') +
+      '</section>' + caseSummaryCard(c) + '<section class="card chmgmt" aria-label="ניהול התיק">' + '<div class="row">' + (S.canTask ? '<button class="btn ' + ((fileOf(c.id) || {}).needsDan ? 'danger' : 'ghost') + '" data-needsdan="' + esc(c.id) + '">' + ((fileOf(c.id) || {}).needsDan ? (S.isDan ? '✓ אישרתי' : 'ממתין לאישור דן ✕') : 'לאישור דן') + '</button>' : '') +
         (w ? sel('cResp', 'אחראי', [['', 'בלי אחראי'], ...(() => { const es = respEntries(c.division || 'finance'); return c.resp && !es.some(([k]) => k === c.resp) ? [...es, [c.resp, L.resp[c.resp] || c.resp]] : es; })()], c.resp || '') + sel('cApproval', 'אישור', Object.entries(L.approval), c.approval || 'pending') + sel('cStage', 'שלב', STAGE_ORDER.map((k) => [k, L.stage[k]]), c.stage) +
         sel('cStatus', 'סטטוס', Object.entries(L.status), c.status) + '<button class="btn" data-act="editClient">עריכה</button>' + (S.isOwner && ['won', 'lost', 'cancelled'].includes(c.status) ? '<button class="btn" data-act="newDeal">+ עסקה חדשה ללקוח</button>' : '') : respChip(c.resp) + approvalPill(c) + '<span class="pill committed">' + (L.stage[c.stage] || '') + '</span>') + '</div>' + '<div class="row">' + copyBtns('c:' + c.id, true) + '</div></div>' +
       (c.status === 'hold' ? '<div class="notice warn" style="margin-top:8px"><b>בהשהייה</b><span>' + esc(c.holdReason || 'לא נכתבה סיבה') + (w ? ' <button class="xlink" data-act="holdReason">עדכן סיבה</button>' : '') + '</span></div>' : '') +
@@ -2910,7 +2962,7 @@ function vClient(id) {
         '<section class="card"><header><h2>משימות על התיק</h2>' + (ctasks.length ? '<span class="pill expected">' + ctasks.length + '</span>' : '') + '</header>' +
           (!ctasks.length ? '<p class="empty">אין משימות פתוחות על התיק.</p>' : '') +
           (ctasks.length ? '' + ctasks.map((t) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + esc(t.title) + '</span></label>' + respChip(taskResp(t)) +
-            '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
+            '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + tmrBtn(t) + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
           (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>' +
         (S.isOwner ? instCard(c, w) : '') + mailCard(c) + calCard(c) +
         '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
@@ -2995,7 +3047,7 @@ function taskCard(t, t0) {
     '<div class="row" style="margin-top:8px">' + respChip(taskResp(t)) + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
       (!c && t.leadId && S.leads.has(t.leadId) ? '<a class="chip" href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + ' ↗</a>' : '') +
       (t.due ? '<span class="pill ' + (late ? 'open' : t.due === t0 ? 'committed' : 'muted') + '">' + (late ? 'באיחור · ' : '') + dLabel(t.due) + (t.time ? ' ' + esc(t.time) : '') + '</span>' : '<span class="hint">בלי תאריך</span>') +
-      (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + '<span class="grow"></span>' +
+      (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + tmrBtn(t) + '<span class="grow"></span>' +
       (w && t.status !== 'done' ? '<button class="btn small ghost" data-taskmorrow="' + esc(t.id) + '">למחר</button>' : '') + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div></article>';
 }
 function vTasks() {
@@ -3015,7 +3067,7 @@ function vTasks() {
     (rows.length ? '<div class="scroll"><table><thead><tr><th></th><th>משימה</th><th>לקוח</th><th>אחראי</th><th>עדיפות</th><th>יעד</th><th></th></tr></thead><tbody>' + rows.map((t) => {
       const late = t.due && t.due < t0 && t.status !== 'done', c = t.clientId && S.clients.get(t.clientId);
       return '<tr><td style="width:28px;border-inline-start:4px solid ' + prioVar(t) + '"><input class="cb" type="checkbox" data-taskdone="' + esc(t.id) + '"' + (t.status === 'done' ? ' checked' : '') + (S.canTask ? '' : ' disabled') + ' aria-label="בוצע"></td>' +
-        '<td class="wide"' + (t.status === 'done' ? ' style="color:var(--text-3);text-decoration:line-through"' : '') + '>' + esc(t.title) + (t.auto ? ' <span class="pill committed">אוטומטית</span>' : '') + (t.notes ? '<div class="hint">' + esc(String(t.notes).slice(0, 140)) + '</div>' : '') + '</td>' +
+        '<td class="wide"' + (t.status === 'done' ? ' style="color:var(--text-3);text-decoration:line-through"' : '') + '>' + esc(t.title) + (t.auto ? ' <span class="pill committed">אוטומטית</span>' : '') + ' ' + tmrBtn(t) + (t.notes ? '<div class="hint">' + esc(String(t.notes).slice(0, 140)) + '</div>' : '') + '</td>' +
         '<td>' + (c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : t.leadId && S.leads.has(t.leadId) ? '<a href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + '</a>' : esc(t.clientName || '')) + '</td>' +
         '<td>' + respChip(taskResp(t)) + '</td>' +
         '<td><span class="pill ' + (t.priority === 'urgent' || t.priority === 'high' ? 'open' : 'muted') + '">' + (L.priority[t.priority] || 'רגילה') + '</span></td>' +
@@ -4942,6 +4994,7 @@ async function rootMatchRun() {
 function sendFundBox(c, files) {
   const sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id)), re = (c.division || 'finance') === 'realestate', co = re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', ls = live(S.lenders).filter((l) => re || l.kind !== 'developer').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
   return '<details class="ppanel" style="margin-top:12px"' + (sel.length ? ' open' : '') + '><summary><b>שליחה לקרן / גוף מימון</b> <span class="hint">' + (sel.length ? sel.length + ' מסמכים מסומנים' : 'מסמנים מסמכים למעלה') + '</span></summary>' +
+    (re ? '' : '<p class="hint" style="margin:8px 0 0"><b>' + esc((pledgeInfo(c) || { text: 'לא סומן אם הלקוח גר בנכס המשועבד — לסמן ב"הכר את הלקוח"' }).text) + '</b></p>') +
     '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl">נמען<select class="f" id="fundTo"><option value="">— בחר —</option>' +
         '<optgroup label="' + (re ? 'גופים ויזמים' : 'גופי מימון') + ' (ברשימת הגופים)">' + ls.filter((l) => l.email).map((l) => '<option value="l:' + esc(l.id) + '">' + esc(l.name) + ' · ' + esc(l.email) + '</option>').join('') + '</optgroup>' +
         CONTACT_CATS.filter(([k]) => !['team', 'client'].includes(k)).map(([k, lb]) => { const cs = live(S.contacts || new Map()).filter((x) => (x.cat || 'other') === k).sort((a, b) => String(a.org || a.name).localeCompare(String(b.org || b.name), 'he'));
@@ -5566,6 +5619,53 @@ async function rePrepSend(cid) {
     notes: ['הון עצמי: ' + (p.equity ? plain(p.equity) : '—'), 'הכנסות: ' + (profTotal(p) ? plain(profTotal(p)) : '—'), p.goal ? 'מטרה: ' + p.goal : '', c.driveFolder ? 'תיקייה: https://drive.google.com/drive/folders/' + c.driveFolder : '', p.pdf ? 'אפיון: ' + p.pdf.url : ''].filter(Boolean).join('\n'), status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() });
   await reSet(c, { prepSentAt: stamp() }, 'נשלח ל' + (L.resp[aviv] || aviv) + ' להכנת נכסים'); toast('נשלח ל' + (L.resp[aviv] || aviv) + ' — משימה ל-3 ימים');
 }
+/* ═════ שעון בכל מסך + שעון עצר / טיימר למשימה (דן 21/10) ═════
+   השעון למעלה מתעדכן כל 20 שניות. לחיצה עליו, או על ⏱ במשימה: שעון עצר (סופר קדימה) או טיימר לזמן שבוחרים (סופר אחורה, צלצול בסוף).
+   השעון שרץ נשמר בדפדפן — ממשיך גם אחרי רענון. "עצור ושמור" — הזמן נרשם במשימה (סה״כ דקות + פירוט) וביומן הלקוח. */
+let TMR = null, TMR_T = null;
+const tmrKey = () => 'harel-timer-' + (S.myKey || 'me');
+function tmrLoad() { try { TMR = JSON.parse(localStorage.getItem(tmrKey()) || 'null'); } catch (e) { TMR = null; } if (TMR) tmrRun(); }
+function tmrSave() { try { if (TMR) localStorage.setItem(tmrKey(), JSON.stringify(TMR)); else localStorage.removeItem(tmrKey()); } catch (e) {} }
+const tmrFmt = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const tmrMinTxt = (m) => { m = Math.round(n(m)); return m >= 60 ? Math.floor(m / 60) + ' ש׳' + (m % 60 ? ' ' + (m % 60) + ' דק׳' : '') : m + ' דק׳'; };
+function clockTick() { const el = document.getElementById('clockNow'); if (el) el.textContent = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' }); }
+function tmrBar(html, over) { let el = document.getElementById('tmrbar'); if (!html) { if (el) el.remove(); return; } if (!el) { el = document.createElement('div'); el.id = 'tmrbar'; el.setAttribute('role', 'timer'); document.body.appendChild(el); } el.classList.toggle('over', !!over); el.innerHTML = html; }
+function tmrTick() {
+  const btn = document.getElementById('topClock'); if (btn) btn.classList.toggle('run', !!TMR);
+  if (!TMR) return tmrBar('');
+  const gone = (Date.now() - TMR.at) / 1000, left = TMR.mins ? TMR.mins * 60 - gone : null, over = left != null && left <= 0;
+  if (over && !TMR.rang) { TMR.rang = true; tmrSave(); tmrRing(); }
+  tmrBar('<span>' + (TMR.mins ? '⏳' : '⏱') + ' ' + (TMR.title ? '<b>' + esc(TMR.title) + '</b> · ' : '') + '<b class="num">' + (TMR.mins ? (over ? 'נגמר הזמן · +' + tmrFmt(-left) : tmrFmt(left)) : tmrFmt(gone)) + '</b>' + (TMR.mins ? ' <span class="hint">מתוך ' + TMR.mins + ' דק׳</span>' : '') + '</span>' +
+    '<button class="btn small primary" data-tmrstop="1">' + (TMR.taskId ? 'עצור ושמור' : 'עצור') + '</button><button class="btn small ghost" data-tmrx="1" aria-label="בטל בלי לשמור">✕</button>', over);
+}
+function tmrRun() { clearInterval(TMR_T); TMR_T = setInterval(tmrTick, 1000); tmrTick(); }
+function tmrRing() {
+  try { const A = new (window.AudioContext || window.webkitAudioContext)(); [0, 0.35, 0.7].forEach((d) => { const o = A.createOscillator(), g = A.createGain(); o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(A.destination); o.start(A.currentTime + d); o.stop(A.currentTime + d + 0.2); }); } catch (e) {}
+  toast('⏳ נגמר הזמן' + (TMR && TMR.title ? ': ' + TMR.title : ''));
+  try { if (window.Notification && Notification.permission === 'granted') new Notification('נגמר הזמן', { body: (TMR && TMR.title) || 'הטיימר הסתיים' }); } catch (e) {}
+}
+function formTimer(taskId) {
+  if (TMR) return toast('כבר רץ שעון — עצור אותו קודם');
+  const t = taskId ? S.tasks.get(taskId) : null;
+  drawer(t ? 'שעון למשימה — ' + t.title : 'שעון עצר / טיימר', fs('mode', 'סוג', [['timer', 'טיימר — זמן שאני קובע'], ['watch', 'שעון עצר — סופר קדימה']], 'timer', true) +
+    fs('mins', 'כמה זמן (בטיימר)', [['10', '10 דקות'], ['15', '15 דקות'], ['20', '20 דקות'], ['30', '30 דקות'], ['45', '45 דקות'], ['60', 'שעה'], ['90', 'שעה וחצי'], ['x', 'אחר…']], '30') + fi('custom', 'דקות (אם בחרת "אחר")', '', 'number', 'min="1" max="600"') +
+    (t ? (n(t.spentMin) ? '<p class="hint full">עד עכשיו על המשימה: ' + tmrMinTxt(t.spentMin) + '</p>' : '') : fi('title', 'על מה (לא חובה)', '')),
+  async (fd) => { const mins = fd.mode === 'timer' ? (fd.mins === 'x' ? Math.round(n(fd.custom)) : Number(fd.mins)) : null; if (fd.mode === 'timer' && !(mins > 0)) return 'כמה דקות?';
+    TMR = { at: Date.now(), mins, taskId: t ? t.id : null, title: t ? t.title : String(fd.title || '').trim() }; tmrSave(); tmrRun();
+    try { if (mins && window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {} }, '', 'התחל');
+}
+async function tmrStop(save) {
+  const T = TMR; TMR = null; tmrSave(); clearInterval(TMR_T); tmrTick(); if (!T) return;
+  const mins = Math.max(1, Math.round((Date.now() - T.at) / 60000));
+  if (!save || !T.taskId) return toast(save ? '⏱ ' + tmrMinTxt(mins) : 'השעון בוטל');
+  const t = S.tasks.get(T.taskId); if (!t) return toast('⏱ ' + tmrMinTxt(mins));
+  await write('tasks/' + t.id, { spentMin: Math.round(n(t.spentMin) + mins), timeLog: [...(t.timeLog || []), { from: new Date(T.at).toISOString(), mins, by: S.me.id, planned: T.mins || null }].slice(-50), updatedAt: stamp() }, 'update');
+  if (t.clientId) await logClient(t.clientId, '⏱ ' + tmrMinTxt(mins) + ' על: ' + t.title).catch(() => {});
+  toast('נשמר: ' + tmrMinTxt(mins) + ' · סה״כ על המשימה ' + tmrMinTxt(n(t.spentMin) + mins));
+}
+const tmrBtn = (t) => S.canTask && t.status !== 'done' ? '<button class="btn small ghost" data-tasktimer="' + esc(t.id) + '" title="שעון עצר / טיימר למשימה" aria-label="שעון למשימה">⏱' + (n(t.spentMin) ? ' ' + tmrMinTxt(t.spentMin) : '') + '</button>' : (n(t.spentMin) ? '<span class="hint">⏱ ' + tmrMinTxt(t.spentMin) + '</span>' : '');
+setInterval(clockTick, 20000); setTimeout(clockTick, 0);
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#topClock') && S.ready && !isLocked()) formTimer(); });
 /* ── שיחות: הרמה מול אפקטיבית (דן, 15/10). לחיצה על מספר טלפון של ליד מפעילה שעון; כשחוזרים למסך (או "סיום") נרשם המשך.
    פחות מדקה = הרמה, דקה ומעלה = אפקטיבית — אוטומטית. "לא ענה" / תיקון בלחיצה. המשך כולל צלצול — הערכה. ── */
 let CALL = null, CALL_T = null;
@@ -6478,9 +6578,37 @@ const pf = (c, path, label, type = 'text', attrs = '', w = S.canTask) => { const
 const pchk = (c, path, label, w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="check"><input type="checkbox" data-pf="' + path + '"' + (v ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + label + '</span></label>'; };
 const parea = (c, path, label, ph = '', w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="fl full">' + label + '<textarea class="f" rows="2" data-pf="' + path + '" placeholder="' + esc(ph) + '"' + (w ? '' : ' disabled') + '>' + esc(v || '') + '</textarea></label>'; };
 const psel = (c, path, label, opts, w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="fl">' + label + '<select class="f" data-pf="' + path + '"' + (w ? '' : ' disabled') + '><option value="">—</option>' + opts.map(([k, t]) => '<option value="' + esc(k) + '"' + (String(v ?? '') === String(k) ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>'; };
+/* ── מנהל התיק בגוף שאישר (הדס 21/10): שם וטלפון ליד האישור העקרוני. הצעה מאנשי הקשר של אותו גוף ── */
+function principleMgr(c, w, noFund) {
+  const pr = (c.proc || {}).principle || {}, subs = (c.submissions || []).filter((x) => x && x.bank).map((x) => [x.bank, x.bank]);
+  const fund = pr.fund || ((c.submissions || []).find((x) => x && x.status === 'approved') || {}).bank || '';
+  const known = fund ? live(S.contacts || new Map()).filter((x) => x.org && (x.org === fund || fund.includes(x.org) || x.org.includes(fund)) && (x.phone || x.name)) : [];
+  const ph = pr.managerPhone ? normPhone(pr.managerPhone) : '';
+  return '<div class="ppanel" style="margin:0 0 10px;border-inline-start:3px solid var(--committed)"><h3 class="sec" style="margin-top:0">מנהל התיק בגוף' + (fund ? ' — ' + esc(fund) : '') + '</h3>' +
+    (pr.managerName || ph ? '<p style="margin:0 0 6px;font-size:16px"><b>' + esc(pr.managerName || '') + '</b>' + (ph ? ' · <a href="tel:' + esc(ph) + '" dir="ltr">' + esc(ph) + '</a>' + (waLink(ph) ? ' <a class="btn small wa" href="' + esc(waLink(ph)) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') : '') + '</p>' : '') +
+    '<div class="row" style="align-items:flex-end">' + (noFund ? '' : psel(c, 'principle.fund', 'הגוף שאישר', subs.length ? subs : [['', 'אין הגשות בתיק']], w)) + pf(c, 'principle.managerName', 'מנהל התיק', 'text', '', w) + pf(c, 'principle.managerPhone', 'טלפון', 'tel', 'dir="ltr" style="width:140px"', w) +
+      (w && known.length ? '<label class="fl">מאנשי הקשר<select class="f" data-pmgr>' + '<option value="">—</option>' + known.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name + (x.phone ? ' · ' + x.phone : '')) + '</option>').join('') + '</select></label>' : '') + '</div></div>';
+}
+async function condsToTasks(c) {
+  const P = JSON.parse(JSON.stringify(c.proc || {})), arr = P.conds || [], who = procOwner(c, 'conds') || 'hadas', pr = P.principle || {}; let k = 0;
+  const notes = [pr.fund ? 'הגוף: ' + pr.fund : '', pr.managerName || pr.managerPhone ? 'מנהל התיק: ' + [pr.managerName, pr.managerPhone].filter(Boolean).join(' · ') : ''].filter(Boolean).join('\n');
+  for (const it of arr) {
+    if (it.done || (it.taskId && S.tasks.get(it.taskId))) continue;
+    const id = uid(); await write('tasks/' + id, { id, title: 'התניה: ' + it.text + ' — ' + c.name, resp: who, assigneeId: userOfResp(who) || null, due: addDays(today(), 2), priority: 'normal', status: 'open', clientId: c.id, notes, condOf: c.id, ruleKey: 'cond:' + c.id + ':' + slug(it.text), createdAt: stamp(), createdBy: S.me.id });
+    it.taskId = id; k++;
+  }
+  if (!k) return toast('אין התניות פתוחות בלי משימה');
+  await procSave(c, P, k + ' התניות הוגדרו כמשימות ל' + (L.resp[who] || who));
+  toast(k + ' משימות נפתחו ל' + (L.resp[who] || who));
+}
+/* משימת התניה שבוצעה — ההתניה בתיק מסומנת ✓ (ולהפך: סימון ההתניה סוגר את המשימה) */
+async function condTaskSync(t, done) {
+  const c = t && t.condOf && S.clients.get(t.condOf); if (!c) return; const P = JSON.parse(JSON.stringify(c.proc || {})), it = (P.conds || []).find((x) => x.taskId === t.id);
+  if (!it || !!it.done === !!done) return; it.done = !!done; it.doneAt = done ? stamp() : null; await procSave(c, P, (done ? '✓ ' : 'בוטל: ') + it.text + ' (מהמשימה)');
+}
 /* רשימה עם סימון: conds / sec / tranche conditions */
 function plist(c, key, items, ph, w) {
-  return (items.length ? items.map((it, i) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-plistdone="' + key + ':' + i + '"' + (it.done ? ' checked' : '') + (w ? '' : ' disabled') + '><span' + (it.done ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + esc(it.text) + '</span></label>' +
+  return (items.length ? items.map((it, i) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-plistdone="' + key + ':' + i + '"' + (it.done ? ' checked' : '') + (w ? '' : ' disabled') + '><span' + (it.done ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + esc(it.text) + '</span></label>' + (it.taskId ? ((t) => '<span class="pill ' + (t && t.status === 'done' ? 'actual' : 'committed') + '">משימה' + (t ? ' · ' + esc(L.resp[taskResp(t)] || '') : '') + (t && t.status === 'done' ? ' ✓' : '') + '</span>')(S.tasks.get(it.taskId)) : '') +
       (it.doneAt ? '<span class="hint">' + dLabel(dayOf(it.doneAt)) + '</span>' : '') + (w ? '<button class="btn small ghost" data-plistdel="' + key + ':' + i + '" aria-label="הסר">×</button>' : '') + '</div>').join('') : '<p class="empty" style="margin:4px 0">אין עדיין.</p>') +
     (w ? '<div class="row" style="margin-top:6px"><input class="f grow" id="pl_' + key + '" placeholder="' + esc(ph) + '"><button class="btn small" data-plistadd="' + key + '">הוסף</button></div>' : '');
 }
@@ -6594,9 +6722,11 @@ function procPanel(c, k, w) {
     // falls through — עסקים / רכב
     case 'direct': return (k === 'direct' ? '<p class="hint" style="margin:0 0 6px">בחינה מול מימון ישיר (וגופים נוספים אם צריך).</p>' : '<p class="hint" style="margin:0 0 6px">לאילו קרנות הוגש, מה התנאים בכל קרן ואיך התיק עבר את הבחינה.</p>') + subsTable(c, w);
     case 'principle': case 'approval': { const subs = (c.submissions || []).map((s) => [s.bank, s.bank]);
-      return '<div class="row">' + psel(c, 'principle.fund', 'איפה אושר', subs.length ? subs : [['', 'הוסף קרן בשלב ההגשה']]) + pf(c, 'principle.date', 'תאריך', 'date') + pf(c, 'principle.amount', 'סכום מאושר', 'number', 'step="1000"') + pf(c, 'principle.rate', 'ריבית %', 'number', 'step="0.01" style="width:80px"') + pf(c, 'principle.years', 'שנים', 'number', 'style="width:70px"') + '</div>' + parea(c, 'principle.note', 'תנאים עיקריים באישור'); }
-    case 'conds': return '<p class="hint" style="margin:0 0 6px">ההתניות והמסמכים שהקרן דרשה באישור העקרוני. אפשר לסרוק את מכתב האישור — Claude מציע רשימה, ואתה מאשר מה נכנס.</p>' + plist(c, 'conds', p.conds || [], 'התניה / מסמך להשלמה', w) +
-      (w ? '<div class="row" style="margin-top:8px"><label class="btn small">סרוק אישור עקרוני (PDF / תמונה)<input type="file" id="condScan" accept="application/pdf,image/*" hidden></label><span class="hint" id="condScanSt"></span></div><div id="condSug"></div>' : '');
+      return principleMgr(c, w, true) + '<div class="row">' + psel(c, 'principle.fund', 'איפה אושר', subs.length ? subs : [['', 'הוסף קרן בשלב ההגשה']]) + pf(c, 'principle.date', 'תאריך', 'date') + pf(c, 'principle.amount', 'סכום מאושר', 'number', 'step="1000"') + pf(c, 'principle.rate', 'ריבית %', 'number', 'step="0.01" style="width:80px"') + pf(c, 'principle.years', 'שנים', 'number', 'style="width:70px"') + '</div>' + parea(c, 'principle.note', 'תנאים עיקריים באישור'); }
+    case 'conds': { const free = (p.conds || []).filter((it) => !it.done && !(it.taskId && S.tasks.get(it.taskId))).length;
+      return principleMgr(c, w) + '<p class="hint" style="margin:0 0 6px">ההתניות והמסמכים שהקרן דרשה באישור העקרוני. אפשר לסרוק את מכתב האישור — Claude מציע רשימה, ואתה מאשר מה נכנס.</p>' + plist(c, 'conds', p.conds || [], 'התניה / מסמך להשלמה', w) +
+      (w && free ? '<div class="row" style="margin-top:6px"><button class="btn small" data-act="condsToTasks">כל ההתניות הפתוחות → משימות (' + free + ')</button><span class="hint">משימה לכל התניה, ל' + esc(L.resp[procOwner(c, 'conds')] || 'הדס') + ', עם מנהל התיק בגוף · סימון ✓ בהתניה סוגר את המשימה, ולהפך</span></div>' : '') +
+      (w ? '<div class="row" style="margin-top:8px"><label class="btn small">סרוק אישור עקרוני (PDF / תמונה)<input type="file" id="condScan" accept="application/pdf,image/*" hidden></label><span class="hint" id="condScanSt"></span></div><div id="condSug"></div>' : ''); }
     case 'securities': return '<h3 class="sec">הבטחונות הנדרשים</h3>' + plist(c, 'sec', p.sec || [], 'בטוחה (שעבוד דירה, ערב, משכון…)', w) + lawyerForm(c, w) + apprForm(c, w);
     case 'appraisal': return apprForm(c, w) + lawyerForm(c, w);
     case 'insurance': { const ins = (who) => '<div class="row" style="align-items:flex-end">' + psel(c, 'ins.' + who + '.via', who === 'life' ? 'ביטוח חיים — אצל מי' : 'ביטוח מבנה — אצל מי', [['client', 'המבטח של הלקוח'], ['supplier', 'ספק שלנו — שאילתה']]) + pf(c, 'ins.' + who + '.company', 'חברה') + psel(c, 'ins.' + who + '.status', 'מצב', [['open', 'פתוח'], ['sent', 'נשלח לקרן'], ['ok', 'אושר בקרן']]) + '</div>';
@@ -8849,7 +8979,7 @@ function vLanes() {
       (shown.length ? '<ul class="blocks">' + shown.map((t) => { const c = t.clientId && S.clients.get(t.clientId), k = carried(t);
         return '<li class="block' + (t.status === 'done' ? ' done' : '') + '" data-tid="' + esc(t.id) + '" style="border-inline-start:4px solid ' + prioVar(t) + '"><span class="time num">' + (w && t.status !== 'done' ? '<span class="drag" data-drag title="גרור לשינוי הסדר" aria-label="גרור">⋮⋮</span>' : '') + esc(t.time || '') + '</span><div class="body">' +
           '<input class="cb" type="checkbox" data-taskdone="' + esc(t.id) + '"' + (t.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + ' aria-label="בוצע: ' + esc(t.title) + '">' +
-          '<span class="txt">' + linkify(t.title) + '</span>' + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>' +
+          '<span class="txt">' + linkify(t.title) + '</span>' + tmrBtn(t) + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>' +
           (t.notes ? '<p class="sub">' + linkify(t.notes, 180) + '</p>' : '') +
           ((c || t.clientName || k > 0 || t.priority === 'high' || t.priority === 'urgent') ? '<div class="meta">' + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
             (k > 0 ? '<span class="chip age">נגרר ' + k + ' ימים</span>' : '') + (t.priority === 'high' || t.priority === 'urgent' ? '<span class="chip age">' + L.priority[t.priority] + '</span>' : '') + '</div>' : '') + '</li>'; }).join('') + '</ul>'
@@ -10692,6 +10822,13 @@ function vInterest() {
 /* "הכר את הלקוח" בשיחה אחת: כותבים את כל הסיפור במלל חופשי (נשמר אוטומטית) → Claude מציע ערך לכל שדה → מסמנים מה נכנס → נשמר.
    הצעה בלבד: שום שדה לא משתנה בלי אישור, ערך קיים לא מסומן להחלפה כברירת מחדל, וכל ערך נבדק מול סוג השדה והאפשרויות. */
 const IK_PLAN = { good: 'טובה — ברורה והגיונית', weak: 'חלשה / לא ברורה' }, IK_PSRC = { estimate: 'הערכה', appraisal: 'שמאות קיימת' };
+const PLEDGE_HOME = { yes: 'כן — זו כתובת המגורים', no: 'לא — גר בכתובת אחרת' };
+/* הנכס המשועבד מול כתובת המגורים — לתמצית התיק ולבקשת האישור של ההגשה */
+function pledgeInfo(c) {
+  const x = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)) || {}, P = x.property || {}, home = (x.contact || {}).address || c.address || '';
+  if (!P.isHome && !P.address) return null;
+  return { isHome: P.isHome || '', address: P.address || '', home, text: P.isHome === 'yes' ? 'הנכס המשועבד = כתובת המגורים' + (P.address ? ' (' + P.address + ')' : '') : P.isHome === 'no' ? 'הנכס המשועבד אינו כתובת המגורים' + (P.address ? ' · משועבד: ' + P.address : '') + (home ? ' · גר ב: ' + home : '') : 'לא סומן אם הלקוח גר בנכס' + (P.address ? ' · משועבד: ' + P.address : '') };
+}
 function IK_FIELDS() {
   return [['kind', 'סוג התיק', 'enum', INTAKE_KIND], ['contact.email', 'מייל', 'text'], ['contact.source', 'מאיפה הגיע', 'text'],
     ...[0, 1].flatMap((i) => { const t = i ? 'בן/בת זוג' : 'לווה ראשי', b = 'borrowers.' + i + '.';
@@ -10699,7 +10836,7 @@ function IK_FIELDS() {
     ['rentIncome', 'הכנסה משכירות לחודש', 'num'], ['pensionIncome', 'פנסיה לחודש', 'num'], ['allowanceIncome', 'קצבאות לחודש', 'num'], ['otherIncome', 'הכנסה אחרת לחודש', 'num'],
     ['oblMortgage', 'משכנתאות — החזר חודשי', 'num'], ['balMortgage', 'משכנתאות — יתרה', 'num'], ['oblLoans', 'הלוואות בנקאיות — החזר חודשי', 'num'], ['balLoans', 'הלוואות בנקאיות — יתרה', 'num'],
     ['oblNonbank', 'חוץ-בנקאי — החזר חודשי', 'num'], ['balNonbank', 'חוץ-בנקאי — יתרה', 'num'], ['balOverdraft', 'מינוס / אשראי — יתרה', 'num'], ['oblPaidOff', 'החזר חודשי שייסגר בעסקה', 'num'], ['balPaidOff', 'יתרת חובות שתיסגר בעסקה', 'num'],
-    ['track', 'מסלול', 'enum', IK.track], ['property.type', 'סוג הנכס', 'enum', IK.prop], ['property.value', 'שווי הנכס', 'num'], ['property.source', 'מקור השווי', 'enum', IK_PSRC], ['property.liens', 'הלוואות על הנכס שנשארות', 'num'],
+    ['track', 'מסלול', 'enum', IK.track], ['property.type', 'סוג הנכס', 'enum', IK.prop], ['property.address', 'כתובת הנכס המשועבד', 'text'], ['property.isHome', 'הלקוח גר בנכס המשועבד?', 'enum', PLEDGE_HOME], ['contact.address', 'כתובת המגורים', 'text'], ['property.value', 'שווי הנכס', 'num'], ['property.source', 'מקור השווי', 'enum', IK_PSRC], ['property.liens', 'הלוואות על הנכס שנשארות', 'num'],
     ['request.amount', 'סכום מבוקש', 'num'], ['request.purpose', 'מטרת ההלוואה', 'enum', IK.purpose], ['request.years', 'תקופה (שנים)', 'num'], ['request.rate', 'ריבית משוערת %', 'num'], ['request.balloon', 'בלון', 'bool'],
     ['credit.bdi', 'דירוג BDI', 'enum', IK.bdi], ['credit.mortReturns', 'חזרות משכנתא ב-12 חודשים', 'num'], ['credit.checks', 'חזרות צ׳קים בודדות', 'bool'], ['credit.restricted', 'חשבון מוגבל', 'bool'],
     ['credit.execution', 'תיקים בהוצל״פ', 'bool'], ['credit.bankruptcy', 'פשיטת רגל / כינוס', 'bool'], ['credit.notes', 'הערות על ההתנהלות הבנקאית', 'text'],
@@ -10795,6 +10932,9 @@ function vIntake(cid) {
     (Object.keys((B[i] || {}).emps || {}).filter((k) => B[i].emps[k] && k !== B[i].emp).length ? '<div class="row">' + Object.keys(B[i].emps).filter((k) => B[i].emps[k] && k !== B[i].emp).map((k) => inp('borrowers.' + i + '.incomes.' + k, 'הכנסה נטו — ' + IK.emp[k], (B[i].incomes || {})[k], 'number', 'step="100" style="width:110px"')).join('') + '</div>' : '');
   const KD = x.kind, propSec = () => '<section class="card"><header><h2>הנכס והבקשה</h2><span class="grow"></span>' + scanBtn('intake', 'property', 'סריקת שמאות / נסח') + '</header>' + scanList(x, 'property') + '<div class="row">' + pick('track', 'מסלול', IK.track, x.track || 'nonbank') + pick('property.type', 'סוג בטוחה', IK.prop, P.type) + inp('property.value', 'שווי הנכס', P.value, 'number', 'step="10000"') +
       pick('property.source', 'מקור השווי', { estimate: 'הערכה', appraisal: 'שמאות קיימת' }, P.source) + inp('property.liens', 'הלוואות על הנכס שנשארות', P.liens, 'number', 'step="10000"') + '</div>' +
+      /* דן 21/10: בכל הגשה צריך לדעת אם הנכס המשועבד הוא כתובת המגורים של הלקוח */
+      '<div class="row">' + inp('property.address', 'כתובת הנכס המשועבד', P.address, 'text') + pick('property.isHome', 'הלקוח גר בנכס המשועבד?', PLEDGE_HOME, P.isHome) +
+        (P.isHome === 'no' ? inp('contact.address', 'כתובת המגורים', (x.contact || {}).address, 'text') : '') + '</div>' +
       valIntakeBlock(cid, w) + '<div class="row">' +
       inp('request.amount', 'סכום מבוקש (כולל סילוקים)', R.amount, 'number', 'step="10000"') + pick('request.purpose', 'מטרת ההלוואה', IK.purpose, R.purpose) + inp('request.years', 'תקופה (שנים)', R.years, 'number', 'style="width:80px"') +
       inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + chk('request.balloon', 'בלון', R.balloon) +
@@ -11219,6 +11359,9 @@ document.addEventListener('click', async (e) => {
     if (d.cbsnooze) return cbSet(d.cbsnooze, { at: addMinIso(10), on: true }, 'תזכורת — עוד 10 דקות');
     if (d.cboff) return cbSet(d.cboff, { on: false, offAt: stamp() }, 'התזכורת בוטלה (הסטטוס נשאר)');
     if (d.callend) return callEnd(d.callend);
+    if (d.tasktimer) return formTimer(d.tasktimer);
+    if (d.tmrstop) return tmrStop(true);
+    if (d.tmrx) { if (confirm('לבטל את השעון בלי לשמור?')) return tmrStop(false); return; }
     if (d.callfix) { const [lid, id, k] = d.callfix.split('|'); return callFix(lid, id, k); }
     if (d.reteammail) return reTeamMail(d.reteammail);
     if (d.meetnew) return formMeet(d.meetnew, d.kind ? { kind: d.kind } : {});
@@ -11465,6 +11608,8 @@ document.addEventListener('click', async (e) => {
     if (d.payok || d.paypaid || d.payundo) { const key = d.payok || d.paypaid || d.payundo, m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key);
       const patch = d.payok ? { approved: true, approvedAt: stamp() } : d.paypaid ? { paid: true, paidAt: stamp() } : { approved: false, approvedAt: null };
       await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, updatedAt: stamp() }); return toast(d.payok ? 'אושר' : d.paypaid ? 'סומן ששולם' : 'חזר לטיוטה'); }
+    if (d.tablenote && S.canClient) { const c = S.clients.get(d.tablenote); if (!c) return; const v = prompt('הערה ל' + c.name + ' — מופיעה בטבלת הלקוחות, לא משימה. ריק = מחיקה', c.tableNote || ''); if (v === null) return;
+      await write('clients/' + c.id, { tableNote: v.trim() || null, tableNoteAt: stamp(), tableNoteBy: S.me.id, updatedAt: stamp() }, 'update'); if (v.trim()) await logClient(c.id, 'הערה בטבלה: ' + v.trim()).catch(() => {}); return toast(v.trim() ? 'ההערה נשמרה' : 'ההערה נמחקה'); }
     if (d.addtaskfor) { const c = S.clients.get(d.addtaskfor); return formTask(null, { clientId: c.id, resp: c.resp || respOf(S.me.id) || 'dan' }); }
     if (d.invoiced) { const no = ''; await write('transactions/' + d.invoiced, { invoice: 'issued', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן שהופקה חשבונית'); }
     if (d.drawinv) { await write('transactions/' + d.drawinv, { invoice: 'received', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן: התקבלה חשבונית'); }
@@ -11632,6 +11777,7 @@ document.addEventListener('click', async (e) => {
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
         case 'fundPrepare': return fundPrepare(c);
+        case 'condsToTasks': return condsToTasks(c);
         case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
         case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
@@ -11913,8 +12059,9 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.substatus != null && c) { const list = (c.submissions || []).map((s, i) => i === Number(el.dataset.substatus) ? { ...s, status: el.value, transferredAt: el.value === 'executed' ? (s.transferredAt || today()) : s.transferredAt } : s);
       await write('clients/' + c.id, { submissions: list, updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, list[Number(el.dataset.substatus)].bank + ': ' + (SUBST[el.value] || L.sub[el.value] || el.value)); }
     if (el.dataset.taskdone) { const t = S.tasks.get(el.dataset.taskdone);
-      if (!el.checked) return taskReopen(t);
+      if (!el.checked) { if (t.condOf) condTaskSync(t, false).catch(() => {}); return taskReopen(t); }
       await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update');
+      if (t.condOf) await condTaskSync(t, true).catch(() => {});
       /* תזכורת ליד שבוצעה — יורדת גם מהליד, כדי שלא תישאר "מעקב להיום" גם בלידים */
       if (String(t.ruleKey || '').startsWith('leadfu:')) { const l = S.leads.get(t.leadId); if (l && l.followUp && l.fuManual) await leadPatch(l.id, { followUp: null, fuManual: false }, 'התזכורת בוצעה (משימה)', true).catch(() => {}); }
       if (el.checked && t.clientId) await logClient(t.clientId, 'בוצע: ' + t.title + ' · ' + (nameOf(S.me.id) || L.resp[taskResp(t)] || '')).catch(() => {});
@@ -11928,8 +12075,11 @@ document.addEventListener('change', async (e) => {
       setPath(P, k, v); if (k === 'plan.fund') P.plan.track = null; if (k === 'appr.fundOk' && v && !(P.appr || {}).fundOkAt) P.appr.fundOkAt = today();
       const L2 = { 'appr.value': 'שווי שמאות', 'appr.fundOk': 'שמאות אושרה בקרן', 'gonogo.decision': 'החלטת GO / NO GO', 'principle.fund': 'אישור עקרוני ב', 'lawyer.name': 'עו״ד מטפל', 'plan.track': 'מסלול', 'analysis.ready': 'מוכן להגשה', 'call.passed': 'עבר שיחת אנליזה' }[k];
       return procSave(c2, P, L2 ? L2 + ': ' + (el.type === 'checkbox' ? (v ? 'כן' : 'לא') : el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : v) : null); }
+    if (el.dataset.pmgr != null && S.view.tab === 'client' && el.value) { const c2 = S.clients.get(S.view.clientId), x = S.contacts && S.contacts.get(el.value); if (!c2 || !x) return; const P = JSON.parse(JSON.stringify(c2.proc || {}));
+      P.principle = { ...(P.principle || {}), managerName: x.name || '', managerPhone: x.phone || '' }; return procSave(c2, P, 'מנהל התיק בגוף: ' + (x.name || '') + (x.phone ? ' · ' + x.phone : '')); }
     if (el.dataset.plistdone && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); const P = JSON.parse(JSON.stringify(c2.proc || {})); const [key, ix] = el.dataset.plistdone.split(':'), isTr = key.startsWith('tr');
       const arr = isTr ? P.tranches[Number(key.slice(2))].conds : P[key]; const it = arr[Number(ix)]; it.done = el.checked; it.doneAt = el.checked ? stamp() : null;
+      if (it.taskId && S.tasks.get(it.taskId)) { const tk = S.tasks.get(it.taskId); if (el.checked && tk.status !== 'done') write('tasks/' + tk.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update').catch(() => {}); else if (!el.checked && tk.status === 'done') write('tasks/' + tk.id, { status: 'open', doneAt: null, doneBy: null }, 'update').catch(() => {}); }
       return procSave(c2, P, (el.checked ? '✓ ' : 'בוטל: ') + it.text); }
     if (el.dataset.trproof != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); const P = JSON.parse(JSON.stringify(c2.proc || {})), t = P.tranches[Number(el.dataset.trproof)]; t.proofAt = el.checked ? stamp() : null;
       return procSave(c2, P, el.checked ? 'התקבלה אסמכתא לפעימה ' + (Number(el.dataset.trproof) + 1) : null); }
@@ -12095,7 +12245,7 @@ async function boot() {
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;
-  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
+  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
   const fail = (e) => { conn('err', e && e.code === 'revoked' ? 'הגישה בוטלה' : 'תקלה בחיבור'); if (e && e.code === 'revoked') S.canWrite = false; soon(); };
   for (const name of colls) {
     let first = true;
