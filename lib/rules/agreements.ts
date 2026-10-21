@@ -156,6 +156,9 @@ export function mergeLibrary(current: LibItem[], incoming: LibTemplate[], opts: 
     const e = out[i]!
     if (!e.deletedAt && (e.libVersion ?? 0) >= t.version) { report.push({ ...r, action: 'unchanged' }); continue }
     if (isPristine(e)) { out[i] = fresh; report.push({ ...r, action: 'updated' }); continue }
+    /* נוסח שדן שלח בעצמו (providedBy: dan) וגרסה חדשה שלו: מחליף גם פריט שאושר ידנית — כל עוד הנוסח בתוכו לא נערך מאז הטעינה.
+       אחרת ההסכמים הקבועים שדן שלח (נכסים / עסקים / רכב) לא מתעדכנים בלי סימון "לדרוס" (דן 21/10: "הטפסים הקבועים לא הסתנכרנו") */
+    if (t.providedBy === 'dan' && !e.deletedAt && !!e.libHash && textHash(stripLibDraft(e.body)) === e.libHash) { out[i] = fresh; report.push({ ...r, action: 'updated', reason: 'גרסה חדשה של דן' }); continue }
     const reason = e.deletedAt ? 'נמחקה' : e.approvedAt ? 'אושרה' : 'נערכה'
     if (over.has(t.key)) { out[i] = { ...fresh, prevBody: e.body }; report.push({ ...r, action: 'overwritten', reason }); continue }
     report.push({ ...r, action: 'conflict', reason: (e.deletedAt && (e.libVersion ?? 0) >= t.version ? reason : reason + ' — יש גרסה ' + t.version) })

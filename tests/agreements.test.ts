@@ -137,6 +137,19 @@ describe('טעינת הספרייה ל-settings.signLibrary', () => {
     expect(x3.prevBody).toBe(approved.find((x) => x.key === carKey)!.body)
   })
 
+  it('גרסה חדשה של נוסח שדן שלח (providedBy: dan) מחליפה גם פריט שאושר ידנית ולא נערך — אבל לא פריט שנערך', () => {
+    const k = 'finance-property-pledge-loan', key = libItemKey(k), t0 = lib.find((t) => t.key === k)!
+    /* נטען פעם כטיוטה (לפני providedBy) ודן אישר ידנית */
+    const old = mergeLibrary([], lib.map((t) => (t.key === k ? { ...t, providedBy: undefined } : t)), { at, by: 'dan' }).library.map((x) => (x.key === key ? approveItem(x, 'dan', at) : x))
+    const nv = lib.map((t) => (t.key === k ? { ...t, version: t0.version + 1, body: t0.body + '\nסעיף חדש של דן.\n' } : t))
+    const r = mergeLibrary(old, nv, { at: at2, by: 'dan' })
+    expect(r.report.find((x) => x.key === k)).toMatchObject({ action: 'updated' })
+    const x = r.library.find((y) => y.key === key)!
+    expect(x.body).toContain('סעיף חדש של דן.'); expect(isSignDraft(x.body)).toBe(false); expect(x.approvedVersion).toBe(t0.version + 1)
+    const edited = old.map((y) => (y.key === key ? { ...y, body: y.body + '\nתיקון ידני' } : y))
+    expect(mergeLibrary(edited, nv, { at: at2, by: 'dan' }).report.find((y) => y.key === k)!.action).toBe('conflict')
+  })
+
   it('אותה גרסה — אישור ועריכה נשמרים (לא חוזר לטיוטה)', () => {
     const approved = first.library.map((x) => (x.key === carKey ? approveItem(x, 'dan', at) : x))
     const r = mergeLibrary(approved, lib, { at: at2, by: 'dan' })
