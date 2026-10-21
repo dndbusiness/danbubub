@@ -13,7 +13,7 @@ import { SIGN_CATEGORIES, templateFields, type SignCategory } from './sign.js'
 export const AGREEMENT_FIELDS: Record<string, string> = {
   company: 'שם החברה', date: 'תאריך', client_name: 'שם הלקוח', client_id: 'ת״ז הלקוח', client_address: 'כתובת', client_phone: 'טלפון', client_email: 'מייל',
   spouse_name: 'בן/בת זוג', spouse_id: 'ת״ז בן/בת זוג', service: 'השירות', amount: 'סכום הבקשה', fee: 'שכר טרחה',
-  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ כולל מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
+  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ לפני מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', lien_holder: 'הגורם המשעבד', known_limits: 'הגבלות ידועות על הרכב',
   projects: 'הפרויקטים שהוצגו', payment_option: 'חלופת תשלום',
   /* דן, 20/10 — הסכם התוכנית העסקית ושטר החוב */

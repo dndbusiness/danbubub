@@ -4148,7 +4148,7 @@ const SIGN_DRAFT = '[טיוטה — להחליף בנוסח ההסכם שלך, �
 const SIGN_TPL = (div) => ((S.settings.signTemplates || {})[div] || SIGN_DRAFT);
 const SIGN_LABELS = { company: 'שם החברה', date: 'תאריך', client_name: 'שם הלקוח', client_id: 'ת״ז הלקוח', client_address: 'כתובת', client_phone: 'טלפון', client_email: 'מייל', spouse_name: 'בן/בת זוג', spouse_id: 'ת״ז בן/בת זוג', service: 'השירות', amount: 'סכום הבקשה', fee: 'שכר טרחה',
   /* ספריית ההסכמים (data/agreements) — זהה ל-AGREEMENT_FIELDS ב-lib/rules/agreements.ts */
-  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ כולל מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
+  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ לפני מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', lien_holder: 'הגורם המשעבד', known_limits: 'הגבלות ידועות על הרכב',
   projects: 'הפרויקטים שהוצגו', payment_option: 'חלופת תשלום',
   pay_days: 'ימים לתשלום שכ״ט ההצלחה', card_type: 'סוג כרטיס האשראי', card_last4: '4 ספרות אחרונות בכרטיס', installments: 'מספר תשלומים',
@@ -4211,7 +4211,8 @@ function signDefaults(c) {
 /* שדות הספרייה שכבר יש בתיק: אחוז שכ״ט מהכרטיס, פרטי הרכב מהקליטה. השאר נשאלים בטופס. */
 function signLibDefaults(c, FE = {}) {
   const v = (typeof intakeDoc === 'function' && c.id ? (intakeDoc(c.id) || {}).car : null) || (c.leadId && S.intakes.get(c.leadId) ? S.intakes.get(c.leadId).car : null) || {}, pct = n(c.feePct) > 0 ? r2(n(c.feePct) * 100) : FE.type === 'pct' && n(FE.pct) ? r2(n(FE.pct)) : '';
-  return { fee_percent: pct === '' ? '' : String(pct), car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
+  const adv = n(c.feeAdvance) || n(FE.advance), days = n(c.payDays) || n(FE.payDays);
+  return { fee_percent: pct === '' ? '' : String(pct), advance: adv ? plain(adv).replace(/[^\d,]/g, '') : '', pay_days: days ? String(days) : '', car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
 }
 const SIGN_CAT = { agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי' };
 const SIGN_STATE = { sent: ['נשלח', 'expected'], opened: ['נפתח', 'committed'], partial: ['חלק חתמו', 'committed'], completed: ['נחתם', 'actual'], expired: ['פג תוקף', 'open'], cancelled: ['בוטל', 'muted'] };
@@ -4350,6 +4351,7 @@ function signQuickForm(c, key) {
   const isPdf = !!it.pdf, defs0 = signSignerDefaults(c, isPdf ? 'client_spouse' : it.tpl.signers);
   const off = isPdf ? pdfOffOf(it.pdf) : 0;
   const rows = isPdf ? Array.from({ length: it.pdf.signers }, (_, i) => ({ ...(defs0[i + off] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1 + off), _i: i + 1 + off, _f: i + 1 })) : defs0.map((x, i) => ({ ...x, _i: i + 1 }));
+  const nd = isPdf ? null : signNoteDefault(c, key);
   const defs = signDefaults(c), need = isPdf ? [] : signTplRequired(it.tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !String(defs[k] || '').trim());
   const preTxt = (r) => { if (isPdf && r._f > 1 && !r.name && !r.email && !r.phone) return '<span class="hint">אין לווה ' + r._i + ' בתיק — אם נשאר ריק, לא יישלח אליו והמקום שלו בטופס יישאר ריק</span>';
     const p = signPrefill(c, r._i, r, isPdf ? it.pdf.fields : null, r._f || r._i), parts = [p.name ? 'שם' : '', p.idNumber ? 'ת״ז ' + p.idNumber : '', ...Object.keys(p.values || {}).map((id) => { const f = it.pdf.fields.find((x) => x.id === id); return f ? (f.label || PREFILL[f.src] || 'שדה') : ''; })].filter(Boolean);
@@ -4358,12 +4360,15 @@ function signQuickForm(c, key) {
     '<label class="fl" style="flex:1 1 110px">' + esc(r.label) + '<input class="f" name="name' + i + '" value="' + esc(r.name || '') + '"></label><label class="fl" style="flex:2 1 150px">מייל<input class="f" dir="ltr" name="email' + i + '" value="' + esc(r.email || '') + '"></label><label class="fl" style="flex:1 1 110px">טלפון<input class="f" dir="ltr" name="phone' + i + '" value="' + esc(r.phone || '') + '"></label></div><div class="full" style="margin:-2px 0 8px">' + preTxt(r) + '</div>';
   drawer('שליחה מהירה — ' + it.label, '<p class="full hint" style="margin-top:0">שולחים ל<b>' + esc(c.name || '') + '</b>. הפרטים נלקחים מהכרטיס; הלקוח רואה אותם ממולאים, בודק וחותם.</p>' +
     rows.map(rowHtml).join('') + (need.length ? '<h3 class="full sec">חסר בכרטיס</h3>' + need.map((k) => fi('f_' + k, SIGN_LABELS[k] || k, '', 'text', 'required')).join('') : '') +
+    (!isPdf && it.tpl.category === 'agreement' && it.key !== 'lib:finance-promissory-note' ? '<label class="check full"><input type="checkbox" class="cb" name="noteOn" value="1"' + (nd && nd.on ? ' checked' : '') + '><span><b>צרף שטר חוב</b> — בעמוד נפרד, אותה חתימה וחותמת החברה</span></label>' +
+      fi('noteAmount', 'סכום שטר החוב (₪)', nd ? nd.amount : '', 'text', 'inputmode="numeric" dir="ltr"') : '') +
     '<label class="fl full">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" name="notes" rows="3" maxlength="2000"></textarea></label>' +
     '<label class="check full"><input type="checkbox" class="cb" name="otp" value="1" checked><span>קוד אימות לפני החתימה — מוכיח שהמייל / הטלפון באמת שלו</span></label>',
     async (d) => {
       const rws = rows.map((r, i) => ({ ...r, on: isPdf ? true : d['on' + i] === '1', name: String(d['name' + i] || '').trim(), email: String(d['email' + i] || '').trim(), phone: String(d['phone' + i] || '').trim() }));
       const fields = {}; need.forEach((k) => { fields[k] = String(d['f_' + k] || '').trim(); });
-      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields }); }
+      const note = d.noteOn === '1' ? { on: true, amount: String(d.noteAmount || '') } : null;
+      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields, note }); }
       catch (e) { return e.message; }
     }, '', 'שלח עכשיו');
 }
@@ -4762,16 +4767,25 @@ function signFixedCard() {
       '<label class="fl" style="flex:2 1 280px">הערות קבועות בהסכם<textarea class="f" rows="2" maxlength="2000" data-sfix="' + esc(t) + ':notes" placeholder="למשל: שכר הטרחה אינו כולל אגרות ושמאות">' + esc(f.notes || '') + '</textarea></label></div>'; }).join('') +
     '<div class="row"><button class="btn small primary" data-act="signFixedSave">שמור</button></div></section>';
 }
+/* דן, 21/10: "שכ״ט + שטר חוב לשליחה לחתימה" — עם ההסכם הקבוע של הלקוח השטר מסומן מראש, והסכום מהקליטה (או שכ״ט + מע״מ) */
+function signNoteDefault(c, key) {
+  const fx = signFixedOf(c); if (!fx || fx.key !== key || String(key).startsWith('pdf:') || key === 'lib:finance-promissory-note') return null;
+  const x = (typeof intakeCalc === 'function' && c.id && (S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)))) || null, xk = x ? (x.kind ? x : { ...x, kind: intakeKind(x, c.id) }) : null, FE = xk ? intakeFee(xk, intakeCalc(xk)) : {};
+  const fee = n(c.fee) || n(FE.amount), amt = n(FE.noteAmount) || (fee ? Math.round(fee * (1 + n(S.settings.vatRate))) : 0);
+  return { on: true, amount: amt ? String(amt) : '' };
+}
 /* "צרף שטר חוב" בשליחה — סכום, והמילים מתמלאות לבד (heNumWords) */
-function signNoteBox(c, st) {
-  const nt = st.note || {}, amt = Math.round(n(String(nt.amount || '').replace(/[^\d.]/g, '')));
+function signNoteBox(c, st, key) {
+  const nt = st.note || signNoteDefault(c, key) || {}, amt = Math.round(n(String(nt.amount || '').replace(/[^\d.]/g, '')));
   return '<div class="notice info" style="display:block;margin:6px 0"><label class="row" style="gap:6px;align-items:center"><input type="checkbox" class="cb" data-signnote="' + esc(c.id) + '|on"' + (nt.on ? ' checked' : '') + '> <b>צרף שטר חוב</b> <span class="hint">— בעמוד נפרד אחרי ההסכם, עם אותה חתימה וחותמת החברה</span></label>' +
     (nt.on ? '<div class="row" style="align-items:flex-end;margin-top:6px"><label class="fl" style="max-width:180px">סכום השטר (₪)<input class="f" inputmode="numeric" dir="ltr" data-signnote="' + esc(c.id) + '|amount" value="' + esc(nt.amount || '') + '" placeholder="50,000"></label><span class="grow hint" data-signnotewords>' + (amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד') + '</span></div>' : '') + '</div>';
 }
-document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || {});
+document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || signNoteSeed(cid, st));
   if (f === 'on') { nt.on = e.target.checked; return render(); }
   nt.amount = e.target.value; const amt = Math.round(n(String(nt.amount).replace(/[^\d.]/g, ''))), w = document.querySelector('[data-signnotewords]'); if (w) w.innerHTML = amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד'; }, true);
-document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || {}), on: e.target.checked }; render(); } });
+document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || signNoteSeed(cid, st)), on: e.target.checked }; render(); } });
+/* השטר שמוצג מראש (signNoteDefault) הופך לשל הטופס ברגע שנוגעים בו — כדי שעריכת הסכום לא תכבה אותו */
+function signNoteSeed(cid, st) { const c = signSubject(cid); const key = st.tpl || ($('signTpl') || {}).value || ''; return { ...((c && signNoteDefault(c, key)) || {}) }; }
 /* תיעוד: לאיזה מספר הקישור נשלח ואיך (וואטסאפ / העתקה) — נרשם בציר הזמן של החותם ובעמוד התיעוד */
 function signShared(id, channel, target) { fetch('/api/sign/' + encodeURIComponent(id), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'shared', channel, target: target || null }) }).catch(() => {}); }
 document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[data-signwa]'); if (a) signShared(a.dataset.signwa, 'whatsapp', a.dataset.ph); }, true);
@@ -4829,7 +4843,7 @@ function signCard(c) {
       '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + (s._k ?? i) + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + (s._k ?? i) + ':name" value="' + esc(s.name) + '"></label>' +
       '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
     '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות לפני החתימה <span class="hint">(במייל, או בוואטסאפ כשמוגדר — מוכיח שהמייל / הטלפון באמת שלו)</span></span></label>' +
-    (!pdfMode ? signNoteBox(c, st) : '') +
+    (!pdfMode ? signNoteBox(c, st, tpl.key) : '') +
     '<label class="fl" style="margin:6px 0">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" id="signNotes" rows="2" maxlength="2000">' + esc(st.notes || '') + '</textarea></label>' +
     (pdfMode ? '<p class="hint" style="margin:0 0 4px">השם, ת״ז ושדות שסומנו "מילוי מהתיק" בטופס ימולאו מהכרטיס — הלקוח רואה, בודק וחותם.</p>' : '') +
     (flds.length && !pdfMode ? '<h3 class="sec">שדות בנוסח</h3><div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + (reqF.includes(k) ? '' : ' <span class="hint">· רשות</span>') + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (reqF.includes(k) && !(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' : '') +
@@ -10871,7 +10885,7 @@ function intakeFee(x, C) {
   const f = x.fee || {}, type = f.type || '';
   const amount = type === 'pct' ? (n(f.pct) && C.amount ? r2(C.amount * n(f.pct) / 100) : null) : type === 'fixed' ? (n(f.fixed) || null) : null;
   const text = type === 'pct' ? (n(f.pct) ? n(f.pct) + '% מ-' + plain(C.amount) + (amount ? ' = ' + plain(amount) : '') : 'לסמן אחוז') : type === 'fixed' ? (amount ? plain(amount) + ' סכום קבוע' : 'לסמן סכום') : type === 'open' ? 'פתוח — ייקבע בהמשך' : 'לא נקבע';
-  return { type, pct: n(f.pct) || null, fixed: type === 'fixed' ? amount : null, amount, text };
+  return { type, pct: n(f.pct) || null, fixed: type === 'fixed' ? amount : null, amount, text, advance: n(f.advance) || null, payDays: n(f.payDays) || null, noteAmount: n(f.noteAmount) || null };
 }
 /* הפער בין מה שהלקוח רוצה למה שאפשר בפועל */
 function intakeGaps(x, C) {
@@ -11096,7 +11110,10 @@ function vIntake(cid) {
       area('goals.conditions', 'התניות לעסקה', G.conditions, 'למשל: רק בלי קנס פירעון מוקדם; ביצוע עד סוף החודש; בלי ערבים') + '</section>')) +
     '<section class="card"><header><h2>שכר טרחה</h2><span class="pill ' + (FE.amount ? 'committed' : FE.type === 'open' ? 'expected' : 'open') + '">' + esc(FE.text) + '</span></header><div class="row">' +
       pick('fee.type', 'סוג', IK.feeType, FE.type) + (FE.type === 'pct' ? inp('fee.pct', 'אחוז שנסגר', (x.fee || {}).pct, 'number', 'step="0.05" style="width:90px"') + '<span class="hint">מתוך הסכום המבוקש ' + plain(C.amount) + '</span>' : '') +
-      (FE.type === 'fixed' ? inp('fee.fixed', 'סכום שנסגר (לפני מע״מ)', (x.fee || {}).fixed, 'number', 'step="500"') : '') + '</div></section>';
+      (FE.type === 'fixed' ? inp('fee.fixed', 'סכום שנסגר (לפני מע״מ)', (x.fee || {}).fixed, 'number', 'step="500"') : '') + '</div>' +
+      /* דן, 21/10: "השדות מתמלאים מכרטיס הלקוח" — מה שההסכם הקבוע ושטר החוב שואלים, נכתב כאן פעם אחת */
+      '<div class="row">' + inp('fee.advance', 'מקדמה (₪ לפני מע״מ)', (x.fee || {}).advance, 'number', 'step="100" style="width:120px"') + inp('fee.payDays', 'ימים לתשלום שכ״ט ההצלחה', (x.fee || {}).payDays, 'number', 'step="1" style="width:90px"') +
+      inp('fee.noteAmount', 'סכום שטר החוב (₪)', (x.fee || {}).noteAmount, 'number', 'step="500" style="width:130px"' + (FE.amount ? ' placeholder="' + Math.round(FE.amount * (1 + n(S.settings.vatRate))) + '"' : '')) + '<span class="hint">נכנסים להסכם השירותים ולשטר החוב בשליחה לחתימה' + (FE.amount ? ' · שטר בלי סכום = שכ״ט + מע״מ' : '') + '</span></div></section>';
   const res =
     (KD === 'car' ? carGoCard(x, C, cid) + carDealCard(x, cid, w) : (
     (GP.length ? '<section class="card"><header><h2>רוצה מול אפשרי</h2></header><ul style="margin:0;padding-inline-start:18px">' + GP.map((q) => '<li style="margin-bottom:4px"><span class="pill ' + q.tone + '" style="margin-inline-end:6px">' + ({ open: 'פער', expected: 'לבדוק', actual: 'תקין' }[q.tone]) + '</span>' + esc(q.t) + '</li>').join('') + '</ul></section>' : '') +
@@ -12059,7 +12076,7 @@ document.addEventListener('click', async (e) => {
           const base = (st.signers || signSignerDefaults(c, pdfK ? 'client_spouse' : signTplOf(c, key).signers)).map((x, i) => ({ ...x, _i: i + 1 }));
           const off = pdfKeyOff(key), rows = pdfK ? Array.from({ length: N }, (_, i) => ({ ...(base[i + off] || { name: '', email: '', phone: '' }), on: true, _i: i + 1 + off })) : base;
           el.disabled = true; el.textContent = 'שולח…';
-          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note });
+          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
             S.signForm[c.id] = {}; return; }
           catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
         case 'signLibAdd': return signLibForm(null);
