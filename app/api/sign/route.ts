@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createEnvelope, envelopeCounts, listEnvelopes } from '@/lib/sign/store'
-import { cleanField, type PdfField } from '@/lib/rules/sign-pdf'
+import { cleanField, fieldsForSigners, signersNeeded, type PdfField } from '@/lib/rules/sign-pdf'
 import { bundleTemplates, getTemplate, templateKey } from '@/lib/sign/templates'
 import { readStoredFile, storeFile } from '@/lib/files'
 import { mergePdfs } from '@/lib/sign/pdf'
@@ -85,6 +85,8 @@ export async function POST(req: Request) {
     if (fields.some((f) => !f)) return NextResponse.json({ code: 'invalid_argument', message: 'שדה לא תקין במסמך' }, { status: 400 })
     pdf = { fileId: d.pdf.fileId, fields: fields as PdfField[] }
   } else if (!d.template) return NextResponse.json({ code: 'invalid_argument', message: 'חסר נוסח או מסמך PDF' }, { status: 400 })
+  // טופס לשני לווים ולקוח עם לווה אחד — השדות של הלווה שלא נשלח לו נשארים ריקים
+  if (pdf && signers.length < signersNeeded(pdf.fields)) pdf = { ...pdf, fields: fieldsForSigners(pdf.fields, signers.length) }
   const r = await createEnvelope({ ...d, template: d.template ?? '', templateKey: templateKeyV, pdf,
     signers: requireOtp ? signers.map((s) => ({ ...s, requireOtp: s.requireOtp ?? true })) : signers }, new Date(), new URL(req.url).origin)
   if ('error' in r) return NextResponse.json({ code: r.missing.length ? 'missing_fields' : 'invalid_argument', message: r.error, missing: r.missing }, { status: 422 })

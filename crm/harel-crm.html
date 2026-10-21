@@ -107,6 +107,12 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
   @media (max-width: 700px) { .grid3 { grid-template-columns: 1fr; } }
 
   .kpi { display: flex; flex-direction: column; gap: 4px; }
+  .csum { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+  .csum > div { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .csum h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+  .csum .big { font-size: 22px; font-weight: 700; line-height: 1.2; }
+  .csum .ln { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
+  .csum .ln b { font-size: 16px; }
   .kpi h3 { margin: 0; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
   .kpi .v { font-size: 25px; font-weight: 700; line-height: 1.15; }
   .kpi .sub { font-size: 12px; color: var(--text-3); }
@@ -382,6 +388,16 @@ body.locked .mark { display: none; }
 #callbar { position: fixed; inset-inline: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; margin-inline: auto;
   background: var(--surface); border: 1px solid var(--border); border-inline-start: 4px solid var(--brand-accent); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
 #callbar > span { flex: 1 1 auto; }
+/* שעון בכל מסך + שעון עצר / טיימר למשימה (דן 21/10) */
+.tclock { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 0 12px; border-radius: 999px; border: 0; cursor: pointer; background: var(--surface); color: var(--text); box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border); font: 600 16px/1 var(--font-body); }
+.tclock.run { box-shadow: var(--shadow-card), inset 0 0 0 2px var(--committed); }
+.tclock .tl { font-size: 13px; color: var(--committed); }
+#tmrbar { position: fixed; inset-inline: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 59; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; margin-inline: auto;
+  background: var(--surface); border: 1px solid var(--border); border-inline-start: 4px solid var(--committed); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
+#tmrbar.over { border-inline-start-color: var(--open); }
+#tmrbar > span { flex: 1 1 auto; min-width: 0; }
+#callbar ~ #tmrbar { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 767px) { #tmrbar { bottom: calc(var(--bnav-h) + 10px + env(safe-area-inset-bottom, 0px)); } header.top .tclock { order: 3; min-height: 36px; padding: 0 10px; background: rgba(255,255,255,.12); color: #fff; box-shadow: none; font-size: 14px; } }
 @media (max-width: 767px) { #callbar { bottom: calc(var(--bnav-h) + 10px + env(safe-area-inset-bottom, 0px)); } }
 .calload th, .calload td { text-align: center; white-space: nowrap; } .calload td:first-child { text-align: start; } .calload .calgap { background: var(--open-bg); color: var(--open); }
 tr.tot td { font-weight: 700; background: var(--sunk); }
@@ -1535,6 +1551,7 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
       <button type="button" data-d="realestate" aria-pressed="false" title="הר-אל השקעות">השקעות</button>
     </div>
     <span class="push"></span>
+    <button type="button" class="tclock" id="topClock" aria-label="שעון — לחיצה פותחת שעון עצר או טיימר" title="שעון עצר / טיימר"><span id="clockNow" class="num">--:--</span></button>
     <button type="button" class="tbell tdev" id="topDev" aria-label="בקשת שינוי במערכת" title="בקשת שינוי במערכת — Claude בונה, אתה מאשר" hidden></button>
     <button type="button" class="tbell" id="topBell" data-go="tasks" aria-label="משימות פתוחות" title="משימות פתוחות"></button>
     <button type="button" class="tadd" id="topAdd" aria-label="הוספה מהירה">חדש</button>
@@ -2111,7 +2128,7 @@ function vDay() {
     return '<label class="check" style="border-inline-start:4px solid ' + prioVar(t) + '"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + (t.time ? '<span class="hint num">' + esc(t.time) + '</span> ' : '') + esc(t.title) +
       (c ? ' · <button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '') + '</span>' +
       (t.priority === 'urgent' || t.priority === 'high' ? '<span class="pill open">' + L.priority[t.priority] + '</span>' : '') +
-      '<span class="hint num">' + dLabel(t.due) + '</span></label>'; };
+      '<span class="hint num">' + dLabel(t.due) + '</span>' + tmrBtn(t) + '</label>'; };
   const funnelCard = B.funnel ? '<section class="card dfun"><header><span class="grow"><h2>' + B.funnelHead + '</h2><small class="hint">כל שלב מול מה שנכנס בתחילת התהליך</small></span>' + B.seg + '</header>' + B.funnel + '</section>' : '';
   const stagesCard = B.stages ? '<section class="card dstg"><header><span class="grow"><h2>איפה התיקים עומדים</h2><small class="hint">תיקים פתוחים לפי שלב</small></span>' + (B.funnel ? '' : B.seg) + '</header>' + B.stages + '</section>' : '';
   const feed = dayFeed();
@@ -2243,11 +2260,47 @@ async function subSendApproved(aid) {
   const a = S.approvals.get(aid); if (!a || !subUnsent(a)) return; const c = S.clients.get(a.clientId); if (!c) return toast('הלקוח לא נמצא');
   if (!S.mcp) return toast('צריך חיבור לגוגל כדי לשלוח');
   if (!confirm('לשלוח עכשיו ל' + a.bank + ' (' + (a.to || []).join(', ') + ') עם ' + (a.files || []).length + ' קבצים?')) return;
-  const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files: a.files || [] });
+  const files = await subApprovedFiles(a); if (!files) return;
+  const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files });
   if (!r || !r.sent) return;
   await write('approvals/' + aid, { sentAt: stamp(), sentBy: S.me.id, partial: !!r.partial }, 'update');
-  await logClient(c.id, 'ההגשה ל' + a.bank + ' נשלחה (' + (a.files || []).length + ' קבצים) — אחרי אישור דן').catch(() => {});
+  await logClient(c.id, 'ההגשה ל' + a.bank + ' נשלחה (' + files.length + ' קבצים מתיקיית "מאושר לשליחה") — אחרי אישור').catch(() => {});
   return subAfterSend(c.id, aid);
+}
+/* ── תיקיית "מאושר לשליחה" (דן 21/10): הגשה פנימית → אישור מסמכים → המסמכים עוברים לתיקייה של המאושרים → שליחה רק משם.
+   תיקיית הביקורת של ההגשה עוברת (עם הקבצים) לתוך "מאושר לשליחה" בתיקיית הלקוח, ומקבלת שם חדש. ── */
+const APPROVED_DIR = 'מאושר לשליחה';
+async function subApprovedRoot(c) {
+  const cur = S.clients.get(c.id) || c; if (cur.approvedFolder) return cur.approvedFolder; if (!cur.driveFolder) return null;
+  const have = (await driveList(cur.driveFolder).catch(() => [])).find((f) => isFolder(f) && f.title === APPROVED_DIR);
+  const id = have ? have.id : (await S.mcp.callTool('Google Drive', 'create_file', { title: APPROVED_DIR, mimeType: 'application/vnd.google-apps.folder', parentId: cur.driveFolder }, { cache: false }).then((r) => { const p = drivePayload(r); return p.id || p.fileId || null; }).catch(() => null));
+  if (id) await write('clients/' + c.id, { approvedFolder: id }, 'update').catch(() => {});
+  return id;
+}
+async function subMoveApproved(c, a) {
+  if (a.approvedFolderId) return true; if (!S.mcp || !a.folderId) return false;
+  const root = await subApprovedRoot(c); if (!root) return false;
+  const title = 'הגשה — ' + a.bank + ' — ' + dLabel(dayOf(a.at)) + ' (מאושר לשליחה)';
+  const ok = await S.mcp.callTool('Google Drive', 'update_file', { fileId: a.folderId, parentId: root, title }, { cache: false }).then(() => true).catch(() => false);
+  if (ok) { await write('approvals/' + a.id, { approvedFolderId: a.folderId, approvedRootId: root, movedAt: stamp() }, 'update'); a.approvedFolderId = a.folderId; }
+  return ok;
+}
+/* ביטול אישור / החזרה לתיקון לפני שליחה: התיקייה יוצאת מ"מאושר לשליחה" וחוזרת לתיקיית הלקוח */
+async function subUnmoveApproved(c, a, tag) {
+  if (!a.approvedFolderId || !S.mcp) return true; const cur = S.clients.get(c.id) || c; if (!cur.driveFolder) return false;
+  const ok = await S.mcp.callTool('Google Drive', 'update_file', { fileId: a.approvedFolderId, parentId: cur.driveFolder, title: 'הגשה — ' + a.bank + ' — ' + dLabel(dayOf(a.at)) + ' (' + tag + ')' }, { cache: false }).then(() => true).catch(() => false);
+  if (ok) await write('approvals/' + a.id, { approvedFolderId: null }, 'update');
+  return ok;
+}
+/* שליחה רק מתוך תיקיית המאושרים: הקבצים של ההגשה שעדיין בה. קובץ שהוצא מהתיקייה — לא נשלח, ועוצרים */
+async function subApprovedFiles(a) {
+  if (!S.mcp) { toast('צריך חיבור לגוגל כדי לשלוח'); return null; }
+  if (!a.approvedFolderId) { toast('ההגשה לא בתיקיית "מאושר לשליחה" — קודם מאשרים את המסמכים'); return null; }
+  const inDir = await driveList(a.approvedFolderId).catch(() => null); if (!inDir) { toast('לא הצלחתי לקרוא את תיקיית "מאושר לשליחה"'); return null; }
+  const ids = new Set(inDir.map((f) => f.id)), files = (a.files || []).filter((f) => ids.has(f.id)), gone = (a.files || []).filter((f) => !ids.has(f.id));
+  if (gone.length) { toast('לא בתיקיית "מאושר לשליחה": ' + gone.map((f) => f.title).join(', ') + ' — לא שולחים. החזר לתיקון והכן הגשה חדשה.'); return null; }
+  if (!files.length) { toast('תיקיית "מאושר לשליחה" ריקה'); return null; }
+  return files;
 }
 /* כשכל ההגשות המאושרות נשלחו — התיק עובר למעקב אישור */
 async function subAfterSend(cid, aid) { const c = S.clients.get(cid); if (!c) return; if (subsOfClient(c).some((x) => x.id !== aid && (x.status === 'pending' || subUnsent(x)))) return; await procReach(cid, 'tracking'); }
@@ -2278,6 +2331,8 @@ async function decideApproval(aid, ok, opt = {}) {
     if (!ok) { const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח)', '') ; if (note === null) return; await write('approvals/' + aid, { status: 'rejected', note: note.trim(), decidedAt: stamp(), decidedBy: S.me.id }, 'update'); await logClient(c.id, 'ההגשה ל' + a.bank + ' הוחזרה לתיקון' + (note.trim() ? ': ' + note.trim() : '')).catch(() => {});
       const cc = S.clients.get(c.id); if (cc && procType(cc) === 'mortgage' && procCur(cc) === 'submitApprove') await procAdvance(cc, 'submitTech', { note: 'ההגשה ל' + a.bank + ' הוחזרה לתיקון' + (note.trim() ? ': ' + note.trim() : '') });
       return toast('הוחזר לתיקון'); }
+    /* דן 21/10: מסמכים שאושרו עוברים לתיקיית "מאושר לשליחה" של הלקוח — ושולחים רק משם */
+    if (!(await subMoveApproved(c, a))) return toast('לא הצלחתי להעביר את המסמכים לתיקיית "מאושר לשליחה" בדרייב — נסה שוב');
     if (opt.noSend) { /* דן מאשר, הדס שולחת (18/10) */
       await write('approvals/' + aid, { status: 'approved', noSend: true, decidedAt: stamp(), decidedBy: S.me.id, okBy: { ...(a.okBy || {}), [apprMe()]: stamp() } }, 'update');
       await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה — ממתינה לשליחה').catch(() => {});
@@ -2285,10 +2340,11 @@ async function decideApproval(aid, ok, opt = {}) {
       return toast('אושר — ההגשה ל' + a.bank + ' עוברת לשליחה'); }
     if (!S.mcp) return toast('צריך חיבור לגוגל כדי לשלוח');
     if (!confirm('לשלוח עכשיו ל' + a.bank + ' (' + (a.to || []).join(', ') + ') עם ' + (a.files || []).length + ' קבצים?')) return;
-    const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files: a.files || [] });
+    const files = await subApprovedFiles(S.approvals.get(aid) || a); if (!files) return;
+    const r = await fundSend(c, { pick: a.pick, extra: a.extra || a.to || [], subj: a.subj, body: a.body, wantSub: a.wantSub, files });
     if (!r || !r.sent) return; /* fundSend כבר הודיע מה נכשל — הבקשה נשארת ממתינה */
     await write('approvals/' + aid, { status: 'approved', sentAt: stamp(), decidedAt: stamp(), decidedBy: S.me.id, partial: !!r.partial, okBy: { ...(a.okBy || {}), [apprMe()]: stamp() } }, 'update');
-    await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה ונשלחה (' + (a.files || []).length + ' קבצים מתיקיית הביקורת)').catch(() => {});
+    await logClient(c.id, 'ההגשה ל' + a.bank + ' אושרה ונשלחה (' + files.length + ' קבצים מתיקיית "מאושר לשליחה")').catch(() => {});
     return subAfterSend(c.id, aid);
   }
   if (ok && a.kind === 'delete') await write(a.coll + '/' + a.docId, { deletedAt: stamp(), deletedBy: a.by, deleteApprovedBy: S.me.id }, 'update');
@@ -2299,17 +2355,99 @@ function approvalsCard() {
   const P = live(S.approvals).filter((a) => a.status === 'pending' && canDecide(a)).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   if (!P.length) return '';
   return '<section class="card" id="sqAppr"><header><h2>ממתין לאישורך</h2><span class="pill open">' + P.length + '</span></header><div class="scroll"><table><tbody>' +
-    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>הגשה לביקורת:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' +
+    P.map((a) => a.kind === 'submission' ? '<tr><td class="wide"><b>אישור מסמכים להגשה:</b> ' + esc(a.label) + (apprWaitTxt(a) ? ' <span class="pill expected">' + esc(apprWaitTxt(a)) + '</span>' : '') + '<div class="hint">' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + ' · אל ' + esc((a.to || []).join(', ')) + ' · ' + (a.files || []).length + ' קבצים: ' + (a.files || []).map((f) => '<a href="https://drive.google.com/file/d/' + esc(f.id) + '/view" target="_blank" rel="noopener"><bdi>' + esc(f.title) + '</bdi></a>').join(' · ') + '</div>' + (S.clients.get(a.clientId) ? '<div class="hint"><b>' + esc((pledgeInfo(S.clients.get(a.clientId)) || { text: 'לא סומן אם הלקוח גר בנכס המשועבד' }).text) + '</b></div>' : '') + '' +
         '<details><summary class="hint">המייל</summary><div class="hint"><b>' + esc(a.subj || '') + '</b></div><div style="white-space:pre-wrap;font-size:13px">' + esc(a.body || '') + '</div></details></td>' +
         '<td><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקיית הביקורת ↗</a> <button class="btn small ghost" data-client="' + esc(a.clientId) + '">לכרטיס</button> ' +
-          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approkonly="' + esc(a.id) + '" title="ההגשה חוזרת להדס לשליחה">אשר בלי לשלוח</button> <button class="btn small ghost" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
+          (a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">סקירת המסמכים (PDF) ↗</a>' : '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>') + '</td><td><button class="btn small primary" data-approkonly="' + esc(a.id) + '" title="המסמכים עוברים לתיקיית מאושר לשליחה, והדס שולחת">אשר מסמכים</button> <button class="btn small ghost" data-approk="' + esc(a.id) + '">אשר ושלח</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">החזר לתיקון</button></td></tr>' :
       '<tr><td class="wide"><b>מחיקה:</b> ' + esc(a.label) + '<div class="hint">' + esc(L.division[a.division || 'finance'] || '') + ' · ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות') + ' · ' + dLabel(dayOf(a.at)) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></td>' +
       '<td><button class="btn small danger" data-approk="' + esc(a.id) + '">אשר מחיקה</button></td><td><button class="btn small ghost" data-apprno="' + esc(a.id) + '">דחה</button></td></tr>').join('') + '</tbody></table></div></section>';
+}
+/* ── אישרתי לאחרונה (דן 19/10: "התיקים שאישרתי — לראות בלוח, ולהחזיר אחורה אם לא בוצע כמו שצריך") ──
+   14 יום אחורה: הגשות שאישרתי, מחיקות שאישרתי, ושלב בציר שסיימתי (האחרון בכל תיק). לכל שורה — החזרה. */
+const MY_DONE_DAYS = 14;
+const undone = (a) => !!a.undoneAt && String(a.undoneAt) > String(a.decidedAt || '');
+function myDecisions() {
+  const me = S.me.id, from = addDays(today(), -MY_DONE_DAYS), out = [];
+  for (const a of live(S.approvals)) {
+    if (a.decidedBy !== me || a.status !== 'approved' || undone(a) || dayOf(a.decidedAt || '') < from) continue;
+    if (!['submission', 'delete'].includes(a.kind) || !(canApproveDel(a.division || 'finance') || (a.kind === 'submission' && S.myKey === 'nissim'))) continue;
+    out.push({ kind: a.kind, at: a.decidedAt, a, c: a.clientId ? S.clients.get(a.clientId) : null });
+  }
+  for (const c of live(S.clients)) {
+    if (c.division === 'realestate' || !c.proc || !inDiv(c)) continue;
+    const hist = c.proc.hist || {}, ci = procIdx(c, procCur(c));
+    /* אישור ההגשה מופיע כבר כשורת הגשה — לא כפול */
+    const mine = procSteps(c).map((s, i) => ({ s, i, h: hist[s[0]] })).filter((x) => x.s[0] !== 'submitApprove' && x.h && x.h.by === me && x.h.done && dayOf(x.h.done) >= from && x.i < ci)
+      .sort((x, y) => String(y.h.done).localeCompare(String(x.h.done)))[0];
+    if (mine) out.push({ kind: 'step', at: mine.h.done, c, step: mine.s });
+  }
+  return out.sort((x, y) => String(y.at).localeCompare(String(x.at)));
+}
+function myDecisionsCard() {
+  if (!(S.isDan || canApproveDel('realestate') || S.myKey === 'nissim')) return '';
+  const R = myDecisions(); if (!R.length) return '';
+  const link = (c) => c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : '';
+  /* שורה = טקסט + תגית + כפתורים, נשבר לשורות במובייל (לא טבלה — הכפתורים לא נחתכים ב-390) */
+  const line = (main, sub, pill, btns) => '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)"><div class="grow" style="min-width:220px">' + main + '<div class="hint">' + sub + '</div></div>' + pill + '<div class="row" style="gap:6px">' + btns + '</div></div>';
+  const row = (x) => {
+    if (x.kind === 'submission') { const a = x.a, [t, tone] = subStatePill(a);
+      return line('<b>הגשה:</b> ' + link(x.c) + ' ← ' + esc(a.bank || ''), 'אישרת ' + dLabel(dayOf(a.decidedAt)) + ' · ' + (a.files || []).length + ' קבצים', '<span class="pill ' + tone + '">' + esc(t) + '</span>',
+        (subUnsent(a) ? '<button class="btn small ghost" data-myundo="sub:' + esc(a.id) + '" title="חוזר ל&quot;ממתין לאישורך&quot;">בטל אישור</button>' : '') + '<button class="btn small" data-myundo="fix:' + esc(a.id) + '">החזר לתיקון</button>'); }
+    if (x.kind === 'delete') { const a = x.a;
+      return line('<b>מחיקה:</b> ' + esc(a.label), 'אישרת ' + dLabel(dayOf(a.decidedAt)) + ' · ביקש ' + esc(L.resp[a.byResp] || nameOf(a.by) || 'צוות'), '<span class="pill muted">נמחק</span>', '<button class="btn small" data-myundo="del:' + esc(a.id) + '">שחזר</button>'); }
+    const c = x.c, cur = procSteps(c)[procIdx(c, procCur(c))], who = cur && procOwner(c, cur[0]);
+    return line('<b>שלב:</b> ' + link(c) + ' — ' + esc(x.step[1]), 'סיימת ' + dLabel(dayOf(x.at)) + ' · עכשיו: ' + esc(cur ? cur[1] : '') + (who ? ' (' + esc(L.resp[who]) + ')' : ''), '<span class="pill actual">אושר</span>', '<button class="btn small" data-myundo="step:' + esc(c.id) + '">החזר אחורה</button>');
+  };
+  const TOP = 6;
+  return '<section class="card"><header><h2>אישרתי לאחרונה</h2><span class="pill muted">' + R.length + '</span><span class="hint">' + MY_DONE_DAYS + ' ימים אחרונים · משהו לא בוצע כמו שצריך? מחזירים מכאן</span></header>' +
+    R.slice(0, TOP).map(row).join('') + (R.length > TOP ? '<details><summary class="hint">עוד ' + (R.length - TOP) + '</summary>' + R.slice(TOP).map(row).join('') + '</details>' : '') + '</section>';
+}
+async function myUndo(v) {
+  const i = v.indexOf(':'), k = v.slice(0, i), id = v.slice(i + 1);
+  if (k === 'step') return formStepBack(id);
+  const a = S.approvals.get(id); if (!a || a.decidedBy !== S.me.id || a.status !== 'approved' || undone(a)) return;
+  const mark = { undoneAt: stamp(), undoneBy: S.me.id };
+  if (k === 'del') {
+    if (!confirm('לשחזר: ' + a.label + '?')) return;
+    await write(a.coll + '/' + a.docId, { deletedAt: null, deletedBy: null, deleteApprovedBy: null }, 'update');
+    await write('approvals/' + id, { ...mark, status: 'restored' }, 'update');
+    return toast('שוחזר — ' + a.label);
+  }
+  const c = S.clients.get(a.clientId); if (!c) return toast('הלקוח לא נמצא');
+  const back = async (to, note) => { const cc = S.clients.get(c.id); if (cc && procType(cc) === 'mortgage' && procIdx(cc, procCur(cc)) > procIdx(cc, to)) { await procAdvance(cc, to, { note }); return true; } return false; };
+  if (k === 'sub') {
+    if (!subUnsent(a)) return toast('ההגשה כבר נשלחה — אפשר רק להחזיר לתיקון');
+    if (!(await subUnmoveApproved(c, a, 'לביקורת'))) return toast('לא הצלחתי להוציא את התיקייה מ"מאושר לשליחה" — נסה שוב');
+    const okBy = { ...(a.okBy || {}) }; delete okBy[apprMe()];
+    await write('approvals/' + id, { ...mark, status: 'pending', noSend: null, decidedAt: null, decidedBy: null, okBy }, 'update');
+    await logClient(c.id, 'האישור להגשה ל' + a.bank + ' בוטל — חזר לממתין לאישור').catch(() => {});
+    if (procCur(S.clients.get(c.id) || c) === 'submit') await back('submitApprove', 'האישור להגשה ל' + a.bank + ' בוטל');
+    return toast('האישור בוטל — ההגשה חזרה ל"ממתין לאישורך"');
+  }
+  if (k !== 'fix') return;
+  const note = prompt('מה לתקן? (יופיע בכרטיס הלקוח ובמשימה)', ''); if (note === null || !note.trim()) return;
+  const unsent = subUnsent(a), text = 'ההגשה ל' + a.bank + ' הוחזרה לתיקון אחרי שאושרה' + (unsent ? '' : ' ונשלחה') + ': ' + note.trim();
+  if (unsent && !(await subUnmoveApproved(c, a, 'הוחזר לתיקון'))) return toast('לא הצלחתי להוציא את התיקייה מ"מאושר לשליחה" — נסה שוב');
+  await write('approvals/' + id, { ...mark, fixNote: note.trim(), ...(unsent ? { status: 'rejected', note: note.trim() } : {}) }, 'update');
+  await logClient(c.id, text).catch(() => {});
+  /* לא נשלחה: התיק חוזר להכנת ההגשה (משימה להדס עם ההערה). נשלחה: התיק לא זז — גופים אחרים אולי כבר במעקב — ונפתחת משימת תיקון */
+  if (unsent && ['submitApprove', 'submit'].includes(procCur(S.clients.get(c.id) || c)) && await back('submitTech', text)) return toast('הוחזר לתיקון');
+  await procTask(c, 'subfix:' + id, 'תיקון הגשה ל' + a.bank, procOwner(c, 'submitTech') || 'hadas', { priority: 'high', notes: text });
+  toast('הוחזר לתיקון — נפתחה משימה ל' + (L.resp[procOwner(c, 'submitTech') || 'hadas'] || 'הדס'));
+}
+function formStepBack(cid) {
+  const c = S.clients.get(cid); if (!c) return; const st = procSteps(c), ci = procIdx(c, procCur(c)); if (ci <= 0) return;
+  const mine = myDecisions().find((x) => x.kind === 'step' && x.c.id === cid);
+  const opts = st.slice(0, ci).map((s) => [s[0], s[1] + (procOwner(c, s[0]) ? ' (' + L.resp[procOwner(c, s[0])] + ')' : '')]);
+  drawer('החזרה אחורה — ' + c.name, '<p class="hint full" style="margin:0 0 8px">התיק עכשיו בשלב <b>' + esc(st[ci][1]) + '</b>. המשימה של השלב הזה נסגרת, ומי שאחראי על השלב שתבחר מקבל משימה עם ההערה.</p>' +
+    fs('step', 'להחזיר לשלב', opts, mine ? mine.step[0] : opts[opts.length - 1][0], true) + ft('note', 'מה לא בוצע כמו שצריך?', ''),
+  async (fd) => { if (!fd.step || procIdx(c, fd.step) < 0) return 'בחר שלב'; if (!String(fd.note || '').trim()) return 'כתוב מה לתקן';
+    await procAdvance(S.clients.get(cid) || c, fd.step, { note: 'הוחזר ע״י ' + whoAmI() + ': ' + fd.note.trim() }); }, '', 'החזר');
 }
 function partnerBar() {
   const mine = live(S.approvals).filter((a) => a.by === S.me.id).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 5);
   return '<section class="card"><div class="row"><button class="btn primary" data-act="partnerExpense">+ הוצאה להתחשבנות</button><span class="hint grow">הוצאה שתוזן נכנסת להתחשבנות של פתרונות. מחיקה של נתון כספי — דרך "בקש מחיקה", באישור דן.</span></div>' +
-    (mine.length ? '<div class="hint" style="margin-top:6px">הבקשות שלך: ' + mine.map((a) => esc(a.label) + ' — <span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open' }[a.status]) + '">' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'נדחה' }[a.status]) + '</span>').join(' · ') + '</div>' : '') + '</section>';
+    (mine.length ? '<div class="hint" style="margin-top:6px">הבקשות שלך: ' + mine.map((a) => esc(a.label) + ' — <span class="pill ' + ({ pending: 'expected', approved: 'actual', rejected: 'open', restored: 'muted' }[a.status]) + '">' + ({ pending: 'ממתין', approved: 'אושר', rejected: 'נדחה', restored: 'שוחזר' }[a.status]) + '</span>').join(' · ') + '</div>' : '') + '</section>';
 }
 /* ── לוח בקרה — הר-אל השקעות נדל״ן: נפרד לגמרי מהר-אל פתרונות ── */
 function reExpected(cl) {
@@ -2503,7 +2641,7 @@ function dashWidgetForm(d, i, type) {
 }
 function vHome() {
   const d = dashCur(); if (d) return dashTabs(d.id) + vDash(d);
-  return dashTabs('') + approvalsCard() + vHomeBase();
+  return dashTabs('') + approvalsCard() + myDecisionsCard() + vHomeBase();
 }
 function vHomeBase() {
   if (S.division === 'realestate') return vHomeRE();
@@ -2713,6 +2851,16 @@ function latestStatus(c) {
   if (c.nextAction && c.nextAction.text) { const e = (c.log || []).find((x) => String(x.text || '').startsWith('הצעד הבא')); c1.push({ at: (e && e.at) || '', kind: 'הצעד הבא', text: c.nextAction.text, date: c.nextAction.date, late: c.nextAction.date && c.nextAction.date < today() }); }
   return c1.sort((a, b) => String(b.at).localeCompare(String(a.at)))[0] || null;
 }
+function nextCell(c, compact) {
+  const t0 = today(), T = openTasksOf(c.id).sort((a, b) => String(a.due || '9999').localeCompare(String(b.due || '9999')) || (PRIO_RANK[a.priority] ?? 2) - (PRIO_RANK[b.priority] ?? 2)), show = compact ? 3 : 8;
+  const na = c.nextAction && c.nextAction.text ? '<div style="margin-bottom:3px"><span class="hint">הצעד הבא:</span> <span class="' + (c.nextAction.date && c.nextAction.date < t0 ? 'm open' : '') + '">' + linkify(c.nextAction.text, 90) + (c.nextAction.date ? ' · ' + dLabel(c.nextAction.date) : '') + '</span></div>' : '';
+  const tl = T.slice(0, show).map((t) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap;margin:2px 0">' + respChip(taskResp(t)) + '<span style="min-width:0">' + linkify(t.title, 80) +
+    (t.due ? ' <span class="hint' + (t.due < t0 ? ' m open' : '') + '">· ' + (t.due < t0 ? 'באיחור · ' : '') + dLabel(t.due) + '</span>' : '') + '</span></div>').join('') + (T.length > show ? '<div class="hint">ועוד ' + (T.length - show) + ' משימות</div>' : '');
+  const fallback = !na && !T.length ? ((ls) => ls ? '<span class="hint">' + ls.kind + ':</span> <span class="' + (ls.late ? 'm open' : '') + '">' + linkify(ls.text, 90) + (ls.date ? ' · ' + dLabel(ls.date) : '') + '</span>' : '<span class="hint">אין משימות פתוחות</span>')(latestStatus(c)) : '';
+  return na + tl + fallback +
+    (c.tableNote ? '<div style="margin-top:3px"><span class="hint">הערה:</span> ' + linkify(c.tableNote, 140) + '</div>' : '') +
+    (S.canClient && !compact ? ' <button class="btn small ghost" data-tablenote="' + esc(c.id) + '" title="הערה שמופיעה כאן — לא משימה">' + (c.tableNote ? '✎' : '+ הערה') + '</button>' : '');
+}
 function clientTable(rows, compact) {
   if (!rows.length) return '<p class="empty">אין לקוחות להצגה</p>';
   const $$ = S.isOwner;
@@ -2728,13 +2876,46 @@ function clientTable(rows, compact) {
       ($$ ? '<td>' + money(m.fee) + '</td>' + (compact ? '' : '<td>' + money(m.collected, { tone: m.collected ? 'actual' : 'muted' }) + '</td>') +
         '<td>' + (m.open ? money(m.open, { tone: 'expected' }) : '<span class="pill actual">✓</span>') + '</td>' : '') +
       '<td class="num">' + (ot ? '<span class="pill committed">' + ot + '</span>' : '<span class="hint">0</span>') + (S.canTask && !compact ? ' <button class="btn small ghost" data-addtaskfor="' + esc(c.id) + '" aria-label="משימה ל' + esc(c.name) + '">+</button>' : '') + '</td>' +
-      '<td class="wide" style="min-width:150px">' + ((ls) => ls ? '<span class="hint">' + ls.kind + ':</span> <span class="' + (ls.late ? 'm open' : '') + '">' + linkify(ls.text, 90) + (ls.date ? ' · ' + dLabel(ls.date) : '') + '</span>' : '<span class="hint">—</span>')(latestStatus(c)) + '</td></tr>';
+      /* דן 21/10: בעמודת הצעד הבא — הצעד הבא שנקבע, וכל המשימות הפתוחות של הלקוח: מי עושה ומה. ואחריהן ההערה הקבועה */
+      '<td class="wide" style="min-width:220px">' + nextCell(c, compact) + '</td></tr>';
   }).join('');
-  return '<div class="scroll"><table><thead><tr><th>לקוח</th><th>אחראי</th><th>אישור</th><th>שלב</th>' + ($$ ? '<th>שכ״ט</th>' + (compact ? '' : '<th>נגבה</th>') + '<th>פתוח</th>' : '') + '<th>משימות</th><th>מצב / הצעד הבא</th></tr></thead><tbody>' + body + '</tbody>' +
+  return '<div class="scroll"><table><thead><tr><th>לקוח</th><th>אחראי</th><th>אישור</th><th>שלב</th>' + ($$ ? '<th>שכ״ט</th>' + (compact ? '' : '<th>נגבה</th>') + '<th>פתוח</th>' : '') + '<th>משימות</th><th>הצעד הבא · משימות פתוחות</th></tr></thead><tbody>' + body + '</tbody>' +
     (compact || !$$ ? '' : '<tfoot><tr><td>' + rows.length + ' לקוחות</td><td></td><td></td><td></td><td>' + money(tf) + '</td><td>' + money(tc, { tone: 'actual' }) + '</td><td>' + money(to, { tone: 'expected' }) + '</td><td></td><td></td></tr></tfoot>') + '</table></div>';
 }
 
 /* ── כרטיס לקוח ──────────────────────────────────────────────────────────── */
+/* ── תמצית התיק (דן 21/10): מעל הכרטיס — לאן להגיש, מה הוגש, מה אושר, על איזה סכום, והלקוח בקצרה ── */
+const SUB_TONE = { prep: 'muted', submitted: 'expected', review: 'expected', approved: 'committed', executed: 'actual', declined: 'open' };
+function caseSummaryCard(c) {
+  if ((c.division || 'finance') === 'realestate') return '';
+  const x0 = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)) || null, x = x0 ? (x0.kind ? x0 : { ...x0, kind: intakeKind(x0, c.id) }) : null, C = x ? intakeCalc(x) : null;
+  const subs = (c.submissions || []).filter((s0) => s0 && s0.bank), done = new Set(subs.map((s0) => s0.bank));
+  const flow = subsOfClient(c).filter((a) => a.status === 'pending' || subUnsent(a));
+  const amount = n(c.baseAmount) || (C && C.amount) || 0;
+  /* לאן להגיש: גופים שמופיעים ב"הנחיות להגשה" של דן ועוד לא הוגש אליהם; אחרת — ההתאמה מ"הכר את הלקוח" */
+  const guide = procNote(c, 'prep'), named = guide ? live(S.lenders).filter((l) => l.name && guide.includes(l.name)).map((l) => l.name) : [];
+  const match = x && x.kind !== 'car' && C ? fundMatch(x, C).top.map((o) => o.f.name) : [];
+  /* "פריסבי" בהגשה = "פריסבי / אלבר" בהתאמה — משווים לפי כל חלק בשם */
+  const same = (a, b) => { const P = (x) => String(x || '').split('/').map((y) => y.trim()).filter(Boolean); return P(a).some((x) => P(b).some((y) => x === y || x.includes(y) || y.includes(x))); };
+  const todo = (named.length ? named : match).filter((b) => ![...done].some((d0) => same(d0, b)) && !flow.some((a) => same(a.bank, b)));
+  const tile = (h, body) => '<div><h3>' + h + '</h3>' + body + '</div>';
+  const ln = (b, pill, extra) => '<div class="ln"><b>' + esc(b) + '</b>' + pill + (extra ? '<span class="hint">' + extra + '</span>' : '') + '</div>';
+  const subLines = subs.map((s0) => ln(s0.bank, '<span class="pill ' + (SUB_TONE[s0.status] || 'muted') + '">' + esc(SUBST[s0.status] || s0.status || 'הוגש') + '</span>', s0.amount ? plain(s0.amount) : '')).join('') +
+    flow.map((a) => ln(a.bank, '<span class="pill ' + subStatePill(a)[1] + '">' + esc(subStatePill(a)[0]) + '</span>', '')).join('');
+  const appr = subs.filter((s0) => ['approved', 'executed'].includes(s0.status));
+  const B = x ? (x.borrowers || []).filter((b) => b && (b.name || b.income)) : [], pl = pledgeInfo(c);
+  const brief = x ? [B.length ? (B.map((b) => b.name || 'לווה').join(' + ')) : '', C && C.inc ? 'הכנסות ' + plain(C.inc) : '', C && C.value ? 'נכס ' + plain(C.value) + (C.ltvNow != null ? ' · שעבוד ' + pctTxt(C.ltvNow) : '') : '',
+    (x.credit || {}).bdi ? 'BDI ' + IK.bdi[x.credit.bdi] : '', x.track ? IK.track[x.track] : '', (x.request || {}).purpose ? IK.purpose[x.request.purpose] : ''].filter(Boolean) : [];
+  return '<section class="card" aria-label="תמצית התיק"><header><h2>תמצית התיק</h2>' + (c.phone ? '<span class="hint"><bdi>' + esc(normPhone(c.phone)) + '</bdi></span>' : '') + '</header><div class="csum">' +
+    tile('סכום ההגשה', '<div class="big">' + (amount ? plain(amount) : '—') + '</div><div class="hint">' + esc([L.product[c.product] || '', c.feePct ? 'שכ״ט ' + r2(c.feePct * 100) + '%' : c.feeFixed ? 'שכ״ט ' + plain(c.feeFixed) : ''].filter(Boolean).join(' · ')) + '</div>') +
+    tile('הוגש ל־', subLines || '<p class="hint" style="margin:0">עוד לא הוגש</p>') +
+    tile('אושר', appr.length ? appr.map((s0) => ln(s0.bank, '<span class="pill ' + SUB_TONE[s0.status] + '">' + esc(SUBST[s0.status]) + '</span>', s0.amount ? plain(s0.amount) : '')).join('') +
+      ((pr) => pr.managerName || pr.managerPhone ? '<div class="hint">מנהל התיק' + (pr.fund ? ' ב' + esc(pr.fund) : '') + ': <b>' + esc(pr.managerName || '') + '</b>' + (pr.managerPhone ? ' · <a href="tel:' + esc(normPhone(pr.managerPhone)) + '" dir="ltr">' + esc(normPhone(pr.managerPhone)) + '</a>' : '') + '</div>' : '')((c.proc || {}).principle || {}) : '<p class="hint" style="margin:0">עוד אין אישור</p>') +
+    tile('צריך להגיש ל־', todo.length ? todo.map((b) => ln(b, '', '')).join('') + '<div class="hint">' + (named.length ? 'לפי ההנחיות להגשה' : 'לפי ההתאמה ב"הכר את הלקוח"') + '</div>' : '<p class="hint" style="margin:0">' + (guide ? esc(guide.slice(0, 120)) : 'אין עדיין הנחיות להגשה') + '</p>') +
+    tile('הלקוח בקצרה', brief.length ? '<p style="margin:0">' + brief.map(esc).join(' · ') + '</p>' : '<p class="hint" style="margin:0">"הכר את הלקוח" עוד לא מולא</p>') +
+    tile('הנכס המשועבד', pl ? '<p style="margin:0">' + (pl.isHome ? '<span class="pill ' + (pl.isHome === 'yes' ? 'committed' : 'expected') + '">' + (pl.isHome === 'yes' ? 'גר בנכס' : 'לא גר בנכס') + '</span> ' : '<span class="pill open">לא סומן</span> ') + esc(pl.address || '') + '</p>' + (pl.isHome === 'no' && pl.home ? '<div class="hint">כתובת המגורים: ' + esc(pl.home) + '</div>' : '') : '<p style="margin:0"><span class="pill open">לא סומן</span> <button class="xlink" data-intake="' + esc(c.id) + '">לסמן ב"הכר את הלקוח"</button></p>') +
+    '</div></section>';
+}
 function vClient(id) {
   const c = S.clients.get(id);
   if (!c || c.deletedAt || !canSeeDiv(c.division)) return '<p class="empty">הלקוח לא נמצא. <button class="xlink" data-go="clients">חזרה ללקוחות</button></p>';
@@ -2759,7 +2940,7 @@ function vClient(id) {
       '<div class="chacts">' + (wa0 ? '<a class="btn wa" href="' + esc(wa0) + '" target="_blank" rel="noopener">' + IC('wa') + 'וואטסאפ</a>' : '') + (c.phone ? '<a class="btn call chcall" href="tel:' + esc(normPhone(c.phone)) + '">' + IC('call') + 'חיוג</a>' + vcBtn(c.phone, true, 'client:' + c.id) : '') +
         (formsOk() ? '<button class="btn ghost" data-formsfor="' + esc(c.id) + '">' + IC('note') + 'שליחה לחתימה</button>' : '') + (w ? '<button class="btn primary" data-intake="' + esc(c.id) + '">' + IC('spark') + 'הכר את הלקוח</button>' : '') + '</div></div>' +
       (st0 ? '<div class="chprog" aria-hidden="true">' + st0.map((x, i) => '<i class="' + (i < ci0 ? 'done' : i === ci0 ? 'cur' : '') + '"></i>').join('') + '</div>' : '') +
-      '</section><section class="card chmgmt" aria-label="ניהול התיק">' + '<div class="row">' + (S.canTask ? '<button class="btn ' + ((fileOf(c.id) || {}).needsDan ? 'danger' : 'ghost') + '" data-needsdan="' + esc(c.id) + '">' + ((fileOf(c.id) || {}).needsDan ? (S.isDan ? '✓ אישרתי' : 'ממתין לאישור דן ✕') : 'לאישור דן') + '</button>' : '') +
+      '</section>' + caseSummaryCard(c) + '<section class="card chmgmt" aria-label="ניהול התיק">' + '<div class="row">' + (S.canTask ? '<button class="btn ' + ((fileOf(c.id) || {}).needsDan ? 'danger' : 'ghost') + '" data-needsdan="' + esc(c.id) + '">' + ((fileOf(c.id) || {}).needsDan ? (S.isDan ? '✓ אישרתי' : 'ממתין לאישור דן ✕') : 'לאישור דן') + '</button>' : '') +
         (w ? sel('cResp', 'אחראי', [['', 'בלי אחראי'], ...(() => { const es = respEntries(c.division || 'finance'); return c.resp && !es.some(([k]) => k === c.resp) ? [...es, [c.resp, L.resp[c.resp] || c.resp]] : es; })()], c.resp || '') + sel('cApproval', 'אישור', Object.entries(L.approval), c.approval || 'pending') + sel('cStage', 'שלב', STAGE_ORDER.map((k) => [k, L.stage[k]]), c.stage) +
         sel('cStatus', 'סטטוס', Object.entries(L.status), c.status) + '<button class="btn" data-act="editClient">עריכה</button>' + (S.isOwner && ['won', 'lost', 'cancelled'].includes(c.status) ? '<button class="btn" data-act="newDeal">+ עסקה חדשה ללקוח</button>' : '') : respChip(c.resp) + approvalPill(c) + '<span class="pill committed">' + (L.stage[c.stage] || '') + '</span>') + '</div>' + '<div class="row">' + copyBtns('c:' + c.id, true) + '</div></div>' +
       (c.status === 'hold' ? '<div class="notice warn" style="margin-top:8px"><b>בהשהייה</b><span>' + esc(c.holdReason || 'לא נכתבה סיבה') + (w ? ' <button class="xlink" data-act="holdReason">עדכן סיבה</button>' : '') + '</span></div>' : '') +
@@ -2789,9 +2970,9 @@ function vClient(id) {
         '<section class="card"><header><h2>משימות על התיק</h2>' + (ctasks.length ? '<span class="pill expected">' + ctasks.length + '</span>' : '') + '</header>' +
           (!ctasks.length ? '<p class="empty">אין משימות פתוחות על התיק.</p>' : '') +
           (ctasks.length ? '' + ctasks.map((t) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + esc(t.title) + '</span></label>' + respChip(taskResp(t)) +
-            '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
+            '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + tmrBtn(t) + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
           (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>' +
-        (S.isOwner ? instCard(c, w) : '') + mailCard(c) + calCard(c) +
+        (S.isOwner ? instCard(c, w) : '') + (c.division === 'realestate' ? '' : oshCard(c.id, S.canTask)) + mailCard(c) + calCard(c) +
         '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
           (tot ? '<div class="progress" style="margin-bottom:8px"><i style="width:' + pct(done, tot) + '%"></i></div>' +
             (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
@@ -2874,7 +3055,7 @@ function taskCard(t, t0) {
     '<div class="row" style="margin-top:8px">' + respChip(taskResp(t)) + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
       (!c && t.leadId && S.leads.has(t.leadId) ? '<a class="chip" href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + ' ↗</a>' : '') +
       (t.due ? '<span class="pill ' + (late ? 'open' : t.due === t0 ? 'committed' : 'muted') + '">' + (late ? 'באיחור · ' : '') + dLabel(t.due) + (t.time ? ' ' + esc(t.time) : '') + '</span>' : '<span class="hint">בלי תאריך</span>') +
-      (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + '<span class="grow"></span>' +
+      (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + tmrBtn(t) + '<span class="grow"></span>' +
       (w && t.status !== 'done' ? '<button class="btn small ghost" data-taskmorrow="' + esc(t.id) + '">למחר</button>' : '') + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div></article>';
 }
 function vTasks() {
@@ -2894,7 +3075,7 @@ function vTasks() {
     (rows.length ? '<div class="scroll"><table><thead><tr><th></th><th>משימה</th><th>לקוח</th><th>אחראי</th><th>עדיפות</th><th>יעד</th><th></th></tr></thead><tbody>' + rows.map((t) => {
       const late = t.due && t.due < t0 && t.status !== 'done', c = t.clientId && S.clients.get(t.clientId);
       return '<tr><td style="width:28px;border-inline-start:4px solid ' + prioVar(t) + '"><input class="cb" type="checkbox" data-taskdone="' + esc(t.id) + '"' + (t.status === 'done' ? ' checked' : '') + (S.canTask ? '' : ' disabled') + ' aria-label="בוצע"></td>' +
-        '<td class="wide"' + (t.status === 'done' ? ' style="color:var(--text-3);text-decoration:line-through"' : '') + '>' + esc(t.title) + (t.auto ? ' <span class="pill committed">אוטומטית</span>' : '') + (t.notes ? '<div class="hint">' + esc(String(t.notes).slice(0, 140)) + '</div>' : '') + '</td>' +
+        '<td class="wide"' + (t.status === 'done' ? ' style="color:var(--text-3);text-decoration:line-through"' : '') + '>' + esc(t.title) + (t.auto ? ' <span class="pill committed">אוטומטית</span>' : '') + ' ' + tmrBtn(t) + (t.notes ? '<div class="hint">' + esc(String(t.notes).slice(0, 140)) + '</div>' : '') + '</td>' +
         '<td>' + (c ? '<button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button>' : t.leadId && S.leads.has(t.leadId) ? '<a href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + '</a>' : esc(t.clientName || '')) + '</td>' +
         '<td>' + respChip(taskResp(t)) + '</td>' +
         '<td><span class="pill ' + (t.priority === 'urgent' || t.priority === 'high' ? 'open' : 'muted') + '">' + (L.priority[t.priority] || 'רגילה') + '</span></td>' +
@@ -3056,27 +3237,94 @@ const STMT_PROMPT = (kind, from, to, N) => 'זה ' + (kind === 'card' ? 'פיר�
   'חלץ את כל התנועות בעמודים האלה, אחת לאחת, בלי לדלג ובלי להמציא. לכל תנועה: date (YYYY-MM-DD; בישראל כותבים יום/חודש/שנה; אם חסרה שנה — לפי התקופה בדף), desc (שם בית העסק / תיאור הפעולה כפי שכתוב), amount — מספר בש״ח: ' +
   (kind === 'card' ? 'כל חיוב שלילי (למשל -120.5), זיכוי חיובי. בעסקת תשלומים — סכום החיוב החודשי, לא סכום העסקה. בעסקה במט״ח — הסכום בש״ח.' : 'חובה / משיכה שלילי, זכות / הפקדה חיובי.') +
   ' שורות סיכום, יתרות וכותרות — לא תנועות.\nהחזר JSON בלבד: {"rows":[{"date":"2026-10-03","desc":"…","amount":-120.5}],"period":"MM/YYYY אם מופיע","account":"4 ספרות אחרונות אם מופיעות"}';
-async function stmtImport(file, kind, label, say) {
+/* קריאת דף: CSV / אקסל ישירות; PDF / צילום — Claude מציע (הנחיה 17: עד שאדם עובר על השורות זו הצעה). משותף להוצאות של המשרד ול"עו״ש לאקסל" של לקוח */
+async function stmtReadRows(file, kind, say, opt = {}) {
   let rows = null, status = 'file', meta = {};
-  if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) { rows = await sheetRowsOf(file); if (!rows) return; rows = rows.map((r) => ({ date: r.date, desc: r.desc, amount: kind === 'card' && r.amount > 0 && !/זיכוי/.test(r.desc) ? -r.amount : r.amount })); }
+  if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) { rows = await sheetRowsOf(file); if (!rows) return null; rows = rows.map((r) => ({ date: r.date, desc: r.desc, amount: kind === 'card' && r.amount > 0 && !/זיכוי/.test(r.desc) ? -r.amount : r.amount, ...(opt.balance && r.balance != null ? { balance: r.balance } : {}) })); }
   else {
-    const sample = await claude.use('sample').catch(() => null); if (!sample) return toast('קריאת PDF / צילום צריכה את Claude — בתצוגה הזו אפשר להעלות CSV או אקסל');
+    const sample = await claude.use('sample').catch(() => null); if (!sample) { toast('קריאת PDF / צילום צריכה את Claude — בתצוגה הזו אפשר להעלות CSV או אקסל'); return null; }
     const lim = await sample.limits().catch(() => null), P = await docPages(file, say), per = P.kind === 'img' ? Math.max(1, Math.min(4, (lim && lim.images && lim.images.maxCount) || 3)) : 3;
-    if (P.kind === 'img' && !(lim && lim.images)) return toast('קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט או CSV');
+    if (P.kind === 'img' && !(lim && lim.images)) { toast('קובץ סרוק — התצוגה הזו לא שולחת תמונות. נסה PDF עם טקסט או CSV'); return null; }
     rows = [];
     for (let i = 0; i < P.n; i += per) { const from = i + 1, to = Math.min(P.n, i + per); say('Claude קורא עמודים ' + from + '–' + to + ' מתוך ' + P.n + (window.__crmAiQueue ? ' · בתור, כמה דקות לכל מנה — השאר את הדף פתוח' : '') + '…');
       const chunk = P.pages.slice(i, to), txt = P.kind === 'text' ? chunk.join('\n\n— עמוד —\n\n') : '';
-      const r = await sample.json(STMT_PROMPT(kind, from, to, P.n) + (txt ? '\n\nתוכן העמודים:\n' + txt.slice(0, 30000) : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, ...(P.kind === 'img' ? { images: chunk } : {}), ...aiSrv({ label: 'דף ' + (kind === 'card' ? 'אשראי' : 'בנק') + ' — עמודים ' + from + '–' + to }) });
-      (r && Array.isArray(r.rows) ? r.rows : []).forEach((x) => { const d = dateOf(x.date) || (/^\d{4}-\d{2}-\d{2}$/.test(String(x.date)) ? x.date : null), a = r2(n(x.amount)); if (d && a) rows.push({ date: d, desc: String(x.desc || '').trim().slice(0, 120), amount: a }); });
+      const r = await sample.json(STMT_PROMPT(kind, from, to, P.n) + (opt.balance ? '\nאם יש עמודת יתרה — הוסף לכל תנועה גם balance (היתרה אחרי התנועה, מספר).' : '') + (txt ? '\n\nתוכן העמודים:\n' + txt.slice(0, 30000) : '\n\nהעמודים מצורפים כתמונות, לפי הסדר.'), { modelTier: 'default', cache: false, ...(P.kind === 'img' ? { images: chunk } : {}), ...aiSrv({ label: 'דף ' + (kind === 'card' ? 'אשראי' : 'בנק') + ' — עמודים ' + from + '–' + to }) });
+      (r && Array.isArray(r.rows) ? r.rows : []).forEach((x) => { const d = dateOf(x.date) || (/^\d{4}-\d{2}-\d{2}$/.test(String(x.date)) ? x.date : null), a = r2(n(x.amount)); if (d && a) rows.push({ date: d, desc: String(x.desc || '').trim().slice(0, 120), amount: a, ...(opt.balance && x.balance != null && x.balance !== '' ? { balance: r2(n(x.balance)) } : {}) }); });
       if (r && r.account) meta.account = String(r.account).slice(-4); }
     status = 'proposal';
   }
+  return { rows, status, meta };
+}
+async function stmtImport(file, kind, label, say) {
+  const R0 = await stmtReadRows(file, kind, say); if (!R0) return; let { rows } = R0; const { status, meta } = R0;
   const seen = new Set(); rows = rows.filter((r) => { const k = stmtKey(r); if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) return toast('לא נמצאו תנועות בקובץ');
   const id = uid();
   await write('stmts/' + id, { id, kind, label: label || STMT_KIND[kind] + (meta.account ? ' ' + meta.account : ''), file: file.name, status, rows: rows.map((r) => ({ date: r.date, desc: r.desc, amount: r.amount })), from: rows[0].date, to: rows[rows.length - 1].date, division: S.division === 'all' ? null : S.division, createdAt: stamp(), by: S.me.id });
   say(rows.length + ' תנועות נקראו · ' + dLabel(rows[0].date) + '–' + dLabel(rows[rows.length - 1].date) + (status === 'proposal' ? ' · Claude קרא — עבור על השורות ואשר' : ''));
   toast(rows.length + ' תנועות נכנסו לניתוח');
+}
+/* ═════ עו״ש לאקסל (דן 21/10): מעלים דף עו״ש של לקוח (PDF / צילום / CSV / אקסל) → אקסל לניתוח, להורדה או לתיקיית הלקוח בדרייב ═════
+   גיליונות: תנועות (עם קטגוריה וחודש), סיכום חודשי, לפי קטגוריה, דגלים (חזרות, הלוואות, הימורים, משיכות גדולות).
+   מ-PDF / צילום Claude קורא — האקסל מסומן "הצעה — לבדוק מול הדף" (הנחיה 17). השורות לא נשמרות במערכת; נשמר רק הקובץ בדרייב. */
+const OSH_CATS = [['משכורת והכנסה', /משכורת|שכר|מעביד|ביטוח לאומי.*(קצב|גמל)|קצבה|הפקדת שכר/i], ['החזרי הלוואות ומשכנתא', /הלוואה|הלואה|משכנתא|החזר הלו|פרעון|פירעון|טפחות|ירושלים מש|לאומי למשכנתאות/i],
+  ['כרטיסי אשראי', CARD_PAY_RX], ['צ׳קים וחיובים שחזרו', /חזר|הוחזר|לא כובד|אין כיסוי|ביטול חיוב/i], ['עמלות וריבית', /עמל|ריבית|דמי ניהול|דמי כרטיס/i], ['ביטוח', /ביטוח|מגדל|הפניקס|מנורה|איילון|כלל ביט|הראל ביט/i],
+  ['משיכת מזומן', /כספומט|משיכת מזומן|מזומן|atm/i], ['העברות וביט', /העברה|העב'|ביט\b|bit\b|paybox|פייבוקס|פיי בוקס/i], ['מיסים ורשויות', /מס הכנסה|מע"?מ|ארנונה|עירי|רשות/i], ['הימורים', /טוטו|לוטו|ווינר|winner|הימור|טופ ?ווין|פיס\b/i],
+  ['שיקים', /שיק|צ'ק|צ׳ק|המחאה/i], ['חשבונות בית', /חשמל|מים|גז|סלקום|פרטנר|בזק|הוט\b|hot\b|פלאפון/i]];
+const oshCat = (r) => (OSH_CATS.find(([, re]) => re.test(r.desc || '')) || [r.amount > 0 ? 'זיכויים אחרים' : 'אחר'])[0];
+function oshAnalysis(rows) {
+  const R = rows.map((r) => ({ ...r, month: r.date.slice(0, 7), cat: oshCat(r) })), months = [...new Set(R.map((r) => r.month))].sort();
+  const M = months.map((m) => { const x = R.filter((r) => r.month === m), inn = r2(x.filter((r) => r.amount > 0).reduce((a, r) => a + r.amount, 0)), out = r2(x.filter((r) => r.amount < 0).reduce((a, r) => a - r.amount, 0));
+    const last = [...x].reverse().find((r) => r.balance != null); return { m, inn, out, net: r2(inn - out), n: x.length, returned: x.filter((r) => r.cat === 'צ׳קים וחיובים שחזרו').length, bal: last ? last.balance : null }; });
+  const cats = [...new Set(R.map((r) => r.cat))];
+  const absAmts = R.map((r) => Math.abs(r.amount)).sort((a, b) => a - b), med = absAmts.length ? absAmts[Math.floor(absAmts.length / 2)] : 0;
+  const flags = R.filter((r) => ['צ׳קים וחיובים שחזרו', 'הימורים', 'החזרי הלוואות ומשכנתא'].includes(r.cat) || (r.amount < 0 && Math.abs(r.amount) >= Math.max(5000, med * 5)));
+  const avg = (k) => months.length ? r2(M.reduce((a, x) => a + x[k], 0) / months.length) : 0;
+  return { R, months, M, cats, flags, avgIn: avg('inn'), avgOut: avg('out'), salary: r2(R.filter((r) => r.cat === 'משכורת והכנסה').reduce((a, r) => a + r.amount, 0) / Math.max(1, months.length)), loans: r2(R.filter((r) => r.cat === 'החזרי הלוואות ומשכנתא').reduce((a, r) => a - r.amount, 0) / Math.max(1, months.length)) };
+}
+function oshBook(A, meta) {
+  const wb = XLSX.utils.book_new(), note = meta.status === 'proposal' ? 'הצעה של Claude מתוך ' + meta.file + ' — לבדוק מול הדף לפני שמשתמשים' : 'נקרא מהקובץ ' + meta.file;
+  const sheet = (aoa, cols) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = cols.map((w) => ({ wch: w })); ws['!views'] = [{ RTL: true }]; return ws; };
+  XLSX.utils.book_append_sheet(wb, sheet([[meta.name + ' — עו״ש · ' + note], [], ['תאריך', 'חודש', 'תיאור', 'חובה', 'זכות', 'סכום', 'יתרה', 'קטגוריה'],
+    ...A.R.map((r) => [r.date, r.month, r.desc, r.amount < 0 ? -r.amount : '', r.amount > 0 ? r.amount : '', r.amount, r.balance ?? '', r.cat])], [12, 9, 40, 12, 12, 12, 12, 22]), 'תנועות');
+  XLSX.utils.book_append_sheet(wb, sheet([['סיכום חודשי · ' + note], [], ['חודש', 'הכנסות / זכות', 'הוצאות / חובה', 'נטו', 'תנועות', 'חזרות', 'יתרה בסוף החודש'], ...A.M.map((x) => [x.m, x.inn, x.out, x.net, x.n, x.returned, x.bal ?? '']),
+    [], ['ממוצע חודשי', A.avgIn, A.avgOut, r2(A.avgIn - A.avgOut)], ['משכורת / הכנסה קבועה — ממוצע', A.salary], ['החזרי הלוואות ומשכנתא — ממוצע', A.loans]], [26, 16, 16, 14, 10, 8, 16]), 'סיכום חודשי');
+  XLSX.utils.book_append_sheet(wb, sheet([['לפי קטגוריה (נטו: זכות פחות חובה)'], [], ['קטגוריה', ...A.months, 'סה״כ'],
+    ...A.cats.map((k) => { const v = A.months.map((m) => r2(A.R.filter((r) => r.cat === k && r.month === m).reduce((a, r) => a + r.amount, 0))); return [k, ...v, r2(v.reduce((a, b) => a + b, 0))]; })], [26, ...A.months.map(() => 12), 14]), 'לפי קטגוריה');
+  XLSX.utils.book_append_sheet(wb, sheet([['דגלים — חזרות, הלוואות, הימורים ומשיכות גדולות'], [], ['תאריך', 'תיאור', 'סכום', 'למה'], ...A.flags.map((r) => [r.date, r.desc, r.amount, ['צ׳קים וחיובים שחזרו', 'הימורים', 'החזרי הלוואות ומשכנתא'].includes(r.cat) ? r.cat : 'סכום גדול'])], [12, 40, 12, 24]), 'דגלים');
+  return wb;
+}
+async function oshUpload(cid, file) {
+  const say = (t) => { S.oshSay = t; const el = $('oshSt'); if (el) el.textContent = t; };
+  say('קורא את ' + file.name + '…');
+  const R0 = await stmtReadRows(file, 'bank', say, { balance: true }).catch((e) => { say('לא הצלחתי לקרוא: ' + ((e && e.message) || '')); return null; }); if (!R0) return;
+  const rows = R0.rows.filter((r) => r.date && r.amount).sort((a, b) => a.date.localeCompare(b.date)); if (!rows.length) return say('לא נמצאו תנועות בקובץ');
+  S.osh = { cid, file: file.name, status: R0.status, rows, at: stamp() }; say(''); render();
+}
+const oshName = (cid) => ((S.clients.get(cid) || S.leads.get(cid) || {}).name || 'לקוח');
+const oshFileName = (cid) => 'עו״ש — ' + oshName(cid) + ' — ' + today() + '.xlsx';
+async function oshDownload(cid) { const O = S.osh; if (!O || O.cid !== cid) return;
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו — שמור בדרייב');
+  try { await dlc.save({ filename: oshFileName(cid), data: XLSX.write(oshBook(oshAnalysis(O.rows), { ...O, name: oshName(cid) }), { type: 'array', bookType: 'xlsx', compression: true }) }); } catch (e) { toast('ההורדה בוטלה'); } }
+async function oshDrive(cid) {
+  const O = S.osh; if (!O || O.cid !== cid) return; if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו');
+  const folder = (S.clients.get(cid) || {}).driveFolder || (S.intakes.get(cid) || {}).driveFolder; if (!folder) return toast('אין ללקוח תיקייה בדרייב — הורד את הקובץ במקום');
+  const b64 = XLSX.write(oshBook(oshAnalysis(O.rows), { ...O, name: oshName(cid) }), { type: 'base64', bookType: 'xlsx' });
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: oshFileName(cid), base64Content: b64, contentMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', disableConversionToGoogleType: true, parentId: folder }, { cache: false }).catch(() => null));
+  const id = p.id || p.fileId; if (!id) return toast('השמירה בדרייב נכשלה');
+  O.driveId = id; O.driveUrl = p.viewUrl || 'https://drive.google.com/file/d/' + id + '/view';
+  if (S.clients.get(cid)) await logClient(cid, 'עו״ש לאקסל: ' + O.file + ' → ' + O.rows.length + ' תנועות · נשמר בתיקייה').catch(() => {});
+  toast('נשמר בתיקיית הלקוח'); render();
+}
+function oshCard(cid, w) {
+  const O = S.osh && S.osh.cid === cid ? S.osh : null, A = O ? oshAnalysis(O.rows) : null;
+  return '<section class="card"><header><h2>עו״ש לאקסל</h2><span class="grow"></span>' + (w ? '<label class="btn small primary">העלה דף עו״ש<input type="file" id="oshFile" accept=".pdf,.csv,.xlsx,.xls,image/*" hidden></label>' : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 8px">PDF, צילום, CSV או אקסל מהבנק → אקסל עם התנועות, סיכום חודשי, קטגוריות ודגלים (חזרות, הלוואות, הימורים, משיכות גדולות).' + (O ? '' : ' השורות לא נשמרות במערכת — רק הקובץ שתשמור בדרייב.') + ' <span id="oshSt">' + esc(S.oshSay || '') + '</span></p>' +
+    (A ? (O.status === 'proposal' ? '<div class="notice warn" style="margin-bottom:8px"><b>Claude קרא את הדף</b><span>זו הצעה — עבור על האקסל מול הדף לפני שמסתמכים עליו.</span></div>' : '') +
+      '<div class="grid4" style="margin-bottom:8px">' + kpi('תנועות', '<span class="num">' + O.rows.length + '</span>', dLabel(O.rows[0].date) + '–' + dLabel(O.rows[O.rows.length - 1].date), null) + kpi('הכנסות — ממוצע לחודש', money(A.avgIn, { tone: 'actual' }), 'משכורת: ' + plain(A.salary), null) +
+        kpi('הוצאות — ממוצע לחודש', money(-A.avgOut), 'הלוואות: ' + plain(A.loans), null) + kpi('דגלים', '<span class="num">' + A.flags.length + '</span>', A.M.reduce((a, x) => a + x.returned, 0) + ' חזרות', null, A.flags.length ? 'open' : '') + '</div>' +
+      '<div class="scroll"><table><thead><tr><th>חודש</th><th>זכות</th><th>חובה</th><th>נטו</th><th>חזרות</th><th>יתרה</th></tr></thead><tbody>' + A.M.map((x) => '<tr><td>' + mLabel(x.m) + '</td><td>' + money(x.inn, { tone: 'actual' }) + '</td><td>' + money(-x.out) + '</td><td>' + money(x.net) + '</td><td class="num">' + x.returned + '</td><td>' + (x.bal != null ? money(x.bal) : '—') + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="row" style="margin-top:8px"><button class="btn primary" data-act="oshDl">הורד אקסל</button>' + (w ? '<button class="btn" data-act="oshDrive">' + (O.driveId ? 'נשמר ✓ — שמור שוב' : 'שמור בתיקיית הלקוח בדרייב') + '</button>' : '') + (O.driveUrl ? '<a class="btn small ghost" href="' + esc(O.driveUrl) + '" target="_blank" rel="noopener">פתח ↗</a>' : '') + '<span class="hint">' + esc(O.file) + '</span></div>' : '') + '</section>';
 }
 function expPeriod() { const p = S.f.expPeriod || 'month', t0 = today();
   if (p === 'week') return { from: addDays(t0, -6), to: t0, prevFrom: addDays(t0, -13), prevTo: addDays(t0, -7), label: '7 הימים האחרונים', prevLabel: 'השבוע שלפני' };
@@ -3845,10 +4093,13 @@ async function docsLoad(c, force) {
   try { const folders = {}, files = [], seen = new Set(), add = (f) => { if (!seen.has(f.id)) { seen.add(f.id); files.push(f); } };
     for (const [ri, r] of docRoots(c).entries()) { const root = await driveList(r.id), pre = ri ? (r.title || 'תיקייה מקושרת') : '', others = [];
       for (const f of root) { if (isFolder(f)) { const cat = (DOC_CATS.find(([, l]) => l === String(f.title).trim()) || [])[0];
-          if (cat) { if (!ri) folders[cat] = f.id; (await driveList(f.id)).filter((x) => !isFolder(x)).forEach((x) => add({ ...x, ri, cat: (c.docCats || {})[x.id] || cat, inFolder: !ri, sub: pre ? pre + '/' + f.title : '' })); } else others.push(f); }
+          if (cat) { if (!ri) folders[cat] = f.id;
+            /* גם תת-תיקיות בתוך תיקיית קטגוריה (למשל הכנסות/<שם הלווה>) — עד 6 רמות, באותה קטגוריה */
+            const take = async (d, sub, depth) => { for (const x of await driveList(d.id)) { if (isFolder(x)) { if (depth < 6) await take(x, sub ? sub + '/' + x.title : x.title, depth + 1); } else add({ ...x, ri, cat: (c.docCats || {})[x.id] || cat, inFolder: !ri && depth === 1, sub }); } };
+            await take(f, pre ? pre + '/' + f.title : '', 1); } else others.push(f); }
         else add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: pre }); }
-      const walk = async (d, path, depth) => { const kids = await driveList(d.id); let n = 0; /* תת-תיקייה שאינה קטגוריה (למשל "מסמכי משכנתא" של WISE): הקבצים שבה, עד 3 רמות, משויכים לפי השם */
-        for (const f of kids) { if (isFolder(f)) { if (depth < 3) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
+      const walk = async (d, path, depth) => { const kids = await driveList(d.id); let n = 0; /* תת-תיקייה שאינה קטגוריה (למשל "מסמכי משכנתא" של WISE): הקבצים שבה, עד 6 רמות, משויכים לפי השם */
+        for (const f of kids) { if (isFolder(f)) { if (depth < 6) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
       for (const d of others) if (!(await walk(d, (pre ? pre + '/' : '') + d.title, 1))) add({ ...d, ri, cat: 'other', sub: pre, folderLink: true }); }
     st.files = files.sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || ''))); st.folders = folders; st.at = stamp();
   } catch (e) { st.error = e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'קריאת התיקייה בדרייב נכשלה (' + ((e && e.code) || 'שגיאה') + ')'; }
@@ -3897,7 +4148,7 @@ const SIGN_DRAFT = '[טיוטה — להחליף בנוסח ההסכם שלך, �
 const SIGN_TPL = (div) => ((S.settings.signTemplates || {})[div] || SIGN_DRAFT);
 const SIGN_LABELS = { company: 'שם החברה', date: 'תאריך', client_name: 'שם הלקוח', client_id: 'ת״ז הלקוח', client_address: 'כתובת', client_phone: 'טלפון', client_email: 'מייל', spouse_name: 'בן/בת זוג', spouse_id: 'ת״ז בן/בת זוג', service: 'השירות', amount: 'סכום הבקשה', fee: 'שכר טרחה',
   /* ספריית ההסכמים (data/agreements) — זהה ל-AGREEMENT_FIELDS ב-lib/rules/agreements.ts */
-  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ כולל מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
+  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ לפני מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', lien_holder: 'הגורם המשעבד', known_limits: 'הגבלות ידועות על הרכב',
   projects: 'הפרויקטים שהוצגו', payment_option: 'חלופת תשלום',
   pay_days: 'ימים לתשלום שכ״ט ההצלחה', card_type: 'סוג כרטיס האשראי', card_last4: '4 ספרות אחרונות בכרטיס', installments: 'מספר תשלומים',
@@ -3947,14 +4198,21 @@ const signTplFields = (t) => { const out = []; for (const m of String(t).matchAl
 const signTplRequired = (t) => { const out = []; for (const m of String(t).matchAll(/\{\{\s*([A-Za-z0-9_]+)(\?)?\s*\}\}/g)) if (!m[2] && !out.includes(m[1])) out.push(m[1]); return out; };
 function signDefaults(c) {
   const re = (c.division || 'finance') === 'realestate', d = new Date().toLocaleDateString('he-IL');
-  return { company: re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', date: d, client_name: c.name || '', client_id: c.idNumber || '', client_address: c.address || '', client_phone: c.phone || '', client_email: c.email || '',
-    spouse_name: c.spouseName || '', spouse_id: c.spouseId || '', service: L.product[c.product] || c.service || '', amount: c.baseAmount ? plain(c.baseAmount) : '', fee: c.fee ? plain(c.fee) + ' + מע״מ' : '',
-    ...signLibDefaults(c) };
+  /* דן 21/10: "השדות לא הסתנכרנו" — מה שחסר בכרטיס נלקח מ"הכר את הלקוח" (של הלקוח או של הליד שממנו נפתח) */
+  const x = (typeof intakeCalc === 'function' && c.id && (S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)))) || null, xk = x ? (x.kind ? x : { ...x, kind: intakeKind(x, c.id) }) : null, C = xk ? intakeCalc(xk) : null;
+  const B0 = (x && (x.borrowers || [])[0]) || {}, B1 = (x && (x.borrowers || [])[1]) || {}, K = (x && x.contact) || {}, P = (x && x.property) || {}, FE = xk && C ? intakeFee(xk, C) : {};
+  const amount = n(c.baseAmount) || (C && C.amount) || 0;
+  return { company: re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', date: d, client_name: c.name || B0.name || '', client_id: c.idNumber || B0.idNumber || '', client_address: c.address || K.address || (P.isHome === 'yes' ? P.address || '' : ''),
+    client_phone: c.phone || K.phone || '', client_email: c.email || K.email || '',
+    spouse_name: c.spouseName || B1.name || '', spouse_id: c.spouseId || B1.idNumber || '', service: L.product[c.product] || c.service || (x && (x.request || {}).purpose ? IK.purpose[x.request.purpose] || '' : ''), amount: amount ? plain(amount) : '',
+    fee: c.fee ? plain(c.fee) + ' + מע״מ' : FE.amount ? plain(FE.amount) + ' + מע״מ' : '',
+    ...signLibDefaults(c, FE), ...advisorDefaults(c.division || 'finance') };
 }
 /* שדות הספרייה שכבר יש בתיק: אחוז שכ״ט מהכרטיס, פרטי הרכב מהקליטה. השאר נשאלים בטופס. */
-function signLibDefaults(c) {
-  const v = (typeof intakeDoc === 'function' && c.id ? (intakeDoc(c.id) || {}).car : null) || {}, pct = n(c.feePct) > 0 ? r2(n(c.feePct) * 100) : '';
-  return { fee_percent: pct === '' ? '' : String(pct), car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
+function signLibDefaults(c, FE = {}) {
+  const v = (typeof intakeDoc === 'function' && c.id ? (intakeDoc(c.id) || {}).car : null) || (c.leadId && S.intakes.get(c.leadId) ? S.intakes.get(c.leadId).car : null) || {}, pct = n(c.feePct) > 0 ? r2(n(c.feePct) * 100) : FE.type === 'pct' && n(FE.pct) ? r2(n(FE.pct)) : '';
+  const adv = n(c.feeAdvance) || n(FE.advance), days = n(c.payDays) || n(FE.payDays);
+  return { fee_percent: pct === '' ? '' : String(pct), advance: adv ? plain(adv).replace(/[^\d,]/g, '') : '', pay_days: days ? String(days) : '', car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
 }
 const SIGN_CAT = { agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי' };
 const SIGN_STATE = { sent: ['נשלח', 'expected'], opened: ['נפתח', 'committed'], partial: ['חלק חתמו', 'committed'], completed: ['נחתם', 'actual'], expired: ['פג תוקף', 'open'], cancelled: ['בוטל', 'muted'] };
@@ -3985,8 +4243,14 @@ function signSignerDefaults(c, mode) {
    כל חותם מקבל הצעה מהכרטיס (שם, ת״ז, ושדות טקסט בטופס שסומנו "מילוי מהתיק"); הוא רואה, מתקן אם צריך, וחותם — ומה שהזין
    מושווה לכרטיס בעמוד התיעוד. טפסים קבועים (הסכם שירותים, הסכמה…) — "שליחה מהירה" בלחיצה. ההערות — חלק מהמסמך החתום.
    PREFILL זהה ל-PREFILL_KEYS ב-lib/rules/sign-pdf.ts. ═════ */
-const PREFILL = { signer_email: 'מייל החותם', signer_phone: 'טלפון החותם', signer_address: 'כתובת החותם', client_name: 'שם הלקוח (לווה 1)', client_id: 'ת״ז הלקוח (לווה 1)', spouse_name: 'שם בן/בת הזוג', spouse_id: 'ת״ז בן/בת הזוג',
-  company: 'שם החברה', amount: 'סכום הבקשה', fee: 'שכר טרחה', service: 'השירות', car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', notes: 'הערות השולח (לקריאה בלבד)' };
+const PREFILL = { signer_email: 'מייל החותם', signer_phone: 'טלפון החותם', signer_address: 'כתובת החותם', signer_first_name: 'שם פרטי של החותם', signer_last_name: 'שם משפחה של החותם', client_name: 'שם הלקוח (לווה 1)', client_id: 'ת״ז הלקוח (לווה 1)', spouse_name: 'שם בן/בת הזוג', spouse_id: 'ת״ז בן/בת הזוג',
+  company: 'שם החברה', amount: 'סכום הבקשה', fee: 'שכר טרחה', service: 'השירות', car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', notes: 'הערות השולח (לקריאה בלבד)',
+  advisor_name: 'שם היועץ / החברה', advisor_id: 'ח.פ / ת״ז היועץ', advisor_license: 'מספר רישיון היועץ', advisor_company: 'שם חברת הייעוץ', advisor_company_id: 'ח.פ חברת הייעוץ', advisor_phone: 'טלפון היועץ', advisor_email: 'מייל היועץ', advisor_address: 'כתובת היועץ' };
+/* פרטי היועץ בטפסי הגופים ("מסמיכים את…") — מההגדרות; החותם רואה ולא משנה (lib/rules/sign-pdf.ts senderFilled) */
+const ADVISOR_KEYS = ['advisor_name', 'advisor_id', 'advisor_license', 'advisor_company', 'advisor_company_id', 'advisor_phone', 'advisor_email', 'advisor_address'];
+function advisorDefaults(div) { const A = (S.settings.advisor || {})[div || 'finance'] || {}, out = {}; ADVISOR_KEYS.forEach((k) => { out[k] = String(A[k.slice(8)] || '').trim(); });
+  const co = (div || 'finance') === 'realestate' ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון';
+  if (!out.advisor_company) out.advisor_company = co; if (!out.advisor_name) out.advisor_name = out.advisor_company; if (!out.advisor_company_id) out.advisor_company_id = out.advisor_id; return out; }
 /* האדם בכרטיס לפי מספר החותם: 1 = הלקוח, 2 = בן/בת הזוג (או לווה 2 בקליטה), 3+ = לווים נוספים */
 function signPerson(c, i) {
   const ik = (typeof intakeDoc === 'function' && c.id ? intakeDoc(c.id) : null) || {}, B = ik.borrowers || [], b = B[i - 1] || {};
@@ -4001,13 +4265,16 @@ function signPrefill(c, i, row, pdfFields, fsig = i) {
   const out = { name, idNumber: same ? String(p.idNumber || '').replace(/\D/g, '').slice(0, 9) : '' };
   if (pdfFields) { const defs = signDefaults(c), v = {};
     pdfFields.filter((f) => f.signer === fsig && f.kind === 'text' && f.src && f.src !== 'notes').forEach((f) => {
-      const k = f.src, val = k === 'signer_email' ? (row.email || p.email) : k === 'signer_phone' ? (row.phone || p.phone) : k === 'signer_address' ? (p.address || c.address) : defs[k];
+      const k = f.src, nm = String(name || '').trim().split(/\s+/), val = k === 'signer_email' ? (row.email || p.email) : k === 'signer_phone' ? (row.phone || p.phone) : k === 'signer_address' ? (p.address || c.address)
+        : k === 'signer_first_name' ? nm[0] : k === 'signer_last_name' ? nm.slice(1).join(' ') : defs[k];
       if (val) v[f.id] = String(val).slice(0, 200); });
     if (Object.keys(v).length) out.values = v; }
   return out;
 }
 const signWho = () => (S.loginAs && S.loginAs.label) || S.me.name || '';
 /* השליחה עצמה — מהטופס בכרטיס ומהשליחה המהירה. rows: שורות החותמים (on, label, name, email, phone, _i = מספר האדם בכרטיס) */
+/* טופס לשני לווים ולקוח עם לווה אחד: לווה בלי שם, מייל וטלפון בסוף הרשימה — לא נשלח לו, והשדות שלו נשארים ריקים (השרת: fieldsForSigners) */
+const signTrim = (signers) => { let k = signers.length; while (k > 1 && !signers[k - 1].name && !signers[k - 1].email && !signers[k - 1].phone) k--; return signers.slice(0, k); };
 async function signSendRun(c, key, o) {
   const common = { clientDoc: c.id, clientName: c.name, division: c.division || 'finance', recipientKind: c._lead ? 'lead' : 'client', notes: String(o.notes || '').trim() || null, sentBy: signWho() };
   let r, signers, title;
@@ -4016,6 +4283,7 @@ async function signSendRun(c, key, o) {
     const F = pdfBundleFields(ids), N = ts.reduce((m, t) => Math.max(m, t.signers), 0);
     signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null;
       return { label: 'לווה ' + (i + 1), name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, i + 1, x, F) }; });
+    signers = signTrim(signers);
     const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
     title = o.title || ts.map((t) => t.name).join(' + ');
     r = await signApi('/api/sign', { ...common, title: title.slice(0, 200), category: ts[0].category, lender: ts[0].folder || null, pdfTemplateIds: ids, signers });
@@ -4026,6 +4294,7 @@ async function signSendRun(c, key, o) {
     const F = t ? t.fields : ad.fields, N = t ? t.signers : pdfSignersOf(F);
     signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null, who = x._i || i + 1;
       return { label: 'לווה ' + who, name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, who, x, F, i + 1) }; });
+    signers = signTrim(signers);
     const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
     title = o.title || (t ? t.name : ad.name);
     r = await signApi('/api/sign', { ...common, title, category: t ? t.category : o.adhocCat || 'general', lender: t ? t.folder || null : null,
@@ -4082,19 +4351,24 @@ function signQuickForm(c, key) {
   const isPdf = !!it.pdf, defs0 = signSignerDefaults(c, isPdf ? 'client_spouse' : it.tpl.signers);
   const off = isPdf ? pdfOffOf(it.pdf) : 0;
   const rows = isPdf ? Array.from({ length: it.pdf.signers }, (_, i) => ({ ...(defs0[i + off] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1 + off), _i: i + 1 + off, _f: i + 1 })) : defs0.map((x, i) => ({ ...x, _i: i + 1 }));
+  const nd = isPdf ? null : signNoteDefault(c, key);
   const defs = signDefaults(c), need = isPdf ? [] : signTplRequired(it.tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !String(defs[k] || '').trim());
-  const preTxt = (r) => { const p = signPrefill(c, r._i, r, isPdf ? it.pdf.fields : null, r._f || r._i), parts = [p.name ? 'שם' : '', p.idNumber ? 'ת״ז ' + p.idNumber : '', ...Object.keys(p.values || {}).map((id) => { const f = it.pdf.fields.find((x) => x.id === id); return f ? (f.label || PREFILL[f.src] || 'שדה') : ''; })].filter(Boolean);
+  const preTxt = (r) => { if (isPdf && r._f > 1 && !r.name && !r.email && !r.phone) return '<span class="hint">אין לווה ' + r._i + ' בתיק — אם נשאר ריק, לא יישלח אליו והמקום שלו בטופס יישאר ריק</span>';
+    const p = signPrefill(c, r._i, r, isPdf ? it.pdf.fields : null, r._f || r._i), parts = [p.name ? 'שם' : '', p.idNumber ? 'ת״ז ' + p.idNumber : '', ...Object.keys(p.values || {}).map((id) => { const f = it.pdf.fields.find((x) => x.id === id); return f ? (f.label || PREFILL[f.src] || 'שדה') : ''; })].filter(Boolean);
     return parts.length ? '<span class="hint">ימולא מהתיק: ' + esc(parts.join(' · ')) + '</span>' : '<span class="hint" style="color:var(--open)">אין בתיק פרטים לחותם הזה — הוא ימלא בעצמו</span>'; };
   const rowHtml = (r, i) => '<div class="full row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:2px">' + (isPdf ? '' : '<label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" name="on' + i + '" value="1"' + (r.on ? ' checked' : '') + '></label>') +
     '<label class="fl" style="flex:1 1 110px">' + esc(r.label) + '<input class="f" name="name' + i + '" value="' + esc(r.name || '') + '"></label><label class="fl" style="flex:2 1 150px">מייל<input class="f" dir="ltr" name="email' + i + '" value="' + esc(r.email || '') + '"></label><label class="fl" style="flex:1 1 110px">טלפון<input class="f" dir="ltr" name="phone' + i + '" value="' + esc(r.phone || '') + '"></label></div><div class="full" style="margin:-2px 0 8px">' + preTxt(r) + '</div>';
   drawer('שליחה מהירה — ' + it.label, '<p class="full hint" style="margin-top:0">שולחים ל<b>' + esc(c.name || '') + '</b>. הפרטים נלקחים מהכרטיס; הלקוח רואה אותם ממולאים, בודק וחותם.</p>' +
     rows.map(rowHtml).join('') + (need.length ? '<h3 class="full sec">חסר בכרטיס</h3>' + need.map((k) => fi('f_' + k, SIGN_LABELS[k] || k, '', 'text', 'required')).join('') : '') +
+    (!isPdf && it.tpl.category === 'agreement' && it.key !== 'lib:finance-promissory-note' ? '<label class="check full"><input type="checkbox" class="cb" name="noteOn" value="1"' + (nd && nd.on ? ' checked' : '') + '><span><b>צרף שטר חוב</b> — בעמוד נפרד, אותה חתימה וחותמת החברה</span></label>' +
+      fi('noteAmount', 'סכום שטר החוב (₪)', nd ? nd.amount : '', 'text', 'inputmode="numeric" dir="ltr"') : '') +
     '<label class="fl full">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" name="notes" rows="3" maxlength="2000"></textarea></label>' +
     '<label class="check full"><input type="checkbox" class="cb" name="otp" value="1" checked><span>קוד אימות לפני החתימה — מוכיח שהמייל / הטלפון באמת שלו</span></label>',
     async (d) => {
       const rws = rows.map((r, i) => ({ ...r, on: isPdf ? true : d['on' + i] === '1', name: String(d['name' + i] || '').trim(), email: String(d['email' + i] || '').trim(), phone: String(d['phone' + i] || '').trim() }));
       const fields = {}; need.forEach((k) => { fields[k] = String(d['f_' + k] || '').trim(); });
-      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields }); }
+      const note = d.noteOn === '1' ? { on: true, amount: String(d.noteAmount || '') } : null;
+      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields, note }); }
       catch (e) { return e.message; }
     }, '', 'שלח עכשיו');
 }
@@ -4110,8 +4384,8 @@ const folderKey = (s) => String(s || '').toLowerCase().replace(/[׳'`"״]/g, '')
 const folderCanon = (s) => { const k = folderKey(s); if (!k) return 'כללי'; const all = [...BANK_FOLDERS, ...((S.pdfTpls && S.pdfTpls.templates) || []).map((t) => t.folder).filter(Boolean)];
   return all.find((f) => folderKey(f) === k) || String(s).trim().slice(0, 80); };
 /* טופס של "לווה 2" (חותם אחד): בשליחה — האדם השני בכרטיס (בן/בת הזוג), לא הלקוח. לווה 3/4 — הלווים הנוספים */
-const tplPersonOffset = (name) => { const s = String(name || ''); return /לווה\s*(?:4|רביעי)/.test(s) ? 3 : /לווה\s*(?:3|שלישי)/.test(s) ? 2 : /לווה\s*(?:2|שני)/.test(s) ? 1 : 0; };
-const pdfOffOf = (t) => t && t.signers === 1 ? tplPersonOffset(t.name) : 0;
+const tplPersonOffset = (name) => { const s = String(name || ''); return /לווה\s*(?:4|רביעי)/.test(s) ? 3 : /לווה\s*(?:3|שלישי)/.test(s) || /לווים\s*(?:נוספים|3\s*[-–+]\s*4)/.test(s) ? 2 : /לווה\s*(?:2|שני)/.test(s) ? 1 : 0; };
+const pdfOffOf = (t) => t && (t.signers === 1 || /לווים\s*(?:נוספים|3\s*[-–+]\s*4)/.test(t.name || '')) ? tplPersonOffset(t.name) : 0;
 const pdfKeyOff = (key) => String(key || '').startsWith('pdf:') ? pdfOffOf(pdfTplOf(String(key).slice(4))) : 0;
 const sgc = (i) => 'var(--sg' + (((Number(i) || 1) - 1) % 6 + 1) + ')';
 const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', idNumber: l.idNumber || '', address: l.address || '', _lead: true });
@@ -4137,7 +4411,13 @@ function extSubjForm() {
 }
 async function pdfTplLoad(force) { if (!window.__harelServer || S._ptLoading || (S.pdfTpls && !force)) return; S._ptLoading = true;
   try { S.pdfTpls = await signApi('/api/sign/templates?viewer=' + encodeURIComponent(S.myKey || S.me.id || '')); } catch (e) { S.pdfTpls = { templates: [], top: [], error: e.message }; }
-  S._ptLoading = false; render(); }
+  S._ptLoading = false; render(); pdfCuratedSync(); }
+/* טפסים שיובאו לפני שהשדות המוכנים נוספו (או עדיין "לבדיקה"): אם הקובץ הוא טופס מוכן (data/sign-forms) — השדות מוחלפים
+   בשדות שנבדקו, והסימון "לבדיקה" יורד. רק מה שעוד לא נבדק ידנית; פעם אחת לכל טעינה. (דן, 21/10: "שזה כבר ייכנס") */
+async function pdfCuratedSync() {
+  if (!S.isOwner || !S.canWrite || S._curSync || !S.pdfTpls) return; const R = tplReview(), ids = (S.pdfTpls.templates || []).filter((t) => t.curated && R.has(t.id)).map((t) => t.id); if (!ids.length) return;
+  S._curSync = true; try { const r = await signApi('/api/sign/templates/curated', { ids }); if ((r.applied || []).length) { await tplReviewSet([], r.applied); toast(r.applied.length + ' טפסים בספרייה קיבלו שדות מוכנים (נבדקו מראש) — אפשר לשלוח'); await pdfTplLoad(true); } }
+  catch (e) {} finally { S._curSync = false; } }
 const pdfTplOf = (id) => ((S.pdfTpls && S.pdfTpls.templates) || []).find((t) => t.id === id) || null;
 const pdfSignersOf = (fields) => (fields || []).reduce((m, f) => Math.max(m, f.signer), 0);
 async function pdfUpload(files, name) {
@@ -4269,6 +4549,9 @@ function pdfEditor(o) {
 /* ספריית הטפסים — מסודרת כמו "תבניות מסמכים" ב-WISE (דן, 18/10): מסמכי מערכת / מסמכים אישיים → תיקייה לפי גוף → רשימה.
    pdfLibView — אותו מבנה לספרייה (ניהול) ולבחירה בשליחה (pick: סימון כמה טפסים → מסמך אחד). */
 const tplFolderOf = (t) => t.folder || 'כללי';
+/* סוג הטופס (lib/rules/form-types.ts — השרת מחזיר t.type): "לשלוח לפי סוג התבנית" (דן, 21/10) */
+const FORM_TYPE = { poa: 'כתב הסמכה ליועץ', credit_data: 'הסכמה לנתוני אשראי', credit_check: 'חיווי אשראי', privacy: 'ויתור סודיות', kyc: 'הכר את הלקוח', application: 'בקשה להלוואה', income: 'אישור הכנסות', declaration: 'תצהירים ואישורים', other: 'טפסים נוספים' };
+const tplTypeOf = (t) => (t.type && FORM_TYPE[t.type] ? t.type : 'other');
 function pdfLibState(st) {
   const T = (S.pdfTpls && S.pdfTpls.templates) || [], scope = st.scope === 'personal' ? 'personal' : 'system', q = String(st.q || '').trim().toLowerCase();
   const inScope = T.filter((t) => (t.scope || 'system') === scope && (!st.div || !t.division || t.division === st.div));
@@ -4276,9 +4559,11 @@ function pdfLibState(st) {
   const counts = Object.fromEntries(known.map((f) => [f, inScope.filter((t) => tplFolderOf(t) === f).length]));
   const folder = st.folder && known.includes(st.folder) ? st.folder : '';
   const R = tplReview(), nRev = inScope.filter((t) => R.has(t.id)).length, review = !!st.review && nRev > 0;
-  const rows = inScope.filter((t) => (!folder || tplFolderOf(t) === folder) && (!review || R.has(t.id)) && (!q || [t.name, t.folder, SIGN_CAT[t.category]].some((v) => String(v || '').toLowerCase().includes(q))))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
-  return { T, scope, known, counts, folder, rows, R, nRev, review, nSys: T.filter((t) => (t.scope || 'system') === 'system').length, nMine: T.filter((t) => t.scope === 'personal').length };
+  const base = inScope.filter((t) => (!folder || tplFolderOf(t) === folder) && (!review || R.has(t.id)) && (!q || [t.name, t.folder, SIGN_CAT[t.category], FORM_TYPE[tplTypeOf(t)]].some((v) => String(v || '').toLowerCase().includes(q))));
+  const tcounts = {}; base.forEach((t) => { const k = tplTypeOf(t); tcounts[k] = (tcounts[k] || 0) + 1; });
+  const type = st.type && tcounts[st.type] ? st.type : '';
+  const rows = base.filter((t) => !type || tplTypeOf(t) === type).sort((a, b) => Object.keys(FORM_TYPE).indexOf(tplTypeOf(a)) - Object.keys(FORM_TYPE).indexOf(tplTypeOf(b)) || String(a.name).localeCompare(String(b.name), 'he'));
+  return { T, scope, known, counts, folder, rows, R, nRev, review, type, tcounts, nSys: T.filter((t) => (t.scope || 'system') === 'system').length, nMine: T.filter((t) => t.scope === 'personal').length };
 }
 function pdfLibView(st, mode) {
   const L0 = pdfLibState(st), pick = mode === 'pick', w = S.isOwner && S.canWrite, sel = st.sel || [];
@@ -4286,11 +4571,15 @@ function pdfLibView(st, mode) {
     '<span class="grow"></span><input class="f small" type="search" id="plQ" placeholder="חיפוש טופס…" value="' + esc(st.q || '') + '" style="max-width:220px"></div>';
   const chips = '<div class="row folderchips" style="gap:6px;flex-wrap:wrap;margin:10px 0">' + (L0.nRev ? '<button type="button" class="chip' + (L0.review ? ' on' : '') + '" data-plreview="' + (L0.review ? '' : '1') + '" title="הוצבו אוטומטית — לפתוח &quot;שדות&quot;, לבדוק ולשמור"><span class="pill open">לבדיקה</span> <span class="hint">' + L0.nRev + '</span></button>' : '') + '<button type="button" class="chip' + (!L0.folder ? ' on' : '') + '" data-plfolder="">הכל <span class="hint">' + Object.values(L0.counts).reduce((a, b) => a + b, 0) + '</span></button>' +
     L0.known.map((f) => '<button type="button" class="chip' + (L0.folder === f ? ' on' : '') + (L0.counts[f] ? '' : ' muted') + '" data-plfolder="' + esc(f) + '">📁 ' + esc(f) + (L0.counts[f] ? ' <span class="hint">' + L0.counts[f] + '</span>' : '') + '</button>').join('') + '</div>';
+  const tkeys = Object.keys(FORM_TYPE).filter((k) => L0.tcounts[k]);
+  const types = tkeys.length && (tkeys.length > 1 || L0.type || pick) ? '<div class="row folderchips" style="gap:6px;flex-wrap:wrap;margin:-4px 0 10px"><span class="hint">סוג:</span><button type="button" class="chip' + (!L0.type ? ' on' : '') + '" data-pltype="">כל הסוגים</button>' +
+    tkeys.map((k) => '<button type="button" class="chip' + (L0.type === k ? ' on' : '') + '" data-pltype="' + k + '">' + FORM_TYPE[k] + ' <span class="hint">' + L0.tcounts[k] + '</span></button>').join('') +
+    (pick && L0.rows.length > 1 ? '<span class="grow"></span><button type="button" class="btn small" data-plselall="1" title="מסמן את כל הטפסים שמוצגים — נשלחים כמסמך אחד">סמן את כל ה-' + L0.rows.length + '</button>' : '') + '</div>' : '';
   const row = (t) => '<div class="tplrow' + (sel.includes(t.id) ? ' on' : '') + '">' + (pick ? '<label class="row" style="gap:8px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" class="cb" data-plsel="' + esc(t.id) + '"' + (sel.includes(t.id) ? ' checked' : '') + '>' : '<div style="flex:1">') +
-    '<span><b>' + esc(t.name) + '</b>' + (L0.R.has(t.id) ? ' <span class="pill open" title="השדות הוצבו אוטומטית בייבוא — עוד לא נבדקו">לבדיקה</span>' : '') + '<span class="hint"> · ' + esc(tplFolderOf(t)) + ' · ' + esc(SIGN_CAT[t.category] || '') + ' · ' + t.signers + ' חותמים · ' + t.fields.length + ' שדות' + (t.fields.some((f) => f.src) ? ' · ממולא מהתיק' : '') + (t.require_otp ? ' · קוד' : '') + (t.uses ? ' · נשלח ' + t.uses : '') + '</span></span>' + (pick ? '</label>' : '</div>') +
+    '<span><b>' + esc(t.name) + '</b>' + (L0.R.has(t.id) ? ' <span class="pill open" title="השדות הוצבו אוטומטית בייבוא — עוד לא נבדקו">לבדיקה</span>' : '') + '<span class="hint"> · ' + esc(tplFolderOf(t)) + ' · ' + esc(FORM_TYPE[tplTypeOf(t)]) + ' · ' + t.signers + ' חותמים · ' + t.fields.length + ' שדות' + (t.fields.some((f) => f.src) ? ' · ממולא מהתיק' : '') + (t.require_otp ? ' · קוד' : '') + (t.uses ? ' · נשלח ' + t.uses : '') + '</span></span>' + (pick ? '</label>' : '</div>') +
     (!pick && w ? '<div class="row" style="gap:4px;flex-wrap:wrap"><button class="btn small ghost" data-signquicktoggle="pdf:' + esc(t.id) + '" title="שליחה מהירה מכל כרטיס">' + (signQuickKeys().includes('pdf:' + t.id) ? '★' : '☆') + '</button><button class="btn small ghost" data-pdftplfields="' + esc(t.id) + '">שדות</button><button class="btn small ghost" data-pdftpledit="' + esc(t.id) + '">ערוך</button><button class="btn small ghost danger" data-pdftpldel="' + esc(t.id) + '">מחק</button></div>' : '') + '</div>';
   const list = L0.rows.length ? '<div class="tpllist">' + L0.rows.map(row).join('') + '</div>' : '<p class="empty">' + (L0.T.length ? 'אין טפסים ' + (L0.folder ? 'בתיקייה "' + esc(L0.folder) + '"' : 'כאן') + (st.q ? ' שמתאימים לחיפוש' : '') + '.' : 'עוד אין טפסים. "+ טופס PDF" — אפשר לבחור כמה קבצים יחד; השדות מוצבים לבד לפי התוויות שעל הטופס.') + '</p>';
-  return tabs + chips + list;
+  return tabs + chips + types + list;
 }
 function pdfTplCard() {
   if (!window.__harelServer || !(S.isOwner || S.canTask)) return ''; if (!S.pdfTpls) { setTimeout(() => pdfTplLoad(), 20); return ''; }
@@ -4313,6 +4602,8 @@ function pdfPicker(c, onPick) {
     const sc = e.target.closest('[data-plscope]'); if (sc) { st.scope = sc.dataset.plscope; st.folder = ''; return paint(); }
     const fo = e.target.closest('[data-plfolder]'); if (fo) { st.folder = fo.dataset.plfolder; return paint(); }
     const rv = e.target.closest('[data-plreview]'); if (rv) { st.review = !!rv.dataset.plreview; return paint(); }
+    const ty = e.target.closest('[data-pltype]'); if (ty) { st.type = ty.dataset.pltype; return paint(); }
+    if (e.target.closest('[data-plselall]')) { const ids = pdfLibState(st).rows.map((t) => t.id); st.sel = [...st.sel.filter((x) => !ids.includes(x)), ...ids]; return paint(); }
     if (e.target.id === 'plPickGo' && st.sel.length) { const ids = st.sel.slice(); close(); return onPick(ids); } });
   root.addEventListener('change', (e) => { const id = e.target.dataset && e.target.dataset.plsel; if (!id) return; st.sel = e.target.checked ? [...st.sel.filter((x) => x !== id), id] : st.sel.filter((x) => x !== id); paint(); });
   root.addEventListener('input', (e) => { if (e.target.id === 'plQ') { st.q = e.target.value; const pos = e.target.selectionStart; paint(); const q2 = $('plQ'); if (q2) { q2.focus(); q2.setSelectionRange(pos, pos); } } });
@@ -4346,7 +4637,7 @@ function pdfTplForm(t) {
       /* המסמך כבר בספרייה (אותו קובץ בדיוק) — המערכת כבר יודעת איפה ממלאים בו */
       if (up.known && confirm('הטופס הזה כבר בספרייה: "' + up.known.name + '" (' + (up.known.folder || 'כללי') + '), עם ' + up.known.fields.length + ' שדות שכבר הוצבו.\nלפתוח אותו במקום ליצור כפול?')) {
         await pdfTplLoad(true); const t0 = pdfTplOf(up.known.id); setTimeout(() => t0 ? pdfEditor({ fileId: t0.file_id, pages: t0.page_sizes, fields: t0.fields, title: t0.name + ' — שדות', onSave: async (fields) => { await signApiPut('/api/sign/templates/' + t0.id, { name: t0.name, category: t0.category, folder: t0.folder, scope: t0.scope, ownerKey: t0.owner_key, division: t0.division, requireOtp: t0.require_otp, fileId: t0.file_id, fields }); toast('נשמר'); await pdfTplLoad(true); } }) : toast('הטופס לא נמצא'), 0); return; }
-      setTimeout(() => pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: !up.known, fields: up.known ? up.known.fields : undefined, title: meta.name + ' — הצבת שדות', onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, fileId: up.fileId, fields }); toast('הטופס נשמר בספרייה'); await pdfTplLoad(true); } }), 0);
+      setTimeout(() => pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: !up.known && !up.curated, fields: up.known ? up.known.fields : up.curated ? up.curated.fields : undefined, title: meta.name + (up.curated && !up.known ? ' — שדות מוכנים, לבדוק ולשמור' : ' — הצבת שדות'), onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, fileId: up.fileId, fields }); toast('הטופס נשמר בספרייה'); await pdfTplLoad(true); } }), 0);
     }, '', isNew ? 'המשך — הצבת שדות' : 'שמור');
 }
 /* העלאה מרוכזת: קובץ אחרי קובץ — העלאה → זיהוי שדות → העורך (שמור והמשך / דלג) → הבא */
@@ -4356,7 +4647,7 @@ async function pdfBulkNext(files, meta, i, tot) {
   toast('מעלה ' + (i + 1) + '/' + files.length + ': ' + name + '…');
   try { up = await pdfUpload([f], name); } catch (e) { toast(name + ': ' + e.message); tot.skipped++; return pdfBulkNext(files, meta, i + 1, tot); }
   if (up.known) { tot.known = (tot.known || []).concat(up.known.name); toast('"' + name + '" כבר בספרייה (' + up.known.name + ') — דילגתי'); return pdfBulkNext(files, meta, i + 1, tot); }
-  pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: true, title: name + ' — ' + (i + 1) + ' מתוך ' + files.length, saveLabel: i + 1 < files.length ? 'שמור והמשך לבא' : 'שמור וסיים', cancelLabel: 'דלג',
+  pdfEditor({ fileId: up.fileId, pages: up.pages, signers: 2, auto: !up.curated, fields: up.curated ? up.curated.fields : undefined, title: name + ' — ' + (i + 1) + ' מתוך ' + files.length + (up.curated ? ' · שדות מוכנים' : ''), saveLabel: i + 1 < files.length ? 'שמור והמשך לבא' : 'שמור וסיים', cancelLabel: 'דלג',
     onSave: async (fields) => { await signApi('/api/sign/templates', { ...meta, name, fileId: up.fileId, fields }); tot.saved++; setTimeout(() => pdfBulkNext(files, meta, i + 1, tot), 0); },
     onCancel: () => { tot.skipped++; setTimeout(() => pdfBulkNext(files, meta, i + 1, tot), 0); } });
 }
@@ -4396,14 +4687,14 @@ function pdfDriveImport() {
     else if (st.step === 'run') { const p = st.prog || {}; h = '<p><b>מייבא ' + (p.i || 0) + ' מתוך ' + (p.n || 0) + '</b>' + (p.name ? ' <span class="hint">· ' + esc(p.name) + '</span>' : '') + '</p><div class="bar" style="height:8px;background:var(--sunk);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;background:var(--text-2);width:' + Math.round(100 * (p.i || 0) / Math.max(1, p.n || 1)) + '%"></span></div>' +
         '<div class="hint" style="margin-top:8px;max-height:220px;overflow:auto">' + st.log.slice(-12).map(esc).join('<br>') + '</div>'; btn = st.stop ? 'עוצר…' : 'עצור'; }
     else if (st.step === 'done') { const x = st.sum; h = '<p><b>הספרייה עודכנה' + (x.stopped ? ' (נעצר באמצע — אפשר להריץ שוב, ימשיך מאיפה שנעצר)' : '') + '</b></p><ul style="margin:0 0 8px;padding-inline-start:18px">' +
-        '<li>' + x.created + ' טפסים נוצרו' + (x.reused ? ' (' + x.reused + ' מהם קיבלו את השדות של טופס זהה שכבר בספרייה)' : '') + '</li>' + (x.review ? '<li><span class="pill open">לבדיקה</span> ' + x.review + ' — השדות הוצבו אוטומטית; לפתוח "שדות", לבדוק ולשמור</li>' : '') +
+        '<li>' + x.created + ' טפסים נוצרו' + (x.reused ? ' (' + x.reused + ' מהם קיבלו את השדות של טופס זהה שכבר בספרייה)' : '') + '</li>' + (x.curated ? '<li><span class="pill actual">מוכן</span> ' + x.curated + ' — טפסים שהשדות שלהם הוצבו ונבדקו מראש; אפשר לשלוח מיד</li>' : '') + (x.review ? '<li><span class="pill open">לבדיקה</span> ' + x.review + ' — השדות הוצבו אוטומטית; לפתוח "שדות", לבדוק ולשמור</li>' : '') +
         (x.same ? '<li>' + x.same + ' כבר היו בספרייה</li>' : '') + (x.failed.length ? '<li style="color:var(--open)">' + x.failed.length + ' נכשלו: ' + x.failed.map((f) => esc(f.name + ' — ' + f.err)).join(' · ') + '</li>' : '') + '</ul>'; btn = x.review ? 'הצג את הטפסים לבדיקה' : 'סגירה'; }
     b.innerHTML = h; if (go) { go.textContent = btn; go.disabled = st.step === 'scan' || (st.step === 'pick' && !todo().length); go.style.display = btn ? '' : 'none'; } };
   $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer wide" role="dialog" aria-modal="true" aria-label="ייבוא טפסים מדרייב" style="max-width:760px;width:min(760px,100%)"><header><h2 class="grow">ייבוא טפסים מתיקייה בדרייב</h2><button class="btn small ghost" data-close aria-label="סגור">✕</button></header>' +
     '<div id="pdImpBody" style="overflow:auto;padding:4px 2px"></div><footer><button class="btn primary" id="pdImpGo" type="button">סרוק</button><button class="btn" data-close type="button">סגירה</button></footer></div></div>';
   const root = $('scrim'), close = () => { if (st.step === 'run') { st.stop = true; return; } $('layer').innerHTML = ''; };
   const run = async () => {
-    const list = todo(), R = [], sum = { created: 0, reused: 0, review: 0, same: 0, failed: [] }; st.step = 'run'; st.prog = { i: 0, n: list.length }; paint();
+    const list = todo(), R = [], sum = { created: 0, reused: 0, curated: 0, review: 0, same: 0, failed: [] }; st.step = 'run'; st.prog = { i: 0, n: list.length }; paint();
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const flush = async () => { if (R.length) { const ids = R.splice(0); await tplReviewSet(ids).catch(() => {}); } };
     for (const [k, f] of list.entries()) { if (st.stop) break; const name = nameOf(f); st.prog = { i: k + 1, n: list.length, name: f.folder + ' / ' + name }; paint();
@@ -4412,13 +4703,14 @@ function pdfDriveImport() {
         const p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id }, { cache: false })), b64 = p.content || ''; if (!b64) throw new Error('הקובץ ריק');
         const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), up = await pdfUpload([new File([bytes], name + '.pdf', { type: 'application/pdf' })], name);
         if (up.known && up.known.name === name && (up.known.folder || 'כללי') === f.folder) { sum.same++; st.log.push('✓ ' + name + ' — כבר בספרייה'); continue; }
-        let fields, review = true;
-        if (up.known) { fields = up.known.fields; review = tplReview().has(up.known.id) || R.includes(up.known.id); sum.reused++; }
+        let fields, review = true, cat = tplCatGuess(name, f.folder);
+        if (up.curated) { fields = up.curated.fields; review = false; cat = up.curated.category || cat; sum.curated++; }
+        else if (up.known) { fields = up.known.fields; review = tplReview().has(up.known.id) || R.includes(up.known.id); sum.reused++; }
         else { const doc = await lib.getDocument({ data: bytes.slice() }).promise; fields = await pdfDetect(doc, up.pages); doc.destroy && doc.destroy(); }
-        const t = await signApi('/api/sign/templates', { name, category: tplCatGuess(name, f.folder), folder: f.folder, scope: 'system', ownerKey: S.myKey || S.me.id || null, division: null, requireOtp: true, fileId: up.fileId, fields });
+        const t = await signApi('/api/sign/templates', { name, category: cat, folder: f.folder, scope: 'system', ownerKey: S.myKey || S.me.id || null, division: null, requireOtp: true, fileId: up.fileId, fields });
         const id = t.id || (t.template && t.template.id); sum.created++; if (review && id) { R.push(id); sum.review++; }
         if (S.pdfTpls && id) (S.pdfTpls.templates = S.pdfTpls.templates || []).push({ id, name, folder: f.folder, scope: 'system', signers: pdfSignersOf(fields), fields });
-        st.log.push('+ ' + f.folder + ' / ' + name + ' · ' + fields.length + ' שדות' + (up.known ? ' (מטופס זהה)' : ''));
+        st.log.push('+ ' + f.folder + ' / ' + name + ' · ' + fields.length + ' שדות' + (up.curated ? ' (שדות מוכנים ✓)' : up.known ? ' (מטופס זהה)' : ''));
         if (R.length >= 10) await flush();
       } catch (e) { sum.failed.push({ name, err: e.message || String(e) }); st.log.push('✗ ' + name + ' — ' + (e.message || e)); } }
     await flush(); sum.stopped = st.stop; st.sum = sum; st.step = 'done'; st.stop = false; await pdfTplLoad(true); paint(); };
@@ -4475,16 +4767,25 @@ function signFixedCard() {
       '<label class="fl" style="flex:2 1 280px">הערות קבועות בהסכם<textarea class="f" rows="2" maxlength="2000" data-sfix="' + esc(t) + ':notes" placeholder="למשל: שכר הטרחה אינו כולל אגרות ושמאות">' + esc(f.notes || '') + '</textarea></label></div>'; }).join('') +
     '<div class="row"><button class="btn small primary" data-act="signFixedSave">שמור</button></div></section>';
 }
+/* דן, 21/10: "שכ״ט + שטר חוב לשליחה לחתימה" — עם ההסכם הקבוע של הלקוח השטר מסומן מראש, והסכום מהקליטה (או שכ״ט + מע״מ) */
+function signNoteDefault(c, key) {
+  const fx = signFixedOf(c); if (!fx || fx.key !== key || String(key).startsWith('pdf:') || key === 'lib:finance-promissory-note') return null;
+  const x = (typeof intakeCalc === 'function' && c.id && (S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)))) || null, xk = x ? (x.kind ? x : { ...x, kind: intakeKind(x, c.id) }) : null, FE = xk ? intakeFee(xk, intakeCalc(xk)) : {};
+  const fee = n(c.fee) || n(FE.amount), amt = n(FE.noteAmount) || (fee ? Math.round(fee * (1 + n(S.settings.vatRate))) : 0);
+  return { on: true, amount: amt ? String(amt) : '' };
+}
 /* "צרף שטר חוב" בשליחה — סכום, והמילים מתמלאות לבד (heNumWords) */
-function signNoteBox(c, st) {
-  const nt = st.note || {}, amt = Math.round(n(String(nt.amount || '').replace(/[^\d.]/g, '')));
+function signNoteBox(c, st, key) {
+  const nt = st.note || signNoteDefault(c, key) || {}, amt = Math.round(n(String(nt.amount || '').replace(/[^\d.]/g, '')));
   return '<div class="notice info" style="display:block;margin:6px 0"><label class="row" style="gap:6px;align-items:center"><input type="checkbox" class="cb" data-signnote="' + esc(c.id) + '|on"' + (nt.on ? ' checked' : '') + '> <b>צרף שטר חוב</b> <span class="hint">— בעמוד נפרד אחרי ההסכם, עם אותה חתימה וחותמת החברה</span></label>' +
     (nt.on ? '<div class="row" style="align-items:flex-end;margin-top:6px"><label class="fl" style="max-width:180px">סכום השטר (₪)<input class="f" inputmode="numeric" dir="ltr" data-signnote="' + esc(c.id) + '|amount" value="' + esc(nt.amount || '') + '" placeholder="50,000"></label><span class="grow hint" data-signnotewords>' + (amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד') + '</span></div>' : '') + '</div>';
 }
-document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || {});
+document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || signNoteSeed(cid, st));
   if (f === 'on') { nt.on = e.target.checked; return render(); }
   nt.amount = e.target.value; const amt = Math.round(n(String(nt.amount).replace(/[^\d.]/g, ''))), w = document.querySelector('[data-signnotewords]'); if (w) w.innerHTML = amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד'; }, true);
-document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || {}), on: e.target.checked }; render(); } });
+document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || signNoteSeed(cid, st)), on: e.target.checked }; render(); } });
+/* השטר שמוצג מראש (signNoteDefault) הופך לשל הטופס ברגע שנוגעים בו — כדי שעריכת הסכום לא תכבה אותו */
+function signNoteSeed(cid, st) { const c = signSubject(cid); const key = st.tpl || ($('signTpl') || {}).value || ''; return { ...((c && signNoteDefault(c, key)) || {}) }; }
 /* תיעוד: לאיזה מספר הקישור נשלח ואיך (וואטסאפ / העתקה) — נרשם בציר הזמן של החותם ובעמוד התיעוד */
 function signShared(id, channel, target) { fetch('/api/sign/' + encodeURIComponent(id), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'shared', channel, target: target || null }) }).catch(() => {}); }
 document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[data-signwa]'); if (a) signShared(a.dataset.signwa, 'whatsapp', a.dataset.ph); }, true);
@@ -4542,7 +4843,7 @@ function signCard(c) {
       '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + (s._k ?? i) + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + (s._k ?? i) + ':name" value="' + esc(s.name) + '"></label>' +
       '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
     '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות לפני החתימה <span class="hint">(במייל, או בוואטסאפ כשמוגדר — מוכיח שהמייל / הטלפון באמת שלו)</span></span></label>' +
-    (!pdfMode ? signNoteBox(c, st) : '') +
+    (!pdfMode ? signNoteBox(c, st, tpl.key) : '') +
     '<label class="fl" style="margin:6px 0">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" id="signNotes" rows="2" maxlength="2000">' + esc(st.notes || '') + '</textarea></label>' +
     (pdfMode ? '<p class="hint" style="margin:0 0 4px">השם, ת״ז ושדות שסומנו "מילוי מהתיק" בטופס ימולאו מהכרטיס — הלקוח רואה, בודק וחותם.</p>' : '') +
     (flds.length && !pdfMode ? '<h3 class="sec">שדות בנוסח</h3><div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + (reqF.includes(k) ? '' : ' <span class="hint">· רשות</span>') + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (reqF.includes(k) && !(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' : '') +
@@ -4691,7 +4992,9 @@ function docViewer(c, files) {
 function docsCard(c) {
   if (!S.isOwner) return ''; const st = (S.docRes || {})[c.id], w = S.canWrite, on = hasDocs(c); if (on && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
   const files = (st && st.files) || [], sel = (S.docSel = S.docSel || new Set()), cur = (S.f.docCat = S.f.docCat || 'all'), cnt = (k) => files.filter((f) => f.cat === k).length;
-  const cand = (c.driveLinks || []).length || (st && st.files && st.files.length) || (on && !(st && st.files)) ? [] : rootMatches(c); /* רק כשאין עדיין מסמכים */
+  /* תיקיות WiseCard בשם הלקוח: כשאין מסמכים — כל ההתאמות; כשכבר יש (למשל הסכם שהמערכת שמרה, או תיקייה אחת כבר משויכת) — רק התאמה מלאה שעוד לא שויכה (דן 21/10: "הסנכרון מ-WiseCard לא תקין") */
+  const none = !(c.driveLinks || []).length && !(st && st.files && st.files.length);
+  const cand = on && !(st && st.files) ? [] : rootMatches(c).filter((m) => none || m.full);
   const chips = '<div class="dchips" role="group" aria-label="סוג מסמך"><button class="dchip" data-doccat="all" aria-pressed="' + (cur === 'all') + '">הכל <span class="num">' + files.length + '</span></button>' +
     DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') +
     (files.length ? '<button class="btn small" data-docview="all" style="margin-inline-start:auto">פתח את כל המסמכים יחד</button>' : '') + '</div>';
@@ -4729,10 +5032,27 @@ async function linkFolder(c, folder) {
   await write('clients/' + c.id, { ...patch, updatedAt: stamp() }, 'update', { journal: true }); await logClient(c.id, 'שויכה תיקיית דרייב קיימת: ' + (folder.title || folder.id)).catch(() => {});
   if (S.docRes) delete S.docRes[c.id]; toast('התיקייה שויכה'); render(); }
 function signTplCard() {
-  if (!S.isOwner || !S.canWrite) return ''; return stampCard() + signFixedCard() + signTplCard0(); }
+  if (!S.isOwner || !S.canWrite) return ''; return stampCard() + signAdvisorCard() + signFixedCard() + signTplCard0(); }
+/* דן, 21/10: בטפסי הגופים יש "מסמיכים את" — היועץ. נכתב פעם אחת כאן, ונכנס לכל טופס שיש בו שדה של פרטי היועץ */
+function signAdvisorCard() {
+  const A = (S.settings.advisor || {}).finance || {}, f = (k, label, ph, ltr) => '<label class="fl">' + label + '<input class="f" data-advisor="' + k + '"' + (ltr ? ' dir="ltr"' : '') + ' maxlength="120" value="' + esc(A[k] || '') + '" placeholder="' + esc(ph) + '"></label>';
+  return '<section class="card" id="signAdvisor"><header><h2>פרטי היועץ בטפסים</h2></header><p class="hint" style="margin:-4px 0 10px">בכתבי ההסמכה של הגופים ממלאים גם את פרטי היועץ ("מסמיכים את…"). מה שנכתב כאן נכנס לבד לכל טופס, והלקוח רואה אותו בלי אפשרות לשנות.</p>' +
+    '<div class="grid2" style="gap:8px">' + f('name', 'שם היועץ', 'הר-אל פתרונות מימון') + f('id', 'ת״ז היועץ', '', true) + f('license', 'מספר רישיון', '', true) + f('company', 'שם חברת הייעוץ', 'הר-אל פתרונות מימון') + f('company_id', 'ח.פ החברה', '', true) + f('phone', 'טלפון', '', true) + f('email', 'מייל', '', true) + f('address', 'כתובת', '') + '</div>' +
+    '<div class="row" style="margin-top:8px"><button class="btn small primary" data-act="signAdvisorSave">שמור</button></div></section>'; }
+/* ── סנכרון ספריית ההסכמים מהמאגר בכל כניסה של דן (דן 21/10: "הטפסים הקבועים והשדות לא הסתנכרנו כמו שצריך").
+   נוסף / עודכן (כולל גרסה חדשה של נוסח שדן שלח) — נכנס לבד. הסכם שנערך או נמחק ידנית — לא נדרס; מוצג כאן כ"מחכה להחלטה". ── */
+async function signLibAutoSync() {
+  if (S._libSync || !window.__harelServer || !S.isDan || !S.canWrite) return; S._libSync = true;
+  let plan; try { plan = await signApi('/api/sign/library'); } catch (e) { return; }
+  const R = plan.report || [], go = R.filter((r) => r.action === 'added' || r.action === 'updated');
+  S.signLibPending = R.filter((r) => r.action === 'conflict');
+  if (go.length && !(plan.errors || []).length) { try { const r = await signApi('/api/sign/library', {}); if (r.signLibrary) S.settings.signLibrary = r.signLibrary; toast('ספריית ההסכמים עודכנה: ' + go.map((x) => x.title).join(', ')); } catch (e) { /* בפעם הבאה */ } }
+  render();
+}
 function signTplCard0() {
-  const t = S.settings.signTemplates || {}, lib = (S.settings.signLibrary || []).filter((x) => !x.deletedAt);
-  return '<section class="card"><header><h2>ספריית תבניות לחתימה</h2><span class="grow"></span>' + (window.__harelServer ? '<button class="btn small" data-act="signLibLoad" title="הסכמי הר-אל מהמאגר (data/agreements) — נטענים כטיוטה">טען את ספריית ההסכמים</button>' : '') + '<button class="btn small" data-act="signLibAdd">+ תבנית</button></header>' +
+  const t = S.settings.signTemplates || {}, lib = (S.settings.signLibrary || []).filter((x) => !x.deletedAt), P = S.signLibPending || [];
+  return '<section class="card"><header><h2>ספריית תבניות לחתימה</h2>' + (P.length ? '<span class="pill open">' + P.length + ' מחכים להחלטה</span>' : '') + '<span class="grow"></span>' + (window.__harelServer ? '<button class="btn small" data-act="signLibLoad" title="הסכמי הר-אל מהמאגר (data/agreements) — נטענים כטיוטה">טען את ספריית ההסכמים</button>' : '') + '<button class="btn small" data-act="signLibAdd">+ תבנית</button></header>' +
+    (P.length ? '<div class="notice warn" style="margin-bottom:8px"><b>יש גרסה חדשה להסכמים שערכת או מחקת</b><span>' + P.map((x) => esc(x.title)).join(' · ') + ' — "טען את ספריית ההסכמים" וסמן "לדרוס" כדי לקבל את הגרסה החדשה (הנוסח הקודם נשמר).</span></div>' : '') +
     '<p class="hint" style="margin:-4px 0 10px">שורה שמתחילה ב-"# " = כותרת · "- " = סעיף · {{שדה}} = ממולא מהכרטיס: ' + Object.entries(SIGN_LABELS).map(([k, v]) => '<code dir="ltr">{{' + k + '}}</code> ' + v).join(' · ') + ' · <code dir="ltr">{{signer_name}}</code> שם החותם (בנוסח נפרד לכל חותם). תבנית שמופיע בה הסימון [טיוטה לא נשלחת.</p>' +
     (lib.length ? '<div class="scroll" style="margin-bottom:12px"><table><thead><tr><th>תבנית</th><th>סוג</th><th>גוף</th><th>חברה</th><th>חותמים</th><th></th></tr></thead><tbody>' + lib.map((x) => '<tr><td class="wide"><b>' + esc(x.title) + '</b>' + (isSignDraft(x.body) ? ' <span class="pill open">טיוטה</span>' : x.approvedAt ? ' <span class="pill actual" title="' + esc('אושר ע״י ' + nameOf(x.approvedBy) + ' · ' + dLabel(dayOf(x.approvedAt))) + '">אושר</span>' : '') +
       (x.lib ? '<div class="hint">מהספרייה · גרסה ' + esc(x.libVersion) + ((x.products || []).length ? ' · מוצע ל: ' + x.products.map((k) => L.product[k] || k).join(', ') : '') + '</div>' : '') + '</td><td>' + esc(SIGN_CAT[x.category] || '') + '</td><td>' + esc(x.lender || '—') + '</td><td>' + esc(x.division ? L.division[x.division] : 'שתיהן') + '</td>' +
@@ -4821,6 +5141,7 @@ async function rootMatchRun() {
 function sendFundBox(c, files) {
   const sel = [...(S.docSel || new Set())].filter((id) => files.some((f) => f.id === id)), re = (c.division || 'finance') === 'realestate', co = re ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון', ls = live(S.lenders).filter((l) => re || l.kind !== 'developer').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
   return '<details class="ppanel" style="margin-top:12px"' + (sel.length ? ' open' : '') + '><summary><b>שליחה לקרן / גוף מימון</b> <span class="hint">' + (sel.length ? sel.length + ' מסמכים מסומנים' : 'מסמנים מסמכים למעלה') + '</span></summary>' +
+    (re ? '' : '<p class="hint" style="margin:8px 0 0"><b>' + esc((pledgeInfo(c) || { text: 'לא סומן אם הלקוח גר בנכס המשועבד — לסמן ב"הכר את הלקוח"' }).text) + '</b></p>') +
     '<div class="row" style="align-items:flex-end;margin-top:8px"><label class="fl">נמען<select class="f" id="fundTo"><option value="">— בחר —</option>' +
         '<optgroup label="' + (re ? 'גופים ויזמים' : 'גופי מימון') + ' (ברשימת הגופים)">' + ls.filter((l) => l.email).map((l) => '<option value="l:' + esc(l.id) + '">' + esc(l.name) + ' · ' + esc(l.email) + '</option>').join('') + '</optgroup>' +
         CONTACT_CATS.filter(([k]) => !['team', 'client'].includes(k)).map(([k, lb]) => { const cs = live(S.contacts || new Map()).filter((x) => (x.cat || 'other') === k).sort((a, b) => String(a.org || a.name).localeCompare(String(b.org || b.name), 'he'));
@@ -4829,9 +5150,8 @@ function sendFundBox(c, files) {
     '<label class="fl">נושא<input class="f" id="fundSubj" value="' + esc('הגשת תיק — ' + c.name + ' — ' + co) + '"></label>' +
     '<label class="fl">גוף המייל<textarea class="f" id="fundBody" rows="5">' + esc('שלום,\n\nמצורפים המסמכים של ' + c.name + (c.baseAmount ? ' לבקשה בסך ' + plain(c.baseAmount) : '') + '.\nנשמח לבדיקה ולתשובה.\n\nבברכה,\n' + (S.loginAs && S.loginAs.label || 'דן') + '\n' + co) + '</textarea></label>' +
     '<label class="check" style="border:0"><input type="checkbox" class="cb" id="fundSub" checked><span>לרשום כהגשה לגוף בתיק</span></label>' +
-    (canApproveDel(c.division || 'finance') ? '<div class="row"><span class="hint grow">נשלח מה-Gmail המחובר, עם ' + FIN_BOX + ' בעותק. צילומים גדולים מוקטנים אוטומטית, ותיק כבד מתפצל לכמה מיילים (חלק 1 מתוך N).</span><button class="btn primary" data-act="fundSend"' + (sel.length ? '' : ' disabled') + '>שלח עם ' + sel.length + ' קבצים</button></div>'
-      : '<div class="row"><span class="hint grow">לפי הנוהל: נפתחת תיקיית הגשה חדשה עם עותקים של הקבצים, ו' + delApprover(c.division || 'finance') + ' עובר עליה בבקרה. רק אחרי אישור — המייל יוצא.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הכן לביקורת (' + sel.length + ' קבצים)</button></div>') +
-    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + subStatePill(a)[1] + '">' + subStatePill(a)[0] + '</span>' + subActions(a) + '<span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">תיקייה ↗</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
+    '<div class="row"><span class="hint grow"><b>1.</b> הגשה פנימית — תיקיית ביקורת חדשה עם עותקים של הקבצים · <b>2.</b> אישור מסמכים (' + (c.division === 'realestate' ? 'אביב / דן' : 'דן / ניסים') + ') — הקבצים עוברים לתיקיית "' + APPROVED_DIR + '" · <b>3.</b> שליחה — רק משם, עם ' + FIN_BOX + ' בעותק.</span><button class="btn primary" data-act="fundPrepare"' + (sel.length ? '' : ' disabled') + '>הגשה פנימית — לאישור מסמכים (' + sel.length + ' קבצים)</button></div>' +
+    subsOfClient(c).map((a) => '<div class="row" style="align-items:center;margin-top:6px;gap:6px"><span class="pill ' + subStatePill(a)[1] + '">' + subStatePill(a)[0] + '</span>' + subActions(a) + '<span class="grow">' + esc(a.label) + ' · ' + (a.files || []).length + ' קבצים · ' + dLabel(dayOf(a.at)) + (a.note ? ' · <b>' + esc(a.note) + '</b>' : '') + '</span><a class="btn small ghost" href="' + esc(a.approvedFolderId ? folderUrl(a.approvedFolderId) : a.folderUrl || folderUrl(a.folderId)) + '" target="_blank" rel="noopener">' + (a.approvedFolderId ? 'מאושר לשליחה ↗' : 'תיקייה ↗') + '</a>' + (a.status === 'pending' && !a.reviewPdf ? '<button class="btn small ghost" data-subreview="' + esc(a.id) + '">סקירה + PDF לתיקייה</button>' : a.reviewPdf ? '<a class="btn small ghost" href="https://drive.google.com/file/d/' + esc(a.reviewPdf.id) + '/view" target="_blank" rel="noopener">PDF ↗</a>' : '') + '</div>').join('') + '</details>';
 }
 /* תמונה גדולה (צילום טלפון) → JPEG מוקטן לצד ארוך 2000px. מסמך נשאר קריא, והמשקל יורד פי 5-10 */
 async function shrinkImage(b64, mime) {
@@ -4842,6 +5162,8 @@ async function shrinkImage(b64, mime) {
 const FUND_PART_MAX = window.__harelServer ? 2.5e6 : 4e6; /* בשרת: תקרת בקשה של 4.5MB ב-Vercel, וה-base64 מנפח בשליש */ /* בייטים מקוריים לכל מייל — אחרי base64 ומעטפת ההודעה זה עדיין הרבה מתחת למגבלה של Gmail */
 async function fundSend(c, O) {
   if (S._fundBusy) return toast('השליחה כבר בדרך — רגע');
+  /* דן 21/10: שולחים רק מתוך תיקיית "מאושר לשליחה" — כלומר רק הגשה שאושרה (O מגיע מאישור), לא ישר מהתיק */
+  if (!O || !O.files) return toast('שולחים רק מתיקיית "מאושר לשליחה": הגשה פנימית ← אישור מסמכים ← שליחה');
   const pick = O ? O.pick || '' : ($('fundTo') || {}).value || '', l = pick.startsWith('l:') ? S.lenders.get(pick.slice(2)) : null, ct = pick.startsWith('c:') ? S.contacts.get(pick.slice(2)) : null;
   const extra = (O ? (O.extra || []).join(',') : (($('fundMail') || {}).value || '')).split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])], to = tos.join(', ');
@@ -4901,7 +5223,7 @@ async function fundPrepare(c) {
   const extra = (($('fundMail') || {}).value || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
   const tos = [...new Set([...(l && l.email ? [l.email] : []), ...(ct ? [ct.email] : []), ...extra])]; if (!tos.length) return toast('בחר נמען או כתוב מייל');
   const st = (S.docRes || {})[c.id] || {}, files = (st.files || []).filter((f) => (S.docSel || new Set()).has(f.id) && !f.folderLink); if (!files.length) return toast('סמן מסמכים');
-  const bank = l ? l.name : ct ? (ct.org || ct.name) : tos[0], div = c.division || 'finance', ap = delApprover(div);
+  const bank = l ? l.name : ct ? (ct.org || ct.name) : tos[0], div = c.division || 'finance', ap = div === 'realestate' ? 'אביב' : 'דן / ניסים';
   S._fundBusy = true; const btn = document.querySelector('[data-act="fundPrepare"]'); if (btn) { btn.disabled = true; btn.textContent = 'פותח תיקייה…'; }
   try {
     const fold = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: 'הגשה — ' + bank + ' — ' + dLabel(today()) + ' (לביקורת)', mimeType: 'application/vnd.google-apps.folder', parentId: c.driveFolder }, { cache: false }));
@@ -4912,15 +5234,15 @@ async function fundPrepare(c) {
     const rid = uid(), who = (S.loginAs && S.loginAs.resp) || respOf(S.me.id) || '';
     await write('approvals/' + rid, { id: rid, kind: 'submission', clientId: c.id, division: div, label: 'הגשה ל' + bank + ' — ' + c.name, bank, pick, extra, to: tos, subj: ($('fundSubj') || {}).value || ('הגשת תיק — ' + c.name), body: ($('fundBody') || {}).value || '', wantSub: !!($('fundSub') || {}).checked,
       files: copies, srcIds: files.map((f) => f.id), folderId: fid, folderUrl: fold.viewUrl || folderUrl(fid), by: S.me.id, byResp: who, at: stamp(), status: 'pending' });
-    await logClient(c.id, 'הוכנה הגשה ל' + bank + ' — ' + copies.length + ' קבצים בתיקיית ביקורת. ממתינה לאישור ' + ap + (miss.length ? ' · לא שוכפלו: ' + miss.join(', ') : '')).catch(() => {});
-    S.docSel = new Set(); toast('נשלח לביקורת של ' + ap + ' — ' + copies.length + ' קבצים בתיקייה חדשה' + (miss.length ? ' (' + miss.length + ' לא שוכפלו)' : ''));
+    await logClient(c.id, 'הגשה פנימית ל' + bank + ' — ' + copies.length + ' קבצים בתיקיית ביקורת. ממתינה לאישור מסמכים (' + ap + ')' + (miss.length ? ' · לא שוכפלו: ' + miss.join(', ') : '')).catch(() => {});
+    S.docSel = new Set(); toast('הגשה פנימית — ' + copies.length + ' קבצים בתיקיית ביקורת, ממתינה לאישור מסמכים' + (miss.length ? ' (' + miss.length + ' לא שוכפלו)' : ''));
     await procReach(c.id, 'submitApprove').catch(() => {});
   } finally { S._fundBusy = false; render(); }
 }
 /* מצב הגשה: ממתין לביקורת → אושר (בלי שליחה) → נשלח; או הוחזר לתיקון. (דן, 18/10: דן מאשר, הדס שולחת) */
 const subUnsent = (a) => a.status === 'approved' && a.noSend && !a.sentAt;
-const subStatePill = (a) => a.status === 'pending' ? ['ממתין לאישור דן', 'expected'] : subUnsent(a) ? ['אושר — לשליחה', 'committed'] : a.status === 'approved' ? ['נשלח' + (a.sentAt ? ' ' + dLabel(dayOf(a.sentAt)) : ''), 'actual'] : a.status === 'rejected' ? ['הוחזר לתיקון', 'open'] : [a.status, 'muted'];
-const subActions = (a) => (subUnsent(a) && S.canTask ? '<button class="btn small primary" data-subsend="' + esc(a.id) + '">שלח עכשיו</button>' : '') + (a.status === 'pending' && canApproveDel(a.division || 'finance') ? '<button class="btn small" data-approkonly="' + esc(a.id) + '">אשר בלי לשלוח</button>' : '');
+const subStatePill = (a) => a.status === 'pending' ? ['באישור מסמכים', 'expected'] : subUnsent(a) ? ['מאושר לשליחה', 'committed'] : a.status === 'approved' ? ['נשלח' + (a.sentAt ? ' ' + dLabel(dayOf(a.sentAt)) : ''), 'actual'] : a.status === 'rejected' ? ['הוחזר לתיקון', 'open'] : [a.status, 'muted'];
+const subActions = (a) => (subUnsent(a) && S.canTask ? '<button class="btn small primary" data-subsend="' + esc(a.id) + '">שלח עכשיו</button>' : '') + (a.status === 'pending' && canApproveDel(a.division || 'finance') ? '<button class="btn small" data-approkonly="' + esc(a.id) + '">אשר מסמכים</button>' : '');
 /* העברה לתפעול (ניסים סיים את שיחת המכירה והקמת הלקוח): שלב המכירה נסגר, והתיק נפתח אצל הדס לאיסוף מסמכים */
 async function procFromSale(cid) {
   const c = S.clients.get(cid); if (!c || c.division === 'realestate' || procType(c) !== 'mortgage' || (c.proc || {}).step) return;
@@ -5444,6 +5766,53 @@ async function rePrepSend(cid) {
     notes: ['הון עצמי: ' + (p.equity ? plain(p.equity) : '—'), 'הכנסות: ' + (profTotal(p) ? plain(profTotal(p)) : '—'), p.goal ? 'מטרה: ' + p.goal : '', c.driveFolder ? 'תיקייה: https://drive.google.com/drive/folders/' + c.driveFolder : '', p.pdf ? 'אפיון: ' + p.pdf.url : ''].filter(Boolean).join('\n'), status: 'open', createdAt: stamp(), createdBy: S.me.id, updatedAt: stamp() });
   await reSet(c, { prepSentAt: stamp() }, 'נשלח ל' + (L.resp[aviv] || aviv) + ' להכנת נכסים'); toast('נשלח ל' + (L.resp[aviv] || aviv) + ' — משימה ל-3 ימים');
 }
+/* ═════ שעון בכל מסך + שעון עצר / טיימר למשימה (דן 21/10) ═════
+   השעון למעלה מתעדכן כל 20 שניות. לחיצה עליו, או על ⏱ במשימה: שעון עצר (סופר קדימה) או טיימר לזמן שבוחרים (סופר אחורה, צלצול בסוף).
+   השעון שרץ נשמר בדפדפן — ממשיך גם אחרי רענון. "עצור ושמור" — הזמן נרשם במשימה (סה״כ דקות + פירוט) וביומן הלקוח. */
+let TMR = null, TMR_T = null;
+const tmrKey = () => 'harel-timer-' + (S.myKey || 'me');
+function tmrLoad() { try { TMR = JSON.parse(localStorage.getItem(tmrKey()) || 'null'); } catch (e) { TMR = null; } if (TMR) tmrRun(); }
+function tmrSave() { try { if (TMR) localStorage.setItem(tmrKey(), JSON.stringify(TMR)); else localStorage.removeItem(tmrKey()); } catch (e) {} }
+const tmrFmt = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const tmrMinTxt = (m) => { m = Math.round(n(m)); return m >= 60 ? Math.floor(m / 60) + ' ש׳' + (m % 60 ? ' ' + (m % 60) + ' דק׳' : '') : m + ' דק׳'; };
+function clockTick() { const el = document.getElementById('clockNow'); if (el) el.textContent = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' }); }
+function tmrBar(html, over) { let el = document.getElementById('tmrbar'); if (!html) { if (el) el.remove(); return; } if (!el) { el = document.createElement('div'); el.id = 'tmrbar'; el.setAttribute('role', 'timer'); document.body.appendChild(el); } el.classList.toggle('over', !!over); el.innerHTML = html; }
+function tmrTick() {
+  const btn = document.getElementById('topClock'); if (btn) btn.classList.toggle('run', !!TMR);
+  if (!TMR) return tmrBar('');
+  const gone = (Date.now() - TMR.at) / 1000, left = TMR.mins ? TMR.mins * 60 - gone : null, over = left != null && left <= 0;
+  if (over && !TMR.rang) { TMR.rang = true; tmrSave(); tmrRing(); }
+  tmrBar('<span>' + (TMR.mins ? '⏳' : '⏱') + ' ' + (TMR.title ? '<b>' + esc(TMR.title) + '</b> · ' : '') + '<b class="num">' + (TMR.mins ? (over ? 'נגמר הזמן · +' + tmrFmt(-left) : tmrFmt(left)) : tmrFmt(gone)) + '</b>' + (TMR.mins ? ' <span class="hint">מתוך ' + TMR.mins + ' דק׳</span>' : '') + '</span>' +
+    '<button class="btn small primary" data-tmrstop="1">' + (TMR.taskId ? 'עצור ושמור' : 'עצור') + '</button><button class="btn small ghost" data-tmrx="1" aria-label="בטל בלי לשמור">✕</button>', over);
+}
+function tmrRun() { clearInterval(TMR_T); TMR_T = setInterval(tmrTick, 1000); tmrTick(); }
+function tmrRing() {
+  try { const A = new (window.AudioContext || window.webkitAudioContext)(); [0, 0.35, 0.7].forEach((d) => { const o = A.createOscillator(), g = A.createGain(); o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(A.destination); o.start(A.currentTime + d); o.stop(A.currentTime + d + 0.2); }); } catch (e) {}
+  toast('⏳ נגמר הזמן' + (TMR && TMR.title ? ': ' + TMR.title : ''));
+  try { if (window.Notification && Notification.permission === 'granted') new Notification('נגמר הזמן', { body: (TMR && TMR.title) || 'הטיימר הסתיים' }); } catch (e) {}
+}
+function formTimer(taskId) {
+  if (TMR) return toast('כבר רץ שעון — עצור אותו קודם');
+  const t = taskId ? S.tasks.get(taskId) : null;
+  drawer(t ? 'שעון למשימה — ' + t.title : 'שעון עצר / טיימר', fs('mode', 'סוג', [['timer', 'טיימר — זמן שאני קובע'], ['watch', 'שעון עצר — סופר קדימה']], 'timer', true) +
+    fs('mins', 'כמה זמן (בטיימר)', [['10', '10 דקות'], ['15', '15 דקות'], ['20', '20 דקות'], ['30', '30 דקות'], ['45', '45 דקות'], ['60', 'שעה'], ['90', 'שעה וחצי'], ['x', 'אחר…']], '30') + fi('custom', 'דקות (אם בחרת "אחר")', '', 'number', 'min="1" max="600"') +
+    (t ? (n(t.spentMin) ? '<p class="hint full">עד עכשיו על המשימה: ' + tmrMinTxt(t.spentMin) + '</p>' : '') : fi('title', 'על מה (לא חובה)', '')),
+  async (fd) => { const mins = fd.mode === 'timer' ? (fd.mins === 'x' ? Math.round(n(fd.custom)) : Number(fd.mins)) : null; if (fd.mode === 'timer' && !(mins > 0)) return 'כמה דקות?';
+    TMR = { at: Date.now(), mins, taskId: t ? t.id : null, title: t ? t.title : String(fd.title || '').trim() }; tmrSave(); tmrRun();
+    try { if (mins && window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {} }, '', 'התחל');
+}
+async function tmrStop(save) {
+  const T = TMR; TMR = null; tmrSave(); clearInterval(TMR_T); tmrTick(); if (!T) return;
+  const mins = Math.max(1, Math.round((Date.now() - T.at) / 60000));
+  if (!save || !T.taskId) return toast(save ? '⏱ ' + tmrMinTxt(mins) : 'השעון בוטל');
+  const t = S.tasks.get(T.taskId); if (!t) return toast('⏱ ' + tmrMinTxt(mins));
+  await write('tasks/' + t.id, { spentMin: Math.round(n(t.spentMin) + mins), timeLog: [...(t.timeLog || []), { from: new Date(T.at).toISOString(), mins, by: S.me.id, planned: T.mins || null }].slice(-50), updatedAt: stamp() }, 'update');
+  if (t.clientId) await logClient(t.clientId, '⏱ ' + tmrMinTxt(mins) + ' על: ' + t.title).catch(() => {});
+  toast('נשמר: ' + tmrMinTxt(mins) + ' · סה״כ על המשימה ' + tmrMinTxt(n(t.spentMin) + mins));
+}
+const tmrBtn = (t) => S.canTask && t.status !== 'done' ? '<button class="btn small ghost" data-tasktimer="' + esc(t.id) + '" title="שעון עצר / טיימר למשימה" aria-label="שעון למשימה">⏱' + (n(t.spentMin) ? ' ' + tmrMinTxt(t.spentMin) : '') + '</button>' : (n(t.spentMin) ? '<span class="hint">⏱ ' + tmrMinTxt(t.spentMin) + '</span>' : '');
+setInterval(clockTick, 20000); setTimeout(clockTick, 0);
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#topClock') && S.ready && !isLocked()) formTimer(); });
 /* ── שיחות: הרמה מול אפקטיבית (דן, 15/10). לחיצה על מספר טלפון של ליד מפעילה שעון; כשחוזרים למסך (או "סיום") נרשם המשך.
    פחות מדקה = הרמה, דקה ומעלה = אפקטיבית — אוטומטית. "לא ענה" / תיקון בלחיצה. המשך כולל צלצול — הערכה. ── */
 let CALL = null, CALL_T = null;
@@ -6356,9 +6725,37 @@ const pf = (c, path, label, type = 'text', attrs = '', w = S.canTask) => { const
 const pchk = (c, path, label, w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="check"><input type="checkbox" data-pf="' + path + '"' + (v ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + label + '</span></label>'; };
 const parea = (c, path, label, ph = '', w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="fl full">' + label + '<textarea class="f" rows="2" data-pf="' + path + '" placeholder="' + esc(ph) + '"' + (w ? '' : ' disabled') + '>' + esc(v || '') + '</textarea></label>'; };
 const psel = (c, path, label, opts, w = S.canTask) => { const v = path.split('.').reduce((o, k) => (o || {})[k], c.proc || {}); return '<label class="fl">' + label + '<select class="f" data-pf="' + path + '"' + (w ? '' : ' disabled') + '><option value="">—</option>' + opts.map(([k, t]) => '<option value="' + esc(k) + '"' + (String(v ?? '') === String(k) ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>'; };
+/* ── מנהל התיק בגוף שאישר (הדס 21/10): שם וטלפון ליד האישור העקרוני. הצעה מאנשי הקשר של אותו גוף ── */
+function principleMgr(c, w, noFund) {
+  const pr = (c.proc || {}).principle || {}, subs = (c.submissions || []).filter((x) => x && x.bank).map((x) => [x.bank, x.bank]);
+  const fund = pr.fund || ((c.submissions || []).find((x) => x && x.status === 'approved') || {}).bank || '';
+  const known = fund ? live(S.contacts || new Map()).filter((x) => x.org && (x.org === fund || fund.includes(x.org) || x.org.includes(fund)) && (x.phone || x.name)) : [];
+  const ph = pr.managerPhone ? normPhone(pr.managerPhone) : '';
+  return '<div class="ppanel" style="margin:0 0 10px;border-inline-start:3px solid var(--committed)"><h3 class="sec" style="margin-top:0">מנהל התיק בגוף' + (fund ? ' — ' + esc(fund) : '') + '</h3>' +
+    (pr.managerName || ph ? '<p style="margin:0 0 6px;font-size:16px"><b>' + esc(pr.managerName || '') + '</b>' + (ph ? ' · <a href="tel:' + esc(ph) + '" dir="ltr">' + esc(ph) + '</a>' + (waLink(ph) ? ' <a class="btn small wa" href="' + esc(waLink(ph)) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') : '') + '</p>' : '') +
+    '<div class="row" style="align-items:flex-end">' + (noFund ? '' : psel(c, 'principle.fund', 'הגוף שאישר', subs.length ? subs : [['', 'אין הגשות בתיק']], w)) + pf(c, 'principle.managerName', 'מנהל התיק', 'text', '', w) + pf(c, 'principle.managerPhone', 'טלפון', 'tel', 'dir="ltr" style="width:140px"', w) +
+      (w && known.length ? '<label class="fl">מאנשי הקשר<select class="f" data-pmgr>' + '<option value="">—</option>' + known.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name + (x.phone ? ' · ' + x.phone : '')) + '</option>').join('') + '</select></label>' : '') + '</div></div>';
+}
+async function condsToTasks(c) {
+  const P = JSON.parse(JSON.stringify(c.proc || {})), arr = P.conds || [], who = procOwner(c, 'conds') || 'hadas', pr = P.principle || {}; let k = 0;
+  const notes = [pr.fund ? 'הגוף: ' + pr.fund : '', pr.managerName || pr.managerPhone ? 'מנהל התיק: ' + [pr.managerName, pr.managerPhone].filter(Boolean).join(' · ') : ''].filter(Boolean).join('\n');
+  for (const it of arr) {
+    if (it.done || (it.taskId && S.tasks.get(it.taskId))) continue;
+    const id = uid(); await write('tasks/' + id, { id, title: 'התניה: ' + it.text + ' — ' + c.name, resp: who, assigneeId: userOfResp(who) || null, due: addDays(today(), 2), priority: 'normal', status: 'open', clientId: c.id, notes, condOf: c.id, ruleKey: 'cond:' + c.id + ':' + slug(it.text), createdAt: stamp(), createdBy: S.me.id });
+    it.taskId = id; k++;
+  }
+  if (!k) return toast('אין התניות פתוחות בלי משימה');
+  await procSave(c, P, k + ' התניות הוגדרו כמשימות ל' + (L.resp[who] || who));
+  toast(k + ' משימות נפתחו ל' + (L.resp[who] || who));
+}
+/* משימת התניה שבוצעה — ההתניה בתיק מסומנת ✓ (ולהפך: סימון ההתניה סוגר את המשימה) */
+async function condTaskSync(t, done) {
+  const c = t && t.condOf && S.clients.get(t.condOf); if (!c) return; const P = JSON.parse(JSON.stringify(c.proc || {})), it = (P.conds || []).find((x) => x.taskId === t.id);
+  if (!it || !!it.done === !!done) return; it.done = !!done; it.doneAt = done ? stamp() : null; await procSave(c, P, (done ? '✓ ' : 'בוטל: ') + it.text + ' (מהמשימה)');
+}
 /* רשימה עם סימון: conds / sec / tranche conditions */
 function plist(c, key, items, ph, w) {
-  return (items.length ? items.map((it, i) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-plistdone="' + key + ':' + i + '"' + (it.done ? ' checked' : '') + (w ? '' : ' disabled') + '><span' + (it.done ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + esc(it.text) + '</span></label>' +
+  return (items.length ? items.map((it, i) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-plistdone="' + key + ':' + i + '"' + (it.done ? ' checked' : '') + (w ? '' : ' disabled') + '><span' + (it.done ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + esc(it.text) + '</span></label>' + (it.taskId ? ((t) => '<span class="pill ' + (t && t.status === 'done' ? 'actual' : 'committed') + '">משימה' + (t ? ' · ' + esc(L.resp[taskResp(t)] || '') : '') + (t && t.status === 'done' ? ' ✓' : '') + '</span>')(S.tasks.get(it.taskId)) : '') +
       (it.doneAt ? '<span class="hint">' + dLabel(dayOf(it.doneAt)) + '</span>' : '') + (w ? '<button class="btn small ghost" data-plistdel="' + key + ':' + i + '" aria-label="הסר">×</button>' : '') + '</div>').join('') : '<p class="empty" style="margin:4px 0">אין עדיין.</p>') +
     (w ? '<div class="row" style="margin-top:6px"><input class="f grow" id="pl_' + key + '" placeholder="' + esc(ph) + '"><button class="btn small" data-plistadd="' + key + '">הוסף</button></div>' : '');
 }
@@ -6472,9 +6869,11 @@ function procPanel(c, k, w) {
     // falls through — עסקים / רכב
     case 'direct': return (k === 'direct' ? '<p class="hint" style="margin:0 0 6px">בחינה מול מימון ישיר (וגופים נוספים אם צריך).</p>' : '<p class="hint" style="margin:0 0 6px">לאילו קרנות הוגש, מה התנאים בכל קרן ואיך התיק עבר את הבחינה.</p>') + subsTable(c, w);
     case 'principle': case 'approval': { const subs = (c.submissions || []).map((s) => [s.bank, s.bank]);
-      return '<div class="row">' + psel(c, 'principle.fund', 'איפה אושר', subs.length ? subs : [['', 'הוסף קרן בשלב ההגשה']]) + pf(c, 'principle.date', 'תאריך', 'date') + pf(c, 'principle.amount', 'סכום מאושר', 'number', 'step="1000"') + pf(c, 'principle.rate', 'ריבית %', 'number', 'step="0.01" style="width:80px"') + pf(c, 'principle.years', 'שנים', 'number', 'style="width:70px"') + '</div>' + parea(c, 'principle.note', 'תנאים עיקריים באישור'); }
-    case 'conds': return '<p class="hint" style="margin:0 0 6px">ההתניות והמסמכים שהקרן דרשה באישור העקרוני. אפשר לסרוק את מכתב האישור — Claude מציע רשימה, ואתה מאשר מה נכנס.</p>' + plist(c, 'conds', p.conds || [], 'התניה / מסמך להשלמה', w) +
-      (w ? '<div class="row" style="margin-top:8px"><label class="btn small">סרוק אישור עקרוני (PDF / תמונה)<input type="file" id="condScan" accept="application/pdf,image/*" hidden></label><span class="hint" id="condScanSt"></span></div><div id="condSug"></div>' : '');
+      return principleMgr(c, w, true) + '<div class="row">' + psel(c, 'principle.fund', 'איפה אושר', subs.length ? subs : [['', 'הוסף קרן בשלב ההגשה']]) + pf(c, 'principle.date', 'תאריך', 'date') + pf(c, 'principle.amount', 'סכום מאושר', 'number', 'step="1000"') + pf(c, 'principle.rate', 'ריבית %', 'number', 'step="0.01" style="width:80px"') + pf(c, 'principle.years', 'שנים', 'number', 'style="width:70px"') + '</div>' + parea(c, 'principle.note', 'תנאים עיקריים באישור'); }
+    case 'conds': { const free = (p.conds || []).filter((it) => !it.done && !(it.taskId && S.tasks.get(it.taskId))).length;
+      return principleMgr(c, w) + '<p class="hint" style="margin:0 0 6px">ההתניות והמסמכים שהקרן דרשה באישור העקרוני. אפשר לסרוק את מכתב האישור — Claude מציע רשימה, ואתה מאשר מה נכנס.</p>' + plist(c, 'conds', p.conds || [], 'התניה / מסמך להשלמה', w) +
+      (w && free ? '<div class="row" style="margin-top:6px"><button class="btn small" data-act="condsToTasks">כל ההתניות הפתוחות → משימות (' + free + ')</button><span class="hint">משימה לכל התניה, ל' + esc(L.resp[procOwner(c, 'conds')] || 'הדס') + ', עם מנהל התיק בגוף · סימון ✓ בהתניה סוגר את המשימה, ולהפך</span></div>' : '') +
+      (w ? '<div class="row" style="margin-top:8px"><label class="btn small">סרוק אישור עקרוני (PDF / תמונה)<input type="file" id="condScan" accept="application/pdf,image/*" hidden></label><span class="hint" id="condScanSt"></span></div><div id="condSug"></div>' : ''); }
     case 'securities': return '<h3 class="sec">הבטחונות הנדרשים</h3>' + plist(c, 'sec', p.sec || [], 'בטוחה (שעבוד דירה, ערב, משכון…)', w) + lawyerForm(c, w) + apprForm(c, w);
     case 'appraisal': return apprForm(c, w) + lawyerForm(c, w);
     case 'insurance': { const ins = (who) => '<div class="row" style="align-items:flex-end">' + psel(c, 'ins.' + who + '.via', who === 'life' ? 'ביטוח חיים — אצל מי' : 'ביטוח מבנה — אצל מי', [['client', 'המבטח של הלקוח'], ['supplier', 'ספק שלנו — שאילתה']]) + pf(c, 'ins.' + who + '.company', 'חברה') + psel(c, 'ins.' + who + '.status', 'מצב', [['open', 'פתוח'], ['sent', 'נשלח לקרן'], ['ok', 'אושר בקרן']]) + '</div>';
@@ -8727,7 +9126,7 @@ function vLanes() {
       (shown.length ? '<ul class="blocks">' + shown.map((t) => { const c = t.clientId && S.clients.get(t.clientId), k = carried(t);
         return '<li class="block' + (t.status === 'done' ? ' done' : '') + '" data-tid="' + esc(t.id) + '" style="border-inline-start:4px solid ' + prioVar(t) + '"><span class="time num">' + (w && t.status !== 'done' ? '<span class="drag" data-drag title="גרור לשינוי הסדר" aria-label="גרור">⋮⋮</span>' : '') + esc(t.time || '') + '</span><div class="body">' +
           '<input class="cb" type="checkbox" data-taskdone="' + esc(t.id) + '"' + (t.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + ' aria-label="בוצע: ' + esc(t.title) + '">' +
-          '<span class="txt">' + linkify(t.title) + '</span>' + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>' +
+          '<span class="txt">' + linkify(t.title) + '</span>' + tmrBtn(t) + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>' +
           (t.notes ? '<p class="sub">' + linkify(t.notes, 180) + '</p>' : '') +
           ((c || t.clientName || k > 0 || t.priority === 'high' || t.priority === 'urgent') ? '<div class="meta">' + (c ? '<button class="chip client" data-client="' + esc(c.id) + '">' + esc(c.name) + ' ↗</button>' : t.clientName ? '<span class="chip">' + esc(t.clientName) + '</span>' : '') +
             (k > 0 ? '<span class="chip age">נגרר ' + k + ' ימים</span>' : '') + (t.priority === 'high' || t.priority === 'urgent' ? '<span class="chip age">' + L.priority[t.priority] + '</span>' : '') + '</div>' : '') + '</li>'; }).join('') + '</ul>'
@@ -10486,7 +10885,7 @@ function intakeFee(x, C) {
   const f = x.fee || {}, type = f.type || '';
   const amount = type === 'pct' ? (n(f.pct) && C.amount ? r2(C.amount * n(f.pct) / 100) : null) : type === 'fixed' ? (n(f.fixed) || null) : null;
   const text = type === 'pct' ? (n(f.pct) ? n(f.pct) + '% מ-' + plain(C.amount) + (amount ? ' = ' + plain(amount) : '') : 'לסמן אחוז') : type === 'fixed' ? (amount ? plain(amount) + ' סכום קבוע' : 'לסמן סכום') : type === 'open' ? 'פתוח — ייקבע בהמשך' : 'לא נקבע';
-  return { type, pct: n(f.pct) || null, fixed: type === 'fixed' ? amount : null, amount, text };
+  return { type, pct: n(f.pct) || null, fixed: type === 'fixed' ? amount : null, amount, text, advance: n(f.advance) || null, payDays: n(f.payDays) || null, noteAmount: n(f.noteAmount) || null };
 }
 /* הפער בין מה שהלקוח רוצה למה שאפשר בפועל */
 function intakeGaps(x, C) {
@@ -10570,6 +10969,13 @@ function vInterest() {
 /* "הכר את הלקוח" בשיחה אחת: כותבים את כל הסיפור במלל חופשי (נשמר אוטומטית) → Claude מציע ערך לכל שדה → מסמנים מה נכנס → נשמר.
    הצעה בלבד: שום שדה לא משתנה בלי אישור, ערך קיים לא מסומן להחלפה כברירת מחדל, וכל ערך נבדק מול סוג השדה והאפשרויות. */
 const IK_PLAN = { good: 'טובה — ברורה והגיונית', weak: 'חלשה / לא ברורה' }, IK_PSRC = { estimate: 'הערכה', appraisal: 'שמאות קיימת' };
+const PLEDGE_HOME = { yes: 'כן — זו כתובת המגורים', no: 'לא — גר בכתובת אחרת' };
+/* הנכס המשועבד מול כתובת המגורים — לתמצית התיק ולבקשת האישור של ההגשה */
+function pledgeInfo(c) {
+  const x = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)) || {}, P = x.property || {}, home = (x.contact || {}).address || c.address || '';
+  if (!P.isHome && !P.address) return null;
+  return { isHome: P.isHome || '', address: P.address || '', home, text: P.isHome === 'yes' ? 'הנכס המשועבד = כתובת המגורים' + (P.address ? ' (' + P.address + ')' : '') : P.isHome === 'no' ? 'הנכס המשועבד אינו כתובת המגורים' + (P.address ? ' · משועבד: ' + P.address : '') + (home ? ' · גר ב: ' + home : '') : 'לא סומן אם הלקוח גר בנכס' + (P.address ? ' · משועבד: ' + P.address : '') };
+}
 function IK_FIELDS() {
   return [['kind', 'סוג התיק', 'enum', INTAKE_KIND], ['contact.email', 'מייל', 'text'], ['contact.source', 'מאיפה הגיע', 'text'],
     ...[0, 1].flatMap((i) => { const t = i ? 'בן/בת זוג' : 'לווה ראשי', b = 'borrowers.' + i + '.';
@@ -10577,7 +10983,7 @@ function IK_FIELDS() {
     ['rentIncome', 'הכנסה משכירות לחודש', 'num'], ['pensionIncome', 'פנסיה לחודש', 'num'], ['allowanceIncome', 'קצבאות לחודש', 'num'], ['otherIncome', 'הכנסה אחרת לחודש', 'num'],
     ['oblMortgage', 'משכנתאות — החזר חודשי', 'num'], ['balMortgage', 'משכנתאות — יתרה', 'num'], ['oblLoans', 'הלוואות בנקאיות — החזר חודשי', 'num'], ['balLoans', 'הלוואות בנקאיות — יתרה', 'num'],
     ['oblNonbank', 'חוץ-בנקאי — החזר חודשי', 'num'], ['balNonbank', 'חוץ-בנקאי — יתרה', 'num'], ['balOverdraft', 'מינוס / אשראי — יתרה', 'num'], ['oblPaidOff', 'החזר חודשי שייסגר בעסקה', 'num'], ['balPaidOff', 'יתרת חובות שתיסגר בעסקה', 'num'],
-    ['track', 'מסלול', 'enum', IK.track], ['property.type', 'סוג הנכס', 'enum', IK.prop], ['property.value', 'שווי הנכס', 'num'], ['property.source', 'מקור השווי', 'enum', IK_PSRC], ['property.liens', 'הלוואות על הנכס שנשארות', 'num'],
+    ['track', 'מסלול', 'enum', IK.track], ['property.type', 'סוג הנכס', 'enum', IK.prop], ['property.address', 'כתובת הנכס המשועבד', 'text'], ['property.isHome', 'הלקוח גר בנכס המשועבד?', 'enum', PLEDGE_HOME], ['contact.address', 'כתובת המגורים', 'text'], ['property.value', 'שווי הנכס', 'num'], ['property.source', 'מקור השווי', 'enum', IK_PSRC], ['property.liens', 'הלוואות על הנכס שנשארות', 'num'],
     ['request.amount', 'סכום מבוקש', 'num'], ['request.purpose', 'מטרת ההלוואה', 'enum', IK.purpose], ['request.years', 'תקופה (שנים)', 'num'], ['request.rate', 'ריבית משוערת %', 'num'], ['request.balloon', 'בלון', 'bool'],
     ['credit.bdi', 'דירוג BDI', 'enum', IK.bdi], ['credit.mortReturns', 'חזרות משכנתא ב-12 חודשים', 'num'], ['credit.checks', 'חזרות צ׳קים בודדות', 'bool'], ['credit.restricted', 'חשבון מוגבל', 'bool'],
     ['credit.execution', 'תיקים בהוצל״פ', 'bool'], ['credit.bankruptcy', 'פשיטת רגל / כינוס', 'bool'], ['credit.notes', 'הערות על ההתנהלות הבנקאית', 'text'],
@@ -10673,6 +11079,9 @@ function vIntake(cid) {
     (Object.keys((B[i] || {}).emps || {}).filter((k) => B[i].emps[k] && k !== B[i].emp).length ? '<div class="row">' + Object.keys(B[i].emps).filter((k) => B[i].emps[k] && k !== B[i].emp).map((k) => inp('borrowers.' + i + '.incomes.' + k, 'הכנסה נטו — ' + IK.emp[k], (B[i].incomes || {})[k], 'number', 'step="100" style="width:110px"')).join('') + '</div>' : '');
   const KD = x.kind, propSec = () => '<section class="card"><header><h2>הנכס והבקשה</h2><span class="grow"></span>' + scanBtn('intake', 'property', 'סריקת שמאות / נסח') + '</header>' + scanList(x, 'property') + '<div class="row">' + pick('track', 'מסלול', IK.track, x.track || 'nonbank') + pick('property.type', 'סוג בטוחה', IK.prop, P.type) + inp('property.value', 'שווי הנכס', P.value, 'number', 'step="10000"') +
       pick('property.source', 'מקור השווי', { estimate: 'הערכה', appraisal: 'שמאות קיימת' }, P.source) + inp('property.liens', 'הלוואות על הנכס שנשארות', P.liens, 'number', 'step="10000"') + '</div>' +
+      /* דן 21/10: בכל הגשה צריך לדעת אם הנכס המשועבד הוא כתובת המגורים של הלקוח */
+      '<div class="row">' + inp('property.address', 'כתובת הנכס המשועבד', P.address, 'text') + pick('property.isHome', 'הלקוח גר בנכס המשועבד?', PLEDGE_HOME, P.isHome) +
+        (P.isHome === 'no' ? inp('contact.address', 'כתובת המגורים', (x.contact || {}).address, 'text') : '') + '</div>' +
       valIntakeBlock(cid, w) + '<div class="row">' +
       inp('request.amount', 'סכום מבוקש (כולל סילוקים)', R.amount, 'number', 'step="10000"') + pick('request.purpose', 'מטרת ההלוואה', IK.purpose, R.purpose) + inp('request.years', 'תקופה (שנים)', R.years, 'number', 'style="width:80px"') +
       inp('request.rate', 'ריבית משוערת %', R.rate, 'number', 'step="0.1" style="width:80px" placeholder="8"') + chk('request.balloon', 'בלון', R.balloon) +
@@ -10689,7 +11098,7 @@ function vIntake(cid) {
         '<tr class="tot"><td>סה״כ היום</td><td class="num">' + plain(C.oblAll) + '</td><td class="num">' + plain(C.debt) + '</td></tr>' +
         '<tr><td>מתוכן ייסגרו בעסקה</td><td>' + cell('oblPaidOff', x.oblPaidOff) + '</td><td>' + cell('balPaidOff', x.balPaidOff, '1000') + '</td></tr>' +
         '<tr class="tot"><td>נשאר אחרי העסקה</td><td class="num">' + plain(C.obl) + '</td><td class="num">' + plain(C.debt - C.paidBal) + '</td></tr></tbody></table></div></section>' +
-    repCard(x, w) +
+    repCard(x, w) + (KD === 'car' ? '' : oshCard(cid, w)) +
     (KD === 'car' ? carCard(x, w) : KD === 'business' ? bizCard(x, w, true) + (hasProp(x) ? propSec() : reqSec) : propSec()) +
     '<section class="card"><header><h2>דירוג והתנהלות בנקאית</h2></header><div class="row">' + pick('credit.bdi', 'דירוג BDI', IK.bdi, cr.bdi) + inp('credit.mortReturns', 'חזרות משכנתא ב-12 חודשים', cr.mortReturns, 'number', 'min="0" step="1" style="width:80px"') + chk('credit.checks', 'חזרות צ׳קים בודדות', cr.checks) + '</div><div class="row">' +
       '<span class="hint">חמור:</span>' + chk('credit.restricted', 'חשבון מוגבל', cr.restricted) + chk('credit.execution', 'תיקים בהוצל״פ', cr.execution) + chk('credit.bankruptcy', 'פשיטת רגל / כינוס', cr.bankruptcy) + '</div>' +
@@ -10701,7 +11110,10 @@ function vIntake(cid) {
       area('goals.conditions', 'התניות לעסקה', G.conditions, 'למשל: רק בלי קנס פירעון מוקדם; ביצוע עד סוף החודש; בלי ערבים') + '</section>')) +
     '<section class="card"><header><h2>שכר טרחה</h2><span class="pill ' + (FE.amount ? 'committed' : FE.type === 'open' ? 'expected' : 'open') + '">' + esc(FE.text) + '</span></header><div class="row">' +
       pick('fee.type', 'סוג', IK.feeType, FE.type) + (FE.type === 'pct' ? inp('fee.pct', 'אחוז שנסגר', (x.fee || {}).pct, 'number', 'step="0.05" style="width:90px"') + '<span class="hint">מתוך הסכום המבוקש ' + plain(C.amount) + '</span>' : '') +
-      (FE.type === 'fixed' ? inp('fee.fixed', 'סכום שנסגר (לפני מע״מ)', (x.fee || {}).fixed, 'number', 'step="500"') : '') + '</div></section>';
+      (FE.type === 'fixed' ? inp('fee.fixed', 'סכום שנסגר (לפני מע״מ)', (x.fee || {}).fixed, 'number', 'step="500"') : '') + '</div>' +
+      /* דן, 21/10: "השדות מתמלאים מכרטיס הלקוח" — מה שההסכם הקבוע ושטר החוב שואלים, נכתב כאן פעם אחת */
+      '<div class="row">' + inp('fee.advance', 'מקדמה (₪ לפני מע״מ)', (x.fee || {}).advance, 'number', 'step="100" style="width:120px"') + inp('fee.payDays', 'ימים לתשלום שכ״ט ההצלחה', (x.fee || {}).payDays, 'number', 'step="1" style="width:90px"') +
+      inp('fee.noteAmount', 'סכום שטר החוב (₪)', (x.fee || {}).noteAmount, 'number', 'step="500" style="width:130px"' + (FE.amount ? ' placeholder="' + Math.round(FE.amount * (1 + n(S.settings.vatRate))) + '"' : '')) + '<span class="hint">נכנסים להסכם השירותים ולשטר החוב בשליחה לחתימה' + (FE.amount ? ' · שטר בלי סכום = שכ״ט + מע״מ' : '') + '</span></div></section>';
   const res =
     (KD === 'car' ? carGoCard(x, C, cid) + carDealCard(x, cid, w) : (
     (GP.length ? '<section class="card"><header><h2>רוצה מול אפשרי</h2></header><ul style="margin:0;padding-inline-start:18px">' + GP.map((q) => '<li style="margin-bottom:4px"><span class="pill ' + q.tone + '" style="margin-inline-end:6px">' + ({ open: 'פער', expected: 'לבדוק', actual: 'תקין' }[q.tone]) + '</span>' + esc(q.t) + '</li>').join('') + '</ul></section>' : '') +
@@ -11039,7 +11451,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: () => approvalsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -11097,6 +11509,11 @@ document.addEventListener('click', async (e) => {
     if (d.cbsnooze) return cbSet(d.cbsnooze, { at: addMinIso(10), on: true }, 'תזכורת — עוד 10 דקות');
     if (d.cboff) return cbSet(d.cboff, { on: false, offAt: stamp() }, 'התזכורת בוטלה (הסטטוס נשאר)');
     if (d.callend) return callEnd(d.callend);
+    if (d.tasktimer) return formTimer(d.tasktimer);
+    if (d.act === 'oshDl') return oshDownload(S.view.clientId);
+    if (d.act === 'oshDrive') return oshDrive(S.view.clientId);
+    if (d.tmrstop) return tmrStop(true);
+    if (d.tmrx) { if (confirm('לבטל את השעון בלי לשמור?')) return tmrStop(false); return; }
     if (d.callfix) { const [lid, id, k] = d.callfix.split('|'); return callFix(lid, id, k); }
     if (d.reteammail) return reTeamMail(d.reteammail);
     if (d.meetnew) return formMeet(d.meetnew, d.kind ? { kind: d.kind } : {});
@@ -11176,7 +11593,7 @@ document.addEventListener('click', async (e) => {
     if (d.dwdel !== undefined) { const x = dashCur(); if (!x || !confirm('להסיר את הווידג׳ט?')) return; const ws = [...x.widgets]; ws.splice(+d.dwdel, 1); await dashSave({ ...x, widgets: ws }); return render(); }
     if (d.dwmove) { const x = dashCur(); if (!x) return; const [i, dir] = d.dwmove.split(':').map(Number), j = i + dir, ws = [...x.widgets]; if (j < 0 || j >= ws.length) return; [ws[i], ws[j]] = [ws[j], ws[i]]; await dashSave({ ...x, widgets: ws }); return render(); }
     if (d.tplgrid !== undefined) { S.f.tplGrid = d.tplgrid === '1'; return render(); }
-    if ((d.plscope || d.plfolder !== undefined || d.plreview !== undefined) && $('plLib') && !el.closest('#scrim')) { S.plLib = S.plLib || {}; if (d.plreview !== undefined) S.plLib.review = !!d.plreview; else if (d.plscope) { S.plLib.scope = d.plscope; S.plLib.folder = ''; } else S.plLib.folder = d.plfolder; $('plLib').innerHTML = pdfLibView(S.plLib, 'lib'); return; }
+    if ((d.plscope || d.plfolder !== undefined || d.plreview !== undefined || d.pltype !== undefined) && $('plLib') && !el.closest('#scrim')) { S.plLib = S.plLib || {}; if (d.pltype !== undefined) S.plLib.type = d.pltype; else if (d.plreview !== undefined) S.plLib.review = !!d.plreview; else if (d.plscope) { S.plLib.scope = d.plscope; S.plLib.folder = ''; } else S.plLib.folder = d.plfolder; $('plLib').innerHTML = pdfLibView(S.plLib, 'lib'); return; }
     if (d.pdftpledit) { const t = pdfTplOf(d.pdftpledit); return t ? pdfTplForm(t) : null; }
     if (d.pdftpldel) { const t = pdfTplOf(d.pdftpldel); if (!t || !confirm('למחוק את הטופס "' + t.name + '" מהספרייה? מסמכים שכבר נשלחו ממנו לא נפגעים.')) return;
       await signApiPut('/api/sign/templates/' + t.id, undefined, 'DELETE').catch((e) => toast(e.message)); toast('נמחק'); return pdfTplLoad(true); }
@@ -11311,6 +11728,7 @@ document.addEventListener('click', async (e) => {
     if (d.carplate) { const v = intakeDoc(S.view.clientId).car || {}; return copyText(String(v.plate || ''), 'מספר הרכב הועתק'); }
     if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
+    if (d.myundo) return myUndo(d.myundo);
     if (d.repay != null && el.matches('[data-repay]')) return formTx(null, { nature: 'draw', division: 'realestate', vatMode: 'exempt', counterparty: d.repay, partner: d.repay, net: -n(d.amt), date: today(), description: 'התחשבנות ' + hMonth(S.f.reMonth || today().slice(0, 7)) });
     if (d.rereturn != null && el.matches('[data-rereturn]')) return formReturn(d.rereturn, d.amt);
     if (d.mkt) { S.f.mkt = d.mkt; return render(); }
@@ -11342,6 +11760,8 @@ document.addEventListener('click', async (e) => {
     if (d.payok || d.paypaid || d.payundo) { const key = d.payok || d.paypaid || d.payundo, m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key);
       const patch = d.payok ? { approved: true, approvedAt: stamp() } : d.paypaid ? { paid: true, paidAt: stamp() } : { approved: false, approvedAt: null };
       await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, updatedAt: stamp() }); return toast(d.payok ? 'אושר' : d.paypaid ? 'סומן ששולם' : 'חזר לטיוטה'); }
+    if (d.tablenote && S.canClient) { const c = S.clients.get(d.tablenote); if (!c) return; const v = prompt('הערה ל' + c.name + ' — מופיעה בטבלת הלקוחות, לא משימה. ריק = מחיקה', c.tableNote || ''); if (v === null) return;
+      await write('clients/' + c.id, { tableNote: v.trim() || null, tableNoteAt: stamp(), tableNoteBy: S.me.id, updatedAt: stamp() }, 'update'); if (v.trim()) await logClient(c.id, 'הערה בטבלה: ' + v.trim()).catch(() => {}); return toast(v.trim() ? 'ההערה נשמרה' : 'ההערה נמחקה'); }
     if (d.addtaskfor) { const c = S.clients.get(d.addtaskfor); return formTask(null, { clientId: c.id, resp: c.resp || respOf(S.me.id) || 'dan' }); }
     if (d.invoiced) { const no = ''; await write('transactions/' + d.invoiced, { invoice: 'issued', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן שהופקה חשבונית'); }
     if (d.drawinv) { await write('transactions/' + d.drawinv, { invoice: 'received', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן: התקבלה חשבונית'); }
@@ -11417,6 +11837,8 @@ document.addEventListener('click', async (e) => {
         case 'reCfgSave': return reCfgSave();
         case 'pfApply': return pfApply();
         case 'metaSync': return metaSync(false);
+        case 'signAdvisorSave': { const A = {}; document.querySelectorAll('[data-advisor]').forEach((el) => { A[el.dataset.advisor] = el.value.trim().slice(0, 120); });
+          await write('settings/main', { advisor: { ...(S.settings.advisor || {}), finance: A } }, 'update'); toast('פרטי היועץ נשמרו'); return render(); }
         case 'signFixedSave': { const F = {}; document.querySelectorAll('[data-sfix]').forEach((el) => { const [t, k] = el.dataset.sfix.split(':'); (F[t] = F[t] || {})[k] = el.value.trim(); });
           await write('settings/main', { signFixed: F }, 'update'); return toast('ההסכמים הקבועים נשמרו'); }
         case 'ownerEmailSave': await write('settings/main', { ownerEmail: ($('ownerEmail').value || '').trim(), ...($('ownerPhone') ? { ownerPhone: $('ownerPhone').value.trim() } : {}), ...($('loginEmail') ? { loginEmail: $('loginEmail').value.trim() } : {}), ...($('ownerExt') ? { ownerExt: $('ownerExt').value.trim() } : {}) }, 'update'); return toast('נשמר');
@@ -11509,6 +11931,7 @@ document.addEventListener('click', async (e) => {
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
         case 'fundPrepare': return fundPrepare(c);
+        case 'condsToTasks': return condsToTasks(c);
         case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
         case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
@@ -11653,7 +12076,7 @@ document.addEventListener('click', async (e) => {
           const base = (st.signers || signSignerDefaults(c, pdfK ? 'client_spouse' : signTplOf(c, key).signers)).map((x, i) => ({ ...x, _i: i + 1 }));
           const off = pdfKeyOff(key), rows = pdfK ? Array.from({ length: N }, (_, i) => ({ ...(base[i + off] || { name: '', email: '', phone: '' }), on: true, _i: i + 1 + off })) : base;
           el.disabled = true; el.textContent = 'שולח…';
-          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note });
+          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
             S.signForm[c.id] = {}; return; }
           catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
         case 'signLibAdd': return signLibForm(null);
@@ -11790,8 +12213,9 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.substatus != null && c) { const list = (c.submissions || []).map((s, i) => i === Number(el.dataset.substatus) ? { ...s, status: el.value, transferredAt: el.value === 'executed' ? (s.transferredAt || today()) : s.transferredAt } : s);
       await write('clients/' + c.id, { submissions: list, updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, list[Number(el.dataset.substatus)].bank + ': ' + (SUBST[el.value] || L.sub[el.value] || el.value)); }
     if (el.dataset.taskdone) { const t = S.tasks.get(el.dataset.taskdone);
-      if (!el.checked) return taskReopen(t);
+      if (!el.checked) { if (t.condOf) condTaskSync(t, false).catch(() => {}); return taskReopen(t); }
       await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update');
+      if (t.condOf) await condTaskSync(t, true).catch(() => {});
       /* תזכורת ליד שבוצעה — יורדת גם מהליד, כדי שלא תישאר "מעקב להיום" גם בלידים */
       if (String(t.ruleKey || '').startsWith('leadfu:')) { const l = S.leads.get(t.leadId); if (l && l.followUp && l.fuManual) await leadPatch(l.id, { followUp: null, fuManual: false }, 'התזכורת בוצעה (משימה)', true).catch(() => {}); }
       if (el.checked && t.clientId) await logClient(t.clientId, 'בוצע: ' + t.title + ' · ' + (nameOf(S.me.id) || L.resp[taskResp(t)] || '')).catch(() => {});
@@ -11805,12 +12229,16 @@ document.addEventListener('change', async (e) => {
       setPath(P, k, v); if (k === 'plan.fund') P.plan.track = null; if (k === 'appr.fundOk' && v && !(P.appr || {}).fundOkAt) P.appr.fundOkAt = today();
       const L2 = { 'appr.value': 'שווי שמאות', 'appr.fundOk': 'שמאות אושרה בקרן', 'gonogo.decision': 'החלטת GO / NO GO', 'principle.fund': 'אישור עקרוני ב', 'lawyer.name': 'עו״ד מטפל', 'plan.track': 'מסלול', 'analysis.ready': 'מוכן להגשה', 'call.passed': 'עבר שיחת אנליזה' }[k];
       return procSave(c2, P, L2 ? L2 + ': ' + (el.type === 'checkbox' ? (v ? 'כן' : 'לא') : el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : v) : null); }
+    if (el.dataset.pmgr != null && S.view.tab === 'client' && el.value) { const c2 = S.clients.get(S.view.clientId), x = S.contacts && S.contacts.get(el.value); if (!c2 || !x) return; const P = JSON.parse(JSON.stringify(c2.proc || {}));
+      P.principle = { ...(P.principle || {}), managerName: x.name || '', managerPhone: x.phone || '' }; return procSave(c2, P, 'מנהל התיק בגוף: ' + (x.name || '') + (x.phone ? ' · ' + x.phone : '')); }
     if (el.dataset.plistdone && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); const P = JSON.parse(JSON.stringify(c2.proc || {})); const [key, ix] = el.dataset.plistdone.split(':'), isTr = key.startsWith('tr');
       const arr = isTr ? P.tranches[Number(key.slice(2))].conds : P[key]; const it = arr[Number(ix)]; it.done = el.checked; it.doneAt = el.checked ? stamp() : null;
+      if (it.taskId && S.tasks.get(it.taskId)) { const tk = S.tasks.get(it.taskId); if (el.checked && tk.status !== 'done') write('tasks/' + tk.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update').catch(() => {}); else if (!el.checked && tk.status === 'done') write('tasks/' + tk.id, { status: 'open', doneAt: null, doneBy: null }, 'update').catch(() => {}); }
       return procSave(c2, P, (el.checked ? '✓ ' : 'בוטל: ') + it.text); }
     if (el.dataset.trproof != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); const P = JSON.parse(JSON.stringify(c2.proc || {})), t = P.tranches[Number(el.dataset.trproof)]; t.proofAt = el.checked ? stamp() : null;
       return procSave(c2, P, el.checked ? 'התקבלה אסמכתא לפעימה ' + (Number(el.dataset.trproof) + 1) : null); }
     if (el.dataset.proctype != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); S.f.procView = null; return procSave(c2, { type: el.value, step: null }, 'סוג תהליך: ' + PROC[el.value].label); }
+    if (el.id === 'oshFile' && el.files && el.files[0]) return oshUpload(S.view.clientId, el.files[0]);
     if (el.id === 'repFile' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], ($('repWho') || {}).value);
     if (el.id === 'repMore' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], null, Number(el.dataset.ri));
     if (el.dataset.rk && S.view.tab === 'intake') { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))), [ri, path] = el.dataset.rk.split('|'), r = x.reports[Number(ri)];
@@ -11972,7 +12400,7 @@ async function boot() {
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;
-  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
+  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); setTimeout(signLibAutoSync, 3000); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
   const fail = (e) => { conn('err', e && e.code === 'revoked' ? 'הגישה בוטלה' : 'תקלה בחיבור'); if (e && e.code === 'revoked') S.canWrite = false; soon(); };
   for (const name of colls) {
     let first = true;

@@ -3,6 +3,7 @@ import { storeFile } from '@/lib/files'
 import { validateUploads } from '@/lib/rules/sign-pdf'
 import { mergePdfs, PdfInputError } from '@/lib/sign/pdf'
 import { templateForFile } from '@/lib/sign/templates'
+import { curatedFor } from '@/lib/sign/curated'
 import { createHash } from 'node:crypto'
 
 export const dynamic = 'force-dynamic'
@@ -12,6 +13,7 @@ export const maxDuration = 60
  * העלאת טופס לחתימה (מאחורי שער הכניסה): עד 5 קבצי PDF → מסמך אחד במסד (stored_files).
  * מחזיר את המזהה ומידות העמודים — לעורך השדות. multipart, שדה "file" (כמה פעמים, לפי הסדר).
  * known — אם הקובץ זהה לטופס שכבר בספרייה: השדות שכבר הוצבו עליו ("המערכת לומדת כל מסמך", דן 18/10).
+ * curated — אם הקובץ הוא אחד מטפסי הגופים שהשדות שלהם הוצבו ונבדקו מראש (data/sign-forms, דן 21/10).
  */
 export async function POST(req: Request) {
   const form = await req.formData().catch(() => null)
@@ -24,8 +26,11 @@ export async function POST(req: Request) {
     const merged = await mergePdfs(files)
     const name = String(form.get('name') || files[0]!.name).replace(/\.pdf$/i, '').slice(0, 150) + '.pdf'
     const fileId = await storeFile(merged.bytes, name, 'application/pdf', 'sign-source')
-    const known = await templateForFile(createHash('sha256').update(Buffer.from(merged.bytes)).digest('hex'), String(form.get('viewer') || '') || null).catch(() => null)
-    return NextResponse.json({ fileId, pages: merged.pages, name, files: files.length, known })
+    const sha = createHash('sha256').update(Buffer.from(merged.bytes)).digest('hex')
+    const known = await templateForFile(sha, String(form.get('viewer') || '') || null).catch(() => null)
+    const cur = curatedFor(sha)
+    const curated = cur && cur.pages === merged.pages.length ? { name: cur.name, folder: cur.folder, type: cur.type, category: cur.category, fields: cur.fields } : null
+    return NextResponse.json({ fileId, pages: merged.pages, name, files: files.length, known, curated })
   } catch (e) {
     if (e instanceof PdfInputError) return NextResponse.json({ code: 'invalid_argument', message: e.message }, { status: 422 })
     throw e

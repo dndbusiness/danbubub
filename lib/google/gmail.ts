@@ -4,19 +4,30 @@
 
 export interface MailMessage { to: string[]; cc?: string[]; subject: string; html: string; from?: string; attachments?: { fileName: string; mimeType: string; content: Buffer }[] }
 
+/** שורות base64 של 76 תווים (RFC 2045). שורה אחת ארוכה עוברת את מגבלת 998 התווים של SMTP — שרתי דואר של בנקים חותכים או דוחים. */
+const b64lines = (b: Buffer) => (b.toString('base64').match(/.{1,76}/g) ?? ['']).join('\r\n')
+/** encoded-word אחד (RFC 2047) — לשם קובץ בעברית. בלי זה ב-Content-Type יוצא UTF-8 גולמי בכותרת */
+const ew = (s: string) => `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`
+/** נושא ארוך: כמה encoded-words של עד ~45 בתים, מקופלים בשורה חדשה + רווח (encoded-word מוגבל ל-75 תווים) */
+function subjectHeader(s: string): string {
+  const out: string[] = []; let cur = ''
+  for (const ch of s) { if (Buffer.byteLength(cur + ch, 'utf8') > 45) { out.push(cur); cur = '' } cur += ch }
+  if (cur || !out.length) out.push(cur)
+  return out.map(ew).join('\r\n ')
+}
+
 /** RFC 2822 עם UTF-8 (נושא ב-base64 encoded-word) — נדרש לעברית. */
 export function buildMime(m: MailMessage): string {
-  const subject = `=?UTF-8?B?${Buffer.from(m.subject, 'utf8').toString('base64')}?=`
-  const headers = [`To: ${m.to.join(', ')}`, m.cc?.length ? `Cc: ${m.cc.join(', ')}` : null, m.from ? `From: ${m.from}` : null, `Subject: ${subject}`, 'MIME-Version: 1.0'].filter(Boolean)
+  const headers = [`To: ${m.to.join(', ')}`, m.cc?.length ? `Cc: ${m.cc.join(', ')}` : null, m.from ? `From: ${m.from}` : null, `Subject: ${subjectHeader(m.subject)}`, 'MIME-Version: 1.0'].filter(Boolean)
   if (!m.attachments?.length) {
-    return [...headers, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', Buffer.from(m.html, 'utf8').toString('base64')].join('\r\n')
+    return [...headers, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(m.html, 'utf8'))].join('\r\n')
   }
   const boundary = `harel_${Date.now().toString(36)}`
   const parts = [
-    `--${boundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', Buffer.from(m.html, 'utf8').toString('base64'),
+    `--${boundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(m.html, 'utf8')),
     ...m.attachments.flatMap((a) => [
-      `--${boundary}`, `Content-Type: ${a.mimeType}; name="${a.fileName}"`, 'Content-Transfer-Encoding: base64',
-      `Content-Disposition: attachment; filename="=?UTF-8?B?${Buffer.from(a.fileName, 'utf8').toString('base64')}?="`, '', a.content.toString('base64'),
+      `--${boundary}`, `Content-Type: ${a.mimeType}; name="${ew(a.fileName)}"`, 'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${ew(a.fileName)}"`, '', b64lines(a.content),
     ]),
     `--${boundary}--`,
   ]

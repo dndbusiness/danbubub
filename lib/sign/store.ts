@@ -376,7 +376,7 @@ export async function submitRequest(token: string, s: Partial<Submission>, meta:
   let values: Record<string, string> = {}
   if (row.envelope_id) {
     const [e] = await sql<{ pdf_fields: PdfField[] | null }[]>`select pdf_fields from sign_envelopes where id = ${row.envelope_id}`
-    if (e?.pdf_fields) { const c = checkSignerValues(e.pdf_fields, row.signer_order, (s as { values?: unknown }).values, String(row.fields?.['@notes'] ?? '')); values = c.values; errors.push(...c.errors) }
+    if (e?.pdf_fields) { const c = checkSignerValues(e.pdf_fields, row.signer_order, (s as { values?: unknown }).values, String(row.fields?.['@notes'] ?? ''), row.fields?.['@prefill']?.values ?? {}); values = c.values; errors.push(...c.errors) }
   }
   if (errors.length) return { ok: false, errors }
   const id = String(s.idNumber).replace(/\D/g, '').padStart(9, '0')

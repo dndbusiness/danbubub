@@ -13,7 +13,7 @@ import { SIGN_CATEGORIES, templateFields, type SignCategory } from './sign.js'
 export const AGREEMENT_FIELDS: Record<string, string> = {
   company: 'שם החברה', date: 'תאריך', client_name: 'שם הלקוח', client_id: 'ת״ז הלקוח', client_address: 'כתובת', client_phone: 'טלפון', client_email: 'מייל',
   spouse_name: 'בן/בת זוג', spouse_id: 'ת״ז בן/בת זוג', service: 'השירות', amount: 'סכום הבקשה', fee: 'שכר טרחה',
-  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ כולל מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
+  fee_percent: 'שכ״ט באחוזים', advance: 'מקדמה (₪ לפני מע״מ)', success_fee: 'שכר טרחת הצלחה', submit_days: 'ימי עסקים להגשת הבקשה',
   car_model: 'יצרן ודגם הרכב', car_plate: 'מספר רישוי', car_year: 'שנת ייצור', lien_holder: 'הגורם המשעבד', known_limits: 'הגבלות ידועות על הרכב',
   projects: 'הפרויקטים שהוצגו', payment_option: 'חלופת תשלום',
   /* דן, 20/10 — הסכם התוכנית העסקית ושטר החוב */
@@ -156,6 +156,9 @@ export function mergeLibrary(current: LibItem[], incoming: LibTemplate[], opts: 
     const e = out[i]!
     if (!e.deletedAt && (e.libVersion ?? 0) >= t.version) { report.push({ ...r, action: 'unchanged' }); continue }
     if (isPristine(e)) { out[i] = fresh; report.push({ ...r, action: 'updated' }); continue }
+    /* נוסח שדן שלח בעצמו (providedBy: dan) וגרסה חדשה שלו: מחליף גם פריט שאושר ידנית — כל עוד הנוסח בתוכו לא נערך מאז הטעינה.
+       אחרת ההסכמים הקבועים שדן שלח (נכסים / עסקים / רכב) לא מתעדכנים בלי סימון "לדרוס" (דן 21/10: "הטפסים הקבועים לא הסתנכרנו") */
+    if (t.providedBy === 'dan' && !e.deletedAt && !!e.libHash && textHash(stripLibDraft(e.body)) === e.libHash) { out[i] = fresh; report.push({ ...r, action: 'updated', reason: 'גרסה חדשה של דן' }); continue }
     const reason = e.deletedAt ? 'נמחקה' : e.approvedAt ? 'אושרה' : 'נערכה'
     if (over.has(t.key)) { out[i] = { ...fresh, prevBody: e.body }; report.push({ ...r, action: 'overwritten', reason }); continue }
     report.push({ ...r, action: 'conflict', reason: (e.deletedAt && (e.libVersion ?? 0) >= t.version ? reason : reason + ' — יש גרסה ' + t.version) })

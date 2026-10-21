@@ -32,6 +32,16 @@ describe('Drive — search_files / update_file', () => {
     expect(u.searchParams.get('q')).toBe("'p1' in parents and trashed = false")
     expect(u.searchParams.get('pageToken')).toBe('t1')
   })
+  it('קיצור דרך (WiseCard) → הקובץ שהוא מצביע עליו; תיקייה רגילה לא משתנה', async () => {
+    const { calls, fetchImpl } = fake([{ files: [
+      { id: 's1', name: 'תלוש 08.pdf', mimeType: 'application/vnd.google-apps.shortcut', shortcutDetails: { targetId: 't1', targetMimeType: 'application/pdf' }, parents: ['p1'] },
+      { id: 'd1', name: 'הכנסות', mimeType: 'application/vnd.google-apps.folder', parents: ['p1'] }] }])
+    const r = await driveTool('search_files', { query: "parentId = 'p1'" }, 'tok', fetchImpl) as { files: Record<string, unknown>[] }
+    expect(r.files[0]).toMatchObject({ id: 't1', title: 'תלוש 08.pdf', mimeType: 'application/pdf', shortcut: true })
+    expect(r.files[1]).toMatchObject({ id: 'd1', mimeType: 'application/vnd.google-apps.folder' })
+    expect(r.files[1]).not.toHaveProperty('shortcut')
+    expect(new URL(calls[0]!.url).searchParams.get('fields')).toContain('shortcutDetails(targetId,targetMimeType)')
+  })
   it('update_file עם parentId = העברה: מוסיף את החדשה ומסיר את הקודמת', async () => {
     const { calls, fetchImpl } = fake([{ parents: ['old'] }, { id: 'f1', name: 'x', mimeType: 'application/pdf', parents: ['new'] }])
     const r = await driveTool('update_file', { fileId: 'f1', parentId: 'new' }, 'tok', fetchImpl) as Record<string, unknown>
