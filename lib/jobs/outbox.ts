@@ -7,6 +7,7 @@ import { upsertEvent } from '@/lib/google/calendar'
 import type { CalendarPayload } from './calendar-sync'
 import { readFile } from 'node:fs/promises'
 import { readStoredFile } from '@/lib/files'
+import { sendSlng, slngConfig, type SmsPayload } from '@/lib/outbox/slng'
 
 /**
  * ADDENDUM הנחיה 16 — "כל יציאה החוצה עוברת דרך outbox עם retry ולוג".
@@ -38,12 +39,13 @@ export async function cancelExpiredCalendar(today = new Intl.DateTimeFormat('en-
   return r.count
 }
 
-export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch } = {}): Promise<FlushResult> {
-  const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp
+/** ids — רק השורות האלה (שליחה מיידית מהמסך, בלי לחכות מאחורי 50 שורות ממתינות) */
+export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch; ids?: string[] } = {}): Promise<FlushResult> {
+  const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp, sms = slngConfig()
   await cancelExpiredCalendar()
   const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: ({ pdfPath?: string; fileId?: string; fileName?: string } & Partial<CalendarPayload>) | null; attempts: number; max_attempts: number }[]>`
     select id, channel, target, subject, body, payload, attempts, max_attempts from outbox
-    where status = 'pending' and deleted_at is null and next_attempt_at <= now()
+    where status = 'pending' and deleted_at is null and next_attempt_at <= now() ${opts.ids ? sql`and id = any(${opts.ids})` : sql``}
     order by created_at limit 50`
   const out: FlushResult = { sent: 0, failed: 0, waiting: 0, noTransport: [] }
   // מייל דרך Gmail של דן (ב.1) — רק אם מחובר עם gmail.send.
@@ -51,13 +53,15 @@ export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetc
   const canMail = hasScope(google, 'https://www.googleapis.com/auth/gmail.send')
   const canCalendar = hasScope(google, 'https://www.googleapis.com/auth/calendar.events')
   for (const row of pending) {
+    if (row.channel === 'sms' && !sms) { out.waiting++; if (!out.noTransport.includes('sms')) out.noTransport.push('sms'); continue }
     if (row.channel === 'whatsapp' && !wa) { out.waiting++; if (!out.noTransport.includes('whatsapp')) out.noTransport.push('whatsapp'); continue }
     if (row.channel === 'email' && !canMail) { out.waiting++; if (!out.noTransport.includes('email')) out.noTransport.push('email'); continue }
     if (row.channel === 'calendar' && !canCalendar) { out.waiting++; if (!out.noTransport.includes('calendar')) out.noTransport.push('calendar'); continue }
-    if (row.channel !== 'whatsapp' && row.channel !== 'email' && row.channel !== 'calendar') { out.waiting++; if (!out.noTransport.includes(row.channel)) out.noTransport.push(row.channel); continue }
+    if (!['whatsapp', 'email', 'calendar', 'sms'].includes(row.channel)) { out.waiting++; if (!out.noTransport.includes(row.channel)) out.noTransport.push(row.channel); continue }
     try {
       let id: string
       if (row.channel === 'whatsapp') id = await sendWhatsApp(wa!, row.target, row.body, opts.fetchImpl)
+      else if (row.channel === 'sms') id = await sendSlng(sms!, row.payload as unknown as SmsPayload, opts.fetchImpl)
       else if (row.channel === 'calendar') {
         // ב.2 — אירוע לכל יומן ברשימה (ראשי של הר-אל + אישי של דן, ב.1). upsert לפי rule_key.
         const p = row.payload as CalendarPayload

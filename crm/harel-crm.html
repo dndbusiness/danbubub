@@ -1392,6 +1392,11 @@ table.leads .show-mid, table.leads .st-days, table.leads .show-narrow { display:
 .chacts .btn.primary { background: linear-gradient(180deg, var(--fab-1) 0%, var(--fab-2) 100%); border: 0; box-shadow: 0 8px 20px color-mix(in srgb, var(--fab-2) 28%, transparent); }
 .chacts .chcall { display: none; }
 .chprog { display: none; }
+details.card > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+details.card > summary::before { content: '▸'; color: var(--text-2); }
+details.card[open] > summary::before { content: '▾'; }
+details.card[open] > summary { margin-bottom: 10px; }
+.card.ctasks h2 { font-size: 17px; }
 .card.chmgmt { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; margin: 0; }
 .chmgmt > .row { align-items: flex-end; }
 /* ציר התהליך */
@@ -2399,8 +2404,9 @@ function myDecisionsCard() {
     return line('<b>שלב:</b> ' + link(c) + ' — ' + esc(x.step[1]), 'סיימת ' + dLabel(dayOf(x.at)) + ' · עכשיו: ' + esc(cur ? cur[1] : '') + (who ? ' (' + esc(L.resp[who]) + ')' : ''), '<span class="pill actual">אושר</span>', '<button class="btn small" data-myundo="step:' + esc(c.id) + '">החזר אחורה</button>');
   };
   const TOP = 6;
-  return '<section class="card"><header><h2>אישרתי לאחרונה</h2><span class="pill muted">' + R.length + '</span><span class="hint">' + MY_DONE_DAYS + ' ימים אחרונים · משהו לא בוצע כמו שצריך? מחזירים מכאן</span></header>' +
-    R.slice(0, TOP).map(row).join('') + (R.length > TOP ? '<details><summary class="hint">עוד ' + (R.length - TOP) + '</summary>' + R.slice(TOP).map(row).join('') + '</details>' : '') + '</section>';
+  /* דן, 21/10: "המאושרים רק בתוך ריבוע — רק כשאני לוחץ אראה" — סגור כברירת מחדל */
+  return '<details class="card mydone"' + (S.f.myDoneOpen ? ' open' : '') + ' data-mydone="1"><summary><b>אישרתי לאחרונה</b> <span class="pill muted">' + R.length + '</span><span class="hint"> · ' + MY_DONE_DAYS + ' ימים אחרונים · משהו לא בוצע כמו שצריך? מחזירים מכאן</span></summary>' +
+    R.slice(0, TOP).map(row).join('') + (R.length > TOP ? '<details><summary class="hint">עוד ' + (R.length - TOP) + '</summary>' + R.slice(TOP).map(row).join('') + '</details>' : '') + '</details>';
 }
 async function myUndo(v) {
   const i = v.indexOf(':'), k = v.slice(0, i), id = v.slice(i + 1);
@@ -2963,31 +2969,32 @@ function vClient(id) {
       mt('check', 'נגבה', money(m.collected, { tone: 'actual' }), '<small>' + (m.open > 0 ? 'עוד ' + plain(m.open) + ' לא נגבה' : 'אין יתרה פתוחה') + '</small>', 't-actual') +
       mt('clock', 'פתוח לגביה', money(m.open, { tone: m.open ? 'expected' : 'muted' }), payWhen, 't-expected wide') +
       mt('trend', 'תרומה נטו', money(m.net, { tone: m.net < 0 ? 'open' : 'committed' }), '<small>אחרי הוצאות ישירות</small>', 't-net') + '</div>';
-  return head + fundCard(c, w) + procCard(c, nextTile) + tiles +
-    '<div class="grid2">' +
-      '<div style="display:flex;flex-direction:column;gap:16px">' +
-        apprSurveyCard(c, S.canTask) +
-        '<section class="card"><header><h2>משימות על התיק</h2>' + (ctasks.length ? '<span class="pill expected">' + ctasks.length + '</span>' : '') + '</header>' +
+  /* דן, 21/10: "תמיד יופיעו משימות פתוחות ללקוח במסך גדול יותר" — לרוחב, מתחת לציר */
+  const tasksCard = '<section class="card ctasks"><header><h2>משימות פתוחות על התיק</h2>' + (ctasks.length ? '<span class="pill expected">' + ctasks.length + '</span>' : '') + '</header>' +
           (!ctasks.length ? '<p class="empty">אין משימות פתוחות על התיק.</p>' : '') +
           (ctasks.length ? '' + ctasks.map((t) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-taskdone="' + esc(t.id) + '"' + (S.canTask ? '' : ' disabled') + '><span class="grow">' + esc(t.title) + '</span></label>' + respChip(taskResp(t)) +
             '<span class="hint' + (t.due && t.due < today() ? ' m open' : '') + '">' + dLabel(t.due) + '</span>' + tmrBtn(t) + (S.canTask ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div>').join('') : '') +
-          (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>' +
-        (S.isOwner ? instCard(c, w) : '') + (c.division === 'realestate' ? '' : oshCard(c.id, S.canTask)) + mailCard(c) + calCard(c) +
+          (S.canTask ? '<div class="row" style="margin-top:8px"><button class="btn small" data-act="newTask">+ משימה לתיק</button><button class="btn small" data-act="newTicket">+ פניית שירות</button></div>' : '') + '</section>';
+  return head + fundCard(c, w) + procCard(c, nextTile) + tasksCard + tiles + clientTools(c, w) +
+    '<div class="grid2">' +
+      '<div style="display:flex;flex-direction:column;gap:16px">' +
+
         '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
           (tot ? '<div class="progress" style="margin-bottom:8px"><i style="width:' + pct(done, tot) + '%"></i></div>' +
             (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
             : '<p class="empty">אין צ׳קליסט לתיק הזה</p>') +
           (w ? '<div class="row" style="margin-top:8px"><input class="f grow" id="chkNew" placeholder="פריט נוסף…" aria-label="פריט נוסף"><button class="btn small" data-act="addChk">הוסף</button></div>' : '') + '</section>' +
-        (c.division === 'realestate' ? '' : '<section class="card"><header><h2>גופי מימון</h2><span class="grow"></span>' + (w ? '<button class="btn small" data-act="addSub">+ הגשה</button>' : '') + '</header>' +
+        /* דן, 21/10: "גופי מימון מופיע פעמיים" — הסיכום כבר בתמצית התיק; כאן רק העריכה, סגורה */
+        (c.division === 'realestate' ? '' : '<details class="card csec"' + (S.f.subsOpen === c.id ? ' open' : '') + ' data-csec="subs"><summary><b>עריכת הגשות לגופים</b> <span class="pill muted">' + (c.submissions || []).length + '</span><span class="hint"> · סטטוס, סכום, תאריך העברה</span></summary><div class="row" style="justify-content:flex-end;margin:6px 0">' + (w ? '<button class="btn small" data-act="addSub">+ הגשה</button>' : '') + '</div>' +
           ((c.submissions || []).length ? '<div class="scroll"><table><tbody>' + c.submissions.map((s, i) => '<tr><td class="wide">' + esc(s.bank) + '</td>' +
             '<td>' + (w ? '<select class="f" data-substatus="' + i + '" aria-label="סטטוס הגשה">' + Object.entries(L.sub).map(([k, v]) => '<option value="' + k + '"' + (s.status === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>' : '<span class="pill committed">' + (L.sub[s.status] || s.status) + '</span>') + '</td>' +
             '<td>' + (s.amount ? money(s.amount, { tone: 'muted' }) : '') + '</td><td class="num">' + (s.transferredAt ? dLabel(s.transferredAt) : '') + '</td>' +
             (s.status === 'executed' ? '<td><input class="f" type="number" min="1" max="480" step="1" style="width:84px" data-subm="' + i + '" value="' + esc(s.months || '') + '" placeholder="חודשים" title="תקופת ההלוואה בחודשים"' + (w ? '' : ' disabled') + '></td><td><label class="check" style="border:0;padding:0"><input type="checkbox" class="cb" data-subb="' + i + '"' + (s.balloon ? ' checked' : '') + (w ? '' : ' disabled') + '><span>בלון</span></label></td>' : '<td></td><td></td>') + '</tr>').join('') + '</tbody></table></div>' +
             (refiOf(c).length ? refiOf(c).map((x) => '<p class="hint">' + (x.due ? '<span class="pill open">מחזור</span> ' : '') + esc(x.bank) + ': ' + (x.balloon ? 'הבלון' : 'ההלוואה') + ' מסתיים ב-' + dLabel(x.end) + (x.due ? ' — הגיע הזמן להציע מחזור' : ' · תזכורת ' + dLabel(x.from)) + '</p>').join('') : '')
-            : '<p class="empty">לא הוגש לאף גוף</p>') + '</section>') +
+            : '<p class="empty">לא הוגש לאף גוף</p>') + '</details>') +
         detailsCard(c) + (lead ? '<p class="hint">הגיע מליד: ' + esc(lead.name) + ' · ' + esc([lead.campaign, lead.platform, lead.marketer].filter(Boolean).join(' · ')) + '</p>' : '') + privCard(c) +
       '</div>' +
-      '<div style="display:flex;flex-direction:column;gap:16px">' + clientNotesCard(c) + aiCard(c) +
+      '<div style="display:flex;flex-direction:column;gap:16px">' + clientNotesCard(c) +
         (!S.isOwner ? '' : '<section class="card"><header><h2>תנועות</h2>' + (w ? '<button class="btn small" data-act="payIn">+ תקבול</button><button class="btn small" data-act="payOut">+ הוצאה ישירה</button>' : '') + '</header>' +
           (m.txs.length ? '<div class="scroll"><table><tbody>' + m.txs.sort((a, b) => String(b.date).localeCompare(a.date)).map((t) =>
             '<tr><td class="num">' + dLabel(t.date) + '</td><td><span class="pill ' + (t.nature === 'income' ? 'actual' : 'muted') + '">' + L.nature[t.nature] + '</span></td><td class="wide">' + esc(t.description || t.category || '') + '</td><td>' + money(t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' }) + '</td></tr>').join('') + '</tbody></table></div>'
@@ -2995,11 +3002,32 @@ function vClient(id) {
         (tix.length ? '<section class="card"><header><h2>פניות שירות</h2></header>' + tix.map((x) => '<div class="check"><span class="grow">' + esc(x.subject) + '</span><span class="pill ' + (x.status === 'closed' ? 'actual' : 'expected') + '">' + L.ticket[x.status] + '</span></div>').join('') + '</section>' : '') +
         '<section class="card"><header><h2>יומן</h2></header>' +
           (S.canTask ? '<div class="row" style="margin-bottom:10px"><textarea class="f" id="noteText" rows="2" placeholder="שיחה, פגישה, מסמך שהתקבל…" aria-label="הערה"></textarea><button class="btn primary" data-act="addNote">הוסף ליומן</button></div>' : '') +
-          ((c.log || []).length ? '<ul class="log">' + c.log.slice(0, 60).map((e) => '<li><time>' + dLabel(dayOf(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + (e.by ? ' <span class="hint">· ' + esc(nameOf(e.by)) + '</span>' : '') + '</span></li>').join('') + '</ul>'
-            : '<p class="empty">היומן ריק.</p>') + '</section>' +
+          /* דן, 21/10: "יומן לקוח ניתן לצמצם" — 5 האחרונים, השאר בלחיצה */
+          ((c.log || []).length ? '<ul class="log">' + c.log.slice(0, S.f.logAll === c.id ? 60 : 5).map((e) => '<li><time>' + dLabel(dayOf(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + (e.by ? ' <span class="hint">· ' + esc(nameOf(e.by)) + '</span>' : '') + '</span></li>').join('') + '</ul>'
+            : '<p class="empty">היומן ריק.</p>') + ((c.log || []).length > 5 ? '<button class="btn small ghost" data-logall="' + (S.f.logAll === c.id ? '' : esc(c.id)) + '">' + (S.f.logAll === c.id ? 'צמצם' : 'כל היומן (' + Math.min(60, c.log.length) + ')') + '</button>' : '') + '</section>' +
         (S.canTask ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (canApproveDel(c.division || 'finance') ? 'מחק / העבר לארכיון' : 'בקש מחיקה — לאישור ' + delApprover(c.division || 'finance')) + '</button>' + (delPending('clients', c.id) ? '<span class="pill expected">ממתין לאישור מחיקה</span>' : '') + '</div>' : '') +
       '</div>' +
-    '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + callsCard('clientId', c.id) + signCard(c) + planCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
+    '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + callsCard('clientId', c.id) + signCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
+}
+/* דן, 21/10: "ניתוחים — בלחיצה ייפתחו אפשרויות כמו שמאות, דוח אשראי… מה שלא חייב — תפריט נפתח, כי כרטיס הלקוח עמוס".
+   שורת כפתורים אחת; לחיצה פותחת את הכלי מתחתיה (ולחיצה נוספת סוגרת). כלי שאין בו כלום ללקוח הזה — לא מוצג. */
+function clientTools(c, w) {
+  const fin = (c.division || 'finance') !== 'realestate', x = intakeDoc(c.id), cur = (S.f.ctool || {})[c.id] || '';
+  const lazy = (f) => { let v; return () => (v === undefined ? (v = f()) : v); };
+  const plan = lazy(() => planCard(c)), ai = lazy(() => aiCard(c)), inst = lazy(() => S.isOwner ? instCard(c, w) : '');
+  const T = [
+    fin && { k: 'val', t: 'הערכת שווי', body: () => '<section class="card"><header><h2>הערכת שווי</h2></header><p class="hint" style="margin-top:0">עסקאות באזור, מודעות ומחירי יזמים → חישוב, טווח ודוח — נפתח במסך רחב. כל שורה מאושרת לפני שנכנסת לחישוב.</p><button class="btn primary" data-act="valOpen">פתח הערכת שווי</button></section>' },
+    fin && { k: 'appr', t: 'סקר שמאים', body: () => apprSurveyCard(c, S.canTask) },
+    fin && { k: 'credit', t: 'דוח אשראי', n: repsOf(x).length, body: () => repCard(x, S.canTask) },
+    fin && { k: 'osh', t: 'עו״ש לאקסל', body: () => oshCard(c.id, S.canTask) },
+    plan() && { k: 'plan', t: 'תוכנית לקרן', body: plan },
+    ai() && { k: 'ai', t: 'ניתוחי Claude', body: ai },
+    inst() && { k: 'inst', t: 'פעימות שכ״ט', body: inst },
+    { k: 'mail', t: 'מיילים וקבצים', body: () => mailCard(c) },
+  ].filter(Boolean), sel = T.find((x0) => x0.k === cur);
+  return '<section class="card ctools"><div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><b style="margin-inline-end:6px">ניתוחים וכלים</b>' +
+    T.map((x0) => '<button type="button" class="chip' + (x0.k === cur ? ' on' : '') + '" aria-pressed="' + (x0.k === cur) + '" data-ctool="' + esc(c.id) + '|' + x0.k + '">' + x0.t + (x0.n ? ' <span class="hint">' + x0.n + '</span>' : '') + '</button>').join('') +
+    '<span class="hint grow" style="text-align:end">' + (sel ? 'לחיצה נוספת סוגרת' : 'בוחרים — והכלי נפתח כאן') + '</span></div></section>' + (sel ? sel.body() : '');
 }
 /* כרטיס לקוח — "ניתוחי Claude": כל מה ש-Claude ניתח על התיק חוזר לכאן — ניתוח התיק, דוחות אשראי, ומה שעוד בתור */
 function aiCard(c) {
@@ -4320,6 +4348,16 @@ async function signSendRun(c, key, o) {
   return r;
 }
 /* "איך זה מגיע ללקוח" — אחרי שליחה / קישור חדש: לכל חותם הקישור, העתקה, וואטסאפ ומה קרה עם המייל */
+/* דן, 21/10: "שליחת מסמך ללקוח ב-SMS" — דרך SLNG בשרת (הנוסח והמספר של המשרד מוגדרים שם) */
+const smsBtn = (l, i) => l.id && l.phone ? '<button type="button" class="btn small" data-signsms="' + i + '" title="SMS מהמספר של המשרד, עם הקישור האישי">שלח ב-SMS</button>' : '';
+async function signSms(i, el) {
+  const l = S.signLast && S.signLast.links[Number(i)]; if (!l || !l.id) return;
+  if (el) { el.disabled = true; el.textContent = 'שולח…'; }
+  try { const r = await fetch('/api/sign/' + encodeURIComponent(l.id), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'sms', url: l.url }) }); const j = await r.json().catch(() => ({}));
+    if (j.ok) { toast('ה-SMS נשלח ללקוח (' + j.to + ')'); if (el) el.textContent = 'נשלח ב-SMS ✓'; return; } toast(j.error || 'ה-SMS לא נשלח'); }
+  catch (e) { toast('אין חיבור — ה-SMS לא נשלח'); }
+  if (el) { el.disabled = false; el.textContent = 'שלח ב-SMS'; }
+}
 function signResult(c) {
   const L0 = S.signLast; if (!L0) return; c = c || signSubject(L0.client) || { name: '' };
   const first = (n) => String(n || c.name || '').split(' ')[0];
@@ -4330,7 +4368,7 @@ function signResult(c) {
   const body = '<p class="full hint" style="margin-top:0">' + (L0.reminder ? 'נוצר קישור חדש — הקודם כבר לא עובד.' : 'כל חותם קיבל קישור אישי, חד-פעמי, בתוקף 14 יום. אפשר לשלוח אותו גם בוואטסאפ מהטלפון שלך — וגם במייל, יחד.') + '</p>' +
     L0.links.map((l, i) => '<div class="full card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><b>' + esc(l.label || '') + '</b>' + (l.name ? '<span>' + esc(l.name) + '</span>' : '') + (l.requireOtp ? '<span class="pill committed" title="לפני החתימה יקבל קוד חד-פעמי">קוד אימות</span>' : '') + '</div>' +
       '<input class="f" readonly dir="ltr" value="' + esc(l.url) + '" style="margin:6px 0;font-size:12px" onfocus="this.select()">' +
-      '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" data-signcopy="' + i + '">העתק קישור</button>' + wa(l) + '<span class="grow"></span>' + mailSt(l) + '</div></div>').join('') +
+      '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" data-signcopy="' + i + '">העתק קישור</button>' + wa(l) + smsBtn(l, i) + '<span class="grow"></span>' + mailSt(l) + '</div></div>').join('') +
     ((L0.warnings || []).length ? '<p class="full hint" style="color:var(--open)">' + L0.warnings.map(esc).join('<br>') + '</p>' : '') +
     (L0.mailReady === false ? '<p class="full hint">שליחת מיילים מהמערכת עוד לא מחוברת (הגדרות ← "חבר את גוגל"). עד אז — וואטסאפ או העתקת הקישור.</p>' : '') +
     '<p class="full hint">מה נשמר לתיעוד: למי נשלח ואיך, כל פתיחה (מתי, IP ומכשיר), קוד האימות, השם ות״ז מול הכרטיס, החתימה, וטביעה (SHA-256) של המסמך ושל הקובץ החתום.</p>';
@@ -4772,7 +4810,8 @@ function signNoteDefault(c, key) {
   const fx = signFixedOf(c); if (!fx || fx.key !== key || String(key).startsWith('pdf:') || key === 'lib:finance-promissory-note') return null;
   const x = (typeof intakeCalc === 'function' && c.id && (S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)))) || null, xk = x ? (x.kind ? x : { ...x, kind: intakeKind(x, c.id) }) : null, FE = xk ? intakeFee(xk, intakeCalc(xk)) : {};
   const fee = n(c.fee) || n(FE.amount), amt = n(FE.noteAmount) || (fee ? Math.round(fee * (1 + n(S.settings.vatRate))) : 0);
-  return { on: true, amount: amt ? String(amt) : '' };
+  // בלי סכום (אין שכ״ט בכרטיס ובקליטה) — לא מסמנים: שטר בלי סכום היה חוסם את השליחה
+  return amt ? { on: true, amount: String(amt) } : null;
 }
 /* "צרף שטר חוב" בשליחה — סכום, והמילים מתמלאות לבד (heNumWords) */
 function signNoteBox(c, st, key) {
@@ -4783,6 +4822,7 @@ function signNoteBox(c, st, key) {
 document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || signNoteSeed(cid, st));
   if (f === 'on') { nt.on = e.target.checked; return render(); }
   nt.amount = e.target.value; const amt = Math.round(n(String(nt.amount).replace(/[^\d.]/g, ''))), w = document.querySelector('[data-signnotewords]'); if (w) w.innerHTML = amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד'; }, true);
+document.addEventListener('toggle', (e) => { const d = e.target; if (!d || !d.dataset) return; if (d.dataset.csec === 'subs') S.f.subsOpen = d.open ? S.view.clientId : null; if (d.dataset.mydone) S.f.myDoneOpen = d.open; }, true);
 document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || signNoteSeed(cid, st)), on: e.target.checked }; render(); } });
 /* השטר שמוצג מראש (signNoteDefault) הופך לשל הטופס ברגע שנוגעים בו — כדי שעריכת הסכום לא תכבה אותו */
 function signNoteSeed(cid, st) { const c = signSubject(cid); const key = st.tpl || ($('signTpl') || {}).value || ''; return { ...((c && signNoteDefault(c, key)) || {}) }; }
@@ -4819,7 +4859,7 @@ function signCard(c) {
     : (list && list.error ? '<p class="hint" style="color:var(--open)">' + esc(list.error) + '</p>' : '');
   const wa = (l) => l.phone ? '<a class="btn small"' + (l.id ? ' data-signwa="' + esc(l.id) + '" data-ph="' + esc(l.phone) + '"' : '') + ' target="_blank" rel="noopener" href="https://wa.me/' + esc(String(l.phone).replace(/\D/g, '').replace(/^0/, '972')) + '?text=' + encodeURIComponent('שלום ' + String(l.name || c.name || '').split(' ')[0] + ', מצורף קישור אישי לקריאה וחתימה על "' + (last.title || '') + '": ' + l.url) + '">וואטסאפ ↗</a>' : '';
   const links = last ? '<div class="notice ok" style="margin-bottom:10px;display:block"><b>' + (last.reminder ? 'קישור חדש מוכן' : 'הקישורים מוכנים') + '</b> <button class="btn small ghost" data-signresult="1">איך זה מגיע ללקוח ←</button>' + last.links.map((l, i) => '<div class="row" style="align-items:center;margin-top:6px"><span>' + esc(l.label) + (l.email ? ' · <span dir="ltr">' + esc(l.email) + '</span>' : '') + '</span><span class="grow hint" dir="ltr" style="word-break:break-all">' + esc(l.url) + '</span>' +
-    '<button class="btn small" data-signcopy="' + i + '">העתק</button>' + wa(l) + (l.emailStatus === 'sent' ? '<span class="hint">· נשלח במייל ✓</span>' : l.email ? '<span class="hint">· המייל ממתין</span>' : '') + '</div>').join('') + '</div>' : '';
+    '<button class="btn small" data-signcopy="' + i + '">העתק</button>' + wa(l) + smsBtn(l, i) + (l.emailStatus === 'sent' ? '<span class="hint">· נשלח במייל ✓</span>' : l.email ? '<span class="hint">· המייל ממתין</span>' : '') + '</div>').join('') + '</div>' : '';
   const quick = w ? signQuickItems(c) : [];
   const quickRow = quick.length ? '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">שליחה מהירה:</span>' + quick.map((q) => '<button class="btn small" data-signquick="' + esc(q.key) + '" title="הכל ממולא מהכרטיס — רק מאשרים">' + esc(q.label) + '</button>').join('') + '</div>' : '';
   const lib = signLibrary(c.division || 'finance'), ptpls = ((S.pdfTpls && S.pdfTpls.templates) || []).filter((t) => !t.division || t.division === (c.division || 'finance'));
@@ -11098,7 +11138,7 @@ function vIntake(cid) {
         '<tr class="tot"><td>סה״כ היום</td><td class="num">' + plain(C.oblAll) + '</td><td class="num">' + plain(C.debt) + '</td></tr>' +
         '<tr><td>מתוכן ייסגרו בעסקה</td><td>' + cell('oblPaidOff', x.oblPaidOff) + '</td><td>' + cell('balPaidOff', x.balPaidOff, '1000') + '</td></tr>' +
         '<tr class="tot"><td>נשאר אחרי העסקה</td><td class="num">' + plain(C.obl) + '</td><td class="num">' + plain(C.debt - C.paidBal) + '</td></tr></tbody></table></div></section>' +
-    repCard(x, w) + (KD === 'car' ? '' : oshCard(cid, w)) +
+    repCard(x, w) + /* עו״ש לאקסל — בכרטיס הלקוח ← "ניתוחים וכלים" (דן, 21/10) */
     (KD === 'car' ? carCard(x, w) : KD === 'business' ? bizCard(x, w, true) + (hasProp(x) ? propSec() : reqSec) : propSec()) +
     '<section class="card"><header><h2>דירוג והתנהלות בנקאית</h2></header><div class="row">' + pick('credit.bdi', 'דירוג BDI', IK.bdi, cr.bdi) + inp('credit.mortReturns', 'חזרות משכנתא ב-12 חודשים', cr.mortReturns, 'number', 'min="0" step="1" style="width:80px"') + chk('credit.checks', 'חזרות צ׳קים בודדות', cr.checks) + '</div><div class="row">' +
       '<span class="hint">חמור:</span>' + chk('credit.restricted', 'חשבון מוגבל', cr.restricted) + chk('credit.execution', 'תיקים בהוצל״פ', cr.execution) + chk('credit.bankruptcy', 'פשיטת רגל / כינוס', cr.bankruptcy) + '</div>' +
@@ -11498,7 +11538,7 @@ document.addEventListener('click', (e) => { const a = e.target.closest('a[data-p
 document.addEventListener('click', async (e) => {
   if (e.target.closest('a.lnk')) return;
   const el = e.target.closest('button, tr[data-client], tr[data-attn], tr[data-pm], tr[data-cat], tr[data-owner], tr[data-sm], tr[data-intake], tr[data-lead], a[data-leadopen], tr[data-sdrill], tr[data-expchk], article[data-go], [data-client]');
-  if (!el || (el.closest('#layer') && !el.matches('[data-pick], [data-signcopy]'))) return;
+  if (!el || (el.closest('#layer') && !el.matches('[data-pick], [data-signcopy], [data-signsms]'))) return;
   const d = el.dataset;
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
@@ -11575,6 +11615,7 @@ document.addEventListener('click', async (e) => {
       S.signDocs = null;
       if (c && (['client', 'lead', 'forms'].includes(S.view.tab) || (rid && S.signLast && S.signLast.reminder && !c._ext))) { if (!['client', 'lead', 'forms'].includes(S.view.tab)) S.view = { tab: c._lead ? 'lead' : 'client', clientId: c.id }; return signLoad(c); }
       return render(); }
+    if (d.signsms !== undefined) return signSms(d.signsms, el);
     if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; if (l && l.id) signShared(l.id, 'copy'); return l ? copyText(l.url, 'הקישור הועתק') : null; }
     if (d.signstate) { S.f.signState = d.signstate; return render(); }
     if (d.signkind) { S.f.signKind = d.signkind; return render(); }
@@ -11729,6 +11770,8 @@ document.addEventListener('click', async (e) => {
     if (d.leaddel) { const l = S.leads.get(d.leaddel); if (l && S.canTask) return deleteOrRequest('leads', { ...l, division: leadDiv(l) }, 'ליד: ' + (l.name || '—') + (l.phone ? ' · ' + normPhone(l.phone) : ''), () => leadBackGo()); return; }
     if (d.apprno) return decideApproval(d.apprno, false);
     if (d.myundo) return myUndo(d.myundo);
+    if (d.ctool) { const [cid, k] = d.ctool.split('|'); S.f.ctool = S.f.ctool || {}; S.f.ctool[cid] = S.f.ctool[cid] === k ? '' : k; return render(); }
+    if (d.logall !== undefined) { S.f.logAll = d.logall || null; return render(); }
     if (d.repay != null && el.matches('[data-repay]')) return formTx(null, { nature: 'draw', division: 'realestate', vatMode: 'exempt', counterparty: d.repay, partner: d.repay, net: -n(d.amt), date: today(), description: 'התחשבנות ' + hMonth(S.f.reMonth || today().slice(0, 7)) });
     if (d.rereturn != null && el.matches('[data-rereturn]')) return formReturn(d.rereturn, d.amt);
     if (d.mkt) { S.f.mkt = d.mkt; return render(); }

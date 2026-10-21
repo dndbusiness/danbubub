@@ -33,6 +33,8 @@ import { readFile } from 'node:fs/promises'
 import { checkSignerValues, fieldsOf, signerInputs, validatePdfFields, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 import { appendPdf, readPageSizes, stampPdf } from './pdf'
 import { flushOutbox } from '@/lib/jobs/outbox'
+import { slngConfig } from '@/lib/outbox/slng'
+import { ilMobile, SMS_LIMIT, smsFits, smsLength } from '@/lib/rules/sms'
 import { currentStampId } from './stamp'
 import { greenApiConfig } from '@/lib/outbox/green-api'
 
@@ -215,6 +217,33 @@ export async function markShared(signerId: string, channel: 'whatsapp' | 'copy',
   const t = channel === 'whatsapp' ? cleanPhone(target) || cleanPhone(row.send_phone) : null
   await addEvent(row.id, signEvent('shared', now, { detail: (channel === 'whatsapp' ? 'בוואטסאפ' + (t ? ' ל-' + t : '') : 'הקישור הועתק להעברה ידנית') + (by ? ' · ע"י ' + by : '') }))
   return true
+}
+
+/**
+ * SMS לחותם עם הקישור שלו — דרך SLNG ותור היציאה (דן, 21/10). הקישור חייב להיות הקישור הפעיל של השורה הזו
+ * (הטוקן נבדק מול ה-hash — אי אפשר לשלוח קישור של מישהו אחר), והטלפון — הנייד שנשמר לחותם.
+ * הצלחה = SLNG החזיר 200. נרשם בתיעוד החתימה וביומן הלקוח.
+ */
+export async function sendSigningSms(signerId: string, url: string, by: string | null, now: Date): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
+  const row = await byId(signerId)
+  if (!row || !['sent', 'opened'].includes(row.status)) return { ok: false, error: 'המסמך כבר נחתם או בוטל' }
+  const token = String(url ?? '').match(/\/s\/([\w-]{16,})/)?.[1]
+  const [cur] = token ? await sql<{ ok: boolean }[]>`select token_hash = ${sha256(token)} as ok from sign_requests where id = ${row.id}` : []
+  if (!cur?.ok) return { ok: false, error: 'הקישור הזה כבר לא פעיל — לחצו "קישור" כדי ליצור חדש' }
+  const phone = ilMobile(row.send_phone)
+  if (!phone) return { ok: false, error: 'אין לחותם מספר נייד תקין (05XXXXXXXX)' }
+  if (!slngConfig()) return { ok: false, error: 'SMS לא מחובר — חסרים בשרת משתני SLNG' }
+  const name = row.signer_name || row.client_name
+  if (!smsFits(name, url)) return { ok: false, error: `ההודעה ארוכה מדי ל-SMS (${smsLength(name, url)} מתוך ${SMS_LIMIT} תווים)` }
+  const key = 'sign-sms:' + row.id + ':' + now.getTime()
+  const [ins] = await sql<{ id: string }[]>`insert into outbox (channel, target, subject, body, payload, dedup_key)
+    values ('sms', ${phone}, ${'קישור לחתימה'}, ${'"' + row.title + '" — ' + url}, ${sql.json({ name, phone, link: url })}, ${key}) returning id`
+  await flushOutbox({ ids: [ins!.id] }).catch((e) => console.error('outbox:', (e as Error).message))
+  const [o] = await sql<{ status: string; last_error: string | null }[]>`select status, last_error from outbox where dedup_key = ${key}`
+  if (o?.status !== 'sent') return { ok: false, error: 'ה-SMS לא נשלח' + (o?.last_error ? ': ' + o.last_error : '') + ' — ננסה שוב אוטומטית' }
+  await addEvent(row.id, signEvent('shared', now, { detail: 'ב-SMS ל-' + phone + (by ? ' · ע"י ' + by : '') }))
+  await crmLog(row.client_doc, `"${row.title}" נשלח לחתימה ב-SMS ל-${phone} (SLNG) · ${url}`, now, {}, collOf(await kindOfRow(row))).catch(() => {})
+  return { ok: true, to: phone }
 }
 
 /** אירוע בתיעוד החתימה. עד החתימה בלבד — אחריה השורה נעולה (016). */

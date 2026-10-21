@@ -1,6 +1,6 @@
 -- ══════════════════════════════════════════════════════════════════════════
 -- מערכת הכספים של הר-אל — סכימה מלאה בקובץ אחד.
--- נוצר אוטומטית מ-29 קבצים ע"י scripts/build-sql-bundle.mjs. אין לערוך כאן.
+-- נוצר אוטומטית מ-30 קבצים ע"י scripts/build-sql-bundle.mjs. אין לערוך כאן.
 -- להדביק ב-SQL editor של בסיס הנתונים ולהריץ פעם אחת, על מסד ריק (או מהדפדפן: /crm → "הקמת מסד הנתונים").
 -- ריצה שנייה נכשלת על טיפוסים וטבלאות שכבר קיימים — שינויי סכימה אחר כך: migration עם גיבוי (הנחיה 10).
 -- ══════════════════════════════════════════════════════════════════════════
@@ -2111,6 +2111,12 @@ $$;
 create trigger t_sign_requests_values_lock before update on sign_requests for each row execute function sign_requests_values_lock();
 
 comment on table sign_templates is 'תבנית PDF לחתימה: קובץ + שדות לכל לווה, לפי סוג וגוף. מערכת / אישית.';
+
+-- ─── db/schema/020_outbox_sms.sql ──────────────────────────────────────
+-- SMS ללקוח (קישור לחתימה) דרך SLNG — ערוץ נוסף בתור היציאה (הנחיה 16). לא הרסני: רק מרחיב את הרשימה.
+alter table outbox drop constraint if exists outbox_channel_check;
+alter table outbox add constraint outbox_channel_check
+  check (channel in ('email', 'whatsapp', 'calendar', 'drive', 'sheets', 'gmail_forward', 'sms'));
 
 -- ─── db/views/001_base.sql ─────────────────────────────────────────────
 -- ════════════════════════════════════════════════════════════════════════════
