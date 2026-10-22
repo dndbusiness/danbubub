@@ -5,7 +5,7 @@ import {
   AGREEMENT_FIELDS, approveItem, isPristine, LIB_DRAFT, libItemKey, mergeLibrary, parseAgreement, parseFrontMatter, stripLibDraft, suggestTemplate, textHash,
   type LibItem, type LibTemplate,
 } from '../lib/rules/agreements.js'
-import { isSignDraft, maskPhone, otpChannel, renderAgreement, requiredFields, templateFields, validateSigners, waTarget } from '../lib/rules/sign.js'
+import { isSignDraft, maskPhone, otpChannel, otpChannels, renderAgreement, requiredFields, templateFields, validateSigners, waTarget } from '../lib/rules/sign.js'
 
 const DIR = path.join(process.cwd(), 'data', 'agreements')
 const files = readdirSync(DIR).filter((n) => n.endsWith('.md')).sort()
@@ -201,8 +201,13 @@ describe('חתימה — שדות רשות, טיוטה, קוד בוואטסאפ'
     expect(isSignDraft('[ טיוטה')).toBe(true)
     expect(isSignDraft('הסכם זה ממצה כל טיוטה שקדמה לו')).toBe(false)
   })
-  it('קוד אימות: מייל קודם; וואטסאפ רק כשמוגדר ויש טלפון', () => {
-    expect(otpChannel({ send_email: 'a@b.co', send_phone: '0521234567' }, true)).toBe('email')
+  it('קוד אימות: וואטסאפ קודם (דן 21/10), החותם יכול לבחור מייל; וואטסאפ רק כשמוגדר ויש טלפון', () => {
+    expect(otpChannel({ send_email: 'a@b.co', send_phone: '0521234567' }, true)).toBe('whatsapp')
+    expect(otpChannel({ send_email: 'a@b.co', send_phone: '0521234567' }, true, 'email')).toBe('email')
+    expect(otpChannel({ send_email: 'a@b.co', send_phone: '0521234567' }, false)).toBe('email')
+    expect(otpChannel({ send_email: 'a@b.co', send_phone: '0521234567' }, false, 'whatsapp')).toBe('email')
+    expect(otpChannel({ send_email: null, send_phone: '0521234567' }, true, 'email')).toBe('whatsapp')
+    expect(otpChannels({ send_email: 'a@b.co', send_phone: '0521234567' }, true)).toEqual(['whatsapp', 'email'])
     expect(otpChannel({ send_email: null, send_phone: '0521234567' }, true)).toBe('whatsapp')
     expect(otpChannel({ send_email: null, send_phone: '0521234567' }, false)).toBeNull()
     expect(otpChannel({ send_email: null, send_phone: '' }, true)).toBeNull()

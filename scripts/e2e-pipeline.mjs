@@ -104,7 +104,10 @@ try {
     'תיקיית ההגשה עברה לתוך "מאושר לשליחה" בתיקיית הלקוח')
 
   step('"אישרתי לאחרונה" בלוח: ביטול האישור → חוזר ל"ממתין לאישורך", והתיק לאישור ההגשה')
-  await page.evaluate(() => go('home')); await page.waitForSelector(`[data-myundo="sub:${APR}"]`, { timeout: 10000 })
+  // דן 21/10: "אישרתי לאחרונה" סגור בריבוע — נפתח בלחיצה
+  await page.evaluate(() => { S.f.myDoneOpen = false; go('home') }); await page.waitForSelector('details[data-mydone]', { timeout: 10000 })
+  assert(!(await page.locator(`[data-myundo="sub:${APR}"]`).isVisible()), '"אישרתי לאחרונה" סגור — השורות לא מוצגות עד שלוחצים')
+  await page.click('details[data-mydone] > summary'); await page.waitForSelector(`[data-myundo="sub:${APR}"]`, { timeout: 10000 })
   await page.click(`[data-myundo="sub:${APR}"]`); await waitStep(CID, 'submitApprove'); await settle(CID, 'submitApprove', ['submit'])
   assert((await page.evaluate((id) => S.approvals.get(id).status, APR)) === 'pending', 'ההגשה חזרה להמתנה')
   assert(await page.evaluate(() => window.__calls.some((x) => x.tool === 'update_file' && x.input.fileId === 'fold-1' && x.input.parentId === 'client-root')) && !(await page.evaluate((id) => S.approvals.get(id).approvedFolderId, APR)), 'התיקייה יצאה מ"מאושר לשליחה"')
