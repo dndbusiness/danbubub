@@ -4822,6 +4822,8 @@ function signNoteBox(c, st, key) {
 document.addEventListener('input', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (!k) return; const [cid, f] = k.split('|'), F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}), nt = (st.note = st.note || signNoteSeed(cid, st));
   if (f === 'on') { nt.on = e.target.checked; return render(); }
   nt.amount = e.target.value; const amt = Math.round(n(String(nt.amount).replace(/[^\d.]/g, ''))), w = document.querySelector('[data-signnotewords]'); if (w) w.innerHTML = amt > 0 ? 'במילים: <b>' + esc(heNumWords(amt)) + ' שקלים חדשים</b>' : 'הסכום במילים יתמלא לבד'; }, true);
+document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.condpick; if (!k) return; const [cid, i] = k.split('|'), n0 = Number(i);
+  S.f.condSel = S.f.condSel || {}; const cur = new Set(S.f.condSel[cid] || []); if (e.target.checked) cur.add(n0); else cur.delete(n0); S.f.condSel[cid] = [...cur].sort((a, b) => a - b); render(); });
 document.addEventListener('toggle', (e) => { const d = e.target; if (!d || !d.dataset) return; if (d.dataset.csec === 'subs') S.f.subsOpen = d.open ? S.view.clientId : null; if (d.dataset.mydone) S.f.myDoneOpen = d.open; }, true);
 document.addEventListener('change', (e) => { const k = e.target && e.target.dataset && e.target.dataset.signnote; if (k && k.endsWith('|on')) { const cid = k.split('|')[0], F = (S.signForm = S.signForm || {}), st = (F[cid] = F[cid] || {}); st.note = { ...(st.note || signNoteSeed(cid, st)), on: e.target.checked }; render(); } });
 /* השטר שמוצג מראש (signNoteDefault) הופך לשל הטופס ברגע שנוגעים בו — כדי שעריכת הסכום לא תכבה אותו */
@@ -6776,15 +6778,20 @@ function principleMgr(c, w, noFund) {
     '<div class="row" style="align-items:flex-end">' + (noFund ? '' : psel(c, 'principle.fund', 'הגוף שאישר', subs.length ? subs : [['', 'אין הגשות בתיק']], w)) + pf(c, 'principle.managerName', 'מנהל התיק', 'text', '', w) + pf(c, 'principle.managerPhone', 'טלפון', 'tel', 'dir="ltr" style="width:140px"', w) +
       (w && known.length ? '<label class="fl">מאנשי הקשר<select class="f" data-pmgr>' + '<option value="">—</option>' + known.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name + (x.phone ? ' · ' + x.phone : '')) + '</option>').join('') + '</select></label>' : '') + '</div></div>';
 }
-async function condsToTasks(c) {
+/* only — אינדקסים של התניות מסומנות (דן, 22/10: "להדס גם לסמן כמה ספציפיים ולהכניס רק אותם למשימה — את היתר מתי שנכון בציר, כדי שלא יתמלא היומן").
+   בלי only — כל הפתוחות (הכפתור הקיים). due — מתי המשימה (ברירת מחדל: בעוד יומיים). */
+async function condsToTasks(c, only, due) {
   const P = JSON.parse(JSON.stringify(c.proc || {})), arr = P.conds || [], who = procOwner(c, 'conds') || 'hadas', pr = P.principle || {}; let k = 0;
+  const when = /^\d{4}-\d{2}-\d{2}$/.test(due || '') ? due : addDays(today(), 2);
   const notes = [pr.fund ? 'הגוף: ' + pr.fund : '', pr.managerName || pr.managerPhone ? 'מנהל התיק: ' + [pr.managerName, pr.managerPhone].filter(Boolean).join(' · ') : ''].filter(Boolean).join('\n');
-  for (const it of arr) {
+  for (const [i, it] of arr.entries()) {
+    if (only && !only.includes(i)) continue;
     if (it.done || (it.taskId && S.tasks.get(it.taskId))) continue;
-    const id = uid(); await write('tasks/' + id, { id, title: 'התניה: ' + it.text + ' — ' + c.name, resp: who, assigneeId: userOfResp(who) || null, due: addDays(today(), 2), priority: 'normal', status: 'open', clientId: c.id, notes, condOf: c.id, ruleKey: 'cond:' + c.id + ':' + slug(it.text), createdAt: stamp(), createdBy: S.me.id });
+    const id = uid(); await write('tasks/' + id, { id, title: 'התניה: ' + it.text + ' — ' + c.name, resp: who, assigneeId: userOfResp(who) || null, due: when, priority: 'normal', status: 'open', clientId: c.id, notes, condOf: c.id, ruleKey: 'cond:' + c.id + ':' + slug(it.text), createdAt: stamp(), createdBy: S.me.id });
     it.taskId = id; k++;
   }
-  if (!k) return toast('אין התניות פתוחות בלי משימה');
+  if (!k) return toast(only ? 'לא סומנו התניות פתוחות בלי משימה' : 'אין התניות פתוחות בלי משימה');
+  if (S.f.condSel) delete S.f.condSel[c.id];
   await procSave(c, P, k + ' התניות הוגדרו כמשימות ל' + (L.resp[who] || who));
   toast(k + ' משימות נפתחו ל' + (L.resp[who] || who));
 }
@@ -6796,7 +6803,9 @@ async function condTaskSync(t, done) {
 /* רשימה עם סימון: conds / sec / tranche conditions */
 function plist(c, key, items, ph, w) {
   return (items.length ? items.map((it, i) => '<div class="row" style="gap:6px;align-items:center;margin-bottom:4px"><label class="check grow" style="margin:0"><input type="checkbox" data-plistdone="' + key + ':' + i + '"' + (it.done ? ' checked' : '') + (w ? '' : ' disabled') + '><span' + (it.done ? ' style="text-decoration:line-through;color:var(--text-3)"' : '') + '>' + esc(it.text) + '</span></label>' + (it.taskId ? ((t) => '<span class="pill ' + (t && t.status === 'done' ? 'actual' : 'committed') + '">משימה' + (t ? ' · ' + esc(L.resp[taskResp(t)] || '') : '') + (t && t.status === 'done' ? ' ✓' : '') + '</span>')(S.tasks.get(it.taskId)) : '') +
-      (it.doneAt ? '<span class="hint">' + dLabel(dayOf(it.doneAt)) + '</span>' : '') + (w ? '<button class="btn small ghost" data-plistdel="' + key + ':' + i + '" aria-label="הסר">×</button>' : '') + '</div>').join('') : '<p class="empty" style="margin:4px 0">אין עדיין.</p>') +
+      (it.doneAt ? '<span class="hint">' + dLabel(dayOf(it.doneAt)) + '</span>' : '') +
+      (w && key === 'conds' && !it.done && !(it.taskId && S.tasks.get(it.taskId)) ? '<label class="chip" style="gap:4px;cursor:pointer" title="לסמן — ולהכניס למשימה רק את המסומנות"><input type="checkbox" class="cb" data-condpick="' + esc(c.id) + '|' + i + '"' + (((S.f.condSel || {})[c.id] || []).includes(i) ? ' checked' : '') + '>למשימה</label>' : '') +
+      (w ? '<button class="btn small ghost" data-plistdel="' + key + ':' + i + '" aria-label="הסר">×</button>' : '') + '</div>').join('') : '<p class="empty" style="margin:4px 0">אין עדיין.</p>') +
     (w ? '<div class="row" style="margin-top:6px"><input class="f grow" id="pl_' + key + '" placeholder="' + esc(ph) + '"><button class="btn small" data-plistadd="' + key + '">הוסף</button></div>' : '');
 }
 /* ═════════════ סקר שמאים (דן, 15/10) — בתחילת התהליך ═════════════
@@ -6912,7 +6921,11 @@ function procPanel(c, k, w) {
       return principleMgr(c, w, true) + '<div class="row">' + psel(c, 'principle.fund', 'איפה אושר', subs.length ? subs : [['', 'הוסף קרן בשלב ההגשה']]) + pf(c, 'principle.date', 'תאריך', 'date') + pf(c, 'principle.amount', 'סכום מאושר', 'number', 'step="1000"') + pf(c, 'principle.rate', 'ריבית %', 'number', 'step="0.01" style="width:80px"') + pf(c, 'principle.years', 'שנים', 'number', 'style="width:70px"') + '</div>' + parea(c, 'principle.note', 'תנאים עיקריים באישור'); }
     case 'conds': { const free = (p.conds || []).filter((it) => !it.done && !(it.taskId && S.tasks.get(it.taskId))).length;
       return principleMgr(c, w) + '<p class="hint" style="margin:0 0 6px">ההתניות והמסמכים שהקרן דרשה באישור העקרוני. אפשר לסרוק את מכתב האישור — Claude מציע רשימה, ואתה מאשר מה נכנס.</p>' + plist(c, 'conds', p.conds || [], 'התניה / מסמך להשלמה', w) +
-      (w && free ? '<div class="row" style="margin-top:6px"><button class="btn small" data-act="condsToTasks">כל ההתניות הפתוחות → משימות (' + free + ')</button><span class="hint">משימה לכל התניה, ל' + esc(L.resp[procOwner(c, 'conds')] || 'הדס') + ', עם מנהל התיק בגוף · סימון ✓ בהתניה סוגר את המשימה, ולהפך</span></div>' : '') +
+      (w && free ? (() => { const sel = ((S.f.condSel || {})[c.id] || []).length;
+        return '<div class="row" style="margin-top:6px;align-items:flex-end;flex-wrap:wrap;gap:6px"><button class="btn small' + (sel ? ' primary' : '') + '" data-act="condsSelToTasks"' + (sel ? '' : ' disabled') + '>המסומנות → משימות' + (sel ? ' (' + sel + ')' : '') + '</button>' +
+          '<label class="fl" style="max-width:150px">ליום<input class="f" type="date" id="condDue" value="' + esc(addDays(today(), 2)) + '"></label>' +
+          '<button class="btn small ghost" data-act="condsToTasks">כל הפתוחות → משימות (' + free + ')</button>' +
+          '<span class="hint grow">מסמנים "למשימה" רק במה שצריך עכשיו — השאר נכנס מתי שנכון בציר. משימה ל' + esc(L.resp[procOwner(c, 'conds')] || 'הדס') + ', עם מנהל התיק בגוף · סימון ✓ בהתניה סוגר את המשימה, ולהפך</span></div>'; })() : '') +
       (w ? '<div class="row" style="margin-top:8px"><label class="btn small">סרוק אישור עקרוני (PDF / תמונה)<input type="file" id="condScan" accept="application/pdf,image/*" hidden></label><span class="hint" id="condScanSt"></span></div><div id="condSug"></div>' : ''); }
     case 'securities': return '<h3 class="sec">הבטחונות הנדרשים</h3>' + plist(c, 'sec', p.sec || [], 'בטוחה (שעבוד דירה, ערב, משכון…)', w) + lawyerForm(c, w) + apprForm(c, w);
     case 'appraisal': return apprForm(c, w) + lawyerForm(c, w);
@@ -11708,6 +11721,7 @@ document.addEventListener('click', async (e) => {
       if (d.procjump) return procAdvance(c, d.procjump);
       if (d.subedit) return formSubEdit(c, d.subedit);
       if (d.plistadd || d.plistdel) { const [key, ix] = String(d.plistadd || d.plistdel).split(':'); const isTr = key.startsWith('tr'), ti = isTr ? Number(key.slice(2)) : null;
+        if (d.plistdel && key === 'conds') S.f.condSel = {}; /* המספור זז: הסימון למשימה מתאפס */
         const arr = isTr ? ((P.tranches || [])[ti] || {}).conds || [] : P[key] || [];
         if (d.plistadd) { const v = ($('pl_' + key).value || '').trim(); if (!v) return; arr.push({ text: v, done: false, at: stamp() }); }
         else arr.splice(Number(ix), 1);
@@ -11974,7 +11988,8 @@ document.addEventListener('click', async (e) => {
         case 'docsReload': return docsLoad(c, true);
         case 'fundSend': return fundSend(c);
         case 'fundPrepare': return fundPrepare(c);
-        case 'condsToTasks': return condsToTasks(c);
+        case 'condsToTasks': return condsToTasks(c, null, ($('condDue') || {}).value);
+        case 'condsSelToTasks': { const sel = ((S.f.condSel || {})[c.id] || []).slice(); if (!sel.length) return toast('מסמנים "למשימה" ליד ההתניות שנכנסות עכשיו'); return condsToTasks(c, sel, ($('condDue') || {}).value); }
         case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
         case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',

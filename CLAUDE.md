@@ -112,6 +112,7 @@ node scripts/e2e-sign-detect.mjs  # "שילמד את התבניות": טפסים
 node scripts/e2e-sign-drive.mjs   # ייבוא הספרייה מתיקייה בדרייב (מדומה): תת-תיקייה = גוף → ✨ שדות → "לבדיקה" → ריצה שנייה = 0 → טופס "לווה 2" נשלח לבן הזוג
 SIGN_CURATED_EXTRA=/tmp/c.json node scripts/e2e-sign-curated.mjs  # טפסי הגופים (data/sign-forms): שדות מוכנים לפי טביעת הקובץ → "לבדיקה" יורד → לפי סוג → פרטי היועץ → לווה אחד בטופס לשניים (השרת עם אותו SIGN_CURATED_EXTRA)
 node scripts/e2e-sign-sms.mjs     # "שלח ב-SMS" (SLNG מדומה על 127.0.0.1:4599 — השרת עם SLNG_FORM_URL=http://127.0.0.1:4599/form SLNG_FIELD_NAME=fn SLNG_FIELD_PHONE=fp SLNG_FIELD_LINK=fl)
+node scripts/e2e-conds.mjs        # התניות האישור העקרוני: מסמנים "למשימה" רק חלק → "המסומנות → משימות" ליום שנבחר → השאר אח״כ ("כל הפתוחות") → ✓ במשימה מסמן את ההתניה
 node scripts/e2e-pipeline.mjs     # ציר תיק משכנתא: מכירה → מסמכים → בדיקה (דן) → תוכנית → הגשה (הדס) → אישור בלי שליחה (דן) → שליחה → מעקב → שמאות; אחראי מההגדרות
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
