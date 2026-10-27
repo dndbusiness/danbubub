@@ -7614,10 +7614,10 @@ const screenDiv = (key) => { const md = DIVS.filter(canSeeDiv); return S.divisio
 const divSeg = (key, cur) => S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? '<div class="seg" role="group" aria-label="חברה" style="margin:0 0 12px">' + DIVS.filter(canSeeDiv).map((d) => '<button data-scrdiv="' + key + '|' + d + '" aria-pressed="' + (d === cur) + '">' + L.division[d] + '</button>').join('') + '</div>' : '';
 /* ═════ חשבון לידים (דן 16/10): כמה אני חייב לכל ספק לידים, לפי קטגוריה (נכסים / רכב / עסקים / נדל״ן — כל אחת לחוד).
    חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום על החשבון (למשל 7,000 לאבינועם)
-   נרשם ונוכה — נשאר רק הפער. התשלום עד ה-15 בחודש שאחרי. בסוף: יחס המרה לכל קטגוריה. כל מספר נפתח לרשימת הלידים. ═════ */
+   נרשם ונוכה — נשאר רק הפער. התשלום עד ה-10 בחודש שאחרי (דן 27/10). בסוף: יחס המרה לכל קטגוריה. כל מספר נפתח לרשימת הלידים. ═════ */
 const billCat = (l) => leadDiv(l) === 'realestate' ? 'נדל״ן' : (LEAD_TYPES.includes(leadType(l)) ? leadType(l) : 'אחר');
 const billMonthOf = (l) => String(dayOf(l.createdAt) || '').slice(0, 7);
-const billDueOf = (m) => addMonth(m + '-01').slice(0, 7) + '-15';
+const billDueOf = (m) => addMonth(m + '-01').slice(0, 7) + '-10'; /* דן 27/10: אבינועם נסגר ב-30, משולם עד ה-10 (היה 15) */
 function leadBill(month, div) {
   const sup = {}, mk = (name) => (sup[name] = sup[name] || { name, cats: {}, in: 0, credit: 0, billable: 0, charge: 0, ids: [] });
   for (const l of live(S.leads)) {
@@ -7658,7 +7658,7 @@ function vLeadBill(div) {
       return '<tr><td class="wide">' + esc(g.t) + '</td><td>' + k('in') + '</td><td>' + k('credit') + '</td><td>' + k('handled') + '</td><td>' + k('check') + '</td><td><b>' + k('closed') + '</b></td><td><b>' + (T.handled ? Math.round(T.closed / T.handled * 1000) / 10 + '%' : '—') + '</b></td><td>' + (cc ? money(cc) : '—') + '</td><td>' + (cc && T.closed ? plain(Math.round(cc / T.closed)) : '—') + '</td></tr>'; }).join('') +
     '</tbody></table></div>' : '<p class="empty">אין לידים בחודש הזה.</p>') + '<p class="hint" style="margin:6px 0 0">לפי התאריך של הליד בטבלה. טופלו = מי שדיברו איתו; לזיכוי ועוד לא טופלו לא נספרים ביחס.</p></section>';
   return '<div class="row" style="align-items:center;margin-bottom:8px"><h2 class="grow" style="margin:0">חשבון לידים · ' + esc(L.division[div]) + '</h2>' + sel + '</div>' +
-    '<p class="hint" style="margin:0 0 10px">חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום לספק — עד ה-15 בחודש שאחרי (' + dLabel(B.due) + ').</p>' +
+    '<p class="hint" style="margin:0 0 10px">חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום לספק — עד ה-10 בחודש שאחרי (' + dLabel(B.due) + ').</p>' +
     (supCards || '<p class="empty">אין לידים בתשלום לליד בחודש הזה' + (live(S.leadBills).length ? '' : ' (מחיר לליד מוגדר בהגדרות ← טבלאות לידים)') + '.</p>') + ads + conv;
 }
 function billPayForm(supplier, div) {
@@ -7822,6 +7822,15 @@ async function metaSync(auto) {
     const t = (j.result || []).map((x) => (L.division[x.division] || 'החשבון') + ': ' + (x.error ? 'נכשל — ' + x.error : x.campaigns + ' קמפיינים · ' + plain(x.spend))).join(' | ');
     toast('פייסבוק: ' + t, 8000);
   } catch (e) { if (!auto) toast('אין חיבור'); } finally { S._metaBusy = false; }
+}
+/* דן 27/10: "שיווק פייסבוק — כל שבוע שאילתה כמה יצא, עד שיסתנכרן מול מנהל המודעות". משימה אחת לשבוע (ראשון), rule_key ייחודי (הנחיה 18).
+   כשהחיבור ל-Meta פעיל — לא נוצרת. התשובה נכנסת בשיווק ← קמפיינים ← הוצאה לפי חודש, ומשם לנקודת ה-0 בהתחשבנות. */
+async function fbWeeklyTask() {
+  if (!S.isDan || S.metaOn) return; if (!S.ready) return void setTimeout(fbWeeklyTask, 5000);
+  const t0 = today(), ws = addDays(t0, -new Date(t0 + 'T12:00:00Z').getUTCDay()), id = 'fbw-' + ws;
+  if (S.tasks.has(id)) return;
+  await write('tasks/' + id, { id, ruleKey: 'fb-spend:' + ws, auto: true, title: 'פייסבוק — כמה יצא השבוע? (עד שיסתנכרן מול מנהל המודעות)', notes: 'להזין בשיווק ← קמפיינים ← הוצאה לפי חודש (פתרונות מימון). נכנס לנקודת ה-0 בהתחשבנות עם ניסים.',
+    resp: 'dan', assigneeId: userOfResp('dan') || null, due: t0, priority: 'normal', status: 'open', division: 'finance', createdAt: stamp(), createdBy: S.me.id }).catch(() => {});
 }
 function metaBar() {
   if (!S.isDan) return ''; const m = S.settings.metaSync;
@@ -9754,12 +9763,13 @@ function settleBottomLine(D, m) {
   const since = r.opening > 0 ? D.card[k].month : null;
   const FL = settleFixedLeft(r, m), fx = FL.inFixed ? r.fixed : r2(r.fixed + FL.left);
   const B = settleBreakEven(FL.inFixed ? r : { ...r, fixed: fx }, p, poolBefore), gap = (v) => v >= 0 ? '<span class="m actual">מעל ב-' + plain(v) + '</span>' : '<span class="m open">חסרים ' + plain(-v) + '</span>';
-  const debt = B.owes ? '<div class="sbl-big">ניסים חייב לחברה <b>' + money(B.owes, { tone: 'expected' }) + '</b></div><p class="hint" style="margin:2px 0 0">המקדמות שקיבל עד סוף ' + mLabel(m) + ' (' + plain(D.totAdv) + ') גדולות מחלקו ברווח (' + plain(D.totShare) + '). לא מעבירים כסף — זה מתקזז מהרווחים הבאים.' + (D.pendingSum ? ' עם המקדמות שעוד לא חויבו: ' + plain(D.projected) + '.' : '') + '</p>'
-    : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">להעביר עד 10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
+  const debt = B.owes ? '<div class="sbl-big">ניסים חייב לחברה <b>' + money(B.owes, { tone: 'expected' }) + '</b></div><p class="hint" style="margin:2px 0 0">המקדמות שקיבל עד סוף ' + mLabel(m) + ' (' + plain(D.totAdv) + ') גדולות מחלקו ברווח (' + plain(D.totShare) + '). <b>אין חלוקה ב-10/' + addMonth(m + '-01').slice(5, 7) + '</b> — אין מאיפה לנכות חוב צובר. מחכים שיתאזן, והחשבון יהיה ב-10 של החודש שאחרי שהחוב מתאפס.' + (D.pendingSum ? ' עם המקדמות שעוד לא חויבו: ' + plain(D.projected) + '.' : '') + '</p>'
+    : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">חשבון וחלוקה ב-10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
     : '<div class="sbl-big">מאוזן — אף צד לא חייב</div>';
-  return '<section class="card sbl"><header><h2>השורה התחתונה · ' + mLabel(m) + '</h2>' + (D.status === 'draft' ? '<span class="pill expected">טיוטה — יש תקבולים שלא אושרו או שהחודש עוד לא נגמר</span>' : '<span class="pill actual">סופי</span>') + '</header>' + debt +
+  const nx = addMonth(m + '-01').slice(5, 7), cal = '<p class="hint" style="margin:6px 0 0">לוח זמנים: 30/' + m.slice(5, 7) + ' — סגירת שכר ואבינועם · 10/' + nx + ' — תשלום לאבינועם ושכר, וחשבון עם ניסים' + (r.closing > 0 ? ' (החודש לא — חוב צובר)' : '') + '.</p>';
+  return '<section class="card sbl"><header><h2>השורה התחתונה · ' + mLabel(m) + '</h2>' + (D.status === 'draft' ? '<span class="pill expected">טיוטה — יש תקבולים שלא אושרו או שהחודש עוד לא נגמר</span>' : '<span class="pill actual">סופי</span>') + '</header>' + debt + cal +
     settleTiles(D, B, m, FL) + settleFlow(r, B, p, FL) +
-    '<p class="hint" style="margin:8px 0 0"><b>איך מחושבת נקודת ה-0:</b> קודם העלויות ' + plain(B.costs) + ' (קבועות ' + plain(fx) + (FL.left && !FL.inFixed ? ' — כולל ' + plain(FL.left) + ' שנותרו לסילוק' : '') + ' + ישירות ' + plain(r.direct) + (r.reserve || r.released || poolBefore ? ', כולל שריון / שחרור' + (poolBefore ? ' והחזר לדן ' + plain(poolBefore) : '') : '') + ' — נקודת האיזון של העסק), ' +
+    '<p class="hint" style="margin:8px 0 0"><b>איך מחושבת נקודת ה-0:</b> קודם העלויות ' + plain(B.costs) + ' (קבועות ' + plain(fx) + (FL.left && !FL.inFixed ? ' — כולל ' + plain(FL.left) + ' שעוד יצאו: קבועות, שכר עד הסגירה ב-30, לידים ופייסבוק' : '') + ' + ישירות ' + plain(r.direct) + (r.reserve || r.released || poolBefore ? ', כולל שריון / שחרור' + (poolBefore ? ' והחזר לדן ' + plain(poolBefore) : '') : '') + ' — נקודת האיזון של העסק), ' +
       'ואז החזרת המקדמות כמו משיכת רווח — חוב מקדמות ' + plain(B.debt) + (r.opening ? ' (נצבר מ-' + mLabel(since || m) + ': ' + plain(r.opening) + ' + החודש ' + plain(r.adv) + ' — עובר הלאה עד שמתקזז לגמרי)' : '') + ' ÷ ' + pc + '% = ' + plain(r2(B.debt / (p > 0 ? p : 0.5))) + '. מעל נקודת ה-0 — ניסים מקבל ' + pc + '% מכל שקל.</p>' + '</section>';
 }
 /* דן 27/10: ארבעה ריבועים — כמה קבועות נותרו לסילוק, כמה ישירות, כמה מקדמות לניסים, כמה צריך להיכנס לנקודת ה-0.
@@ -9771,14 +9781,28 @@ function settleFixedLeft(r, m) {
   if (m > today().slice(0, 7)) return { items: [], left: 0, inFixed: false };
   const txs = live(S.transactions).filter((t) => t.nature === 'expense' && !t.clientId && String(t.date).slice(0, 7) === m), fromOf = (e) => (/^\d{4}-\d{2}$/.test(e.from || '') ? e.from : String(e.createdAt || m).slice(0, 7));
   const items = live(S.expenses).filter((e) => e.active !== false && (e.division || 'finance') === 'finance' && fromOf(e) <= m && !txs.some((t) => t.fixedId === e.id || (e.category && t.category === e.category)))
-    .map((e) => ({ id: e.id, name: e.name, amount: r2(n(e.net ?? e.amount) * (e.frequency === 'quarterly' ? 1 / 3 : e.frequency === 'yearly' ? 1 / 12 : 1)) }));
+    .map((e) => ({ id: e.id, kind: 'fixed', name: e.name, amount: r2(n(e.net ?? e.amount) * (e.frequency === 'quarterly' ? 1 / 3 : e.frequency === 'yearly' ? 1 / 12 : 1)) }));
+  /* דן 27/10: שכר — צפי לפי העלות החודשית שבהגדרות השכר (הדס) עד שסוגרים שכר ב-30; אחרי אישור — לפי התחשיב בפועל (שעות וכו') */
+  for (const e of payEmployees().filter((e) => (e.division || 'finance') === 'finance' && n(e.expectedCost) > 0)) {
+    const x = payDoc(m, e.key); if (x.approved || x.paid) continue;
+    const cur = S.payroll.has(m + '__' + e.key) ? payCalc(e, x).total : 0, v = r2(Math.max(0, n(e.expectedCost) - cur));
+    if (v) items.push({ id: 'pay:' + e.key, kind: 'payroll', name: 'שכר ' + e.name + ' — צפי עד סגירת השכר ב-30', sub: 'צפי ' + plain(e.expectedCost) + (cur ? ' · לפי הנתונים עד עכשיו ' + plain(cur) : ''), amount: v });
+  }
+  /* ספקי לידים (אבינועם): לידים לחיוב × מחיר, פחות מה ששולם על החשבון — מה שעתיד לצאת עד ה-10 */
+  const LB = leadBill(m, 'finance');
+  /* מה שכבר ירד כהוצאה (תנועה עם שם הספק) כבר בתוך הקבועות — נוסף רק ההפרש, כדי שמקדמה שנרשמה רק בחשבון הלידים לא תיעלם מהעלויות */
+  for (const S1 of LB.sup) { const inTx = r2(-txs.filter((t) => [t.counterparty, t.description].join(' ').includes(S1.name)).reduce((a, t) => a + n(t.net), 0)), v = r2(S1.charge - inTx);
+    if (v > 0) items.push({ id: 'leads:' + S1.name, kind: 'leads', sup: S1.name, name: S1.name + ' — ' + (S1.due > 0 ? 'עתיד לצאת ' + plain(S1.due) + ' עד ' + dLabel(billDueOf(m)) : 'שולם על החשבון'), sub: S1.billable + ' לידים לחיוב = ' + plain(S1.charge) + (S1.paid ? ' · שולמה מקדמה ' + plain(S1.paid) : '') + (inTx ? ' · בהוצאות כבר ' + plain(inTx) : ''), amount: v }); }
+  /* פייסבוק: מה שנמשך ממנהל המודעות / הוזן בדיווח השבועי, פחות מה שכבר ירד כהוצאה */
+  const ads = r2(LB.ads.reduce((a, x) => a + n(x.amount), 0)), fbPaid = r2(-txs.filter((t) => /פייסבוק|facebook|meta/i.test([t.counterparty, t.category, t.description].join(' '))).reduce((a, t) => a + n(t.net), 0));
+  if (ads - fbPaid > 0) items.push({ id: 'ads', kind: 'ads', name: 'פייסבוק — לפי ' + (S.metaOn ? 'מנהל המודעות' : 'הדיווח השבועי'), sub: 'הוצאה בקמפיינים ' + plain(ads) + (fbPaid ? ' · כבר ירד ' + plain(fbPaid) : ''), amount: r2(ads - fbPaid) });
   return { items, left: r2(items.reduce((a, e) => a + e.amount, 0)), inFixed: false };
 }
 function settleTiles(D, B, m, FL) {
   const r = D.r, left = FL.left, paidFixed = r2(r.fixed - (FL.inFixed ? left : 0) - n(r.payroll)), drill = S.f.settleDrill || 'income';
   const tile = (key, title, value, sub, tone) => '<article class="card kpi click" data-sdrill="' + key + '" data-stile="1" role="button" tabindex="0" aria-pressed="' + (drill === key) + '" style="border-inline-start:3px solid var(--' + tone + ')' + (drill === key ? ';box-shadow:0 0 0 2px var(--' + tone + ')' : '') + '"><h3>' + title + '</h3><div class="v">' + value + '</div><div class="sub">' + sub + '</div></article>';
   return '<div class="grid4" style="margin-top:10px">' +
-    tile('fixed', 'קבועות — נותרו לסילוק', money(left, { tone: left ? 'open' : 'actual' }), 'שולמו ' + plain(paidFixed) + ' · ' + FL.items.length + ' שעוד לא שולמו' + (n(r.payroll) ? ' · שכר ' + plain(r.payroll) : ''), left ? 'open' : 'actual') +
+    tile('fixed', 'קבועות, שכר ושיווק — עוד יצא', money(left, { tone: left ? 'expected' : 'actual' }), 'שולמו ' + plain(paidFixed) + (n(r.payroll) ? ' · שכר ' + plain(r.payroll) : '') + ' · ' + FL.items.length + ' צפויים', left ? 'expected' : 'actual') +
     tile('direct', 'ישירות על לקוחות', money(r.direct, { tone: 'actual' }), D.direct.length + ' הוצאות ב' + mLabel(m), 'actual') +
     tile('adv', 'מקדמות ניסים', money(B.debt, { tone: 'expected' }), 'החודש ' + plain(r.adv) + (r.opening ? ' · מהחודשים הקודמים ' + plain(r.opening) : '') + (D.pendingSum ? ' · עוד לא חויבו ' + plain(D.pendingSum) : ''), 'expected') +
     tile('income', 'כמה צריך להיכנס לנקודת ה-0', money(B.zero, { tone: 'committed' }), 'נכנס ' + plain(r.income) + ' · ' + (B.zeroGap >= 0 ? 'עברנו ב-' + plain(B.zeroGap) + ' — ניסים מקבל ' + plain(B.above) : 'חסרים ' + plain(-B.zeroGap)), B.zeroGap >= 0 ? 'actual' : 'open') +
@@ -9786,13 +9810,13 @@ function settleTiles(D, B, m, FL) {
 }
 function settleFlow(r, B, p, FL) {
   const W = settleWaterfall(r.income, B.costs, r.opening, r.adv, p), pc = Math.round(p * 100);
-  const name = { costs: 'קודם — קבועות וישירות', prior: 'אחר כך — החוב מהחודשים הקודמים', month: 'אחר כך — המקדמות של החודש' };
+  const name = { costs: 'קודם — קבועות, שכר, שיווק וישירות', prior: 'אחר כך — החוב מהחודשים הקודמים', month: 'אחר כך — המקדמות של החודש' };
   const how = (x) => x.key === 'costs' ? '' : ' · כל שקל רווח מחזיר ' + pc + ' אגורות; החזיר עד עכשיו ' + plain(x.debt);
   const row = (x) => x.need ? '<div style="margin-top:8px"><div class="row" style="gap:6px;justify-content:space-between"><b>' + name[x.key] + '</b><span>' + (x.rest ? '<span class="m open">חסרים ' + plain(x.rest) + '</span>' : '<span class="m actual">✓ סולק</span>') + '</span></div>' +
     '<div class="progress" style="height:8px;margin:4px 0 2px"><i style="width:' + Math.round(100 * x.got / x.need) + '%"></i></div><div class="hint">' + plain(x.got) + ' מתוך ' + plain(x.need) + how(x) + '</div></div>' : '';
   return '<div class="sbl-be" style="margin-top:10px"><b>לאן הולך כל שקל שנכנס — אוטומטי לפי ההכנסות</b><p class="hint" style="margin:2px 0 0">כל תקבול שנרשם במערכת מתעדכן כאן לבד — אין מה ללחוץ.</p>' +
     W.steps.map(row).join('') +
-    (FL && FL.left && !FL.inFixed ? '<p class="hint" style="margin:6px 0 0">הקבועות כאן כוללות ' + plain(FL.left) + ' שעוד לא שולמו — לכן עד שישולמו, החוב בשורה למעלה נמוך מכאן ב-' + plain(r2(FL.left * p)) + '.</p>' : '') +
+    (FL && FL.left && !FL.inFixed ? '<p class="hint" style="margin:6px 0 0">העלויות כאן כוללות ' + plain(FL.left) + ' שעוד יצאו (קבועות, שכר, לידים, פייסבוק) — לכן עד שישולמו, החוב בשורה למעלה נמוך מכאן ב-' + plain(r2(FL.left * p)) + '.</p>' : '') +
     '<div style="margin-top:8px"><b>ואז — ניסים מקבל ' + pc + '%</b> ' + (W.extra ? '<span class="m actual">' + plain(W.nissim) + '</span> <span class="hint">(' + pc + '% מ-' + plain(W.extra) + ' שמעל נקודת ה-0)</span>' : '<span class="hint">עוד לא — קודם מסלקים את מה שלמעלה</span>') + '</div></div>';
 }
 function settleAddBtns(drill, m) {
@@ -9815,7 +9839,11 @@ function vSettle() {
       (t.nature === 'income' ? (isConfirmed(t) ? '<span class="pill actual">אושר</span>' : (w ? '<button class="btn small" data-confirmtx="' + esc(t.id) + '">אשר שנכנס</button>' : '<span class="pill expected">ממתין</span>')) : '') +
       (t.nature === 'expense' && w ? '<button class="btn small ghost" data-deduct="' + esc(t.id) + '">' + ((t.clientId ? t.deductible !== false : t.deductible) ? 'הוצא מהחישוב' : 'נכה בחישוב') + '</button>' : '') + '</div></td>' +
       '<td>' + money(t.nature === 'advance' ? Math.abs(n(t.gross || t.net)) : t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' }) + (w ? '<div><button class="btn small ghost" data-edittx="' + esc(t.id) + '">ערוך</button></div>' : '') + '</td></tr>').join('');
-  const tplRows = drill === 'fixed' ? settleFixedLeft(r, m).items.map((e) => '<tr><td class="num"><span class="pill open">נותר</span></td><td class="wide">' + esc(e.name) + '<div class="hint">הוצאה קבועה — עוד לא נרשם תשלום החודש</div></td><td>' + money(-e.amount, { cents: true, tone: 'open' }) + (w ? '<div><button class="btn small" data-act="settleAdd" data-kind="fixedPay" data-exp="' + esc(e.id) + '" data-m="' + m + '">שולם — רשום</button></div>' : '') + '</td></tr>').join('') : '';
+  const tplBtn = (e) => !w ? '' : e.kind === 'payroll' ? '<button class="btn small" data-act="settleAdd" data-kind="payrollGo" data-m="' + m + '">לשכר</button>'
+    : e.kind === 'leads' ? '<button class="btn small" data-act="settleAdd" data-kind="leadsPay" data-sup="' + esc(e.sup) + '" data-m="' + m + '">+ תשלום</button>'
+    : e.kind === 'ads' ? '<button class="btn small" data-act="settleAdd" data-kind="adsGo" data-m="' + m + '">לקמפיינים</button>'
+    : '<button class="btn small" data-act="settleAdd" data-kind="fixedPay" data-exp="' + esc(e.id) + '" data-m="' + m + '">שולם — רשום</button>';
+  const tplRows = drill === 'fixed' ? settleFixedLeft(r, m).items.map((e) => '<tr><td class="num"><span class="pill expected">צפוי</span></td><td class="wide">' + esc(e.name) + '<div class="hint">' + esc(e.sub || 'הוצאה קבועה — עוד לא נרשם תשלום החודש') + '</div></td><td>' + money(-e.amount, { cents: true, tone: 'expected' }) + '<div>' + tplBtn(e) + '</div></td></tr>').join('') : '';
   return whoGotCard() + stmtCard() + '<div class="row"><div class="seg" role="group" aria-label="חודש">' + card.map((x) => '<button data-sm="' + x.month + '" aria-pressed="' + (x.month === m) + '">' + mLabel(x.month) + '</button>').join('') + '</div>' +
       '<span class="pill ' + (R.status === 'final' ? 'actual' : 'expected') + '">' + (R.status === 'final' ? 'סופי' : 'טיוטה') + '</span><span class="grow"></span>' +
       (w && D.unconfirmed.length ? '<button class="btn primary" data-act="confirmMonth">אשר את כל תקבולי החודש (' + D.unconfirmed.length + ')</button>' : '') +
@@ -11433,7 +11461,8 @@ function vPayroll() {
       kpi('לתשלום', dLabel(payDue(m)), calc.filter((k) => k.x.paid).length + ' שולמו · נכנס לצפי התשלומים', 'money:forecast') + '</div>' +
     '<p class="hint">הדמיה לפי ההסכם — ברוטו לפני ניכויים. רו״ח מחשב נטו, ביטוח לאומי ומס. שינוי בנתונים אחרי אישור מחזיר לטיוטה.</p>' +
     '<div class="grid3">' + calc.map(({ e, x, c }) => '<section class="card"><header><h2>' + esc(e.name) + '</h2><span class="hint">' + esc(L.division[e.division || 'finance']) + '</span><span class="grow"></span>' +
-        (w ? '<label class="fl" style="max-width:110px">עלות מעביד %<input class="f num" type="number" min="0" max="60" step="0.1" data-empct="' + esc(e.key) + '" value="' + esc(e.employerPct ?? '') + '" placeholder="0"></label>' : '') +
+        (w ? '<label class="fl" style="max-width:110px">עלות מעביד %<input class="f num" type="number" min="0" max="60" step="0.1" data-empct="' + esc(e.key) + '" value="' + esc(e.employerPct ?? '') + '" placeholder="0"></label>' +
+          '<label class="fl" style="max-width:130px" title="לנקודת ה-0 בהתחשבנות — עד שהשכר נסגר ב-30">צפי חודשי (עלות) ₪<input class="f num" type="number" min="0" step="1" data-empexp="' + esc(e.key) + '" value="' + esc(e.expectedCost ?? '') + '" placeholder="—"></label>' : '') +
         (x.paid ? '<span class="pill actual">שולם</span>' : x.approved ? '<span class="pill committed">מאושר</span>' : '<span class="pill expected">טיוטה</span>') + '</header>' +
       '<div class="row">' + PAY_FIELDS.filter(([, , rk]) => n(e[rk])).map(([k, label]) => '<label class="fl">' + label + '<input class="f num" style="width:90px" type="number" min="0" step="' + (k === 'hours' ? '0.25' : '1') + '" data-pay="' + esc(e.key) + '" data-pk="' + k + '" value="' + esc(x[k] ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>').join('') +
         (n(e.fixedBonus) ? '<label class="check"><input type="checkbox" data-pay="' + esc(e.key) + '" data-pk="fullMonth"' + (x.fullMonth === false ? '' : ' checked') + (w && !x.paid ? '' : ' disabled') + '><span>חודש מלא (' + esc(e.fixedBonusNote || 'בונוס') + ')</span></label>' : '') +
@@ -12067,6 +12096,9 @@ document.addEventListener('click', async (e) => {
           if (d.kind === 'fixedPay') { const e = S.expenses.get(d.exp) || {}, tpl = settleFixedLeft(nissimCard().find((x) => x.month === mm) || {}, mm).items.find((x) => x.id === d.exp);
             return formTx(null, { ...base, fixedId: d.exp, counterparty: e.name || '', category: e.category || null, net: tpl ? -tpl.amount : undefined }); }
           if (d.kind === 'fixedTx') return formTx(null, base);
+          if (d.kind === 'payrollGo') { S.f.books = 'payroll'; S.f.payMonth = mm; return go('books'); }
+          if (d.kind === 'leadsPay') { S.f.billM = mm; return billPayForm(d.sup, 'finance'); }
+          if (d.kind === 'adsGo') { S.f.mkt = 'campaigns'; S.f.mktDiv = 'finance'; return go('marketing'); }
           if (d.kind === 'direct') return formTx(null, base);
           if (d.kind === 'adv') return formNissim();
           if (d.kind === 'income') return formTx(null, { nature: 'income', division: 'finance', date: day });
@@ -12331,6 +12363,7 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.reserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { reReserve: { ...(S.settings.reReserve || {}), [el.dataset.reserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) : 'השריון בוטל'); }
     if (el.id === 'fStmt') { S.f.stmtPeriod = el.value; return render(); }
     if (el.dataset.finreserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [el.dataset.finreserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) + ' לחודש הבא' : 'השריון בוטל'); }
+    if (el.dataset.empexp) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empexp ? { ...e, expectedCost: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('הצפי החודשי נשמר'); }
     if (el.dataset.empct) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empct ? { ...e, employerPct: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('עלות מעביד נשמרה'); }
     if (el.dataset.ik) { clearTimeout(ikT); return ikSave(el); }
     if (el.id === 'fPayMonth') { S.f.payMonth = el.value; return render(); }
@@ -12551,7 +12584,7 @@ async function boot() {
   applyRole();
   /* ניתוחי Claude (sample) — בשרת רק כשמוגדר מפתח; אחרת הכפתורים מוסתרים במקום להופיע ולהיכשל */
   S.ai = !!(await claude.use('sample').catch(() => null)); document.body.classList.toggle('noai', !S.ai);
-  if (window.__harelServer && S.isDan) fetch('/api/crm/meta', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.metaOn = !!j.enabled; }).catch(() => {});
+  if (window.__harelServer && S.isDan) fetch('/api/crm/meta', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.metaOn = !!j.enabled; if (!S.metaOn) setTimeout(fbWeeklyTask, 5000); }).catch(() => {});
   if (window.__harelServer) fetch('/api/voicenter/call', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.vcOn = !!j.enabled; S.vcWhy = j.reason || null; render(); }).catch(() => {});
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
