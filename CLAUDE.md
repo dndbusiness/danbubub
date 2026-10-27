@@ -111,7 +111,7 @@ node scripts/e2e-sign-prefill.mjs # חתימות: מילוי מהתיק → ★ 
 node scripts/e2e-sign-detect.mjs  # "שילמד את התבניות": טפסים בעברית → העלאה מרוכזת → ✨ שדות במקום (2 לווים) → שמור/דלג → שליחה לנמען ידני (לא נשמר במערכת)
 node scripts/e2e-sign-drive.mjs   # ייבוא הספרייה מתיקייה בדרייב (מדומה): תת-תיקייה = גוף → ✨ שדות → "לבדיקה" → ריצה שנייה = 0 → טופס "לווה 2" נשלח לבן הזוג
 SIGN_CURATED_EXTRA=/tmp/c.json node scripts/e2e-sign-curated.mjs  # טפסי הגופים (data/sign-forms): שדות מוכנים לפי טביעת הקובץ → "לבדיקה" יורד → לפי סוג → פרטי היועץ → לווה אחד בטופס לשניים (השרת עם אותו SIGN_CURATED_EXTRA)
-node scripts/e2e-sign-sms.mjs     # "שלח ב-SMS" (SLNG מדומה על 127.0.0.1:4599 — השרת עם SLNG_FORM_URL=http://127.0.0.1:4599/form SLNG_FIELD_NAME=fn SLNG_FIELD_PHONE=fp SLNG_FIELD_LINK=fl)
+node scripts/e2e-sign-sms.mjs     # "שלח ב-SMS" (SLNG מדומה על 127.0.0.1:4599 — השרת עם SLNG_API_USER=e2e SLNG_API_PASSWORD=e2e SLNG_FROM=0500000000 SLNG_API_URL=http://127.0.0.1:4599/api, או בטופס: SLNG_FORM_URL=http://127.0.0.1:4599/form SLNG_FIELD_NAME=fn SLNG_FIELD_PHONE=fp SLNG_FIELD_LINK=fl)
 node scripts/e2e-conds.mjs        # התניות האישור העקרוני: מסמנים "למשימה" רק חלק → "המסומנות → משימות" ליום שנבחר → השאר אח״כ ("כל הפתוחות") → ✓ במשימה מסמן את ההתניה
 node scripts/e2e-pipeline.mjs     # ציר תיק משכנתא: מכירה → מסמכים → בדיקה (דן) → תוכנית → הגשה (הדס) → אישור בלי שליחה (דן) → שליחה → מעקב → שמאות; אחראי מההגדרות
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
