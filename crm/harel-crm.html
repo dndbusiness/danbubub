@@ -9660,6 +9660,18 @@ function settleBreakEven(r, p, poolBefore = 0) {
   return { business, businessGap: r2_(r.income - business), costs, debt, zero, zeroGap: r2_(r.income - zero), above: r2_(Math.max(0, r.income - zero) * pp),
     owes: r2_(Math.max(0, r.closing)), owed: r2_(Math.max(0, -r.closing)) };
 }
+/* דן 27/10: "כסף שנכנס מנכה אוטומטית — קודם קבועות וישירות, ברווח מקדמות לפי 50%, ואם יש חוב קודם חייב לסלק אותו".
+   מפל לפי סדר: עלויות → חוב מחודשים קודמים (÷ p) → מקדמות החודש (÷ p) → מעל — ניסים מקבל p.
+   costs — כמו B.costs; opening — יתרת הפתיחה (שלילית = זכות לניסים, מקזזת את מקדמות החודש). אותו סכום כמו zero, רק מפורק. */
+function settleWaterfall(income, costs, opening, adv, p) {
+  const r2_ = (x) => Math.round(x * 100) / 100, pp = p > 0 ? p : 0.5, prior = Math.max(0, opening || 0), month = Math.max(0, (adv || 0) + Math.min(0, opening || 0));
+  let left = Math.max(0, income || 0);
+  const steps = [['costs', Math.max(0, costs)], ['prior', prior / pp], ['month', month / pp]].map(([key, need]) => {
+    need = r2_(need); const got = r2_(Math.min(left, need)); left = r2_(left - got);
+    return { key, need, got, rest: r2_(need - got), debt: key === 'costs' ? null : r2_(got * pp) };
+  });
+  return { steps, extra: left, nissim: r2_(left * pp) };
+}
 /* ══ סוף נקודת איזון ══ */
 /* ── התחשבנות עם ניסים: מה נכנס → פחות קבועות → פחות ישירות (1–30 לפי חודש התשלום) → רווח → חלקו → פחות מקדמות ── */
 function settleData(m) {
@@ -9746,7 +9758,7 @@ function settleBottomLine(D, m) {
     : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">להעביר עד 10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
     : '<div class="sbl-big">מאוזן — אף צד לא חייב</div>';
   return '<section class="card sbl"><header><h2>השורה התחתונה · ' + mLabel(m) + '</h2>' + (D.status === 'draft' ? '<span class="pill expected">טיוטה — יש תקבולים שלא אושרו או שהחודש עוד לא נגמר</span>' : '<span class="pill actual">סופי</span>') + '</header>' + debt +
-    settleTiles(D, B, m, FL) +
+    settleTiles(D, B, m, FL) + settleFlow(r, B, p, FL) +
     '<p class="hint" style="margin:8px 0 0"><b>איך מחושבת נקודת ה-0:</b> קודם העלויות ' + plain(B.costs) + ' (קבועות ' + plain(fx) + (FL.left && !FL.inFixed ? ' — כולל ' + plain(FL.left) + ' שנותרו לסילוק' : '') + ' + ישירות ' + plain(r.direct) + (r.reserve || r.released || poolBefore ? ', כולל שריון / שחרור' + (poolBefore ? ' והחזר לדן ' + plain(poolBefore) : '') : '') + ' — נקודת האיזון של העסק), ' +
       'ואז החזרת המקדמות כמו משיכת רווח — חוב מקדמות ' + plain(B.debt) + (r.opening ? ' (נצבר מ-' + mLabel(since || m) + ': ' + plain(r.opening) + ' + החודש ' + plain(r.adv) + ' — עובר הלאה עד שמתקזז לגמרי)' : '') + ' ÷ ' + pc + '% = ' + plain(r2(B.debt / (p > 0 ? p : 0.5))) + '. מעל נקודת ה-0 — ניסים מקבל ' + pc + '% מכל שקל.</p>' + '</section>';
 }
@@ -9771,6 +9783,17 @@ function settleTiles(D, B, m, FL) {
     tile('adv', 'מקדמות ניסים', money(B.debt, { tone: 'expected' }), 'החודש ' + plain(r.adv) + (r.opening ? ' · מהחודשים הקודמים ' + plain(r.opening) : '') + (D.pendingSum ? ' · עוד לא חויבו ' + plain(D.pendingSum) : ''), 'expected') +
     tile('income', 'כמה צריך להיכנס לנקודת ה-0', money(B.zero, { tone: 'committed' }), 'נכנס ' + plain(r.income) + ' · ' + (B.zeroGap >= 0 ? 'עברנו ב-' + plain(B.zeroGap) + ' — ניסים מקבל ' + plain(B.above) : 'חסרים ' + plain(-B.zeroGap)), B.zeroGap >= 0 ? 'actual' : 'open') +
   '</div>';
+}
+function settleFlow(r, B, p, FL) {
+  const W = settleWaterfall(r.income, B.costs, r.opening, r.adv, p), pc = Math.round(p * 100);
+  const name = { costs: 'קודם — קבועות וישירות', prior: 'אחר כך — החוב מהחודשים הקודמים', month: 'אחר כך — המקדמות של החודש' };
+  const how = (x) => x.key === 'costs' ? '' : ' · כל שקל רווח מחזיר ' + pc + ' אגורות; החזיר עד עכשיו ' + plain(x.debt);
+  const row = (x) => x.need ? '<div style="margin-top:8px"><div class="row" style="gap:6px;justify-content:space-between"><b>' + name[x.key] + '</b><span>' + (x.rest ? '<span class="m open">חסרים ' + plain(x.rest) + '</span>' : '<span class="m actual">✓ סולק</span>') + '</span></div>' +
+    '<div class="progress" style="height:8px;margin:4px 0 2px"><i style="width:' + Math.round(100 * x.got / x.need) + '%"></i></div><div class="hint">' + plain(x.got) + ' מתוך ' + plain(x.need) + how(x) + '</div></div>' : '';
+  return '<div class="sbl-be" style="margin-top:10px"><b>לאן הולך כל שקל שנכנס — אוטומטי לפי ההכנסות</b><p class="hint" style="margin:2px 0 0">כל תקבול שנרשם במערכת מתעדכן כאן לבד — אין מה ללחוץ.</p>' +
+    W.steps.map(row).join('') +
+    (FL && FL.left && !FL.inFixed ? '<p class="hint" style="margin:6px 0 0">הקבועות כאן כוללות ' + plain(FL.left) + ' שעוד לא שולמו — לכן עד שישולמו, החוב בשורה למעלה נמוך מכאן ב-' + plain(r2(FL.left * p)) + '.</p>' : '') +
+    '<div style="margin-top:8px"><b>ואז — ניסים מקבל ' + pc + '%</b> ' + (W.extra ? '<span class="m actual">' + plain(W.nissim) + '</span> <span class="hint">(' + pc + '% מ-' + plain(W.extra) + ' שמעל נקודת ה-0)</span>' : '<span class="hint">עוד לא — קודם מסלקים את מה שלמעלה</span>') + '</div></div>';
 }
 function settleAddBtns(drill, m) {
   if (!S.canWrite) return '';
