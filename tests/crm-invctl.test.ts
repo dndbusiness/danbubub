@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 /** בקרת חשבוניות + מע״מ לתשלום — אותו קוד שרץ במסך (crm/harel-crm.html), בלי DOM. נתונים סינתטיים. */
 const html = readFileSync('crm/harel-crm.html', 'utf8')
 const a = html.indexOf('/* ══ בקרת חשבוניות (דן 27/10)'), b = html.indexOf('/* ══ סוף בקרת חשבוניות ══ */')
-const F = new Function(html.slice(a, b) + '; return { ictlParse, ictlMatch, vatDue, ictlDate };')() as any
+const F = new Function(html.slice(a, b) + '; return { ictlParse, ictlMatch, vatDue, vatPeriod, ictlDate };')() as any
 
 const summary = [['דוח מסמכים'], ['מספר המסמך', 'תאריך המסמך', 'סוג המסמך', 'ספק', 'תיאור', 'סכום כולל מע"מ', 'מע"מ', 'סכום לא כולל מע"מ'],
   ['1001', '05/10/2026', 'חשבונית מס', 'Google Ireland', 'קמפיין', '1,180', '180', '1,000'],
@@ -53,14 +53,20 @@ describe('בקרת חשבוניות — הצלבה', () => {
   it('מע״מ מהקובץ: עסקאות − תשומות', () => { expect(R.vat).toEqual({ out: 1800, in: 324, due: 1476 }) })
 })
 
-describe('מע״מ לתשלום — מכל ההכנסות, תשומות רק עם חשבונית', () => {
+describe('מע״מ לתשלום — דו-חודשי (דן 27/10), מכל ההכנסות, תשומות רק עם חשבונית', () => {
+  it('תקופות: ספט׳–אוק׳, נוב׳–דצמ׳ (דיווח בינואר)', () => {
+    expect(F.vatPeriod('2026-10')).toEqual({ months: ['2026-09', '2026-10'], label: '09–10/2026', report: '2026-11' })
+    expect(F.vatPeriod('2026-09').months).toEqual(['2026-09', '2026-10'])
+    expect(F.vatPeriod('2026-12')).toEqual({ months: ['2026-11', '2026-12'], label: '11–12/2026', report: '2027-01' })
+  })
   const txs = [
     { nature: 'income', date: '2026-10-05', vat: 1800 }, { nature: 'income', date: '2026-10-20', vat: 900, invoice: 'issued' },
     { nature: 'expense', date: '2026-10-06', vat: -180, invoice: 'has_invoice' }, { nature: 'expense', date: '2026-10-07', vat: -72 },
     { nature: 'expense', date: '2026-10-08', vat: -50, invoice: 'no_invoice_needed' }, { nature: 'expense', date: '2026-10-09', vat: -30, deductible: false },
-    { nature: 'income', date: '2026-09-30', vat: 999 },
+    { nature: 'income', date: '2026-09-30', vat: 999, invoice: 'issued' }, { nature: 'income', date: '2026-08-31', vat: 555 },
   ]
-  it('לתשלום 2,520; אם תגיע החשבונית החסרה — 2,448', () => {
-    expect(F.vatDue(txs, '2026-10')).toEqual({ out: 2700, in: 180, wait: 72, waitN: 1, due: 2520, best: 2448, incNoInv: 1 })
+  it('ספט׳–אוק׳: לתשלום 3,519; אם תגיע החשבונית החסרה — 3,447. אוגוסט בתקופה אחרת', () => {
+    expect(F.vatDue(txs, '2026-10')).toEqual({ out: 3699, in: 180, wait: 72, waitN: 1, due: 3519, best: 3447, incNoInv: 1, period: '09–10/2026', report: '2026-11' })
+    expect(F.vatDue(txs, '2026-09').due).toBe(3519)
   })
 })

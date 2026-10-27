@@ -9597,7 +9597,7 @@ function vBooks() {
     body = '<div class="row">' + monthSel + '</div><div class="grid4">' +
         kpi('הכנסות · ' + mLabel(m), money(inc.reduce((a, t) => a + n(t.net), 0), { tone: 'actual' }), 'מע״מ עסקאות ' + plain(vOut), null) +
         kpi('הוצאות מוכרות', money(-exp.reduce((a, t) => a + Math.abs(n(t.net)), 0)), 'מע״מ תשומות ' + plain(vIn), null) +
-        (() => { const V = vatDue(tx, m); return kpi('מע״מ לתשלום', money(V.due, { tone: V.due > 0 ? 'open' : 'actual' }), 'עסקאות מכל ההכנסות ' + plain(V.out) + ' − תשומות עם חשבונית ' + plain(V.in) + (V.wait ? ' · מחכות לחשבונית ' + V.waitN + ' (' + plain(V.wait) + ' מע״מ) — אם יגיעו: ' + plain(V.best) : '') + ' · לא דוח רשמי', null); })() +
+        (() => { const V = vatDue(live(S.transactions).filter(inDiv), m); return kpi('מע״מ לתשלום · ' + V.period, money(V.due, { tone: V.due > 0 ? 'open' : 'actual' }), 'עסקאות מכל ההכנסות ' + plain(V.out) + ' − תשומות עם חשבונית ' + plain(V.in) + (V.wait ? ' · מחכות לחשבונית ' + V.waitN + ' (' + plain(V.wait) + ' מע״מ) — אם יגיעו: ' + plain(V.best) : '') + ' · לא דוח רשמי', null); })() +
         kpi('יעד החודש', S.settings.targets ? money(S.settings.targets.monthly, { tone: 'committed' }) : '—', S.settings.targets ? 'נגבה ' + pct(inc.reduce((a, t) => a + n(t.net), 0), S.settings.targets.monthly) + '% מהיעד' : 'לא הוגדר', null) +
       '</div><section class="card"><header><h2>תקציב מול בפועל · ' + mLabel(m) + '</h2></header>' +
       (cats.length ? '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>תקציב</th><th>בפועל</th><th>סטייה</th></tr></thead><tbody>' + cats.map((k) => { const b = n(budget[k]), a = r2(byCat[k] || 0);
@@ -9882,14 +9882,19 @@ function ictlMatch(docs, pays, txs) {
   const vOut = r2_(docs.filter((d) => d.dir === 'issued').reduce((a, d) => a + d.vat, 0)), vIn = r2_(docs.filter((d) => d.dir === 'received').reduce((a, d) => a + d.vat, 0));
   return { out, inn, docsNoPay, updates, vat: { out: vOut, in: vIn, due: r2_(vOut - vIn) } };
 }
-/* מע״מ לתשלום בחודש (דן 27/10): "מכל ההכנסות, אחרי בקרה של חשבוניות" — עסקאות מכל התקבולים, תשומות רק מהוצאות שיש להן חשבונית.
+/* מע״מ לתשלום (דן 27/10): "מכל ההכנסות, אחרי בקרה של חשבוניות" — עסקאות מכל התקבולים, תשומות רק מהוצאות שיש להן חשבונית.
+   דיווח דו-חודשי (דן 27/10): ינואר–פברואר, מרץ–אפריל… — m הוא כל חודש בתקופה.
    wait — מע״מ על הוצאות שעוד מחכות לחשבונית: אם תגיע, יורד מהתשלום. */
+function vatPeriod(m) {
+  const y = +m.slice(0, 4), a = +m.slice(5, 7) % 2 ? +m.slice(5, 7) : +m.slice(5, 7) - 1, mm = (k) => y + '-' + String(k).padStart(2, '0');
+  return { months: [mm(a), mm(a + 1)], label: String(a).padStart(2, '0') + '–' + String(a + 1).padStart(2, '0') + '/' + y, report: a + 2 > 12 ? (y + 1) + '-01' : mm(a + 2) };
+}
 function vatDue(txs, m) {
-  const r2_ = (x) => Math.round(x * 100) / 100, tx = txs.filter((t) => String(t.date).slice(0, 7) === m);
+  const r2_ = (x) => Math.round(x * 100) / 100, P = vatPeriod(m), tx = txs.filter((t) => P.months.includes(String(t.date).slice(0, 7)));
   const inc = tx.filter((t) => t.nature === 'income'), exp = tx.filter((t) => t.nature === 'expense' && t.deductible !== false && Math.abs(Number(t.vat) || 0) > 0);
   const ok = exp.filter((t) => t.invoice === 'has_invoice' || t.invoice === 'received'), wait = exp.filter((t) => !ok.includes(t) && t.invoice !== 'no_invoice_needed');
   const out = r2_(inc.reduce((a, t) => a + (Number(t.vat) || 0), 0)), vin = r2_(ok.reduce((a, t) => a + Math.abs(Number(t.vat) || 0), 0)), w = r2_(wait.reduce((a, t) => a + Math.abs(Number(t.vat) || 0), 0));
-  return { out, in: vin, wait: w, waitN: wait.length, due: r2_(out - vin), best: r2_(out - vin - w), incNoInv: inc.filter((t) => t.invoice !== 'issued').length };
+  return { out, in: vin, wait: w, waitN: wait.length, due: r2_(out - vin), best: r2_(out - vin - w), incNoInv: inc.filter((t) => t.invoice !== 'issued').length, period: P.label, report: P.report };
 }
 /* ══ סוף בקרת חשבוניות ══ */
 /* דן 27/10: ארבעה ריבועים — כמה קבועות נותרו לסילוק, כמה ישירות, כמה מקדמות לניסים, כמה צריך להיכנס לנקודת ה-0.
@@ -9948,7 +9953,7 @@ function settleOweTiles(D, B, m, FL) {
     tile('owe', 'כסף שאני חייב להוציא', money(owe, { tone: owe ? 'open' : 'actual' }), 'הוצאות שעוד יצאו ' + plain(FL.left) + ' · מע״מ ' + plain(vatPay) + (B.owed ? ' · לניסים ' + plain(B.owed) : ''), owe ? 'open' : 'actual') +
     tile('back', 'יצא וצריך לחזור', money(B.owes, { tone: B.owes ? 'expected' : 'actual' }), B.owes ? 'מקדמות לניסים מעבר לחלקו — חוזר מהרווח' : 'אין — ניסים לא קיבל יותר מחלקו', B.owes ? 'expected' : 'actual') +
     tile('dist', 'חלוקה שאני חייב', money(B.owed, { tone: B.owed ? 'open' : 'muted' }), B.owed ? 'לניסים — להעביר ב-' + nx : r.closing > 0 ? 'אין ב-' + nx + ' — חוב צובר' : 'מאוזן', B.owed ? 'open' : 'muted') +
-    tile('vat', 'מע״מ לתשלום · ' + mLabel(m), money(V.due, { tone: V.due > 0 ? 'open' : 'actual' }), 'מכל ההכנסות ' + plain(V.out) + ' − תשומות עם חשבונית ' + plain(V.in) + (V.wait ? ' · ' + V.waitN + ' מחכות לחשבונית (' + plain(V.wait) + ')' : ''), V.due > 0 ? 'open' : 'actual') +
+    tile('vat', 'מע״מ לתשלום · ' + V.period, money(V.due, { tone: V.due > 0 ? 'open' : 'actual' }), 'דו-חודשי, דיווח ב-' + mLabel(V.report) + ' · מכל ההכנסות ' + plain(V.out) + ' − תשומות עם חשבונית ' + plain(V.in) + (V.wait ? ' · ' + V.waitN + ' מחכות לחשבונית (' + plain(V.wait) + ')' : ''), V.due > 0 ? 'open' : 'actual') +
   '</div>';
 }
 function settleAddBtns(drill, m) {
@@ -9964,7 +9969,7 @@ function vSettle() {
   const drill = S.f.settleDrill || 'income';
   const line = (label, v, key, tone, strong) => '<tr' + (key ? ' class="clickable" data-sdrill="' + key + '"' : '') + (strong ? ' style="font-weight:600"' : '') + '><td class="wide">' + label + (key ? ' <span class="hint">' + (drill === key ? '▾' : '›') + '</span>' : '') + '</td><td>' + money(v, { cents: true, tone }) + '</td></tr>';
   const sec = R.sections.find((s) => s.key === drill) || R.sections[0];
-  const vatM = drill === 'vat' ? live(S.transactions).filter((t) => (t.division || 'finance') === 'finance' && String(t.date).slice(0, 7) === m && ((t.nature === 'income' && n(t.vat)) || (t.nature === 'expense' && t.deductible !== false && n(t.vat) && !['has_invoice', 'received', 'no_invoice_needed'].includes(t.invoice)))) : [];
+  const vatM = drill === 'vat' ? live(S.transactions).filter((t) => (t.division || 'finance') === 'finance' && vatPeriod(m).months.includes(String(t.date).slice(0, 7)) && ((t.nature === 'income' && n(t.vat)) || (t.nature === 'expense' && t.deductible !== false && n(t.vat) && !['has_invoice', 'received', 'no_invoice_needed'].includes(t.invoice)))) : [];
   const src = { income: D.income, fixed: D.fixed, direct: D.direct, adv: D.adv, back: D.adv, dist: D.adv, skipped: D.skipped, vat: vatM }[drill];
   const drillRows = drill === 'pending'
     ? D.pending.map((x) => '<tr><td class="num">' + dLabel(x.date) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + money(x.amount, { cents: true, tone: 'committed' }) + '</td><td>' + (w ? '<div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn small ghost" data-plannededit="' + esc(x.id) + '">ערוך</button><button class="btn small" data-advdone="' + esc(x.id) + '">חויב — רשום כמקדמה</button></div>' : '') + '</td></tr>').join('')
@@ -9973,7 +9978,7 @@ function vSettle() {
       (t.nature === 'expense' && w ? '<button class="btn small ghost" data-deduct="' + esc(t.id) + '">' + ((t.clientId ? t.deductible !== false : t.deductible) ? 'הוצא מהחישוב' : 'נכה בחישוב') + '</button>' : '') + '</div></td>' +
       '<td>' + (drill === 'vat' ? money(t.nature === 'income' ? n(t.vat) : -Math.abs(n(t.vat)), { cents: true, tone: t.nature === 'income' ? 'open' : 'expected' }) + '<div class="hint">' + (t.nature === 'income' ? 'מע״מ עסקאות' : 'מחכה לחשבונית') + '</div>' : money(t.nature === 'advance' ? Math.abs(n(t.gross || t.net)) : t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' })) + (w ? '<div><button class="btn small ghost" data-edittx="' + esc(t.id) + '">ערוך</button></div>' : '') + '</td></tr>').join('');
   const oweRows = drill !== 'owe' ? '' : (() => { const V = settleVat(m), B0 = settleBreakEven(r, n(S.settings.nissimPct || 0.5)), nx = addMonth(m + '-01').slice(0, 8) + '10';
-    return (V.due > 0 ? '<tr><td class="num">—</td><td class="wide">מע״מ ' + mLabel(m) + '<div class="hint">מכל ההכנסות − תשומות עם חשבונית</div></td><td>' + money(-V.due, { cents: true, tone: 'open' }) + '<div><button class="btn small" data-sdrill="vat">פירוט</button></div></td></tr>' : '') +
+    return (V.due > 0 ? '<tr><td class="num">—</td><td class="wide">מע״מ ' + V.period + '<div class="hint">דו-חודשי · דיווח ב-' + mLabel(V.report) + ' · מכל ההכנסות − תשומות עם חשבונית</div></td><td>' + money(-V.due, { cents: true, tone: 'open' }) + '<div><button class="btn small" data-sdrill="vat">פירוט</button></div></td></tr>' : '') +
       (B0.owed ? '<tr><td class="num">' + dLabel(nx) + '</td><td class="wide">חלוקה לניסים</td><td>' + money(-B0.owed, { cents: true, tone: 'open' }) + '</td></tr>' : ''); })();
   const tplBtn = (e) => !w ? '' : e.kind === 'payroll' ? '<button class="btn small" data-act="settleAdd" data-kind="payrollGo" data-m="' + m + '">לשכר</button>'
     : e.kind === 'leads' ? '<button class="btn small" data-act="settleAdd" data-kind="leadsPay" data-sup="' + esc(e.sup) + '" data-m="' + m + '">+ תשלום</button>'
@@ -9999,7 +10004,7 @@ function vSettle() {
       line('יתרה בסוף החודש', r.closing, null, r.closing > 0 ? 'expected' : 'committed', true) + (r.transfer ? line('להעביר לניסים עד ה-10', r.transfer, null, 'open', true) : '') +
       (D.pending.length ? line('מקדמות שעוד לא חויבו', D.pendingSum, 'pending', 'expected') : '') + (D.skipped.length ? line('לא נכנס לחישוב', D.skipped.reduce((a, t) => a + n(t.net), 0), 'skipped', 'muted') : '') +
     '</tbody></table></div><p class="hint" style="margin-top:8px">יתרה חיובית = ניסים קיבל מקדמות ביותר מחלקו, והיתרה מתקזזת מהרווח של החודשים הבאים. הוצאות ישירות נספרות בחודש שבו שולמו (החלטת דן 24/09).</p></section>' +
-    '<section class="card" id="settleDrillCard"><header><h2>' + esc({ owe: 'כסף שאני חייב להוציא', back: 'מקדמות לניסים — יצא וצריך לחזור', dist: 'מקדמות החודש מול חלקו של ניסים', vat: 'מע״מ ' + mLabel(m) + ' — תקבולים, והוצאות שמחכות לחשבונית' }[drill] || sec.title) + '</h2><span class="pill muted">' + ((drill === 'pending' ? D.pending.length : (src || []).length) + ((tplRows + oweRows).match(/<tr>/g) || []).length) + '</span><span class="grow"></span>' + settleAddBtns(drill, m) + '</header>' +
+    '<section class="card" id="settleDrillCard"><header><h2>' + esc({ owe: 'כסף שאני חייב להוציא', back: 'מקדמות לניסים — יצא וצריך לחזור', dist: 'מקדמות החודש מול חלקו של ניסים', vat: 'מע״מ ' + vatPeriod(m).label + ' (דו-חודשי) — תקבולים, והוצאות שמחכות לחשבונית' }[drill] || sec.title) + '</h2><span class="pill muted">' + ((drill === 'pending' ? D.pending.length : (src || []).length) + ((tplRows + oweRows).match(/<tr>/g) || []).length) + '</span><span class="grow"></span>' + settleAddBtns(drill, m) + '</header>' +
       (tplRows + oweRows + drillRows ? '<div class="scroll"><table><tbody>' + tplRows + oweRows + drillRows + '</tbody></table></div>' : '<p class="empty">אין שורות</p>') + '</section></div>' +
     '<section class="card"><header><h2>כל החודשים</h2></header><div class="scroll"><table><thead><tr><th>חודש</th><th>הכנסות</th><th>קבועות</th><th>ישירות</th><th>רווח לחלוקה</th><th>חלקו</th><th>מקדמות</th><th>יתרה</th><th>להעביר</th></tr></thead><tbody>' +
       card.map((x) => '<tr class="clickable" data-sm="' + x.month + '"><td>' + mLabel(x.month) + '</td><td>' + money(x.income, { tone: 'actual' }) + '</td><td>' + money(-x.fixed) + '</td><td>' + money(-x.direct) + '</td><td>' + money(x.distributable, { tone: x.distributable < 0 ? 'open' : 'committed' }) + '</td><td>' + money(x.share, { tone: 'committed' }) + '</td><td>' + money(x.adv, { tone: 'muted' }) + '</td><td><b>' + money(x.closing, { tone: x.closing > 0 ? 'expected' : 'committed' }) + '</b></td><td>' + (x.transfer ? money(x.transfer, { tone: 'open' }) : '') + '</td></tr>').join('') +
