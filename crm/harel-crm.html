@@ -9737,6 +9737,9 @@ async function settleMail(m) {
 /* "השורה התחתונה" בראש ההתחשבנות: כמה ניסים חייב (או חייבים לו), ונקודות האיזון של החודש — במילים, עם החישוב */
 function settleBottomLine(D, m) {
   const r = D.r, p = n(S.settings.nissimPct || 0.5), pc = Math.round(p * 100), i = D.card.findIndex((x) => x.month === m), poolBefore = (S.settings.lossSharing === 'dan_first' && i > 0) ? n(D.card[i - 1].pool) : 0;
+  /* רטרו (דן 27/10): חוב מחודשים קודמים עובר הלאה עד שמתקזז לגמרי — מאיזה חודש הוא נצבר */
+  let k = i; while (k > 0 && D.card[k].opening > 0) k--;
+  const since = r.opening > 0 ? D.card[k].month : null;
   const B = settleBreakEven(r, p, poolBefore), gap = (v) => v >= 0 ? '<span class="m actual">מעל ב-' + plain(v) + '</span>' : '<span class="m open">חסרים ' + plain(-v) + '</span>';
   const debt = B.owes ? '<div class="sbl-big">ניסים חייב לחברה <b>' + money(B.owes, { tone: 'expected' }) + '</b></div><p class="hint" style="margin:2px 0 0">המקדמות שקיבל עד סוף ' + mLabel(m) + ' (' + plain(D.totAdv) + ') גדולות מחלקו ברווח (' + plain(D.totShare) + '). לא מעבירים כסף — זה מתקזז מהרווחים הבאים.' + (D.pendingSum ? ' עם המקדמות שעוד לא חויבו: ' + plain(D.projected) + '.' : '') + '</p>'
     : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">להעביר עד 10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
@@ -9745,7 +9748,7 @@ function settleBottomLine(D, m) {
     '<div class="grid2" style="margin-top:10px;gap:10px">' +
       '<div class="sbl-be"><b>נקודת האיזון של העסק</b><div class="sbl-n">' + plain(B.business) + '</div><p class="hint" style="margin:0">כמה צריך להכניס (נטו) כדי לא להפסיד: קבועות ' + plain(r.fixed) + ' + ישירות ' + plain(r.direct) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.businessGap) + '.</p></div>' +
       '<div class="sbl-be"><b>נקודת ה-0 של ניסים</b><div class="sbl-n">' + plain(B.zero) + '</div><p class="hint" style="margin:0">מאיזה סכום הכנסות ניסים מתחיל לקבל כסף: קודם העלויות ' + plain(B.costs) + (r.reserve || r.released || poolBefore ? ' (כולל שריון / שחרור' + (poolBefore ? ' והחזר לדן ' + plain(poolBefore) : '') + ')' : '') +
-        ', ואז החזרת המקדמות כמו משיכת רווח — חוב מקדמות ' + plain(B.debt) + (r.opening ? ' (מהחודשים הקודמים ' + plain(r.opening) + ' + החודש ' + plain(r.adv) + ')' : '') + ' ÷ ' + pc + '% = ' + plain(r2(B.debt / (p > 0 ? p : 0.5))) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.zeroGap) + '.' + (B.above > 0 ? ' מעל נקודת ה-0 — ניסים מקבל ' + plain(B.above) + '.' : ' מעליה — ניסים מקבל ' + pc + '% מכל שקל.') + '</p></div>' +
+        ', ואז החזרת המקדמות כמו משיכת רווח — חוב מקדמות ' + plain(B.debt) + (r.opening ? ' (נצבר מ-' + mLabel(since || m) + ': ' + plain(r.opening) + ' + החודש ' + plain(r.adv) + ' — עובר הלאה עד שמתקזז לגמרי)' : '') + ' ÷ ' + pc + '% = ' + plain(r2(B.debt / (p > 0 ? p : 0.5))) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.zeroGap) + '.' + (B.above > 0 ? ' מעל נקודת ה-0 — ניסים מקבל ' + plain(B.above) + '.' : ' מעליה — ניסים מקבל ' + pc + '% מכל שקל.') + '</p></div>' +
     '</div>' + '</section>';
 }
 function vSettle() {
