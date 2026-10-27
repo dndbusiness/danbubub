@@ -5,6 +5,7 @@
  * SLNG מדומה (שרת מקומי). נתונים סינתטיים בלבד. מנקה אחריו.
  *
  *   השרת רץ עם: SLNG_FORM_URL=http://127.0.0.1:4599/form SLNG_FIELD_NAME=fn SLNG_FIELD_PHONE=fp SLNG_FIELD_LINK=fl
+ *   או במצב API: SLNG_API_USER=e2e SLNG_API_PASSWORD=e2e SLNG_FROM=0500000000 SLNG_API_URL=http://127.0.0.1:4599/api
  *   BASE_URL=http://localhost:3000 CHROMIUM=/opt/pw-browsers/chromium node scripts/e2e-sign-sms.mjs
  */
 import { chromium } from 'playwright'
@@ -22,9 +23,14 @@ const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); throw new Error(m) } console.log(`✓ ${m}`) }
 const CLIENT = 'e2e-sms-client'
 
-// SLNG מדומה: אוסף את הרישומים (multipart)
+// SLNG מדומה: טופס (multipart) או API (JSON, SendSmsJsonBody — דן 27/10). שני המצבים נבדקים באותן הבטחות.
 const posts = []
 const slng = createServer((req, res) => { const ch = []; req.on('data', (c) => ch.push(c)); req.on('end', async () => {
+  if (/json/.test(req.headers['content-type'] || '')) {
+    const j = JSON.parse(Buffer.concat(ch).toString('utf8')), body = String(j.MsgBody || '')
+    posts.push({ path: req.url, api: true, user: j.Username, from: j.FromMobile, fn: (body.match(/^שלום (\S+),/) || [])[1], fp: (j.Mobiles || [])[0]?.Mobile, fl: (body.match(/(https?:\/\/\S+)/) || [])[1], body })
+    res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ Status: true, Description: 'Command received successfully', GeneralGUID: 'e2e-guid' }))
+  }
   const fd = await new Request('http://x', { method: 'POST', headers: { 'content-type': req.headers['content-type'] }, body: Buffer.concat(ch) }).formData()
   posts.push({ path: req.url, fn: fd.get('fn'), fp: fd.get('fp'), fl: fd.get('fl') }); res.writeHead(200); res.end('ok') }) })
 await new Promise((ok) => slng.listen(4599, '127.0.0.1', ok))
@@ -57,7 +63,7 @@ try {
   step('"שלח ב-SMS" → SLNG מקבל שם פרטי, נייד 05… והקישור')
   await page.click('.drawer [data-signsms="0"]'); await page.waitForTimeout(2500)
   const link = await page.evaluate(() => S.signLast.links[0].url)
-  assert(posts.length === 1 && posts[0].fn === 'דנה' && posts[0].fp === '0521234567' && posts[0].fl === link && /\/s\/[\w-]+$/.test(link), 'SLNG קיבל: דנה · 0521234567 · ' + link)
+  assert(posts.length === 1 && posts[0].fn === 'דנה' && posts[0].fp === '0521234567' && posts[0].fl === link && /\/s\/[\w-]+$/.test(link), 'SLNG קיבל' + (posts[0].api ? ' (API, שולח ' + posts[0].from + ')' : ' (טופס)') + ': דנה · 0521234567 · ' + link)
   assert(/נשלח ב-SMS/.test(await page.locator('.drawer [data-signsms="0"]').innerText()), 'הכפתור: "נשלח ב-SMS ✓"')
   const [o] = await sql`select status, target from outbox where channel = 'sms' and dedup_key like 'sign-sms:%' order by created_at desc limit 1`
   assert(o && o.status === 'sent' && o.target === '0521234567', 'בתור היציאה: sms, נשלח')
