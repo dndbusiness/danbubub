@@ -1397,6 +1397,8 @@ details.card > summary::before { content: '▸'; color: var(--text-2); }
 details.card[open] > summary::before { content: '▾'; }
 details.card[open] > summary { margin-bottom: 10px; }
 .card.ctasks h2 { font-size: 17px; }
+.sbl .sbl-big { font-size: 20px; } .sbl .sbl-big b { font-size: 24px; }
+.sbl-be { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; } .sbl-be .sbl-n { font-size: 20px; font-weight: 700; margin: 2px 0 4px; }
 .card.chmgmt { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; margin: 0; }
 .chmgmt > .row { align-items: flex-end; }
 /* ציר התהליך */
@@ -9642,6 +9644,20 @@ const VAT_LBL = { plus: '+ מע״מ', incl: 'כולל מע״מ', none: 'בלי �
 const isConfirmed = (t) => t.confirmed === true;
 const PLAN_KIND = { advance: 'מקדמה לניסים', card: 'חיוב כרטיס אשראי', loan: 'הלוואה', debt: 'התחייבות', clearing: 'סליקת אשראי', other: 'אחר' };
 
+/* ══ נקודת איזון בהתחשבנות עם ניסים (דן, 27/10: "כמה ניסים חייב ומה נקודת האיזון — הדוח לא ברור") ══
+   r — שורת החודש מ-nissimCard(); p — החלק של ניסים (0.5); poolBefore — מה שדן מימן בהפסדים ועוד לא חזר (רק ב-dan_first).
+   business — כמה צריך להכניס (נטו) בחודש כדי לא להפסיד: הקבועות + הישירות.
+   nissim — כמה צריך להכניס כדי שחלקו של ניסים יכסה את המקדמות שקיבל בחודש (החוב לא גדל):
+            רווח לחלוקה (אחרי שריון / שחרור, ואחרי החזר לדן) × p = מקדמות.
+   clearAll — כמה עוד רווח לחלוקה צריך (מעבר לנקודת האיזון) כדי לסגור את כל החוב: חוב ÷ p. טהור — נבדק ב-tests/crm-settle.test.ts */
+function settleBreakEven(r, p, poolBefore = 0) {
+  const r2_ = (x) => Math.round(x * 100) / 100, pp = p > 0 ? p : 0.5;
+  const business = r2_(r.fixed + r.direct);
+  const nissim = r2_(business - (r.released || 0) + (r.reserve || 0) + (poolBefore || 0) + r.adv / pp);
+  const owes = r2_(Math.max(0, r.closing)), owed = r2_(Math.max(0, -r.closing));
+  return { business, businessGap: r2_(r.income - business), nissim, nissimGap: r2_(r.income - nissim), owes, owed, clearAll: r2_(owes / pp) };
+}
+/* ══ סוף נקודת איזון ══ */
 /* ── התחשבנות עם ניסים: מה נכנס → פחות קבועות → פחות ישירות (1–30 לפי חודש התשלום) → רווח → חלקו → פחות מקדמות ── */
 function settleData(m) {
   const card = nissimCard(), i = card.findIndex((r) => r.month === m), r = card[i];
@@ -9715,6 +9731,19 @@ async function settleMail(m) {
   const res = await sendMail({ to: [mailOf(S.me.id) || mailOf(ownerFallback())], subject: '[הר-אל] ' + R.title + (R.status === 'draft' ? ' (טיוטה)' : ''), html: settleHtml(R), kind: 'settle', ref: m });
   toast(res.ok ? 'הדוח נשלח' : 'הדוח לא נשלח: ' + res.why);
 }
+/* "השורה התחתונה" בראש ההתחשבנות: כמה ניסים חייב (או חייבים לו), ונקודות האיזון של החודש — במילים, עם החישוב */
+function settleBottomLine(D, m) {
+  const r = D.r, p = n(S.settings.nissimPct || 0.5), pc = Math.round(p * 100), i = D.card.findIndex((x) => x.month === m), poolBefore = (S.settings.lossSharing === 'dan_first' && i > 0) ? n(D.card[i - 1].pool) : 0;
+  const B = settleBreakEven(r, p, poolBefore), gap = (v) => v >= 0 ? '<span class="m actual">מעל ב-' + plain(v) + '</span>' : '<span class="m open">חסרים ' + plain(-v) + '</span>';
+  const debt = B.owes ? '<div class="sbl-big">ניסים חייב לחברה <b>' + money(B.owes, { tone: 'expected' }) + '</b></div><p class="hint" style="margin:2px 0 0">המקדמות שקיבל עד סוף ' + mLabel(m) + ' (' + plain(D.totAdv) + ') גדולות מחלקו ברווח (' + plain(D.totShare) + '). לא מעבירים כסף — זה מתקזז מהרווחים הבאים.' + (D.pendingSum ? ' עם המקדמות שעוד לא חויבו: ' + plain(D.projected) + '.' : '') + '</p>'
+    : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">להעביר עד 10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
+    : '<div class="sbl-big">מאוזן — אף צד לא חייב</div>';
+  return '<section class="card sbl"><header><h2>השורה התחתונה · ' + mLabel(m) + '</h2>' + (D.status === 'draft' ? '<span class="pill expected">טיוטה — יש תקבולים שלא אושרו או שהחודש עוד לא נגמר</span>' : '<span class="pill actual">סופי</span>') + '</header>' + debt +
+    '<div class="grid2" style="margin-top:10px;gap:10px">' +
+      '<div class="sbl-be"><b>נקודת האיזון של החודש</b><div class="sbl-n">' + plain(B.business) + '</div><p class="hint" style="margin:0">כמה צריך להכניס (נטו) כדי לא להפסיד: קבועות ' + plain(r.fixed) + ' + ישירות ' + plain(r.direct) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.businessGap) + '.</p></div>' +
+      '<div class="sbl-be"><b>נקודת האיזון של ניסים</b><div class="sbl-n">' + plain(B.nissim) + '</div><p class="hint" style="margin:0">כמה צריך להכניס כדי שחלקו (' + pc + '%) יכסה את המקדמות שקיבל החודש (' + plain(r.adv) + ') — והחוב לא יגדל' + (r.reserve || r.released ? ' (כולל שריון / שחרור)' : '') + (poolBefore ? ' (כולל ' + plain(poolBefore) + ' שחוזרים קודם לדן)' : '') + '. נכנס ' + plain(r.income) + ' — ' + gap(B.nissimGap) + '.</p></div>' +
+    '</div>' + (B.owes ? '<p class="hint" style="margin:8px 0 0">כדי לסגור את כל החוב צריך עוד <b>' + plain(B.clearAll) + '</b> רווח לחלוקה מעבר לנקודת האיזון של ניסים (החוב ÷ ' + pc + '%).</p>' : '') + '</section>';
+}
 function vSettle() {
   const card = nissimCard();
   if (!card.length) return '<p class="empty">אין נתונים</p>';
@@ -9735,6 +9764,7 @@ function vSettle() {
       (w && D.unconfirmed.length ? '<button class="btn primary" data-act="confirmMonth">אשר את כל תקבולי החודש (' + D.unconfirmed.length + ')</button>' : '') +
       (w ? '<button class="btn primary" data-act="nissimEntry">+ רישום מול ניסים</button>' : '') + '<button class="btn" data-act="settleXlsx">דוח לאקסל</button><button class="btn" data-act="settleMail">שלח לי במייל</button></div>' +
     '<div class="notice ' + (r.closing > 0 ? 'warn' : 'ok') + '"><b>' + (r.closing > 0 ? 'עוד לא התקזזנו' : 'התקזזנו') + '</b><span>' + esc(D.statusText) + (D.pendingSum ? ' כולל המקדמות שעוד לא חויבו (' + plain(D.pendingSum) + '): ' + plain(D.projected) + '.' : '') + '</span></div>' +
+    settleBottomLine(D, m) +
     '<div class="grid4">' +
       kpi('נכנס בחודש · ' + mLabel(m), money(r.income, { tone: 'actual' }), (D.income.length - D.unconfirmed.length) + ' מתוך ' + D.income.length + ' תקבולים אושרו', null, D.unconfirmed.length ? 'expected' : '') +
       kpi('רווח לחלוקה', money(r.distributable, { tone: r.distributable < 0 ? 'open' : 'committed' }), 'אחרי קבועות ' + plain(r.fixed) + ' וישירות ' + plain(r.direct), null) +
