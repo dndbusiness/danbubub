@@ -9644,18 +9644,21 @@ const VAT_LBL = { plus: '+ מע״מ', incl: 'כולל מע״מ', none: 'בלי �
 const isConfirmed = (t) => t.confirmed === true;
 const PLAN_KIND = { advance: 'מקדמה לניסים', card: 'חיוב כרטיס אשראי', loan: 'הלוואה', debt: 'התחייבות', clearing: 'סליקת אשראי', other: 'אחר' };
 
-/* ══ נקודת איזון בהתחשבנות עם ניסים (דן, 27/10: "כמה ניסים חייב ומה נקודת האיזון — הדוח לא ברור") ══
-   r — שורת החודש מ-nissimCard(); p — החלק של ניסים (0.5); poolBefore — מה שדן מימן בהפסדים ועוד לא חזר (רק ב-dan_first).
-   business — כמה צריך להכניס (נטו) בחודש כדי לא להפסיד: הקבועות + הישירות.
-   nissim — כמה צריך להכניס כדי שחלקו של ניסים יכסה את המקדמות שקיבל בחודש (החוב לא גדל):
-            רווח לחלוקה (אחרי שריון / שחרור, ואחרי החזר לדן) × p = מקדמות.
-   clearAll — כמה עוד רווח לחלוקה צריך (מעבר לנקודת האיזון) כדי לסגור את כל החוב: חוב ÷ p. טהור — נבדק ב-tests/crm-settle.test.ts */
+/* ══ נקודת איזון בהתחשבנות עם ניסים (דן, 27/10) ══
+   "מאיזה סכום הוא מתחיל לקבל כסף: קודם סוגרים את העלויות (קבועות + ישירות), והמקדמה היא כמו משיכת רווח —
+    צריך להחזיר אותו רווח. חייב 50,000 במקדמות, עלויות 30,000 → 30,000 + 50,000 ÷ 50% = 130,000 = נקודת ה-0."
+   r — שורת החודש מ-nissimCard() (opening = החוב בתחילת החודש, adv = מקדמות החודש); p — החלק של ניסים;
+   poolBefore — מה שדן מימן בהפסדים ועוד לא חזר אליו (רק ב-dan_first).
+   business — נקודת האיזון של העסק: קבועות + ישירות.
+   zero — נקודת ה-0 של ניסים: העלויות + החוב (פתיחה + מקדמות החודש) ÷ p, כולל שריון / שחרור והחזר לדן.
+          מעל zero — ניסים מקבל p מכל שקל נוסף. טהור — נבדק ב-tests/crm-settle.test.ts */
 function settleBreakEven(r, p, poolBefore = 0) {
   const r2_ = (x) => Math.round(x * 100) / 100, pp = p > 0 ? p : 0.5;
-  const business = r2_(r.fixed + r.direct);
-  const nissim = r2_(business - (r.released || 0) + (r.reserve || 0) + (poolBefore || 0) + r.adv / pp);
-  const owes = r2_(Math.max(0, r.closing)), owed = r2_(Math.max(0, -r.closing));
-  return { business, businessGap: r2_(r.income - business), nissim, nissimGap: r2_(r.income - nissim), owes, owed, clearAll: r2_(owes / pp) };
+  const business = r2_(r.fixed + r.direct), debt = r2_(Math.max(0, (r.opening || 0) + r.adv));
+  const costs = r2_(business - (r.released || 0) + (r.reserve || 0) + (poolBefore || 0));
+  const zero = r2_(costs + debt / pp);
+  return { business, businessGap: r2_(r.income - business), costs, debt, zero, zeroGap: r2_(r.income - zero), above: r2_(Math.max(0, r.income - zero) * pp),
+    owes: r2_(Math.max(0, r.closing)), owed: r2_(Math.max(0, -r.closing)) };
 }
 /* ══ סוף נקודת איזון ══ */
 /* ── התחשבנות עם ניסים: מה נכנס → פחות קבועות → פחות ישירות (1–30 לפי חודש התשלום) → רווח → חלקו → פחות מקדמות ── */
@@ -9740,9 +9743,10 @@ function settleBottomLine(D, m) {
     : '<div class="sbl-big">מאוזן — אף צד לא חייב</div>';
   return '<section class="card sbl"><header><h2>השורה התחתונה · ' + mLabel(m) + '</h2>' + (D.status === 'draft' ? '<span class="pill expected">טיוטה — יש תקבולים שלא אושרו או שהחודש עוד לא נגמר</span>' : '<span class="pill actual">סופי</span>') + '</header>' + debt +
     '<div class="grid2" style="margin-top:10px;gap:10px">' +
-      '<div class="sbl-be"><b>נקודת האיזון של החודש</b><div class="sbl-n">' + plain(B.business) + '</div><p class="hint" style="margin:0">כמה צריך להכניס (נטו) כדי לא להפסיד: קבועות ' + plain(r.fixed) + ' + ישירות ' + plain(r.direct) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.businessGap) + '.</p></div>' +
-      '<div class="sbl-be"><b>נקודת האיזון של ניסים</b><div class="sbl-n">' + plain(B.nissim) + '</div><p class="hint" style="margin:0">כמה צריך להכניס כדי שחלקו (' + pc + '%) יכסה את המקדמות שקיבל החודש (' + plain(r.adv) + ') — והחוב לא יגדל' + (r.reserve || r.released ? ' (כולל שריון / שחרור)' : '') + (poolBefore ? ' (כולל ' + plain(poolBefore) + ' שחוזרים קודם לדן)' : '') + '. נכנס ' + plain(r.income) + ' — ' + gap(B.nissimGap) + '.</p></div>' +
-    '</div>' + (B.owes ? '<p class="hint" style="margin:8px 0 0">כדי לסגור את כל החוב צריך עוד <b>' + plain(B.clearAll) + '</b> רווח לחלוקה מעבר לנקודת האיזון של ניסים (החוב ÷ ' + pc + '%).</p>' : '') + '</section>';
+      '<div class="sbl-be"><b>נקודת האיזון של העסק</b><div class="sbl-n">' + plain(B.business) + '</div><p class="hint" style="margin:0">כמה צריך להכניס (נטו) כדי לא להפסיד: קבועות ' + plain(r.fixed) + ' + ישירות ' + plain(r.direct) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.businessGap) + '.</p></div>' +
+      '<div class="sbl-be"><b>נקודת ה-0 של ניסים</b><div class="sbl-n">' + plain(B.zero) + '</div><p class="hint" style="margin:0">מאיזה סכום הכנסות ניסים מתחיל לקבל כסף: קודם העלויות ' + plain(B.costs) + (r.reserve || r.released || poolBefore ? ' (כולל שריון / שחרור' + (poolBefore ? ' והחזר לדן ' + plain(poolBefore) : '') + ')' : '') +
+        ', ואז החזרת המקדמות כמו משיכת רווח — חוב מקדמות ' + plain(B.debt) + (r.opening ? ' (מהחודשים הקודמים ' + plain(r.opening) + ' + החודש ' + plain(r.adv) + ')' : '') + ' ÷ ' + pc + '% = ' + plain(r2(B.debt / (p > 0 ? p : 0.5))) + '. נכנס ' + plain(r.income) + ' — ' + gap(B.zeroGap) + '.' + (B.above > 0 ? ' מעל נקודת ה-0 — ניסים מקבל ' + plain(B.above) + '.' : ' מעליה — ניסים מקבל ' + pc + '% מכל שקל.') + '</p></div>' +
+    '</div>' + '</section>';
 }
 function vSettle() {
   const card = nissimCard();
