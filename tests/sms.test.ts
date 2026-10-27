@@ -35,9 +35,10 @@ describe('SMS ללקוח (SLNG, דן 21/10)', () => {
     await expect(sendSlng(cfg, { name: 'א', phone: '0521234567', link: 'x' }, bad)).rejects.toThrow(/SLNG 500/)
     await expect(sendSlng(cfg, { name: 'א', phone: '031234567', link: 'x' }, ok)).rejects.toThrow(/נייד/)
   })
-  it('הנוסח: שם פרטי, הקישור, טלפון המשרד — והאורך זהה ל-smsLength', () => {
+  it('הנוסח: שם פרטי והקישור, בלי מספר לשאלות (דן 27/10) — והאורך זהה ל-smsLength', () => {
     const link = 'https://danbubub.vercel.app/s/abc'
-    expect(smsText('דנה כהן', link)).toBe('שלום דנה, מצורף מסמך לחתימה מהראל: ' + link + ' לשאלות: 053-3351395')
+    expect(smsText('דנה כהן', link)).toBe('שלום דנה, מצורף מסמך לחתימה מהראל: ' + link)
+    expect(smsText('דנה כהן', link)).not.toMatch(/לשאלות|\d{3}-\d{7}/)
     expect(smsText('דנה כהן', link).length).toBe(smsLength('דנה כהן', link))
   })
 })

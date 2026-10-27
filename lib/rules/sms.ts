@@ -1,6 +1,6 @@
 /**
- * SMS ללקוח עם קישור לחתימה — דרך SLNG (דן, 21/10). הנוסח עצמו יושב ב-SLNG (מענה אוטומטי לקבוצה
- * "שליחת מסמכים - מערכת הראל"): "שלום [שם], מצורף מסמך לחתימה מהראל: [קישור] לשאלות: 053-3351395".
+ * SMS ללקוח עם קישור לחתימה — דרך SLNG (דן, 21/10). הנוסח (ב-API: "שלום [שם], מצורף מסמך לחתימה מהראל: [קישור]" —
+ * בלי מספר לשאלות, דן 27/10; בטופס הנוסח יושב במענה האוטומטי בקבוצה "שליחת מסמכים - מערכת הראל").
  * כאן — הכללים הטהורים: טלפון נייד ישראלי, שם פרטי, ואורך ההודעה.
  */
 /** "052-123-4567" / "+972521234567" / "972521234567" → "0521234567"; לא נייד ישראלי → null */
@@ -14,8 +14,8 @@ export const firstName = (name: string | null | undefined) => String(name ?? '')
 
 /** מגבלת SLNG להודעה; החלק הקבוע של הנוסח בלי השם והקישור */
 export const SMS_LIMIT = 268
-const FIXED = 'שלום , מצורף מסמך לחתימה מהראל:  לשאלות: 053-3351395'
-/** הנוסח — אותו נוסח כמו המענה האוטומטי ב-SLNG; נשלח כך כשהחיבור הוא ב-API (דן 27/10) */
-export const smsText = (name: string, link: string) => `שלום ${firstName(name)}, מצורף מסמך לחתימה מהראל: ${link} לשאלות: 053-3351395`
+const FIXED = 'שלום , מצורף מסמך לחתימה מהראל: '
+/** הנוסח כשהחיבור הוא ב-API (דן 27/10) — בלי מספר לשאלות */
+export const smsText = (name: string, link: string) => `שלום ${firstName(name)}, מצורף מסמך לחתימה מהראל: ${link}`
 export const smsLength = (name: string, link: string) => FIXED.length + firstName(name).length + link.length
 export const smsFits = (name: string, link: string) => smsLength(name, link) <= SMS_LIMIT
