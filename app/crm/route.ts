@@ -51,6 +51,7 @@ export async function GET() {
     '<link rel="icon" href="/crm-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/crm-apple-touch-icon.png">' +
     '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="הר-אל">' +
     // מצב המערכת לדף: לפני המעבר (mirror) הדף בשרת לא מסנכרן טבלאות ולא מגבה — הדף ב-Claude עושה את זה
-    '<script>window.__CRM_MODE=' + JSON.stringify(mode) + '</script><script src="/crm-shim.js"></script>' + page + banner
+    // הגרסה שרצה (Vercel ממלא את ה-SHA) — מוצגת בכספים, כדי לדעת בדיוק איזו גרסה דן רואה
+    '<script>window.__CRM_MODE=' + JSON.stringify(mode) + ';window.__CRM_VERSION=' + JSON.stringify(String(process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7)) + '</script><script src="/crm-shim.js"></script>' + page + banner
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
 }
