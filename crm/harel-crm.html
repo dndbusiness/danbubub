@@ -7981,7 +7981,8 @@ async function parseLeadFile(file) {
   for (const [k, keys] of Object.entries(IMPORT_KEYS)) map[k] = head.findIndex((h) => !(IMPORT_NOT[k] || []).some((x) => h.includes(x.toLowerCase())) && keys.some((x) => h === x.toLowerCase() || h.includes(x.toLowerCase())));
   Object.keys(map).forEach((k) => { if (map[k] < 0) map[k] = null; });
   if (map.name == null && map.phone == null) { toast('לא זוהו עמודות שם או טלפון'); return; }
-  const existing = new Map(live(S.leads).map((l) => [normPhone(l.phone) + '|' + (l.campaign || ''), l]));
+  /* בלי עמודת קמפיין (למשל ייצוא לידים מפייסבוק: Created, Name, Email, Phone) — ליד קיים לפי הטלפון בלבד, אחרת כל ליד שכבר נכנס מהטבלה היה נוצר שוב */
+  const existing = new Map(live(S.leads).map((l) => [normPhone(l.phone) + '|' + (map.campaign == null ? '' : l.campaign || ''), l]));
   const div = S.view.tab === 'marketing' ? screenDiv('mktDiv') : S.division !== 'all' ? S.division : (S.allowedDivs || DIVS)[0];
   /* עמודות שלא זוהו (למשל שאלות מדף הנחיתה: "מהו טווח ההון העצמי…", "האם יש דירה בבעלותך?") — נשמרות כתשובות בכרטיס */
   const used = new Set(Object.values(map).filter((v) => v != null)), extra = rows[hi].map((h, i) => [String(h).trim(), i]).filter(([h, i]) => h && !used.has(i) && !/^(id|#|מס['׳]?|מזהה)$/i.test(h)).slice(0, 20);
@@ -7995,9 +7996,13 @@ async function parseLeadFile(file) {
     const campaign = g('campaign'), sm = statusFromImport(div, g('status'), g('sub')), stage = sm.stage;
     const ownerTxt = g('owner'), owner = ownerTxt && ppl.find((p) => p.label === ownerTxt || p.label.split(' ')[0] === ownerTxt.split(' ')[0]);
     const answers = Object.fromEntries(extra.map(([h, i]) => [h, r[i] instanceof Date ? isoOf(r[i]) : String(r[i] ?? '').trim()]).filter(([, v]) => v));
-    const key = normPhone(phone) + '|' + campaign, ex = existing.get(key);
-    const rec = { name: name || phone, phone, email: g('email'), campaign, platform: g('platform'), marketer: g('marketer'), stage, value: n(String(g('value')).replace(/[^\d.]/g, '')) || null,
-      date: dateOf(g('date')) || today(), note: g('note'), city: g('city'), rawStatus: [g('status'), g('sub')].filter(Boolean).join(' · '), rawMain: g('status'), rawSub: g('sub'), resp: owner ? owner.key : null, landing: g('landing'), answers, exists: !!ex, exId: ex && ex.id, closes: ex && stage === 'won' && ex.stage !== 'won' };
+    const key = normPhone(phone) + '|' + (map.campaign == null ? '' : campaign), ex = existing.get(key);
+    /* דן 28/10: ייצוא מפייסבוק — "10/26/2026 1:13am" (חודש/יום, am/pm). dateOf קרא יום/חודש ונפל להיום */
+    const rawD = g('date'), usD = /\d{1,2}\/\d{1,2}\/\d{2,4}.*\b[ap]m\b/i.test(rawD) || (/^(\d{1,2})\/(\d{1,2})\//.test(rawD) && +rawD.split('/')[1] > 12);
+    const date0 = usD ? String(parseSheetDate({ w: rawD }, true) || '').slice(0, 10) : dateOf(rawD);
+    const np0 = normPhone(phone), phoneN = /^05\d{8}$/.test(np0) ? np0 : phone;
+    const rec = { name: name || phone, phone: phoneN, email: g('email'), campaign, platform: g('platform'), marketer: g('marketer'), stage, value: n(String(g('value')).replace(/[^\d.]/g, '')) || null,
+      date: date0 || today(), note: g('note'), city: g('city'), rawStatus: [g('status'), g('sub')].filter(Boolean).join(' · '), rawMain: g('status'), rawSub: g('sub'), resp: owner ? owner.key : null, landing: g('landing'), answers, exists: !!ex, exId: ex && ex.id, closes: ex && stage === 'won' && ex.stage !== 'won' };
     if (!ex) fresh++; else if (rec.closes) updates++;
     out.push(rec);
   }
