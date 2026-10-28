@@ -3581,8 +3581,9 @@ const screenFails = (ans) => SCREEN_RULES.filter(([q, bad]) => Object.entries(an
 async function syncLeadSheet(src, quiet, cache) {
   if (!S.mcp && !(cache && cache[src.fileId])) { if (!quiet) toast('אין חיבור לגוגל דרייב בתצוגה הזו'); return null; }
   let wb; try { wb = await sheetBook(src.fileId, cache); }
-  catch (e) { (S.lsErr = S.lsErr || {})[srcKey(src)] = (e && (e.code || e.message)) || 'שגיאה'; /* השומר מדווח למה */
-    if (!quiet) toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : e && e.code === 'empty' ? 'הטבלה חזרה ריקה' : 'לא הצלחתי לקרוא את הטבלה'); return null; }
+  catch (e) { (S.lsErr = S.lsErr || {})[srcKey(src)] = (e && (e.code || e.message)) ? [e.code, e.message].filter(Boolean).join(': ') : 'שגיאה'; /* השומר מדווח למה */
+    /* דן 28/10: בשרת זה חיבור הגוגל של המערכת (/settings), לא "אישור לדף" כמו ב-Claude — אומרים את הסיבה האמיתית */
+    if (!quiet) toast(window.__harelServer && e && /not_granted|server_not_connected|needs_reauth/.test(e.code || '') ? leadSyncWhy(S.lsErr[srcKey(src)]) : e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : e && e.code === 'empty' ? 'הטבלה חזרה ריקה' : 'לא הצלחתי לקרוא את הטבלה', 12000); return null; }
   const ws = wb.Sheets[src.sheet && wb.Sheets[src.sheet] ? src.sheet : wb.SheetNames[0]]; if (!ws) { (S.lsErr = S.lsErr || {})[srcKey(src)] = 'אין לשונית ' + (src.sheet || ''); return null; }
   if (S.lsErr) delete S.lsErr[srcKey(src)];
   const rng = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1'), cv = (c, row) => { const x = ws[c + row]; return x ? String(x.w ?? x.v ?? '').trim() : ''; };
@@ -3670,12 +3671,14 @@ function leadSyncBanner() {
   if (!errs.length && !mirror) return '';
   return '<div class="notice warn"><b>' + (errs.length ? 'הסנכרון מהטבלאות נכשל' : 'הסנכרון האוטומטי מהטבלאות כבוי כאן') + '</b><span>' +
     (errs.length ? errs.map(([s, e]) => esc(s.label || 'טבלה') + ': ' + esc(leadSyncWhy(e))).join(' · ') : 'המערכת עדיין ב"מצב שכפול" — הדף ב-Claude מסנכרן. כדי שיסתנכרן מכאן לבד: בפס התחתון ← "עוברים לעבוד מכאן".') +
-    '</span><button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' + leadSources().map(lsUpload).join('') + '</div>';
+    '</span>' + (window.__harelServer ? '<a class="btn small" href="/settings" target="_blank" rel="noopener">לחיבור גוגל</a>' : '') + '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' + leadSources().map(lsUpload).join('') + '</div>';
 }
 /* סיבת הכישלון בעברית — מה השרת / גוגל החזירו */
 function leadSyncWhy(e) {
   const t = String(e || '');
-  if (/not_granted|server_not_connected|Drive 40[13]|insufficient/i.test(t)) return 'גוגל לא מחובר עם הרשאה לדרייב, או שהטבלה לא משותפת עם החשבון המחובר — הגדרות ← "חבר את גוגל", ולוודא שאבינועם שיתף את הטבלה עם החשבון הזה';
+  const det = t.replace(/^[a-z_]+:\s*/, '');
+  if (/server_not_connected|needs_reauth/i.test(t)) return 'החיבור של המערכת לגוגל לא פעיל' + (det && det !== t ? ' (' + det + ')' : '') + ' — בהגדרות המערכת (danbubub.vercel.app/settings) ← "חשבון גוגל" ← "חבר את גוגל" (או "חבר מחדש / הוסף הרשאות"), עם V על "CRM — טבלאות הלידים"';
+  if (/not_granted|Drive 40[13]|insufficient/i.test(t)) return 'לחיבור לגוגל אין הרשאה לטבלה הזו' + (det && det !== t ? ' (' + det + ')' : '') + ' — בהגדרות המערכת ← "חבר מחדש / הוסף הרשאות" עם V על "CRM", ולוודא שהטבלה משותפת עם החשבון שמחובר שם';
   if (/Drive 404|notFound|not.?found/i.test(t)) return 'הטבלה לא נמצאה — אולי נמחקה, הוחלפה בטבלה חדשה, או לא משותפת. לבדוק שהקישור לטבלה עדכני ושהיא משותפת עם החשבון המחובר';
   if (/^empty$/.test(t)) return 'הטבלה חזרה ריקה';
   if (/^אין לשונית/.test(t)) return t + ' — שם הלשונית בטבלה השתנה';
