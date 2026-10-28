@@ -2679,7 +2679,7 @@ function vHomeBase() {
   const team = teamStats(t0.slice(0, 7));
   return '<div class="row"><div class="grow"><h1>לוח בקרה</h1><p class="hint">' + (last.month ? 'החודש האחרון עם נתונים: ' + mLabel(last.month) : 'אין עדיין נתונים') + '</p></div>' +
     (S.canWrite ? '<button class="btn primary" data-act="newClient">+ לקוח</button><button class="btn" data-act="newTx">+ תנועה</button><button class="btn" data-act="newTask">+ משימה</button>' : '') + '</div>' +
-    todayRow() + (S.division !== 'finance' ? rePotentialCard(true) : '') + '<h3 class="sec">החודש</h3>' +
+    todayRow() + homeFinCard() + (S.division !== 'finance' ? rePotentialCard(true) : '') + '<h3 class="sec">החודש</h3>' +
     '<div class="grid4 bento hero1">' +
       kpi(distLabel() + ' · ' + mLabel(last.month) + (distDiv() === 'realestate' && reCard().length ? ' · לשותף ' + plain(reCard().slice(-1)[0].each) : ''), money(last.distributable, { tone: last.distributable < 0 ? 'open' : 'committed' }), 'תפעולי ' + money(last.operational, { tone: 'muted' }), 'money') +
       kpi('פתוח לגביה', money(openMoney, { tone: 'expected' }), owing.length + ' לקוחות חייבים · ' + openClients.length + ' תיקים פתוחים', 'clients') +
@@ -3124,12 +3124,39 @@ function tasksHead(all) {
 }
 
 /* ═════════════════════════ כספים ═════════════════════════ */
+/* דן 28/10: "אני לא רואה דשבורד כמו שביקשתי" — דשבורד כספים של פתרונות מימון: הלשונית הראשונה בכספים.
+   אותם ריבועים, מפל וחישוב כמו בהתחשבנות (settleBottomLine), + מצב החשבוניות והמע״מ. לחיצה על ריבוע → הרשימה בהתחשבנות. */
+function vFinDash() {
+  const card = nissimCard();
+  if (!card.length) return '<section class="card"><p class="empty">אין עדיין נתונים לפתרונות מימון — תקבולים, הוצאות ומקדמות שנרשמים יופיעו כאן.</p></section>';
+  const m = settleMonthOf(card), R = settleReport(m), D = R.D, V = settleVat(m);
+  const tx = live(S.transactions).filter((t) => (t.division || 'finance') === 'finance');
+  const incNo = tx.filter((t) => t.nature === 'income' && t.invoice !== 'issued'), expNo = tx.filter((t) => t.nature === 'expense' && t.deductible !== false && !['has_invoice', 'received', 'no_invoice_needed'].includes(t.invoice));
+  const go = (sub, label) => '<button class="btn small ghost" data-books-go="' + sub + '">' + label + ' ←</button>';
+  return '<div class="row" style="flex-wrap:wrap;gap:8px;align-items:center"><div class="seg" role="group" aria-label="חודש">' + card.slice(-6).map((x) => '<button data-sm="' + x.month + '" aria-pressed="' + (x.month === m) + '">' + mLabel(x.month) + '</button>').join('') + '</div><span class="grow"></span>' +
+      '<button class="btn" data-money="settle">להתחשבנות המלאה ←</button></div>' +
+    settleBottomLine(D, m) +
+    '<section class="card"><header><h2>חשבוניות ומע״מ</h2><span class="grow"></span>' + go('invctl', 'בקרת חשבוניות') + go('vat', 'מע״מ ותקציב') + '</header><div class="grid4">' +
+      kpi('מע״מ לתשלום · ' + V.period, money(V.due, { tone: V.due > 0 ? 'open' : 'actual' }), 'דיווח ב-' + mLabel(V.report) + (V.wait ? ' · אם יגיעו ' + V.waitN + ' חשבוניות: ' + plain(V.best) : ''), null, V.due > 0 ? 'open' : '') +
+      kpi('הוצאות בלי חשבונית', '<span class="num">' + expNo.length + '</span>', plain(r2(expNo.reduce((a, t) => a + Math.abs(n(t.gross || t.net)), 0))) + ' · לבקש מהספקים', null, expNo.length ? 'open' : 'actual') +
+      kpi('תקבולים בלי חשבונית שהוצאה', '<span class="num">' + incNo.length + '</span>', plain(r2(incNo.reduce((a, t) => a + Math.abs(n(t.gross || t.net)), 0))), null, incNo.length ? 'open' : 'actual') +
+      kpi('נכנס החודש', money(D.r.income, { tone: 'actual' }), (D.income.length - D.unconfirmed.length) + ' מתוך ' + D.income.length + ' תקבולים אושרו', null, D.unconfirmed.length ? 'expected' : '') +
+    '</div></section>';
+}
+/* לוח הבקרה: הריבועים של הדשבורד, בקצרה (החודש האחרון עם נתונים) */
+function homeFinCard() {
+  if (S.division === 'realestate' || !(S.isOwner || S.isPartner)) return '';
+  const card = nissimCard(); if (!card.length) return '';
+  const m = settleMonthOf(card), D = settleReport(m).D, { B, FL } = settleCalc(D, m);
+  return '<div class="row" style="align-items:center;margin-top:14px"><h3 class="sec grow" style="margin:0">כספים · פתרונות מימון · ' + mLabel(m) + '</h3><button class="btn small ghost" data-go="money:dash">לדשבורד הכספים ←</button></div>' +
+    '<div class="sbl">' + settleTiles(D, B, m, FL) + settleOweTiles(D, B, m, FL) + '</div>';
+}
 function vMoney() {
-  const sub = S.f.money;
-  const tabs = '<div class="seg" role="group" aria-label="כספים">' + [['pnl', 'רווח והפסד'], ['forecast', 'צפי לפי תאריכים'], ['tx', 'תנועות'], ['cash', 'תזרים שבועי'], ['month', 'מפת החודש'], ['settle', S.division === 'realestate' ? 'התחשבנות שותפים' : 'התחשבנות'], ['fixed', 'הוצאות']]
-    .filter(([k]) => !S.isPartner || ['pnl', 'tx', 'settle'].includes(k)).map(([k, v]) => '<button data-money="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
-  const body = (S.isPartner && !['pnl', 'tx', 'settle'].includes(sub) ? null : { pnl: vPnl, forecast: vForecast, month: vMonthMap, tx: vTx, cash: vCash, settle: S.division === 'realestate' ? vSettleRE : vSettle, fixed: vExpenses }[sub]) || vPnl;
-  return '<div class="pghead mnyhead"><h1>כספים' + (sub === 'month' ? ' · מפת החודש' : '') + '</h1><span class="grow"></span>' + tabs + '</div>' + (S.isPartner && ['settle', 'tx'].includes(sub) ? partnerBar() : '') + body() + (S.division === 'realestate' && (sub || 'pnl') === 'pnl' ? finShareCard() : '');
+  const sub = S.f.money || (S.division === 'realestate' ? 'pnl' : 'dash');
+  const tabs = '<div class="seg" role="group" aria-label="כספים">' + [...(S.division === 'realestate' ? [] : [['dash', 'דשבורד']]), ['pnl', 'רווח והפסד'], ['forecast', 'צפי לפי תאריכים'], ['tx', 'תנועות'], ['cash', 'תזרים שבועי'], ['month', 'מפת החודש'], ['settle', S.division === 'realestate' ? 'התחשבנות שותפים' : 'התחשבנות'], ['fixed', 'הוצאות']]
+    .filter(([k]) => !S.isPartner || ['dash', 'pnl', 'tx', 'settle'].includes(k)).map(([k, v]) => '<button data-money="' + k + '" aria-pressed="' + (sub === k) + '">' + v + '</button>').join('') + '</div>';
+  const body = (S.isPartner && !['dash', 'pnl', 'tx', 'settle'].includes(sub) ? null : { dash: S.division === 'realestate' ? vPnl : vFinDash, pnl: vPnl, forecast: vForecast, month: vMonthMap, tx: vTx, cash: vCash, settle: S.division === 'realestate' ? vSettleRE : vSettle, fixed: vExpenses }[sub]) || vPnl;
+  return '<div class="pghead mnyhead"><h1>כספים' + (sub === 'month' ? ' · מפת החודש' : '') + (sub === 'dash' ? ' · דשבורד' : '') + '</h1><span class="grow"></span>' + tabs + '</div>' + (S.isPartner && ['settle', 'tx'].includes(sub) ? partnerBar() : '') + body() + (S.division === 'realestate' && (sub || 'pnl') === 'pnl' ? finShareCard() : '');
 }
 function vPnl() {
   const mixed = S.f.pnlMode === 'distributable' && S.division === 'all';
@@ -9799,13 +9826,19 @@ async function settleMail(m) {
   toast(res.ok ? 'הדוח נשלח' : 'הדוח לא נשלח: ' + res.why);
 }
 /* "השורה התחתונה" בראש ההתחשבנות: כמה ניסים חייב (או חייבים לו), ונקודות האיזון של החודש — במילים, עם החישוב */
-function settleBottomLine(D, m) {
+/* החישוב של "השורה התחתונה" — משותף להתחשבנות, לדשבורד הכספים וללוח הבקרה (אותם מספרים בכל מקום, הנחיה 20) */
+function settleCalc(D, m) {
   const r = D.r, p = n(S.settings.nissimPct || 0.5), pc = Math.round(p * 100), i = D.card.findIndex((x) => x.month === m), poolBefore = (S.settings.lossSharing === 'dan_first' && i > 0) ? n(D.card[i - 1].pool) : 0;
   /* רטרו (דן 27/10): חוב מחודשים קודמים עובר הלאה עד שמתקזז לגמרי — מאיזה חודש הוא נצבר */
   let k = i; while (k > 0 && D.card[k].opening > 0) k--;
   const since = r.opening > 0 ? D.card[k].month : null;
   const FL = settleFixedLeft(r, m), fx = FL.inFixed ? r.fixed : r2(r.fixed + FL.left);
-  const B = settleBreakEven(FL.inFixed ? r : { ...r, fixed: fx }, p, poolBefore), gap = (v) => v >= 0 ? '<span class="m actual">מעל ב-' + plain(v) + '</span>' : '<span class="m open">חסרים ' + plain(-v) + '</span>';
+  return { r, p, pc, poolBefore, since, FL, fx, B: settleBreakEven(FL.inFixed ? r : { ...r, fixed: fx }, p, poolBefore) };
+}
+/* החודש שמוצג בהתחשבנות ובדשבורד: מה שנבחר, אחרת החודש האחרון עם נתונים */
+const settleMonthOf = (card) => S.f.settleMonth && card.some((x) => x.month === S.f.settleMonth) ? S.f.settleMonth : card[card.length - 1].month;
+function settleBottomLine(D, m) {
+  const { r, p, pc, poolBefore, since, FL, fx, B } = settleCalc(D, m), gap = (v) => v >= 0 ? '<span class="m actual">מעל ב-' + plain(v) + '</span>' : '<span class="m open">חסרים ' + plain(-v) + '</span>';
   const debt = B.owes ? '<div class="sbl-big">ניסים חייב לחברה <b>' + money(B.owes, { tone: 'expected' }) + '</b></div><p class="hint" style="margin:2px 0 0">המקדמות שקיבל עד סוף ' + mLabel(m) + ' (' + plain(D.totAdv) + ') גדולות מחלקו ברווח (' + plain(D.totShare) + '). <b>אין חלוקה ב-10/' + addMonth(m + '-01').slice(5, 7) + '</b> — אין מאיפה לנכות חוב צובר. מחכים שיתאזן, והחשבון יהיה ב-10 של החודש שאחרי שהחוב מתאפס.' + (D.pendingSum ? ' עם המקדמות שעוד לא חויבו: ' + plain(D.projected) + '.' : '') + '</p>'
     : B.owed ? '<div class="sbl-big">החברה חייבת לניסים <b>' + money(B.owed, { tone: 'open' }) + '</b></div><p class="hint" style="margin:2px 0 0">חשבון וחלוקה ב-10/' + addMonth(m + '-01').slice(5, 7) + '. חלקו ברווח (' + plain(D.totShare) + ') גדול מהמקדמות שקיבל (' + plain(D.totAdv) + ').</p>'
     : '<div class="sbl-big">מאוזן — אף צד לא חייב</div>';
@@ -9964,7 +9997,7 @@ function settleAddBtns(drill, m) {
 function vSettle() {
   const card = nissimCard();
   if (!card.length) return '<p class="empty">אין נתונים</p>';
-  const m = S.f.settleMonth && card.some((x) => x.month === S.f.settleMonth) ? S.f.settleMonth : card[card.length - 1].month;
+  const m = settleMonthOf(card);
   const R = settleReport(m), D = R.D, r = D.r, w = S.canWrite, p = Math.round(n(S.settings.nissimPct || 0.5) * 100);
   const drill = S.f.settleDrill || 'income';
   const line = (label, v, key, tone, strong) => '<tr' + (key ? ' class="clickable" data-sdrill="' + key + '"' : '') + (strong ? ' style="font-weight:600"' : '') + '><td class="wide">' + label + (key ? ' <span class="hint">' + (drill === key ? '▾' : '›') + '</span>' : '') + '</td><td>' + money(v, { cents: true, tone }) + '</td></tr>';
@@ -12055,7 +12088,8 @@ document.addEventListener('click', async (e) => {
     if (d.cview) { S.f.clientView = d.cview; return render(); }
     if (d.books) { S.f.books = d.books; return render(); }
     if (d.intake) return go('intake', d.intake);
-    if (d.sm) { S.f.settleMonth = d.sm; S.f.money = 'settle'; return render(); }
+    if (d.sm) { S.f.settleMonth = d.sm; if (!(S.view.tab === 'money' && S.f.money === 'dash')) S.f.money = 'settle'; return render(); }
+    if (d.booksGo) { S.f.books = d.booksGo; return go('books'); }
     if (d.finsuggest) { await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [d.finsuggest]: Number(d.v) } }, 'update'); return toast('שוריין ' + plain(Number(d.v))); }
     if (d.nopot) { await write('clients/' + d.nopot, { noPotential: true, updatedAt: stamp() }, 'update'); await logClient(d.nopot, 'הוצא מהפוטנציאל (לקוח ישן)'); return toast('הוצא מהפוטנציאל'); }
     if (d.resuggest) { await write('settings/main', { reReserve: { ...(S.settings.reReserve || {}), [d.resuggest]: reSuggest() } }, 'update'); return toast('שוריין ' + plain(reSuggest()) + ' לחודש הבא'); }
@@ -12064,7 +12098,7 @@ document.addEventListener('click', async (e) => {
       if (h.fix === 'stagedone') { await write('clients/' + c.id, { stage: 'completed', updatedAt: stamp() }, 'update'); await logClient(c.id, 'שלב: ' + (L.stage[c.stage] || c.stage) + ' ← ' + L.stage.completed); return toast('השלב עודכן'); }
       return; }
     if (d.ictl) { S.f.ictlDrill = d.ictl; return render(); }
-    if (d.sdrill) { S.f.settleDrill = d.sdrill; render(); if (d.stile) { const el = document.getElementById('settleDrillCard'); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } return; }
+    if (d.sdrill) { S.f.settleDrill = d.sdrill; if (d.stile && !(S.view.tab === 'money' && S.f.money === 'settle')) { S.f.money = 'settle'; go('money'); } else render(); if (d.stile) { const el = document.getElementById('settleDrillCard'); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } return; }
     if (d.expchk) { S.f.expChk = S.f.expChk === d.expchk ? null : d.expchk; return render(); }
     if (d.confirmtx) { await write('transactions/' + d.confirmtx, { confirmed: true, confirmedAt: stamp(), confirmedBy: S.me.id, updatedAt: stamp() }, 'update'); return toast('התקבול אושר'); }
     if (d.deduct) { const t = S.transactions.get(d.deduct); if (!t) return; const on = t.clientId ? t.deductible !== false : !!t.deductible;
