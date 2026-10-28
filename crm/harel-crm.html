@@ -3538,7 +3538,9 @@ const SHEET_COLOR = { FFFF00: 'followup', F6B26B: 'lost', '00FF00': 'won', '0000
 const COLOR_LABEL = { followup: 'צהוב — פולו אפ', lost: 'חום — לא רלוונטי', won: 'ירוק — חתם', credit: 'כחול — לזיכוי מחברת השיווק', invalid: 'אדום — מספר לא תקין (לזיכוי)' };
 const leadSources = () => S.settings.leadSheets || [];
 const isCredit = (l) => ['credit', 'invalid', 'duplicate'].includes(l.stage);
-function parseSheetDate(cell) {
+/* us — טבלת המשווק (אבינועם): התאריך תמיד חודש/יום; יום/חודש רק אם חודש/יום לא קיים או בעתיד (דן 28/10: "09/10/26" נקרא כ-9 באוקטובר
+   במקום 10 בספטמבר — ליד של ספטמבר קפץ לאוקטובר, נספר בחשבון של החודש הלא נכון, ומ-9/10 קיבל מזהה חדש = כפיל). בלי us — כמו קודם (טפסים). */
+function parseSheetDate(cell, us0) {
   const today0 = new Date(today() + 'T23:59:59'), w = cell && (cell.w || (typeof cell.v === 'string' ? cell.v : ''));
   const iso = String(w || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/); if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3] + 'T' + String(iso[4] || '00').padStart(2, '0') + ':' + (iso[5] || '00') + ':00';
   const m = String(w || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})\s*(AM|PM)?)?/i);
@@ -3547,7 +3549,7 @@ function parseSheetDate(cell) {
   const mk = (mo, d) => { const x = new Date(y, mo - 1, d, hh, Number(mi || 0)); return x.getMonth() === mo - 1 ? x : null; };
   const us = mk(Number(a), Number(b)), il = mk(Number(b), Number(a)); /* בטבלה התאריך בפורמט חודש/יום; אם יוצא בעתיד — יום/חודש */
   const ok = [us, il].filter((x) => x && x <= today0).sort((p, q) => q - p);
-  const d = ok[0] || us || il; if (!d) return null;
+  const d = (us0 ? (us && us <= today0 ? us : il && il <= today0 ? il : null) : ok[0]) || us || il; if (!d) return null;
   const p2 = (k) => String(k).padStart(2, '0');
   return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':00';
 }
@@ -3596,8 +3598,11 @@ async function syncLeadSheet(src, quiet, cache) {
     const pc = ws[C.phone + row], name = cv(C.name, row); let phone = pc && pc.t === 'n' ? String(Math.round(pc.v)) : cv(C.phone, row); if (!name && !phone) continue;
     if (form && SHEET_TEST_ROW.test(name)) continue; /* שורת בדיקה של האוטומציה — לא ליד */ seen++;
     let np = normPhone(phone); if (form && /^5\d{8}$/.test(np)) { np = '0' + np; } if (form && np) phone = np;
-    const at0 = form ? (xlsxDate(ws[C.date + row]) || parseSheetDate(ws[C.date + row])) : parseSheetDate(ws['A' + row]);
-    let id = form ? 'sh-' + src.key + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row) : 'sh-' + src.fileId.slice(0, 6) + '-' + (np || 'x' + row) + '-' + (at0 ? at0.slice(0, 16).replace(/\D/g, '') : 'r' + row);
+    const at0 = form ? (xlsxDate(ws[C.date + row]) || parseSheetDate(ws[C.date + row])) : parseSheetDate(ws['A' + row], true);
+    const idAt = (a) => form ? 'sh-' + src.key + '-' + (np || 'x' + row) + '-' + (a ? a.slice(0, 16).replace(/\D/g, '') : 'r' + row) : 'sh-' + src.fileId.slice(0, 6) + '-' + (np || 'x' + row) + '-' + (a ? a.slice(0, 16).replace(/\D/g, '') : 'r' + row);
+    let id = idAt(at0);
+    /* ליד שנקלט קודם עם יום/חודש הפוכים (הבאג של 28/10) — אותו ליד, מתקנים לו את התאריך ולא יוצרים כפיל */
+    if (!form && at0 && !S.leads.get(id) && +at0.slice(8, 10) <= 12) { const sw = at0.slice(0, 5) + at0.slice(8, 10) + '-' + at0.slice(5, 7) + at0.slice(10), old = S.leads.get(idAt(sw)); if (old && !old.deletedAt) id = old.id; }
     /* הליד כבר נקלט (ידנית / ממקור אחר) — אותו טלפון ואותה שעת פנייה (±3 דק׳): מעדכנים אותו ולא יוצרים כפיל */
     if (form && !S.leads.get(id) && np && at0) { const t0 = Date.parse(at0), same = (byPhone || (byPhone = leadsByPhone())).get(np) || [];
       const hit = same.find((l) => !l.deletedAt && Math.abs(Date.parse(l.createdAt || 0) - t0) <= 3 * 60e3); if (hit) id = hit.id; }
@@ -3646,6 +3651,24 @@ async function syncLeadSheet(src, quiet, cache) {
   if (!quiet) toast((src.label || 'טבלה') + ': ' + seen + ' לידים · ' + added + ' חדשים · ' + updated + ' עודכנו');
   return run;
 }
+/* במסך הלידים: למה הטבלאות לא מסתנכרנות (רק לבעלים, רק כשיש בעיה) */
+function leadSyncBanner() {
+  if (!S.isOwner || !leadSources().length) return '';
+  const errs = leadSources().map((s) => [s, (S.lsErr || {})[srcKey(s)]]).filter(([, e]) => e), mirror = window.__harelServer && window.__CRM_MODE === 'mirror';
+  if (!errs.length && !mirror) return '';
+  return '<div class="notice warn"><b>' + (errs.length ? 'הסנכרון מהטבלאות נכשל' : 'הסנכרון האוטומטי מהטבלאות כבוי כאן') + '</b><span>' +
+    (errs.length ? errs.map(([s, e]) => esc(s.label || 'טבלה') + ': ' + esc(leadSyncWhy(e))).join(' · ') : 'המערכת עדיין ב"מצב שכפול" — הדף ב-Claude מסנכרן. כדי שיסתנכרן מכאן לבד: בפס התחתון ← "עוברים לעבוד מכאן".') +
+    '</span><button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button></div>';
+}
+/* סיבת הכישלון בעברית — מה השרת / גוגל החזירו */
+function leadSyncWhy(e) {
+  const t = String(e || '');
+  if (/not_granted|server_not_connected|Drive 40[13]|insufficient/i.test(t)) return 'גוגל לא מחובר עם הרשאה לדרייב, או שהטבלה לא משותפת עם החשבון המחובר — הגדרות ← "חבר את גוגל", ולוודא שאבינועם שיתף את הטבלה עם החשבון הזה';
+  if (/Drive 404|notFound|not.?found/i.test(t)) return 'הטבלה לא נמצאה — אולי נמחקה, הוחלפה בטבלה חדשה, או לא משותפת. לבדוק שהקישור לטבלה עדכני ושהיא משותפת עם החשבון המחובר';
+  if (/^empty$/.test(t)) return 'הטבלה חזרה ריקה';
+  if (/^אין לשונית/.test(t)) return t + ' — שם הלשונית בטבלה השתנה';
+  return t;
+}
 async function syncAllLeads(quiet) { const cache = {}; for (const s of leadSources()) await syncLeadSheet(s, quiet, cache).catch(() => null); dedupeAuto(); leadTaskSweep().catch(() => {}); }
 const lastRun = (s) => [S.runs.get('leadsync-' + srcKey(s)), lsRun(s)].filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
 async function autoLeadSync() {
@@ -3668,7 +3691,12 @@ function leadSheetCard() {
   const srcs = leadSources(); if (!srcs.length) return '';
   const { rows, tot } = sheetLeadStats(), conv = tot.conv ? Math.round(tot.won / tot.conv * 1000) / 10 : 0;
   const runs = srcs.map((s) => { const r = lastRun(s); return esc(s.label || 'טבלה') + (r ? ' · סונכרן ' + dLabel(dayOf(r.at)) + ' ' + hm(r.at) : ' · עוד לא סונכרן'); }).join(' | ');
-  return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' : '') + '</header>' +
+  /* דן 28/10 "למה לא מסתנכרן" — אומרים במסך למה, במקום לשתוק */
+  const errs = srcs.map((s) => [s, (S.lsErr || {})[srcKey(s)]]).filter(([, e]) => e).map(([s, e]) => esc(s.label || 'טבלה') + ': ' + esc(leadSyncWhy(e)));
+  const why = (window.__harelServer && window.__CRM_MODE === 'mirror' ? '<div class="notice warn"><b>הסנכרון האוטומטי כבוי כאן</b><span>המערכת עדיין ב"מצב שכפול" — הדף ב-Claude מסנכרן ומגבה, וכאן רק מעתיקים ממנו. כדי שהלידים יסתנכרנו מכאן לבד (כל 30 דקות כשהמערכת פתוחה): בפס התחתון ← "עוברים לעבוד מכאן". עד אז — "סנכרן עכשיו".</span></div>' : '') +
+    (errs.length ? '<div class="notice warn"><b>הסנכרון נכשל</b><span>' + errs.join(' · ') + '</span></div>' : '') +
+    (!S.mcp ? '<div class="notice warn"><b>אין חיבור לגוגל דרייב בתצוגה הזו</b><span>הגדרות ← "חבר את גוגל" (עם הרשאת דרייב).</span></div>' : '');
+  return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' : '') + '</header>' + why +
     '<div class="grid4">' + kpi('לידים', '<span class="num">' + tot.leads + '</span>', tot.credit + ' לזיכוי · ' + tot.billable + ' לחיוב', null) +
       kpi('שילמתי על לידים', money(tot.spend, { tone: 'open' }), tot.billable + ' × ' + plain(n((srcs[0] || {}).costPerLead || 150)) + ' · ' + tot.credit + ' לזיכוי לא נספרים', null) +
       kpi('יחס המרה', '<span class="num">' + conv + '%</span>', tot.won + ' חתמו מתוך ' + tot.conv + ' · עלות ללקוח ' + (tot.won ? plain(Math.round(tot.spend / tot.won)) : '—'), null) +
@@ -9963,7 +9991,9 @@ function settleTiles(D, B, m, FL) {
     tile('fixed', 'קבועות, שכר ושיווק — עוד יצא', money(left, { tone: left ? 'expected' : 'actual' }), 'שולמו ' + plain(paidFixed) + (n(r.payroll) ? ' · שכר ' + plain(r.payroll) : '') + ' · ' + FL.items.length + ' צפויים', left ? 'expected' : 'actual') +
     tile('direct', 'ישירות על לקוחות', money(r.direct, { tone: 'actual' }), D.direct.length + ' הוצאות ב' + mLabel(m), 'actual') +
     tile('adv', 'מקדמות ניסים', money(B.debt, { tone: 'expected' }), 'החודש ' + plain(r.adv) + (r.opening ? ' · מהחודשים הקודמים ' + plain(r.opening) : '') + (D.pendingSum ? ' · עוד לא חויבו ' + plain(D.pendingSum) : ''), 'expected') +
-    tile('income', 'כמה צריך להיכנס לנקודת ה-0', money(B.zero, { tone: 'committed' }), 'נכנס ' + plain(r.income) + ' · ' + (B.zeroGap >= 0 ? 'עברנו ב-' + plain(B.zeroGap) + ' — ניסים מקבל ' + plain(B.above) : 'חסרים ' + plain(-B.zeroGap)), B.zeroGap >= 0 ? 'actual' : 'open') +
+    /* דן 28/10 "תבדוק את נקודת ה-0": הסכום נטו (לפני מע״מ) כולל מה שעוד יצא החודש; גם לפי מה שרשום בלבד, וגם בתקבולים עם מע״מ */
+    tile('income', 'כמה צריך להיכנס לנקודת ה-0', money(B.zero, { tone: 'committed' }), 'נטו, לפני מע״מ · נכנס ' + plain(r.income) + ' · ' + (B.zeroGap >= 0 ? 'עברנו ב-' + plain(B.zeroGap) + ' — ניסים מקבל ' + plain(B.above) : 'חסרים ' + plain(-B.zeroGap)) +
+      (left && !FL.inFixed ? ' · לפי מה שרשום בלבד ' + plain(r2(B.zero - left)) : '') + ' · בתקבולים כולל מע״מ ' + plain(r2(B.zero * (1 + n(S.settings.vatRate || 0.18)))), B.zeroGap >= 0 ? 'actual' : 'open') +
   '</div>';
 }
 function settleFlow(r, B, p, FL) {
@@ -11794,7 +11824,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: vLeads, lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: () => leadSyncBanner() + vLeads(), lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -12363,7 +12393,7 @@ document.addEventListener('click', async (e) => {
         case 'intakeSign': return intakeSign(S.view.clientId);
         case 'intakeReport': return intakeReport(S.view.clientId);
         case 'reSettlePdf': return reSettlePdf();
-        case 'leadSync': return syncAllLeads(false);
+        case 'leadSync': await syncAllLeads(false); return render();
         case 'logout': return logout();
         case 'partnerExpense': return formTx(null, { nature: 'expense', division: 'finance', deductible: true, vatMode: 'incl' });
         case 'newPool': return formPool();
