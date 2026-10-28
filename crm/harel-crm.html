@@ -3579,7 +3579,7 @@ const SHEET_TEST_ROW = /^\s*(בדיקה|בדיקת|test)(\s|$)/i;
 const SCREEN_RULES = [[/רכב בשנתון/, /^לא/, 'אין רכב בשנתון המתאים'], [/עיקול|הגבלה|הוצאה לפועל|הוצל/, /^כן/, 'יש עיקולים / הגבלה / הוצל״פ']];
 const screenFails = (ans) => SCREEN_RULES.filter(([q, bad]) => Object.entries(ans || {}).some(([h, v]) => q.test(h) && bad.test(String(v).trim()))).map((r) => r[2]);
 async function syncLeadSheet(src, quiet, cache) {
-  if (!S.mcp) { if (!quiet) toast('אין חיבור לגוגל דרייב בתצוגה הזו'); return null; }
+  if (!S.mcp && !(cache && cache[src.fileId])) { if (!quiet) toast('אין חיבור לגוגל דרייב בתצוגה הזו'); return null; }
   let wb; try { wb = await sheetBook(src.fileId, cache); }
   catch (e) { (S.lsErr = S.lsErr || {})[srcKey(src)] = (e && (e.code || e.message)) || 'שגיאה'; /* השומר מדווח למה */
     if (!quiet) toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : e && e.code === 'empty' ? 'הטבלה חזרה ריקה' : 'לא הצלחתי לקרוא את הטבלה'); return null; }
@@ -3651,6 +3651,18 @@ async function syncLeadSheet(src, quiet, cache) {
   if (!quiet) toast((src.label || 'טבלה') + ': ' + seen + ' לידים · ' + added + ' חדשים · ' + updated + ' עודכנו');
   return run;
 }
+/* דן 28/10: סנכרון מקובץ — מורידים את הטבלה כאקסל (קובץ ← הורדה ← xlsx) ומעלים כאן. אותו קוד כמו המשיכה מגוגל:
+   אותם מזהים (ריצה חוזרת = 0 חדשים), סטטוס לפי צבע השורה, תאריכים, הערות. לגיבוי כשהחיבור לגוגל לא פעיל. */
+const lsUpload = (s) => '<label class="btn small" title="קובץ ← הורדה ← Microsoft Excel (.xlsx) בגוגל שיטס — עם הצבעים">העלה את הטבלה (אקסל)' + (leadSources().length > 1 ? ' — ' + esc(s.label || 'טבלה') : '') + '<input type="file" accept=".xlsx" hidden data-lsfile="' + esc(srcKey(s)) + '"></label>';
+async function leadSheetFromFile(key, file) {
+  const src = leadSources().find((s) => srcKey(s) === key); if (!src) return;
+  if (typeof XLSX === 'undefined') return toast('רכיב קריאת הקבצים לא נטען — נסה לרענן');
+  let wb; try { wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array', cellStyles: true }); } catch (e) { return toast('לא הצלחתי לקרוא את הקובץ — צריך xlsx'); }
+  toast('מסנכרן מהקובץ…');
+  const run = await syncLeadSheet(src, false, { [src.fileId]: wb }).catch(() => null);
+  if (run) { dedupeAuto(); leadTaskSweep().catch(() => {}); }
+  render();
+}
 /* במסך הלידים: למה הטבלאות לא מסתנכרנות (רק לבעלים, רק כשיש בעיה) */
 function leadSyncBanner() {
   if (!S.isOwner || !leadSources().length) return '';
@@ -3658,7 +3670,7 @@ function leadSyncBanner() {
   if (!errs.length && !mirror) return '';
   return '<div class="notice warn"><b>' + (errs.length ? 'הסנכרון מהטבלאות נכשל' : 'הסנכרון האוטומטי מהטבלאות כבוי כאן') + '</b><span>' +
     (errs.length ? errs.map(([s, e]) => esc(s.label || 'טבלה') + ': ' + esc(leadSyncWhy(e))).join(' · ') : 'המערכת עדיין ב"מצב שכפול" — הדף ב-Claude מסנכרן. כדי שיסתנכרן מכאן לבד: בפס התחתון ← "עוברים לעבוד מכאן".') +
-    '</span><button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button></div>';
+    '</span><button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' + leadSources().map(lsUpload).join('') + '</div>';
 }
 /* סיבת הכישלון בעברית — מה השרת / גוגל החזירו */
 function leadSyncWhy(e) {
@@ -3696,7 +3708,7 @@ function leadSheetCard() {
   const why = (window.__harelServer && window.__CRM_MODE === 'mirror' ? '<div class="notice warn"><b>הסנכרון האוטומטי כבוי כאן</b><span>המערכת עדיין ב"מצב שכפול" — הדף ב-Claude מסנכרן ומגבה, וכאן רק מעתיקים ממנו. כדי שהלידים יסתנכרנו מכאן לבד (כל 30 דקות כשהמערכת פתוחה): בפס התחתון ← "עוברים לעבוד מכאן". עד אז — "סנכרן עכשיו".</span></div>' : '') +
     (errs.length ? '<div class="notice warn"><b>הסנכרון נכשל</b><span>' + errs.join(' · ') + '</span></div>' : '') +
     (!S.mcp ? '<div class="notice warn"><b>אין חיבור לגוגל דרייב בתצוגה הזו</b><span>הגדרות ← "חבר את גוגל" (עם הרשאת דרייב).</span></div>' : '');
-  return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' : '') + '</header>' + why +
+  return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' + srcs.map(lsUpload).join('') : '') + '</header>' + why +
     '<div class="grid4">' + kpi('לידים', '<span class="num">' + tot.leads + '</span>', tot.credit + ' לזיכוי · ' + tot.billable + ' לחיוב', null) +
       kpi('שילמתי על לידים', money(tot.spend, { tone: 'open' }), tot.billable + ' × ' + plain(n((srcs[0] || {}).costPerLead || 150)) + ' · ' + tot.credit + ' לזיכוי לא נספרים', null) +
       kpi('יחס המרה', '<span class="num">' + conv + '%</span>', tot.won + ' חתמו מתוך ' + tot.conv + ' · עלות ללקוח ' + (tot.won ? plain(Math.round(tot.spend / tot.won)) : '—'), null) +
@@ -12561,6 +12573,7 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.scan && el.files && el.files[0]) { const [sc, k] = el.dataset.scan.split('|'), f = el.files[0]; el.value = ''; return scanUpload(sc, k, f); }
     if (el.id === 'bankFile' && el.files && el.files[0]) return parseBankFile(el.files[0]);
     if (el.id === 'ictlFile' && el.files && el.files.length) return ictlLoad([...el.files]);
+    if (el.dataset.lsfile && el.files && el.files[0]) { const f = el.files[0]; el.value = ''; return leadSheetFromFile(el.dataset.lsfile, f); }
     if (el.id === 'laneDone') { S.f.laneDone = el.checked; return render(); }
     if (el.dataset.taskprio) { const t = S.tasks.get(el.dataset.taskprio); if (!t) return; await write('tasks/' + t.id, { priority: el.value, updatedAt: stamp() }, 'update'); return toast('דחיפות: ' + L.priority[el.value]); }
     if (el.dataset.filestatus) { const cid = el.dataset.filestatus, f = fileOf(cid) || {}; await write('files/' + cid, { ...f, id: cid, clientId: cid, status: el.value, updatedAt: stamp(), updatedBy: S.me.id }); return toast('הסטטוס עודכן'); }
