@@ -4180,6 +4180,33 @@ const DOC_GUESS = [['appraisal', /שמא(ות|י)|appraisal/i], ['agreements', /
 const docGuess = (title) => (DOC_GUESS.find(([, re]) => re.test(String(title || ''))) || ['other'])[0];
 const docName = (t) => { const m = String(t || '').match(/^(.+)\.([A-Za-z0-9]{2,5})$/); return m ? '<bdi>' + esc(m[1]) + '</bdi> <span class="pill muted" dir="ltr" style="font-size:10px;padding:0 5px">' + esc(m[2].toUpperCase()) + '</span>' : '<bdi>' + esc(t) + '</bdi>'; };
 const catLabel = (k) => (DOC_CATS.find((x) => x[0] === k) || [k, k])[1];
+/* דן 29/10 "העלאה לא עובדת / לא נטען": בשרת (Vercel) בקשה מוגבלת ל-4.5MB — סריקה של 3.5MB נפלה בשקט.
+   כאן הקובץ עובר ישר בין הדפדפן לגוגל (/api/crm/drive): העלאה נמשכת, והורדה כזרם. בדף ב-Claude — כמו קודם, דרך החיבור. */
+async function driveUploadFile(file, title, parentId) {
+  const type = file.type || 'application/octet-stream';
+  if (window.__harelServer) {
+    const r = await fetch('/api/crm/drive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, mimeType: type, parentId: parentId || null, size: file.size }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.url) {
+      const up = await fetch(j.url, { method: 'PUT', headers: { 'content-type': type }, body: file }).catch(() => null);
+      if (up && up.ok) { const d = await up.json().catch(() => ({})); return { id: d.id, title: d.name || title, viewUrl: d.webViewLink || null }; }
+      if (file.size > 3e6) throw Object.assign(new Error('ההעלאה לגוגל נכשלה' + (up ? ' (' + up.status + ')' : '')), { code: 'upload_failed' });
+    } else if (file.size > 3e6) throw Object.assign(new Error(j.message || 'ההעלאה נכשלה'), { code: j.code || 'upload_failed' });
+  }
+  /* קובץ קטן (או הדף ב-Claude) — הדרך הרגילה */
+  return drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title, base64Content: b64Of(await file.arrayBuffer()), contentMimeType: type, disableConversionToGoogleType: true, ...(parentId ? { parentId } : {}) }, { cache: false }));
+}
+async function driveBytes(fileId, exportMimeType) {
+  if (window.__harelServer) {
+    const r = await fetch('/api/crm/drive?id=' + encodeURIComponent(fileId) + (exportMimeType ? '&export=' + encodeURIComponent(exportMimeType) : ''));
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw Object.assign(new Error(j.message || 'Drive ' + r.status), { code: j.code || 'tool_error' }); }
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  const p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId, ...(exportMimeType ? { exportMimeType } : {}) }, { cache: false }));
+  const b64 = p.content || ''; if (!b64) throw new Error('empty'); return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+}
+/* סיבת כישלון בדרייב — בשרת זה חיבור הגוגל של המערכת (/settings), לא "אישור לדף" */
+const driveWhy = (e) => window.__harelServer && e && /not_granted|server_not_connected|needs_reauth/.test(e.code || '') ? leadSyncWhy([e.code, e.message].filter(Boolean).join(': ')) : e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : '';
 const drivePayload = (r) => { let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} } return p || {}; };
 async function driveList(folderId) { const out = []; let tok = null, k = 0;
   do { const p = drivePayload(await S.mcp.callTool('Google Drive', 'search_files', { query: "parentId = '" + folderId + "'", pageSize: 100, excludeContentSnippets: true, ...(tok ? { pageToken: tok } : {}) }, { cache: false })); out.push(...(p.files || []).map((f) => ({ ...f, title: decodeHtml(f.title || '') }))); tok = (p.files || []).length ? p.nextPageToken || null : null; k++; } while (tok && k < 60); /* הדרייב מחזיר לפעמים 5 בעמוד */
@@ -4202,7 +4229,7 @@ async function docsLoad(c, force) {
         for (const f of kids) { if (isFolder(f)) { if (depth < 6) n += await walk(f, path + '/' + f.title, depth + 1); } else { n++; add({ ...f, ri, cat: (c.docCats || {})[f.id] || docGuess(f.title), loose: !(c.docCats || {})[f.id], sub: path }); } } return n; };
       for (const d of others) if (!(await walk(d, (pre ? pre + '/' : '') + d.title, 1))) add({ ...d, ri, cat: 'other', sub: pre, folderLink: true }); }
     st.files = files.sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || ''))); st.folders = folders; st.at = stamp();
-  } catch (e) { st.error = e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'קריאת התיקייה בדרייב נכשלה (' + ((e && e.code) || 'שגיאה') + ')'; }
+  } catch (e) { st.error = driveWhy(e) || 'קריאת התיקייה בדרייב נכשלה (' + ((e && (e.message || e.code)) || 'שגיאה') + ')'; }
   st.loading = false; render(); }
 /* ── תצוגה מקדימה: תמונה / עמוד ראשון של PDF, מוקטנים ל-JPEG קטן. נשמר בזיכרון ובדפדפן של הצופה בלבד ── */
 const THUMB_MAX = 8e6;
@@ -4210,8 +4237,7 @@ const thumbKey = (f) => 'th:' + f.id + ':' + (f.modifiedTime || '');
 const thumbable = (f) => !f.folderLink && (+f.fileSize || 0) <= THUMB_MAX && (/^image\/(jpeg|png|gif|webp|bmp)/.test(f.mimeType || '') || f.mimeType === 'application/pdf' || f.mimeType === 'application/vnd.google-apps.document');
 function thumbGet(f) { S.thumbs = S.thumbs || {}; if (S.thumbs[f.id]) return S.thumbs[f.id]; try { const v = localStorage.getItem(thumbKey(f)); if (v) return (S.thumbs[f.id] = v); } catch (e) {} return null; }
 async function thumbMake(f) {
-  const gdoc = f.mimeType === 'application/vnd.google-apps.document', p = drivePayload(await S.mcp.callTool('Google Drive', 'download_file_content', { fileId: f.id, ...(gdoc ? { exportMimeType: 'application/pdf' } : {}) }, { cache: false }));
-  const b64 = p.content || ''; if (!b64) throw new Error('empty'); const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), W = 260, cv = document.createElement('canvas');
+  const gdoc = f.mimeType === 'application/vnd.google-apps.document', bytes = await driveBytes(f.id, gdoc ? 'application/pdf' : null), W = 260, cv = document.createElement('canvas');
   if (gdoc || f.mimeType === 'application/pdf') { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const pg = await (await lib.getDocument({ data: bytes }).promise).getPage(1), v0 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: W / v0.width }); cv.width = vp.width; cv.height = vp.height;
     const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); await pg.render({ canvasContext: g, viewport: vp }).promise; }
@@ -4232,8 +4258,9 @@ async function catFolder(c, cat) { const st = (S.docRes || {})[c.id] || {}; if (
 async function docUpload(c, cat, fileList) {
   if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו'); const files = [...fileList].filter((f) => f.size <= 20e6); if (!files.length) return toast('קובץ גדול מ-20MB');
   toast('מעלה ' + files.length + ' לדרייב…'); const fid = await catFolder(c, cat); if (!fid) return toast('לא הצלחתי לפתוח תיקייה בדרייב'); let k = 0;
-  for (const f of files) { const p = drivePayload(await S.mcp.callTool('Google Drive', 'create_file', { title: f.name, base64Content: b64Of(await f.arrayBuffer()), contentMimeType: f.type || 'application/octet-stream', disableConversionToGoogleType: true, parentId: fid }, { cache: false }).catch(() => null)); if (p.id || p.fileId) k++; }
-  await logClient(c.id, k + ' מסמכים הועלו ל' + catLabel(cat) + ': ' + files.map((f) => f.name).join(', ')).catch(() => {}); toast(k + ' קבצים נשמרו ב' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
+  const bad = []; for (const f of files) { const p = await driveUploadFile(f, f.name, fid).catch((e) => { bad.push(f.name + (driveWhy(e) ? ' — ' + driveWhy(e) : e && e.message ? ' — ' + e.message : '')); return {}; }); if (p.id || p.fileId) k++; }
+  if (k) await logClient(c.id, k + ' מסמכים הועלו ל' + catLabel(cat) + ': ' + files.map((f) => f.name).join(', ')).catch(() => {});
+  toast(k + ' קבצים נשמרו ב' + catLabel(cat) + (bad.length ? ' · לא עלו: ' + bad.join(' · ') : ''), bad.length ? 12000 : 4000); return docsLoad(S.clients.get(c.id) || c, true); }
 async function docMove(c, fileId, cat) {
   const st = (S.docRes || {})[c.id] || {}, f = (st.files || []).find((x) => x.id === fileId); if (!f) return;
   if (f.ri) { /* תיקייה מקושרת (למשל של WISE): לא מזיזים קבצים שלה — הסוג נשמר במערכת */ c = S.clients.get(c.id) || c; await write('clients/' + c.id, { docCats: { ...(c.docCats || {}), [fileId]: cat }, updatedAt: stamp() }, 'update', { journal: true }); toast('סומן כ' + catLabel(cat)); return docsLoad(S.clients.get(c.id) || c, true); }
@@ -5642,13 +5669,12 @@ async function meetRecUpload(refS, id, key, file) {
   if (!S.mcp) return toast('אין חיבור לגוגל דרייב בתצוגה הזו');
   toast('שומר בתיקיית הלקוח…');
   try { const folder = await reFolder(ref);
-    const r = await S.mcp.callTool('Google Drive', 'create_file', { title: (h.name || '') + ' — ' + (RE_REC.find((x) => x[0] === key) || [key, key])[1] + ' — ' + today() + ' — ' + file.name, base64Content: b64Of(await file.arrayBuffer()), contentMimeType: file.type || 'application/octet-stream', disableConversionToGoogleType: true, ...(folder ? { parentId: folder } : {}) }, { cache: false });
-    let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+    const p = await driveUploadFile(file, (h.name || '') + ' — ' + (RE_REC.find((x) => x[0] === key) || [key, key])[1] + ' — ' + today() + ' — ' + file.name, folder || null);
     const fid = p && (p.id || p.fileId || (p.file && p.file.id)), url = (p && (p.viewUrl || p.webViewLink || p.alternateLink)) || (fid ? 'https://drive.google.com/file/d/' + fid + '/view' : '');
     const m = allMeetings().find((x) => x.id === id) || {};
     await meetSet(refS, id, { rec: { ...(m.rec || {}), [key]: { url, driveId: fid || null, name: file.name, at: stamp() } } }, 'נשמר בדרייב: ' + (RE_REC.find((x) => x[0] === key) || [key, key])[1]);
     toast('נשמר בתיקיית הלקוח');
-  } catch (e) { toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'השמירה בדרייב נכשלה'); }
+  } catch (e) { toast(driveWhy(e) || 'השמירה בדרייב נכשלה' + (e && e.message ? ' — ' + e.message : ''), 12000); }
 }
 /* תיקיית הלקוח בדרייב: של התיק אם יש, אחרת של הליד (נוצרת אוטומטית) */
 async function reFolder(ref) {
@@ -5723,7 +5749,7 @@ async function profilePdf(lid) {
     let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
     const fid = p && (p.id || p.fileId || (p.file && p.file.id)), url = (p && (p.viewUrl || p.webViewLink || p.alternateLink)) || (fid ? 'https://drive.google.com/file/d/' + fid + '/view' : '');
     await leadPatch(lid, { profile: { ...l.profile, pdf: { url, driveId: fid || null, at: stamp() } } }, 'אפיון — PDF נשמר בתיקייה', true); toast('ה-PDF נשמר בתיקיית הלקוח');
-  } catch (e) { toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'השמירה בדרייב נכשלה'); }
+  } catch (e) { toast(driveWhy(e) || 'השמירה בדרייב נכשלה' + (e && e.message ? ' — ' + e.message : ''), 12000); }
 }
 /* שליחה לאנליסט: משימה אצלו לפני הפגישה הקרובה, עם הקישור ל-PDF */
 async function profileSend(lid) {
@@ -7651,11 +7677,10 @@ async function scanUpload(scope, key, file) {
   let rec = null;
   try {
     const folder = await driveFolderFor(scope === 'intake' ? 'intake' : 'proc', id, who.name);
-    const r = await S.mcp.callTool('Google Drive', 'create_file', { title: who.name + ' — ' + key + ' — ' + today() + ' — ' + file.name, base64Content: b64Of(await file.arrayBuffer()), contentMimeType: file.type || 'application/pdf', disableConversionToGoogleType: true, ...(folder ? { parentId: folder } : {}) }, { cache: false });
-    let p = r && r.payload !== undefined ? r.payload : r; if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+    const p = await driveUploadFile(file.type ? file : new File([file], file.name, { type: 'application/pdf' }), who.name + ' — ' + key + ' — ' + today() + ' — ' + file.name, folder || null);
     const fid = p && (p.id || p.fileId || (p.file && p.file.id));
     rec = { id: uid(), key: scope === 'chk' ? 'chk:' + (((who.checklist || [])[Number(key)] || {}).label || key) : key, name: file.name, driveId: fid || null, url: (p && (p.viewUrl || p.webViewLink || p.alternateLink)) || (fid ? 'https://drive.google.com/file/d/' + fid + '/view' : ''), at: stamp(), by: S.me.id };
-  } catch (e) { toast(e && (e.code === 'not_granted' || e.code === 'server_not_connected') ? 'צריך לאשר לדף גישה לגוגל דרייב' : 'השמירה בדרייב נכשלה'); }
+  } catch (e) { toast(driveWhy(e) || 'השמירה בדרייב נכשלה' + (e && e.message ? ' — ' + e.message : ''), 12000); }
   if (rec) {
     if (scope !== 'intake') { const c = S.clients.get(id), chk = scope === 'chk' ? (c.checklist || []).map((i, ix) => ix === Number(key) ? { ...i, status: 'done', scanId: rec.id } : i) : null;
       await write('clients/' + id, { scans: [...(c.scans || []), rec], ...(chk ? { checklist: chk } : {}), updatedAt: stamp() }, 'update', { journal: true }); await logClient(id, (chk ? '✓ ' + ((c.checklist || [])[Number(key)] || {}).label + ' — סריקה צורפה: ' : 'סריקה צורפה (' + key + '): ') + file.name).catch(() => {}); }
