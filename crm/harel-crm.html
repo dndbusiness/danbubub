@@ -2801,7 +2801,7 @@ function vClientsInner() {
     const g = rows.filter((c) => notOk(c) && c.status !== 'cancelled');
     body = '<section class="card"><header><h2>לא אושרו עדיין</h2><span class="pill expected">' + g.length + '</span><span class="hint">טרם אושר · ממתינים לערב · לא אושר</span></header>' + clientTable(g, false) + '</section>';
   } else {
-    const GROUPS = ['signed_collecting_docs', 'submitted', 'approved_in_principle', 'appraisal', 'lawyer_signing', 'execution', 'post_execution', 'completed', 'prospect'];
+    const GROUPS = CLIENT_STAGE_GROUPS;
     const byOpen = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || String(L.product[a.product] || a.service || '').localeCompare(String(L.product[b.product] || b.service || ''), 'he');
     const keys = [...GROUPS, ...new Set(rows.map((c) => c.stage || '').filter((k) => !GROUPS.includes(k)))];
     body = keys.map((k) => { const g = rows.filter((c) => (c.stage || '') === k).sort(byOpen); return g.length ? '<section class="card"><header><h2>' + esc(L.stage[k] || 'בלי שלב') + '</h2><span class="pill committed">' + g.length + '</span>' +
@@ -10498,12 +10498,15 @@ function treatRows(k, withHold) {
     return { c, tasks, na, missing, lateInst, lastAt, idle, late, noTask: !tasks.length };
   }).sort((a, b) => (b.late - a.late) || (a.noTask - b.noTask) || String((a.na && a.na.date) || '9999').localeCompare(String((b.na && b.na.date) || '9999')) || String(a.c.name).localeCompare(String(b.c.name), 'he'));
 }
+/* סדר השלבים במסך "לקוחות ← לפי שלב" — אותו סדר גם ב-PDF לטיפול (דן 29/10: "שיופיעו לפי שלבי ביצוע כמו שרואים במחשב") */
+const CLIENT_STAGE_GROUPS = ['signed_collecting_docs', 'submitted', 'approved_in_principle', 'appraisal', 'lawyer_signing', 'execution', 'post_execution', 'completed', 'prospect'];
+const procStepLabel = (c) => { const st = procSteps(c).find((s) => s[0] === procCur(c)); return st ? st[1] : ''; };
 function clientsPdfHtml(k, rows) {
   const t0 = today(), red = 'color:#B42318;font-weight:700', mute = 'color:#475467';
   const block = (x) => { const c = x.c, m = S.isOwner ? clientMoney(c) : null;
-    return '<div style="border:1px solid #D0D5DD;border-radius:8px;padding:10px 12px;margin:0 0 10px">' +
+    return '<div data-pk style="border:1px solid #D0D5DD;border-radius:8px;padding:10px 12px;margin:0 0 10px">' +
       '<div style="display:flex;justify-content:space-between;gap:8px"><div><span style="font-size:15px;font-weight:700">☐ ' + esc(c.name) + '</span>' + (c.phone ? ' <span style="' + mute + ';font-size:12px;direction:ltr;unicode-bidi:isolate">' + esc(c.phone) + '</span>' : '') + '</div>' +
-      '<div style="font-size:12px;' + mute + '">' + esc([L.stage[c.stage], L.approval[c.approval], c.status === 'hold' ? 'בהשהייה' + (c.holdReason ? ': ' + c.holdReason : '') : ''].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<div style="font-size:12px;' + mute + '">' + esc([procStepLabel(c) ? 'בציר: ' + procStepLabel(c) : '', L.approval[c.approval], c.status === 'hold' ? 'בהשהייה' + (c.holdReason ? ': ' + c.holdReason : '') : ''].filter(Boolean).join(' · ')) + '</div></div>' +
       '<div style="font-size:12.5px;margin-top:4px"><b>הצעד הבא:</b> ' + (x.na && x.na.text ? esc(x.na.text) + (x.na.date ? ' — <span style="' + (x.na.date < t0 ? red : '') + '">' + dLabel(x.na.date) + (x.na.date < t0 ? ' באיחור' : '') + '</span>' : '') : '<span style="' + red + '">לא נקבע</span>') + '</div>' +
       '<div style="font-size:12.5px;margin-top:3px"><b>משימות פתוחות:</b> ' + (x.tasks.length ? x.tasks.map((t) => '<div style="margin-inline-start:12px">☐ ' + esc(t.title) + (t.due ? ' — <span style="' + (t.due < t0 ? red : mute) + '">' + dLabel(t.due) + '</span>' : '') + ' <span style="' + mute + '">(' + esc(L.resp[taskResp(t)] || 'ללא') + ')</span></div>').join('') : '<span style="' + red + '">אין משימה פתוחה</span>') + '</div>' +
       (x.missing.length ? '<div style="font-size:12.5px;margin-top:3px"><b>מסמכים / שלבים חסרים (' + x.missing.length + '):</b> <span style="' + mute + '">' + esc(x.missing.slice(0, 8).map((i) => i.label).join(' · ')) + (x.missing.length > 8 ? ' ועוד ' + (x.missing.length - 8) : '') + '</span></div>' : '') +
@@ -10515,7 +10518,9 @@ function clientsPdfHtml(k, rows) {
     '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:21px;font-weight:700">לקוחות לטיפול — ' + esc(k ? L.resp[k] || k : 'ללא אחראי') + '</div><div style="font-size:13px;' + mute + '">' + esc(S.division === 'all' ? 'כל החטיבות' : L.division[S.division]) + ' · מוצלב עם המשימות הפתוחות</div></div>' +
     '<div style="text-align:left;font-size:12px;' + mute + '">הודפס ' + dLabel(t0) + '<br>' + rows.length + ' לקוחות</div></div>' +
     '<p style="font-size:12.5px;margin:10px 0">' + [late ? '<span style="' + red + '">' + late + ' עם משהו באיחור</span>' : '', noTask ? noTask + ' בלי משימה פתוחה' : '', noNext ? noNext + ' בלי צעד הבא' : ''].filter(Boolean).join(' · ') + '</p>' +
-    (rows.length ? rows.map(block).join('') : '<p style="font-size:13px;' + mute + '">אין לקוחות לטיפול.</p>') + '</div>';
+    (rows.length ? [...CLIENT_STAGE_GROUPS, ...new Set(rows.map((x) => x.c.stage || '').filter((s) => !CLIENT_STAGE_GROUPS.includes(s)))].map((st) => { const g = rows.filter((x) => (x.c.stage || '') === st).map((x, i) => [x, i]).sort((a, b) => (procIdx(a[0].c, procCur(a[0].c)) - procIdx(b[0].c, procCur(b[0].c))) || a[1] - b[1]).map((p) => p[0]); /* בתוך השלב — לפי השלב בציר, ואז הסדר הקיים (באיחור קודם) */
+      return g.length ? '<div data-pk="h"><h3 style="font-size:15px;margin:16px 0 6px;padding:4px 8px;background:#F2F4F7;border-inline-start:4px solid #101828">' + esc(L.stage[st] || 'בלי שלב') + ' <span style="' + mute + ';font-weight:400">(' + g.length + ')</span></h3></div>' + g.map(block).join('') : ''; }).join('')
+      : '<p style="font-size:13px;' + mute + '">אין לקוחות לטיפול.</p>') + '</div>';
 }
 async function clientsPdf(who, withHold) {
   const keys = who === 'all' ? [...Object.keys(L.resp), ''] : [who];
