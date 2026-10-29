@@ -3022,6 +3022,7 @@ function clientTools(c, w) {
     fin && { k: 'appr', t: 'סקר שמאים', body: () => apprSurveyCard(c, S.canTask) },
     fin && { k: 'credit', t: 'דוח אשראי', n: repsOf(x).length, body: () => repCard(x, S.canTask) },
     fin && { k: 'osh', t: 'עו״ש לאקסל', body: () => oshCard(c.id, S.canTask) },
+    S.isDan && { k: 'oshsim', t: 'סימולציית עו״ש 🔒', body: () => oshSimCard(c.id) },
     plan() && { k: 'plan', t: 'תוכנית לקרן', body: plan },
     ai() && { k: 'ai', t: 'ניתוחי Claude', body: ai },
     inst() && { k: 'inst', t: 'פעימות שכ״ט', body: inst },
@@ -3320,6 +3321,154 @@ async function stmtImport(file, kind, label, say) {
   await write('stmts/' + id, { id, kind, label: label || STMT_KIND[kind] + (meta.account ? ' ' + meta.account : ''), file: file.name, status, rows: rows.map((r) => ({ date: r.date, desc: r.desc, amount: r.amount })), from: rows[0].date, to: rows[rows.length - 1].date, division: S.division === 'all' ? null : S.division, createdAt: stamp(), by: S.me.id });
   say(rows.length + ' תנועות נקראו · ' + dLabel(rows[0].date) + '–' + dLabel(rows[rows.length - 1].date) + (status === 'proposal' ? ' · Claude קרא — עבור על השורות ואשר' : ''));
   toast(rows.length + ' תנועות נכנסו לניתוח');
+}
+/* ══ סימולציית עו״ש (דן 29/10) ══
+   "ללקוח יש כמה חשבונות ואני רוצה סימולציית אמת שהכל נכנס ויוצא מחשבון אחד; שהקובץ ייסרק כמו שצריך, אוכל לרשום הערות וסכום
+    בתנועה X ובתנועה Y, ויצא פלט PDF. שהוא ילמד את העו״ש — יתרות רצות וכו׳ — מכל סוג של בנק. נעול בסיסמה, רק אני."
+   טהור, נבדק ב-tests/crm-oshsim.test.ts:
+   oshParseSheet — עמודות מכל בנק: תאריך, תיאור, זכות/חובה (נפרד, משותף "זכות/חובה", או "סכום"), יתרה.
+   oshReconcile  — "לומד" את הדף מהיתרה הרצה: הסדר בקובץ (חדש→ישן או הפוך), סימן הפוך / סכום שלא נקרא — מתוקן לפי ההפרש ביתרה;
+                   מה שלא מתיישב — מסומן כפער (לא "מתקנים" שורה שחסרה לפני).
+   oshMerge      — כל החשבונות כחשבון אחד: העברות בין החשבונות של הלקוח (אותו סכום הפוך, עד 3 ימים) מסומנות "פנימית" ולא נספרות;
+                   סכום מדומה והערה לכל תנועה, תנועות מדומות, ויתרה רצה אחת. */
+const oshN = (v) => { if (typeof v === 'number') return v; const t = String(v ?? '').replace(/[₪,\s‎‏]/g, ''); if (!t) return null; const neg = /^\(.*\)$/.test(t) || /-$/.test(t) || /^-/.test(t); const x = Number(t.replace(/[()\-]/g, '')); return isNaN(x) ? null : neg ? -x : x; };
+const oshD = (v) => {
+  if (v instanceof Date && !isNaN(v)) return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0');
+  if (typeof v === 'number' && v > 30000 && v < 80000) return new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString().slice(0, 10);
+  const t = String(v ?? '').trim(); let m;
+  if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  if ((m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b/)) && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  return null;
+};
+function oshParseSheet(rows) {
+  const norm = (h) => String(h ?? '').replace(/^﻿/, '').replace(/[׳״'"₪]+/g, '').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const H = (rows[i] || []).map(norm), col = (...res) => { for (const re of res) { const k = H.findIndex((h) => re.test(h)); if (k >= 0) return k; } return -1; };
+    const cD = col(/^תאריך$/, /^תאריך (ה)?(פעולה|עסקה|רישום)/, /^תאריך(?! ערך)/); if (cD < 0) continue;
+    const cBoth = col(/זכות\s*\/\s*חובה|חובה\s*\/\s*זכות/), cCr = cBoth >= 0 ? -1 : col(/^ב?זכות/, /זכות/), cDr = cBoth >= 0 ? -1 : col(/^ב?חובה/, /חובה/), cA = col(/^סכום/, /סכום (ה)?(פעולה|תנועה)/);
+    if (cBoth < 0 && cCr < 0 && cDr < 0 && cA < 0) continue;
+    const cDesc = col(/^תיאור/, /תיאור/, /פרטים/, /סוג (ה)?תנועה/, /הפעולה/), cBal = col(/יתרה/), cRef = col(/אסמכת/);
+    const out = [];
+    for (const r of rows.slice(i + 1)) {
+      const date = oshD(r[cD]); if (!date) continue;
+      let amount = cBoth >= 0 ? oshN(r[cBoth]) : cA >= 0 && cCr < 0 && cDr < 0 ? oshN(r[cA]) : (oshN(r[cCr]) || 0) - Math.abs(oshN(r[cDr]) || 0);
+      const balance = cBal >= 0 ? oshN(r[cBal]) : null; if (!amount && balance == null) continue;
+      out.push({ date, desc: cDesc >= 0 ? String(r[cDesc] ?? '').trim().slice(0, 120) : '', amount: Math.round((amount || 0) * 100) / 100, balance: balance == null ? null : Math.round(balance * 100) / 100, ...(cRef >= 0 && r[cRef] ? { ref: String(r[cRef]).trim() } : {}) });
+    }
+    if (out.length) return { rows: out, cols: { date: H[cD], amount: H[cBoth >= 0 ? cBoth : cA >= 0 && cCr < 0 && cDr < 0 ? cA : cCr], balance: cBal >= 0 ? H[cBal] : null } };
+  }
+  return { error: 'לא זוהו עמודות תאריך וסכום (זכות / חובה / סכום) בקובץ' };
+}
+function oshReconcile(rows) {
+  const r2_ = (x) => Math.round(x * 100) / 100, eq = (a, b) => Math.abs(a - b) <= 0.011;
+  const score = (L) => { let k = 0; for (let i = 1; i < L.length; i++) if (L[i].balance != null && L[i - 1].balance != null && eq(Math.abs(L[i].balance - L[i - 1].balance), Math.abs(L[i].amount))) k++; return k; };
+  const asc = rows.slice(), desc = rows.slice().reverse(), withBal = rows.some((r) => r.balance != null);
+  let L = withBal ? (score(desc) > score(asc) ? desc : asc) : rows.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const order = L === desc ? 'desc' : 'asc';
+  if (!withBal && L.length && rows[0].date > rows[rows.length - 1].date) L = desc; /* בלי יתרות: חדש→ישן בקובץ */
+  let ok = 0, fixed = 0, broken = 0, checked = 0;
+  const out = L.map((r, i) => {
+    const x = { ...r }, prev = L[i - 1];
+    if (prev && prev.balance != null && r.balance != null) { checked++; const d = r2_(r.balance - prev.balance);
+      if (eq(d, r.amount)) { ok++; x.check = 'ok'; }
+      else if (eq(Math.abs(d), Math.abs(r.amount)) || !r.amount) { fixed++; x.amount = d; x.check = 'fixed'; x.parsed = r.amount; }
+      else { broken++; x.check = 'gap'; x.gap = r2_(d - r.amount); } }
+    return x; });
+  const first = out.find((r) => r.balance != null), last = [...out].reverse().find((r) => r.balance != null);
+  const opening = out.length && out[0].balance != null ? r2_(out[0].balance - out[0].amount) : first ? r2_(first.balance - out.slice(0, out.indexOf(first) + 1).reduce((a, r) => a + r.amount, 0)) : null;
+  return { rows: out, order, opening, closing: last ? last.balance : null, check: { checked, ok, fixed, broken } };
+}
+function oshMerge(accounts, notes, adds, openingOverride) {
+  const r2_ = (x) => Math.round(x * 100) / 100, N = notes || {}, days = (a, b) => Math.abs(Date.parse(a + 'T12:00:00Z') - Date.parse(b + 'T12:00:00Z')) / 864e5;
+  const all = []; accounts.forEach((A, ai) => (A.rows || []).forEach((r, i) => all.push({ ...r, k: A.id + ':' + i, acc: A.id, accLabel: A.label || 'חשבון ' + (ai + 1), ai, i })));
+  /* העברה פנימית: אותו סכום הפוך בחשבון אחר של הלקוח, עד 3 ימים — כל צד פעם אחת */
+  const used = new Set();
+  for (const a of all) { if (used.has(a.k) || a.amount >= 0 || N[a.k] && N[a.k].internal === false) continue;
+    const b = all.find((x) => !used.has(x.k) && x.acc !== a.acc && x.amount > 0 && Math.abs(x.amount + a.amount) <= 0.5 && days(x.date, a.date) <= 3 && !(N[x.k] && N[x.k].internal === false));
+    if (b) { used.add(a.k); used.add(b.k); } }
+  const opening = openingOverride != null && openingOverride !== '' ? Number(openingOverride) : r2_(accounts.reduce((s, A) => s + (A.opening || 0), 0));
+  const rows = [...all.map((r) => ({ ...r, internal: used.has(r.k) || !!(N[r.k] && N[r.k].internal === true) })),
+    ...(adds || []).map((x, j) => ({ k: 'add:' + x.id, add: true, acc: 'sim', accLabel: 'מדומה', ai: 999, i: j, date: x.date, desc: x.desc || 'תנועה מדומה', amount: Number(x.amount) || 0 }))]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.ai - b.ai || a.i - b.i);
+  let bal = opening, minBal = opening, minDate = rows.length ? rows[0].date : null, inn = 0, out = 0; const negDays = new Set();
+  const R = rows.map((r) => { const n0 = N[r.k] || {}, sim = n0.sim != null && n0.sim !== '' ? Number(n0.sim) : null, off = !!n0.off;
+    const eff = r.internal || off ? 0 : sim != null ? sim : r.amount; bal = r2_(bal + eff); if (eff > 0) inn += eff; else out -= eff;
+    if (bal < minBal) { minBal = bal; minDate = r.date; } if (bal < 0) negDays.add(r.date);
+    return { ...r, sim, off, note: n0.note || '', eff, bal }; });
+  return { rows: R, opening, closing: bal, minBal: r2_(minBal), minDate, inn: r2_(inn), out: r2_(out), negDays: negDays.size, internal: used.size, actualClosing: r2_(accounts.reduce((s, A) => s + (A.closing != null ? A.closing : 0), 0)) };
+}
+/* ══ סוף סימולציית עו״ש ══ */
+/* ═════ סימולציית עו״ש — המסך. נשמר ב-private/osh-<לקוח> (רק דן קורא וכותב — OWNER_ONLY בשרת), ונפתח עם סיסמת הפרייבט ═════ */
+const oshSimDoc = (cid) => S.private.get('osh-' + cid) || { id: 'osh-' + cid, cid, accounts: [], notes: {}, adds: [] };
+async function oshSimSave(cid, patch) { const d = { ...oshSimDoc(cid), ...patch, cid, id: 'osh-' + cid, updatedAt: stamp() }; S.private.set('osh-' + cid, d); render(); await write('private/osh-' + cid, d).catch(() => toast('השמירה נכשלה')); }
+const OSH_BANKS = [['לאומי', /לאומי|leumi/i], ['הפועלים', /פועלים|hapoalim|poalim/i], ['דיסקונט', /דיסקונט|discount/i], ['מזרחי טפחות', /מזרחי|טפחות|mizrahi|tefahot/i], ['הבינלאומי', /בינלאומי|fibi|beinleumi/i], ['מרכנתיל', /מרכנתיל|mercantile/i], ['ירושלים', /ירושלים|jerusalem/i], ['יהב', /יהב|yahav/i], ['מסד', /מסד|massad/i], ['אוצר החייל', /אוצר החייל|otsar/i], ['וואן זירו', /one ?zero|וואן זירו/i]];
+async function oshSimUpload(cid, files) {
+  const say = (t) => { S.oshSimSay = t; const el = $('oshSimSt'); if (el) el.textContent = t; }, doc = oshSimDoc(cid), accs = [...(doc.accounts || [])];
+  for (const file of files) {
+    say('קורא את ' + file.name + '…'); let rows = null, status = 'file', err = '';
+    try {
+      if (/\.(csv|txt|xlsx?|xls)$/i.test(file.name)) {
+        if (typeof XLSX === 'undefined') throw new Error('רכיב קריאת הקבצים לא נטען — נסה לרענן');
+        const buf = await file.arrayBuffer(); let wb;
+        if (/\.(csv|txt)$/i.test(file.name)) { let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1255').decode(buf); } wb = XLSX.read(text.replace(/^﻿/, ''), { type: 'string', raw: true }); }
+        else wb = XLSX.read(buf, { type: 'array', cellDates: true });
+        for (const sh of wb.SheetNames) { const r = oshParseSheet(XLSX.utils.sheet_to_json(wb.Sheets[sh], { header: 1, raw: true, defval: '' })); if (!r.error) { rows = r.rows; break; } else err = r.error; }
+      } else { const R0 = await stmtReadRows(file, 'bank', say, { balance: true }); if (R0) { rows = R0.rows; status = R0.status; } }
+    } catch (e) { err = (e && e.message) || 'שגיאה'; }
+    if (!rows || !rows.length) { toast(file.name + ': ' + (err || 'לא נמצאו תנועות'), 9000); continue; }
+    const R = oshReconcile(rows), bank = (OSH_BANKS.find(([, re]) => re.test(file.name)) || [])[0];
+    /* אותו קובץ שוב (אותו שם, או אותן תנועות) — מחליף את החשבון ושומר את השם וההערות, לא מוסיף כפול */
+    const sig = (L) => L.length + '|' + (L[0] || {}).date + '|' + (L[L.length - 1] || {}).date + '|' + L.reduce((a, r) => a + Math.abs(r.amount || 0), 0).toFixed(2), same = accs.findIndex((x) => x.file === file.name || sig(x.rows || []) === sig(R.rows));
+    const acc = { id: same >= 0 ? accs[same].id : uid().slice(0, 8), label: same >= 0 ? accs[same].label : bank ? 'בנק ' + bank : 'חשבון ' + (accs.length + 1), file: file.name, status, rows: R.rows, opening: R.opening, closing: R.closing, check: R.check, order: R.order, at: stamp() };
+    if (same >= 0) { accs[same] = acc; toast(file.name + ' — עודכן (היה כבר בסימולציה)'); } else accs.push(acc);
+  }
+  say(''); await oshSimSave(cid, { accounts: accs });
+}
+function oshSimCard(cid) {
+  if (!S.isDan) return '';
+  if (!(S.privUntil > Date.now())) return lockForm('privForm', 'סימולציית עו״ש', 'נעול — רק לך. הזן את הסיסמה שלך (אותה סיסמה של הפרייבט).');
+  const doc = oshSimDoc(cid), A = doc.accounts || [], M = A.length || (doc.adds || []).length ? oshMerge(A, doc.notes, doc.adds, doc.opening) : null, show = S.f.oshAll === cid ? Infinity : 400, only = S.f.oshOnly === cid;
+  const head = '<section class="card"><header><h2>סימולציית עו״ש — כל החשבונות כחשבון אחד</h2><span class="pill muted">🔒 רק לך</span><span class="grow"></span>' +
+    '<label class="btn small primary">העלה דפי עו״ש<input type="file" id="oshSimFile" data-cid="' + esc(cid) + '" accept=".pdf,.csv,.xlsx,.xls,image/*" multiple hidden></label>' +
+    (M ? '<button class="btn small" data-act="oshSimPdf" data-cid="' + esc(cid) + '">PDF</button>' : '') + '<button class="btn small ghost" data-act="lockPriv">נעל</button></header>' +
+    '<p class="hint" style="margin:-4px 0 8px">כמה חשבונות של הלקוח (CSV / אקסל מכל בנק, או PDF / צילום — Claude קורא) → חשבון אחד. כל שורה נבדקת מול היתרה הרצה: סימן הפוך או סכום שלא נקרא מתוקנים לפי היתרה, ושורה שלא מתיישבת מסומנת כפער. העברות בין החשבונות של הלקוח מסומנות "פנימית" ולא נספרות. לכל תנועה — הערה וסכום מדומה. <span id="oshSimSt">' + esc(S.oshSimSay || '') + '</span></p>';
+  if (!M) return head + '<p class="empty">עוד לא הועלו דפים.</p></section>';
+  const accRows = A.map((x) => { const c0 = x.check || {}; return '<tr><td><input class="f small" data-oshlbl="' + esc(cid + '|' + x.id) + '" value="' + esc(x.label || '') + '" aria-label="שם החשבון" style="max-width:150px"></td><td class="wide"><bdi>' + esc(x.file || '') + '</bdi>' + (x.status === 'proposal' ? ' <span class="pill expected">Claude קרא — לבדוק</span>' : '') + '<div class="hint">' + (x.rows.length ? dLabel(x.rows[0].date) + '–' + dLabel(x.rows[x.rows.length - 1].date) : '') + ' · ' + x.rows.length + ' תנועות</div></td>' +
+    '<td>' + (c0.checked ? '<span class="pill ' + (c0.broken ? 'open' : 'actual') + '">' + c0.ok + '/' + c0.checked + ' תואמות ליתרה</span>' + (c0.fixed ? ' <span class="pill expected">' + c0.fixed + ' תוקנו לפי היתרה</span>' : '') + (c0.broken ? ' <span class="pill open">' + c0.broken + ' פערים</span>' : '') : '<span class="hint">אין יתרה בקובץ — לא נבדק</span>') + '</td>' +
+    '<td>' + (x.opening != null ? money(x.opening, { cents: true }) : '—') + '</td><td>' + (x.closing != null ? money(x.closing, { cents: true }) : '—') + '</td><td><button class="xlink" data-oshdel="' + esc(cid + '|' + x.id) + '">הסר</button></td></tr>'; }).join('');
+  const tiles = '<div class="grid4" style="margin:10px 0">' + kpi('יתרת פתיחה (כל החשבונות)', money(M.opening, { cents: true }), '<label class="hint">ידנית: <input class="f small num" style="width:110px" data-oshopen="' + esc(cid) + '" value="' + esc(doc.opening ?? '') + '" placeholder="אוטומטי" inputmode="decimal"></label>', null) +
+    kpi('נכנס / יצא', money(M.inn, { tone: 'actual' }) + ' / ' + money(-M.out), M.internal + ' תנועות פנימיות לא נספרו', null) +
+    kpi('יתרת סגירה — סימולציה', money(M.closing, { tone: M.closing < 0 ? 'open' : 'committed' }), 'בפועל (סכום החשבונות): ' + plain(M.actualClosing), null, M.closing < 0 ? 'open' : '') +
+    kpi('השפל', money(M.minBal, { tone: M.minBal < 0 ? 'open' : '' }), dLabel(M.minDate) + (M.negDays ? ' · ' + M.negDays + ' ימים ביתרה שלילית' : ''), null, M.minBal < 0 ? 'open' : '') + '</div>';
+  const addForm = '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin:6px 0"><b>תנועה מדומה:</b><input class="f small" type="date" id="oshAddDate" value="' + esc(today()) + '"><input class="f small" id="oshAddDesc" placeholder="תיאור" style="max-width:180px"><input class="f small num" id="oshAddAmt" placeholder="סכום (יציאה במינוס)" inputmode="decimal" style="max-width:150px"><button class="btn small" data-act="oshSimAdd" data-cid="' + esc(cid) + '">+ הוסף</button>' +
+    '<label class="check" style="margin-inline-start:auto"><input type="checkbox" data-oshonly="' + esc(cid) + '"' + (only ? ' checked' : '') + '><span>רק עם הערה / שינוי / פער</span></label></div>';
+  const L = M.rows.filter((r) => !only || r.note || r.sim != null || r.off || r.add || r.check === 'gap' || r.check === 'fixed'), id = (k) => esc(cid + '|' + k);
+  const row = (r) => '<tr class="' + (r.internal || r.off ? 'muted' : '') + '"' + (r.internal || r.off ? ' style="opacity:.55"' : '') + '><td class="num">' + dLabel(r.date) + '</td><td>' + esc(r.accLabel) + '</td><td class="wide"><bdi>' + esc(r.desc || '') + '</bdi>' +
+      (r.internal ? ' <span class="pill muted">פנימית</span>' : '') + (r.check === 'fixed' ? ' <span class="pill expected" title="נקרא ' + esc(String(r.parsed ?? '')) + '">תוקן לפי היתרה</span>' : '') + (r.check === 'gap' ? ' <span class="pill open">פער ביתרה ' + plain(r.gap) + '</span>' : '') + (r.add ? ' <span class="pill committed">מדומה</span>' : '') + '</td>' +
+    '<td>' + money(r.amount, { cents: true, tone: r.amount > 0 ? 'actual' : '' }) + '</td>' +
+    '<td>' + (r.add ? '' : '<input class="f small num" style="width:100px" data-oshsim="' + id(r.k) + '" value="' + esc(r.sim ?? '') + '" placeholder="—" inputmode="decimal" aria-label="סכום מדומה">') + '</td>' +
+    '<td><input class="f small" style="min-width:140px" data-oshnote="' + id(r.k) + '" value="' + esc(r.note || '') + '" placeholder="הערה" aria-label="הערה"></td>' +
+    '<td>' + money(r.bal, { cents: true, tone: r.bal < 0 ? 'open' : '' }) + '</td>' +
+    '<td style="white-space:nowrap">' + (r.add ? '<button class="xlink" data-oshdeladd="' + id(r.k.slice(4)) + '">מחק</button>' : '<button class="xlink" data-oshoff="' + id(r.k) + '">' + (r.off ? 'החזר' : 'הוצא') + '</button>' + (r.internal || (doc.notes[r.k] || {}).internal === false ? ' · <button class="xlink" data-oshint="' + id(r.k) + '">' + (r.internal ? 'לא פנימית' : 'פנימית') + '</button>' : '')) + '</td></tr>';
+  return head + '<div class="scroll"><table><thead><tr><th>חשבון</th><th>קובץ</th><th>בדיקה מול היתרה</th><th>פתיחה</th><th>סגירה</th><th></th></tr></thead><tbody>' + accRows + '</tbody></table></div>' + tiles + addForm +
+    '<div class="scroll"><table><thead><tr><th>תאריך</th><th>חשבון</th><th>תיאור</th><th>סכום</th><th>סכום מדומה</th><th>הערה</th><th>יתרה (סימולציה)</th><th></th></tr></thead><tbody>' + L.slice(0, show).map(row).join('') + '</tbody></table></div>' +
+    (L.length > show ? '<button class="btn small ghost" data-oshall="' + esc(cid) + '">הצג את כל ' + L.length + ' התנועות</button>' : '') + '</section>';
+}
+function oshSimPdfHtml(cid) {
+  const doc = oshSimDoc(cid), M = oshMerge(doc.accounts || [], doc.notes, doc.adds, doc.opening), name = oshName(cid), cell = 'padding:4px 5px;border-bottom:1px solid #EAECF0;font-size:11px;vertical-align:top', mute = 'color:#475467', red = 'color:#B42318';
+  const m = (v) => '<span dir="ltr" style="unicode-bidi:isolate;' + (v < 0 ? red : '') + '">' + plain(v) + '</span>';
+  return '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:24px 30px;background:#fff">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:20px;font-weight:700">סימולציית עו״ש — ' + esc(name) + '</div><div style="font-size:12px;' + mute + '">כל החשבונות כחשבון אחד · ' + (doc.accounts || []).map((a) => esc(a.label)).join(' · ') + '</div></div><div style="font-size:12px;' + mute + ';text-align:left">הופק ' + dLabel(today()) + '<br>' + M.rows.length + ' תנועות</div></div>' +
+    '<table style="width:100%;border-collapse:collapse;margin:10px 0"><tr>' + [['יתרת פתיחה', M.opening], ['נכנס', M.inn], ['יצא', -M.out], ['יתרת סגירה (סימולציה)', M.closing], ['בפועל', M.actualClosing], ['השפל', M.minBal]].map(([l, v]) => '<td style="' + cell + ';border:1px solid #D0D5DD"><div style="' + mute + '">' + l + '</div><b style="font-size:13px">' + m(v) + '</b></td>').join('') + '</tr></table>' +
+    ((doc.accounts || []).some((a) => a.check && (a.check.fixed || a.check.broken)) ? '<p style="font-size:11px;' + mute + '">' + (doc.accounts || []).map((a) => a.check && a.check.checked ? esc(a.label) + ': ' + a.check.ok + '/' + a.check.checked + ' תואמות ליתרה' + (a.check.fixed ? ', ' + a.check.fixed + ' תוקנו' : '') + (a.check.broken ? ', ' + a.check.broken + ' פערים' : '') : '').filter(Boolean).join(' · ') + '</p>' : '') +
+    '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['תאריך', 'חשבון', 'תיאור', 'סכום', 'מדומה', 'יתרה', 'הערה'].map((h) => '<th style="' + cell + ';text-align:start;background:#F2F4F7">' + h + '</th>').join('') + '</tr></thead><tbody>' +
+    M.rows.map((r) => '<tr style="' + (r.internal || r.off ? 'color:#98A2B3' : r.note || r.sim != null || r.add ? 'background:#FFFAEB' : '') + '"><td style="' + cell + ';white-space:nowrap">' + dLabel(r.date) + '</td><td style="' + cell + '">' + esc(r.accLabel) + '</td><td style="' + cell + '">' + esc(r.desc || '') + (r.internal ? ' (פנימית)' : '') + (r.off ? ' (הוצא)' : '') + (r.check === 'gap' ? ' <span style="' + red + '">(פער ' + plain(r.gap) + ')</span>' : '') + '</td><td style="' + cell + '">' + m(r.amount) + '</td><td style="' + cell + '">' + (r.sim != null ? m(r.sim) : '') + '</td><td style="' + cell + '">' + m(r.bal) + '</td><td style="' + cell + '">' + esc(r.note || '') + '</td></tr>').join('') +
+    '</tbody></table></div>';
+}
+async function oshSimPdf(cid) {
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(oshSimPdfHtml(cid)); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'סימולציית עו״ש — ' + oshName(cid) + ' — ' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 /* ═════ עו״ש לאקסל (דן 21/10): מעלים דף עו״ש של לקוח (PDF / צילום / CSV / אקסל) → אקסל לניתוח, להורדה או לתיקיית הלקוח בדרייב ═════
    גיליונות: תנועות (עם קטגוריה וחודש), סיכום חודשי, לפי קטגוריה, דגלים (חזרות, הלוואות, הימורים, משיכות גדולות).
@@ -12168,6 +12317,15 @@ document.addEventListener('click', async (e) => {
     if (d.cview) { S.f.clientView = d.cview; return render(); }
     if (d.books) { S.f.books = d.books; return render(); }
     if (d.intake) return go('intake', d.intake);
+    /* סימולציית עו״ש */
+    if (d.oshdel || d.oshoff || d.oshint || d.oshdeladd) { const [cid, k] = (d.oshdel || d.oshoff || d.oshint || d.oshdeladd).split('|'), D0 = oshSimDoc(cid);
+      if (d.oshdel) { if (!confirm('להסיר את החשבון מהסימולציה? ההערות שלו יימחקו.')) return; const N = Object.fromEntries(Object.entries(D0.notes || {}).filter(([kk]) => !kk.startsWith(k + ':'))); return oshSimSave(cid, { accounts: (D0.accounts || []).filter((a) => a.id !== k), notes: N }); }
+      if (d.oshdeladd) return oshSimSave(cid, { adds: (D0.adds || []).filter((x) => x.id !== k) });
+      const N = { ...(D0.notes || {}) }, cur = { ...(N[k] || {}) };
+      if (d.oshoff) { if (cur.off) delete cur.off; else cur.off = true; }
+      else { const M0 = oshMerge(D0.accounts || [], D0.notes, D0.adds, D0.opening), r = M0.rows.find((x) => x.k === k); cur.internal = r && r.internal ? false : true; }
+      if (Object.keys(cur).length) N[k] = cur; else delete N[k]; return oshSimSave(cid, { notes: N }); }
+    if (d.oshall) { S.f.oshAll = d.oshall; return render(); }
     if (d.sm) { S.f.settleMonth = d.sm; if (!(S.view.tab === 'money' && S.f.money === 'dash')) S.f.money = 'settle'; return render(); }
     if (d.booksGo) { S.f.books = d.booksGo; return go('books'); }
     if (d.finsuggest) { await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [d.finsuggest]: Number(d.v) } }, 'update'); return toast('שוריין ' + plain(Number(d.v))); }
@@ -12345,6 +12503,10 @@ document.addEventListener('click', async (e) => {
         case 'newExpense': return formExpense(null);
         case 'newPlanned': return formPlanned();
         case 'nissimEntry': return formNissim();
+        case 'oshSimPdf': return oshSimPdf(d.cid);
+        case 'oshSimAdd': { const cid = d.cid, dt = ($('oshAddDate') || {}).value, ds = (($('oshAddDesc') || {}).value || '').trim(), am = oshN(($('oshAddAmt') || {}).value);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dt || '') || !am) return toast('צריך תאריך וסכום (יציאה במינוס)');
+          return oshSimSave(cid, { adds: [...(oshSimDoc(cid).adds || []), { id: uid().slice(0, 8), date: dt, desc: ds || 'תנועה מדומה', amount: am }] }); }
         case 'settleAdd': { /* "+ הוסף" מהריבועים בהתחשבנות — אותם טפסים כמו בשאר המערכת */
           const mm = d.m || today().slice(0, 7), last = mm + '-' + String(new Date(Date.UTC(+mm.slice(0, 4), +mm.slice(5, 7), 0)).getUTCDate()).padStart(2, '0'), day = today().slice(0, 7) === mm ? today() : (today() > last ? last : mm + '-01');
           const base = { nature: 'expense', division: 'finance', deductible: true, date: day };
@@ -12693,6 +12855,13 @@ document.addEventListener('change', async (e) => {
       return procSave(c2, P, el.checked ? 'התקבלה אסמכתא לפעימה ' + (Number(el.dataset.trproof) + 1) : null); }
     if (el.dataset.proctype != null && S.view.tab === 'client') { const c2 = S.clients.get(S.view.clientId); S.f.procView = null; return procSave(c2, { type: el.value, step: null }, 'סוג תהליך: ' + PROC[el.value].label); }
     if (el.id === 'oshFile' && el.files && el.files[0]) return oshUpload(S.view.clientId, el.files[0]);
+    if (el.id === 'oshSimFile' && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return oshSimUpload(el.dataset.cid, fl); }
+    if (el.dataset.oshsim || el.dataset.oshnote) { const [cid, k] = (el.dataset.oshsim || el.dataset.oshnote).split('|'), d = oshSimDoc(cid), N = { ...(d.notes || {}) }, cur = { ...(N[k] || {}) };
+      if (el.dataset.oshsim) { const v = el.value.trim(); if (v === '') delete cur.sim; else { const x = oshN(v); if (x == null) return toast('סכום לא תקין'); cur.sim = x; } } else { const v = el.value.trim(); if (v) cur.note = v.slice(0, 300); else delete cur.note; }
+      if (Object.keys(cur).length) N[k] = cur; else delete N[k]; return oshSimSave(cid, { notes: N }); }
+    if (el.dataset.oshlbl) { const [cid, aid] = el.dataset.oshlbl.split('|'), d = oshSimDoc(cid); return oshSimSave(cid, { accounts: (d.accounts || []).map((a) => a.id === aid ? { ...a, label: el.value.trim().slice(0, 40) || a.label } : a) }); }
+    if (el.dataset.oshopen) { const cid = el.dataset.oshopen, v = el.value.trim(), x = v === '' ? null : oshN(v); if (v !== '' && x == null) return toast('סכום לא תקין'); return oshSimSave(cid, { opening: x }); }
+    if (el.dataset.oshonly) { S.f.oshOnly = el.checked ? el.dataset.oshonly : null; return render(); }
     if (el.id === 'repFile' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], ($('repWho') || {}).value);
     if (el.id === 'repMore' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], null, Number(el.dataset.ri));
     if (el.dataset.rk && S.view.tab === 'intake') { const cid = S.view.clientId, x = JSON.parse(JSON.stringify(intakeDoc(cid))), [ri, path] = el.dataset.rk.split('|'), r = x.reports[Number(ri)];
