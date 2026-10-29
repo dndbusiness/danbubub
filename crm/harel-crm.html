@@ -10663,7 +10663,7 @@ async function pdfFromHtml(html) {
 const inTreat = (c, withHold) => (c.status === 'open' || (withHold && c.status === 'hold')) && !['finished', 'cancelled', 'rejected'].includes(c.approval);
 function treatRows(k, withHold) {
   const t0 = today(), open = live(S.tasks).filter((t) => t.status !== 'done');
-  return live(S.clients).filter(inDiv).filter((c) => inTreat(c, withHold) && (c.resp || '') === k).map((c) => {
+  return live(S.clients).filter(inDiv).filter((c) => inTreat(c, withHold) && (k === null || (c.resp || '') === k)).map((c) => { /* k === null — כל הלקוחות (דוח לפי שלב) */
     const tasks = open.filter((t) => t.clientId === c.id).sort((a, b) => String(a.due || '9999').localeCompare(String(b.due || '9999')));
     const na = c.nextAction || null, missing = (c.checklist || []).filter((i) => i.status !== 'done' && i.status !== 'na');
     const lateInst = (c.installments || []).filter((i) => !i.paid && i.due && i.due < t0);
@@ -10680,7 +10680,7 @@ function clientsPdfHtml(k, rows) {
   const block = (x) => { const c = x.c, m = S.isOwner ? clientMoney(c) : null;
     return '<div data-pk style="border:1px solid #D0D5DD;border-radius:8px;padding:10px 12px;margin:0 0 10px">' +
       '<div style="display:flex;justify-content:space-between;gap:8px"><div><span style="font-size:15px;font-weight:700">☐ ' + esc(c.name) + '</span>' + (c.phone ? ' <span style="' + mute + ';font-size:12px;direction:ltr;unicode-bidi:isolate">' + esc(c.phone) + '</span>' : '') + '</div>' +
-      '<div style="font-size:12px;' + mute + '">' + esc([procStepLabel(c) ? 'בציר: ' + procStepLabel(c) : '', L.approval[c.approval], c.status === 'hold' ? 'בהשהייה' + (c.holdReason ? ': ' + c.holdReason : '') : ''].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<div style="font-size:12px;' + mute + '">' + esc([k === null ? 'אחראי: ' + (c.resp ? L.resp[c.resp] || c.resp : 'ללא') : '', procStepLabel(c) ? 'בציר: ' + procStepLabel(c) : '', L.approval[c.approval], c.status === 'hold' ? 'בהשהייה' + (c.holdReason ? ': ' + c.holdReason : '') : ''].filter(Boolean).join(' · ')) + '</div></div>' +
       '<div style="font-size:12.5px;margin-top:4px"><b>הצעד הבא:</b> ' + (x.na && x.na.text ? esc(x.na.text) + (x.na.date ? ' — <span style="' + (x.na.date < t0 ? red : '') + '">' + dLabel(x.na.date) + (x.na.date < t0 ? ' באיחור' : '') + '</span>' : '') : '<span style="' + red + '">לא נקבע</span>') + '</div>' +
       '<div style="font-size:12.5px;margin-top:3px"><b>משימות פתוחות:</b> ' + (x.tasks.length ? x.tasks.map((t) => '<div style="margin-inline-start:12px">☐ ' + esc(t.title) + (t.due ? ' — <span style="' + (t.due < t0 ? red : mute) + '">' + dLabel(t.due) + '</span>' : '') + ' <span style="' + mute + '">(' + esc(L.resp[taskResp(t)] || 'ללא') + ')</span></div>').join('') : '<span style="' + red + '">אין משימה פתוחה</span>') + '</div>' +
       (x.missing.length ? '<div style="font-size:12.5px;margin-top:3px"><b>מסמכים / שלבים חסרים (' + x.missing.length + '):</b> <span style="' + mute + '">' + esc(x.missing.slice(0, 8).map((i) => i.label).join(' · ')) + (x.missing.length > 8 ? ' ועוד ' + (x.missing.length - 8) : '') + '</span></div>' : '') +
@@ -10689,7 +10689,7 @@ function clientsPdfHtml(k, rows) {
       '<div style="font-size:11.5px;margin-top:4px;' + mute + '">' + (m && m.open > 0 ? 'פתוח לגביה ' + plain(m.open) + ' · ' : '') + (x.lastAt ? 'פעילות אחרונה ' + dLabel(x.lastAt) + (x.idle > 14 ? ' <span style="' + red + '">(' + x.idle + ' ימים)</span>' : '') : '') + '</div></div>'; };
   const late = rows.filter((x) => x.late).length, noTask = rows.filter((x) => x.noTask).length, noNext = rows.filter((x) => !(x.na && x.na.text)).length;
   return '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:24px 30px;background:#fff">' +
-    '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:21px;font-weight:700">לקוחות לטיפול — ' + esc(k ? L.resp[k] || k : 'ללא אחראי') + '</div><div style="font-size:13px;' + mute + '">' + esc(S.division === 'all' ? 'כל החטיבות' : L.division[S.division]) + ' · מוצלב עם המשימות הפתוחות</div></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #101828;padding-bottom:8px"><div><div style="font-size:21px;font-weight:700">לקוחות לטיפול — ' + esc(k === null ? 'לפי שלב · כל הצוות' : k ? L.resp[k] || k : 'ללא אחראי') + '</div><div style="font-size:13px;' + mute + '">' + esc(S.division === 'all' ? 'כל החטיבות' : L.division[S.division]) + ' · מוצלב עם המשימות הפתוחות</div></div>' +
     '<div style="text-align:left;font-size:12px;' + mute + '">הודפס ' + dLabel(t0) + '<br>' + rows.length + ' לקוחות</div></div>' +
     '<p style="font-size:12.5px;margin:10px 0">' + [late ? '<span style="' + red + '">' + late + ' עם משהו באיחור</span>' : '', noTask ? noTask + ' בלי משימה פתוחה' : '', noNext ? noNext + ' בלי צעד הבא' : ''].filter(Boolean).join(' · ') + '</p>' +
     (rows.length ? [...CLIENT_STAGE_GROUPS, ...new Set(rows.map((x) => x.c.stage || '').filter((s) => !CLIENT_STAGE_GROUPS.includes(s)))].map((st) => { const g = rows.filter((x) => (x.c.stage || '') === st).map((x, i) => [x, i]).sort((a, b) => (procIdx(a[0].c, procCur(a[0].c)) - procIdx(b[0].c, procCur(b[0].c))) || a[1] - b[1]).map((p) => p[0]); /* בתוך השלב — לפי השלב בציר, ואז הסדר הקיים (באיחור קודם) */
@@ -10697,12 +10697,12 @@ function clientsPdfHtml(k, rows) {
       : '<p style="font-size:13px;' + mute + '">אין לקוחות לטיפול.</p>') + '</div>';
 }
 async function clientsPdf(who, withHold) {
-  const keys = who === 'all' ? [...Object.keys(L.resp), ''] : [who];
+  const keys = who === 'stage' ? [null] : who === 'all' ? [...Object.keys(L.resp), ''] : [who]; /* stage — כל הלקוחות בדוח אחד לפי שלב, האחראי על כל כרטיס (דן 29/10) */
   const parts = keys.map((k) => [k, treatRows(k, withHold)]).filter(([k, r]) => who !== 'all' || r.length).map(([k, r]) => clientsPdfHtml(k, r));
   if (!parts.length) return toast('אין לקוחות לטיפול');
   const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
   let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(parts); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
-  try { await dlc.save({ filename: 'לקוחות-לטיפול-' + (who === 'all' ? 'כל הצוות' : L.resp[who] || 'ללא אחראי') + '-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
+  try { await dlc.save({ filename: 'לקוחות-לטיפול-' + (who === 'stage' ? 'לפי שלב' : who === 'all' ? 'כל הצוות' : L.resp[who] || 'ללא אחראי') + '-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 /* ── משימות לפי עובד — להדפסה: עמוד לכל עובד ── */
 function tasksPdfHtml(resp, list) {
@@ -12609,9 +12609,9 @@ document.addEventListener('click', async (e) => {
         case 'logout': return logout();
         case 'partnerExpense': return formTx(null, { nature: 'expense', division: 'finance', deductible: true, vatMode: 'incl' });
         case 'newPool': return formPool();
-        case 'clientsPdf': return drawer('לקוחות לטיפול — PDF', fs('who', 'למי', [['all', 'כל הצוות — עמוד לכל אחראי'], ...Object.entries(L.resp), ['', 'ללא אחראי']], 'all', true) +
-          '<label class="check"><input type="checkbox" name="hold" value="1"><span>לכלול גם לקוחות בהשהייה</span></label><p class="hint">לכל לקוח: הצעד הבא, המשימות הפתוחות שלו, מסמכים חסרים, פעימות באיחור ופעילות אחרונה. מסודר לפי מה שבאיחור קודם. ב-PDF של המשימות מופיעים בסוף הלקוחות שאין להם משימה פתוחה.</p>',
-          async (d) => { await clientsPdf(d.who ?? 'all', d.hold === '1'); }, '', 'הורד PDF');
+        case 'clientsPdf': return drawer('לקוחות לטיפול — PDF', fs('who', 'סידור / למי', [['stage', 'כל הצוות — לפי שלב, דוח אחד'], ['all', 'כל הצוות — עמוד לכל אחראי'], ...Object.entries(L.resp), ['', 'ללא אחראי']], 'stage', true) +
+          '<label class="check"><input type="checkbox" name="hold" value="1"><span>לכלול גם לקוחות בהשהייה</span></label><p class="hint">לכל לקוח: הצעד הבא, המשימות הפתוחות שלו, מסמכים חסרים, פעימות באיחור ופעילות אחרונה. מסודר לפי שלבי הביצוע (כמו "לקוחות ← לפי שלב"), ובתוך כל שלב — מה שבאיחור קודם. ב"לפי שלב" כל הלקוחות בדוח אחד והאחראי רשום על כל לקוח. ב-PDF של המשימות מופיעים בסוף הלקוחות שאין להם משימה פתוחה.</p>',
+          async (d) => { await clientsPdf(d.who ?? 'stage', d.hold === '1'); }, '', 'הורד PDF');
         case 'tasksPdf': return drawer('משימות להדפסה', fs('who', 'למי', [['all', 'כל הצוות — עמוד לכל עובד'], ...Object.entries(L.resp)], 'all', true) + '<p class="hint">כל המשימות הפתוחות: באיחור, היום, השבוע, בהמשך ובלי תאריך — עם תיבת סימון לכל משימה.</p>', async (d) => { await tasksPdf(d.who || 'all'); }, '', 'הורד PDF');
         case 'intakeAI': return intakeAI(S.view.clientId);
         case 'apAdd': { const nm = ($('apName') || {}).value.trim(); if (!nm) return toast('צריך שם'); const a = { id: uid(), name: nm, phone: ($('apPhone') || {}).value.trim(), area: ($('apArea') || {}).value.trim(), email: ($('apEmail') || {}).value.trim(), createdAt: stamp() };
