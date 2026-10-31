@@ -567,7 +567,9 @@ body.locked { padding-inline-start: 0; }
 .pef span { pointer-events: none; white-space: nowrap; padding: 0 2px; }
 /* עורך PDF (pdfEdit) */
 .pxs { position: absolute; white-space: nowrap; line-height: 1; display: flex; align-items: flex-end; pointer-events: none; }
-.pxediting .pxs { pointer-events: auto; cursor: text; border-radius: 2px; }
+.pxediting .pxs, .pxpicking .pxs { pointer-events: auto; cursor: text; border-radius: 2px; }
+.pxpicking .pxs { cursor: copy; }
+.pxpicking .pxs:hover { outline: 2px solid var(--q-violet); }
 .pxediting .pxs:hover { outline: 1px solid var(--q-violet); background: color-mix(in srgb, var(--q-violet) 10%, transparent); }
 .pxs.ed { background: #fff; outline: 1px dashed var(--q-violet); }
 .pxediting .pxs.ocr:not(.ed):hover { background: color-mix(in srgb, var(--q-violet) 16%, transparent); }
@@ -5389,9 +5391,11 @@ function pdfEdit(o) {
     const el = $('pxSel'); if (!el) return; const a = E.adds.find((x) => x.id === E.sel), n = dirty();
     let h = '<span class="hint">' + esc(PX_HINT[E.tool]) + '</span><span class="grow"></span>';
     if (a) { h = '<b>' + esc({ text: 'טקסט', date: 'תאריך', check: '✓', cross: '✗', image: 'תמונה', sign: 'חתימה', hl: 'סימון', draw: 'ציור' }[a.ui] || '') + '</b>' +
-      (a.kind === 'text' || a.kind === 'date' ? '<label class="row" style="gap:4px;align-items:center">גודל<select class="f small" id="pxSize">' + [8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((s) => '<option' + (s === a.size ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></label>' +
+      (a.kind === 'text' || a.kind === 'date' ? (a.likeText ? '<span class="chip soft" title="הגופן, הגודל והצבע של הטקסט הזה במסמך">בסגנון של: <bdi>' + esc(a.likeText) + '</bdi></span><button type="button" class="btn small ghost" data-px="plain">סגנון רגיל</button>' : '') +
+        '<button type="button" class="btn small ghost" data-px="pick" title="לוחצים על טקסט במסמך — והתיבה מקבלת את הגופן, הגודל והצבע שלו">' + (E.picking === a.id ? 'לחץ על טקסט במסמך…' : 'בחר סגנון מהמסמך') + '</button>' +
+        '<label class="row" style="gap:4px;align-items:center">גודל<select class="f small" id="pxSize">' + [...new Set([7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, a.size])].sort((x, y) => x - y).map((s) => '<option value="' + s + '"' + (s === a.size ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></label>' +
         '<label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="pxBold"' + (a.bold ? ' checked' : '') + '> מודגש</label>' : '') +
-      (['text', 'date', 'check', 'cross', 'draw'].includes(a.kind) ? '<label class="row" style="gap:4px;align-items:center">צבע<select class="f small" id="pxColor">' + [['#111827', 'שחור'], ['#1d4ed8', 'כחול'], ['#b42318', 'אדום']].map(([v, t]) => '<option value="' + v + '"' + ((a.color || '#111827') === v ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></label>' : '') +
+      (['text', 'date', 'check', 'cross', 'draw'].includes(a.kind) ? '<label class="row" style="gap:4px;align-items:center">צבע<select class="f small" id="pxColor">' + [['#111827', 'שחור'], ['#1d4ed8', 'כחול'], ['#b42318', 'אדום'], ...(a.color && !['#111827', '#1d4ed8', '#b42318'].includes(a.color) ? [[a.color, 'כמו במסמך']] : [])].map(([v, t]) => '<option value="' + v + '"' + ((a.color || '#111827') === v ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></label>' : '') +
       '<button type="button" class="btn small ghost danger" data-px="del">מחק</button><span class="grow"></span>'; }
     else if (E.saved && !n) { const j = E.saved, w = (j.checks && j.checks.warnings) || [];
       h = '<b>נשמר ✓</b> <bdi>' + esc(j.saved.name) + '</bdi>' + (j.checks && j.checks.edits ? ' <span class="hint">· ' + j.checks.verified + ' מתוך ' + j.checks.edits + ' עריכות נבדקו: הטקסט הישן נמחק מהקובץ</span>' : '') +
@@ -5404,7 +5408,7 @@ function pdfEdit(o) {
     d.className = 'pxs' + (ed ? ' ed' : '') + (s.ocr || s.hidden ? ' ocr' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + (s.rtl ? 'right' : 'left') + (ed && s.paper ? ';background:' + s.paper : '');
     if (ed) d.textContent = E.edits[k]; return d; };
   const addEl = (a) => { const d = document.createElement('div'); d.className = 'pxa k-' + a.kind + (E.sel === a.id ? ' sel' : ''); d.dataset.pa = a.id; d.style.cssText = pxR(a.rect, P(a.page));
-    if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'HE-sans" + (a.bold ? '-bold' : '') + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
+    if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'" + pxFam(a) + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
       const t = document.createElement('div'); t.className = 'pxt'; t.contentEditable = 'true'; t.dir = 'auto'; t.textContent = a.text || ''; d.appendChild(t); }
     else if (a.kind === 'check' || a.kind === 'cross') d.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="' + (a.kind === 'check' ? 'M14 55 L40 82 L88 16' : 'M18 18 L82 82 M82 18 L18 82') + '" fill="none" stroke="' + (a.color || '#111827') + '" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" style="stroke-width:calc(var(--k) * 1.6px)"/></svg>';
     else if (a.kind === 'image') d.innerHTML = '<img src="' + a.image + '" alt="" draggable="false">';
@@ -5436,7 +5440,13 @@ function pdfEdit(o) {
     const x0 = Math.max(0, Math.min(p.w - w, cx - w / 2)), y0 = Math.max(0, Math.min(p.h - h, cy - h / 2));
     const kind = ui === 'sign' ? 'image' : ui; const a = { id: 'a' + uid(), page: i, ui, kind, rect: [x0, y0, x0 + w, y0 + h], ...extra }; delete a.wh;
     if (kind === 'text') { a.size = 11; a.text = ''; } if (kind === 'date') { a.size = 10; a.text = pxToday(); }
+    if (kind === 'text' || kind === 'date') { const near = pxNearest(p, cx, cy); if (near) pxTakeStyle(a, near, p); }
     E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); if (kind === 'text') { const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus(); } };
+  // "באותו גופן ובאותו גודל" (דן 31/10): תיבת טקסט חדשה לוקחת את הסגנון של הטקסט הקרוב בעמוד
+  const pxNearest = (p, x, y) => { let best = null, bd = 1e9; for (const s of p.spans) { if (!s.text.trim()) continue; const dx = x < s.rect[0] ? s.rect[0] - x : x > s.rect[2] ? x - s.rect[2] : 0, dy = y < s.rect[1] ? s.rect[1] - y : y > s.rect[3] ? y - s.rect[3] : 0, d = dx + dy * 3; if (d < bd) { bd = d; best = s; } } return bd < 200 ? best : null; };
+  const pxTakeStyle = (a, s, p) => { a.size = s.size; a.color = s.color; a.family = s.family; a.bold = s.bold; a.likeText = s.text.slice(0, 30); if (!s.ocr && !s.hidden) a.match = s.id; else delete a.match;
+    const h = s.size * 1.35, y0 = a.rect[1] + (a.rect[3] - a.rect[1]) / 2 - h / 2; a.rect[1] = Math.max(0, y0); a.rect[3] = Math.min(p.h, a.rect[1] + h); };
+  const pxPlainStyle = (a) => { delete a.match; delete a.likeText; a.family = 'sans'; a.bold = false; a.color = '#111827'; a.size = a.kind === 'date' ? 10 : 11; };
   const ptOf = (pg, e) => { const r = pg.getBoundingClientRect(), p = P(+pg.dataset.pg); return [(e.clientX - r.left) / r.width * p.w, (e.clientY - r.top) / r.height * p.h]; };
   // עריכת טקסט קיים: input במקום, באותו גופן/גודל/צבע
   const editSpan = (el) => { const k = el.dataset.ps, sp = spanOf(k); if (!sp) return;
@@ -5449,6 +5459,7 @@ function pdfEdit(o) {
   let drag = null;
   pagesEl.addEventListener('pointerdown', async (e) => {
     const pg = e.target.closest('.pg'); if (!pg || !E.A || e.target.closest('.pxw') || e.target.closest('.pxin')) return;
+    if (E.picking && e.target.closest('.pxs')) return;
     if (e.target.closest('.pxt') && document.activeElement === e.target.closest('.pxt')) return;
     const [x, y] = ptOf(pg, e), p = P(+pg.dataset.pg);
     const ae = e.target.closest('[data-pa]');
@@ -5488,11 +5499,12 @@ function pdfEdit(o) {
   root.addEventListener('change', (e) => { const t = e.target, a = E.adds.find((q) => q.id === E.sel);
     if (t.dataset.pw != null) { E.form[t.dataset.pw] = t.type === 'checkbox' ? t.checked : t.value; return selBar(); }
     if (t.id === 'pxCompress') E.compress = t.checked; if (t.id === 'pxFlatten') E.flatten = t.checked; if (t.id === 'pxOcrLayer') { E.ocrLayer = t.checked; selBar(); }
-    if (a && t.id === 'pxSize') a.size = +t.value; if (a && t.id === 'pxBold') a.bold = t.checked; if (a && t.id === 'pxColor') a.color = t.value;
+    if (a && t.id === 'pxSize') a.size = +t.value; if (a && t.id === 'pxBold') { a.bold = t.checked; delete a.match; } if (a && t.id === 'pxColor') a.color = t.value;
     if (a && ['pxSize', 'pxBold', 'pxColor'].includes(t.id)) { const pg = root.querySelector('.pg[data-pg="' + a.page + '"]'); drawPage(pg); setK(); selBar(); } });
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.pxt')) document.activeElement.blur(); E.sel = null; root.querySelectorAll('.pxa.sel').forEach((q) => q.classList.remove('sel')); return selBar(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && E.sel && !e.target.closest('input,select,textarea,[contenteditable]')) { const a = E.adds.find((q) => q.id === E.sel); if (a) { E.adds = E.adds.filter((q) => q !== a); E.sel = null; drawAll(); e.preventDefault(); } } });
   root.addEventListener('click', async (e) => {
+    if (E.picking) { const ps = e.target.closest('.pxs'); if (ps) { const a = E.adds.find((q) => q.id === E.picking), s = spanOf(ps.dataset.ps); E.picking = null; root.classList.remove('pxpicking'); if (a && s) { pxTakeStyle(a, s, P(a.page)); E.sel = a.id; drawPage(root.querySelector('.pg[data-pg="' + a.page + '"]')); setK(); toast('הסגנון הועתק: ' + s.size + 'pt'); } return selBar(); } }
     const se = E.tool === 'edit' && E.A && e.target.closest('.pxs'); if (se && !e.target.closest('.pxin')) return editSpan(se);
     const t = e.target.closest('[data-pxt]'); if (t) { E.tool = t.dataset.pxt; E.sel = null; root.querySelectorAll('[data-pxt]').forEach((b) => b.setAttribute('aria-pressed', String(b === t))); root.classList.toggle('pxediting', E.tool === 'edit'); return selBar(); }
     const r = e.target.closest('[data-pxrot]'); if (r) { const i = +r.dataset.pxrot; E.rot[i] = ((E.rot[i] || 0) + 90) % 360; if (!E.rot[i]) delete E.rot[i]; pagesPanel(); drawPage(root.querySelector('.pg[data-pg="' + i + '"]')); return selBar(); }
@@ -5503,6 +5515,8 @@ function pdfEdit(o) {
     if (act === 'blanks') { E.blanks = !E.blanks; b.setAttribute('aria-pressed', String(E.blanks)); const n = E.A ? E.A.pages.reduce((s, p) => s + p.blanks.length, 0) : 0; if (E.blanks) toast(n ? 'זוהו ' + n + ' שדות ריקים — לחיצה על שדה ממלאת אותו' : 'לא זוהו שדות ריקים'); return drawAll(); }
     if (act === 'pages') { const ex = $('pxPagesBar'); if (ex) { ex.remove(); return; } $('pxSel').insertAdjacentHTML('afterend', '<div class="pdfsel" id="pxPagesBar"></div>'); return pagesPanel(); }
     if (act === 'del') { E.adds = E.adds.filter((q) => q.id !== E.sel); E.sel = null; return drawAll(); }
+    if (act === 'plain') { const a = E.adds.find((q) => q.id === E.sel); if (a) { pxPlainStyle(a); drawPage(root.querySelector('.pg[data-pg="' + a.page + '"]')); setK(); } return selBar(); }
+    if (act === 'pick') { E.picking = E.picking ? null : E.sel; root.classList.toggle('pxpicking', !!E.picking); return selBar(); }
     if (act === 'undo' && E.sel && E.sel.startsWith('s:')) { delete E.edits[E.sel.slice(2)]; E.sel = null; return drawAll(); }
     if (act === 'save') {
       if (E.busy) return; if (!dirty()) return toast('אין שינויים לשמור');
@@ -5514,7 +5528,7 @@ function pdfEdit(o) {
         ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
         ocrLayer: E.ocrLayer ? Object.entries(E.ocr).map(([page, sp]) => ({ page: +page, lines: sp.map((x) => ({ rect: rr(x.rect), baseline: r2(x.baseline), size: x.size, text: x.text })) })) : [],
         erase: E.erase, adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
-          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
+          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
         form: E.form, flatten: E.flatten, compress: E.compress, pages: { ...(Object.keys(E.rot).length ? { rotate: E.rot } : {}), ...(E.del.size ? { order: keep } : {}) } };
       E.busy = true; b.disabled = true; b.textContent = 'שומר…';
       try { const res = await fetch('/api/crm/pdf/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src, ops }) }); const j = await res.json().catch(() => ({}));

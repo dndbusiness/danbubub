@@ -187,7 +187,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
     const nPages = pdf.countPages()
     const fallback = new Map<string, InstanceType<MU['Font']>>()
     const getFallback = async (file: string) => { let f = fallback.get(file); if (!f) { f = new M.Font(file.replace(/\.ttf$/, ''), await readFallbackFont(file)); fallback.set(file, f) } return f }
-    const embedded = new Map<InstanceType<MU['Font']> | string, InstanceType<MU['PDFObject']>>()
+    const embedded = new Map<InstanceType<MU['Font']> | string, { ref: InstanceType<MU['PDFObject']>; tu?: InstanceType<MU['PDFObject']>; n: number }>()
     let resN = 0
     const touched = new Set<number>([...req.edits, ...req.erase, ...req.adds, ...req.ocrEdits, ...req.ocrLayer].map((o) => o.page))
     const formOn = Object.keys(req.form).length > 0
@@ -212,7 +212,12 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       const chooseFont = async (visual: string, origName: string | null, style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }) => {
         const cs = [...visual]
         const g = origName ? scan.glyphs.get(origName) : null
-        if (g && cs.every((c) => g.map.has(c))) return { font: g.font, gids: cs.map((c) => g.map.get(c)!), orig: g }
+        if (g) {
+          // אותיות שלא הופיעו במסמך: אם בגופן המקורי יש cmap שמתאים למה שכבר ידוע (גופן מלא, או subset עם cmap) — גם הן מהמקורי
+          const known = [...g.map.entries()].slice(0, 40), cmapOk = known.length >= 3 && known.every(([c, gid]) => g.font.encodeCharacter(c.codePointAt(0)!) === gid)
+          const gidOf = (c: string) => g.map.get(c) ?? (cmapOk ? g.font.encodeCharacter(c.codePointAt(0)!) || undefined : undefined)
+          if (cs.every((c) => gidOf(c) !== undefined)) { for (const c of cs) if (!g.map.has(c)) g.map.set(c, gidOf(c)!); return { font: g.font, gids: cs.map((c) => g.map.get(c)!), orig: g } }
+        }
         for (const file of [fallbackFile(style), 'DejaVuSans.ttf']) {
           const f = await getFallback(file), gids = cs.map((c) => f.encodeCharacter(c.codePointAt(0)!))
           if (gids.every((x, i) => x > 0 || !cs[i]?.trim()) || file === 'DejaVuSans.ttf') return { font: f, gids: gids.map((x) => Math.max(0, x)), orig: null }
@@ -220,16 +225,18 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         throw new Error('unreachable')
       }
       const fontRes = (font: InstanceType<MU['Font']>, orig: GlyphFont | null) => {
-        let ref = embedded.get(font)
-        if (!ref) {
-          ref = pdf.addFont(font)
-          if (orig) { // subset מהמסמך — בלי cmap; ToUnicode מהמיפוי שנאסף מהטקסט עצמו
-            const desc = ref.resolve()
-            desc.put('ToUnicode', pdf.addStream(toUnicodeCMap([...orig.map.entries()].map(([c, gid]) => [gid, c.codePointAt(0)!])), {}))
+        const cmap = () => toUnicodeCMap([...orig!.map.entries()].map(([c, gid]) => [gid, c.codePointAt(0)!]))
+        let e = embedded.get(font)
+        if (!e) {
+          const ref = pdf.addFont(font)
+          e = { ref, n: 0 }
+          if (orig) { // גופן מהמסמך — ToUnicode מהמיפוי שנאסף מהטקסט עצמו (ומתעדכן כשנוספות אותיות)
+            e.tu = pdf.addStream(cmap(), {}); e.n = orig.map.size
+            ref.resolve().put('ToUnicode', e.tu)
           }
-          embedded.set(font, ref)
-        }
-        return newRes('Font', 'HEf', ref)
+          embedded.set(font, e)
+        } else if (orig && e.tu && e.n !== orig.map.size) { e.tu.writeStream(cmap()); e.n = orig.map.size }
+        return newRes('Font', 'HEf', e.ref)
       }
       // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס
       const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean }) => {
@@ -295,11 +302,16 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         const [x0, y0, x1, y1] = a.rect, W = x1 - x0, H = y1 - y0
         const color = hexColor(a.color ?? (a.kind === 'highlight' ? '#ffe14d' : '#111827'))
         if (a.kind === 'text' || a.kind === 'date') {
-          const size = a.size ?? 11, lines = String(a.text ?? '').split(/\r?\n/).slice(0, 80)
+          // "באותו גופן ובאותו גודל" (דן 31/10): התיבה לוקחת את הסגנון של טקסט קיים בעמוד — הגופן המקורי אם יש בו את האותיות
+          const like = a.match != null ? spans[a.match] : undefined, likeOk = like && !like.hidden
+          const size = a.size ?? like?.size ?? 11, lines = String(a.text ?? '').split(/\r?\n/).slice(0, 80)
+          const style = likeOk ? fontStyle(like.font) : { family: a.family ?? 'sans', bold: !!a.bold, italic: false }
+          const origFont = likeOk ? scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === like.font)?.font ?? null : null
+          const col = a.color ? color : like ? hexColor(like.color) : color
           for (let i = 0; i < lines.length; i++) {
             const ln = lines[i] ?? ''; if (!ln.trim()) continue
             const rtl = isRtl(ln)
-            await writeLine(ln, { left: x0 + 1, right: x1 - 1, baseline: y0 + size * 0.92 + i * size * 1.25, size, color, rtl, origFont: null, style: { family: a.family ?? 'sans', bold: !!a.bold, italic: false }, avail: W - 2 })
+            await writeLine(ln, { left: x0 + 1, right: x1 - 1, baseline: y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: W - 2 })
           }
         } else if (a.kind === 'check' || a.kind === 'cross') {
           const lw = Math.max(0.8, Math.min(W, H) * 0.12)
