@@ -20,6 +20,7 @@ import {
   type AddOp, type ApplyReq, type Blank, type PdfChar, type Rect, type Span, type Vec,
   detectBlanks, fallbackFile, fitText, fontStyle, groupSpans, hexColor, isRtl, logicalToVisual, shrinkForRedact, toUnicodeCMap, underscoreRuns,
 } from '../rules/pdf-edit.js'
+import { type Gray, type OcrLine, type OcrSpan, inkAndPaper, ocrLayerFor, ocrSpans, scanVecs } from '../rules/pdf-ocr.js'
 
 type MU = typeof import('mupdf')
 type Matrix = [number, number, number, number, number, number]
@@ -49,11 +50,15 @@ interface GlyphFont { font: InstanceType<MU['Font']>; map: Map<string, number> }
 interface PageScan { chars: PdfChar[]; vecs: Vec[]; imageArea: number; glyphs: Map<string, GlyphFont> }
 
 function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
+  // קודם: מיקומי הגליפים הנסתרים (Tr 3 — שכבת OCR של סורק), כדי לסמן את התווים שלהם
+  const hiddenAt = new Set<string>(), key = (x: number, y: number) => Math.round(x * 2) + ':' + Math.round(y * 2)
+  const pre = new M.Device({ ignoreText(text, ctm) { text.walk({ showGlyph(_f, trm) { const [x, y] = apply(ctm, at(trm, 4), at(trm, 5)); hiddenAt.add(key(x, y)) } }) } })
+  page.run(pre, M.Matrix.identity); pre.close()
   const chars: PdfChar[] = []
   let line = -1
   page.toStructuredText('preserve-whitespace').walk({
     beginLine() { line++ },
-    onChar(c, origin, font, size, quad, color) { chars.push({ c, rect: quadRect(quad), origin: [at(origin, 0), at(origin, 1)], font: font.getName(), size, color: rgbOf(color as unknown as number[]), line }) },
+    onChar(c, origin, font, size, quad, color) { const o: [number, number] = [at(origin, 0), at(origin, 1)]; chars.push({ c, rect: quadRect(quad), origin: o, font: font.getName(), size, color: rgbOf(color as unknown as number[]), line, ...(hiddenAt.size && hiddenAt.has(key(o[0], o[1])) ? { hidden: true } : {}) }) },
   })
   const vecs: Vec[] = []
   let imageArea = 0
@@ -99,12 +104,50 @@ async function openPdf(bytes: Uint8Array) {
   return { M, pdf }
 }
 
-function pageInfo(page: InstanceType<MU['PDFPage']>, i: number, scan: PageScan): PageInfo {
+/* העמוד כתמונה (לסרוקים): קווים וריבועים מהפיקסלים, וצבעי דיו/נייר. 144dpi — מספיק לקווים, מהיר */
+export const CV_SCALE = 2
+function pageImage(M: MU, page: InstanceType<MU['PDFPage']>): { gray: Gray; rgb: Uint8ClampedArray; w: number; h: number } {
+  const pix = page.toPixmap(M.Matrix.scale(CV_SCALE, CV_SCALE), M.ColorSpace.DeviceRGB, false)
+  try {
+    const w = pix.getWidth(), h = pix.getHeight(), n = pix.getNumberOfComponents() + pix.getAlpha(), stride = pix.getStride(), src = pix.getPixels()
+    const rgb = new Uint8ClampedArray(w * h * 3), gray = new Uint8Array(w * h)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * stride + x * n, o = y * w + x
+      const r = src[i]!, g = src[i + 1]!, b = src[i + 2]!; rgb[o * 3] = r; rgb[o * 3 + 1] = g; rgb[o * 3 + 2] = b; gray[o] = (r * 299 + g * 587 + b * 114) / 1000 }
+    return { gray: { data: gray, w, h }, rgb, w, h }
+  } finally { pix.destroy() }
+}
+/* סרוק: תמונה על רוב העמוד, ובלי טקסט גלוי — או שרוב הטקסט נסתר (סרוק שכבר עבר OCR ונערך) */
+const isScanned = (scan: PageScan, w: number, h: number) => { const vis = scan.chars.filter((c) => c.c.trim() && !c.hidden).length, hid = scan.chars.filter((c) => c.c.trim() && c.hidden).length
+  return scan.imageArea > w * h * 0.4 && (vis === 0 || hid >= vis) }
+
+function pageInfo(M: MU, page: InstanceType<MU['PDFPage']>, i: number, scan: PageScan, cv: boolean): PageInfo {
   const b = page.getBounds(), w = b[2] - b[0], h = b[3] - b[1]
-  const spans = groupSpans(scan.chars)
-  const blanks = detectBlanks(i, w, scan.vecs, spans, underscoreRuns(scan.chars))
+  const spans = groupSpans(scan.chars), scanned = isScanned(scan, w, h)
+  // סרוק: הקווים והריבועים באים מהתמונה (אין בו וקטורים); טקסט נסתר (OCR קודם) — משמש כתוויות
+  const img = scanned && cv ? pageImage(M, page) : null
+  const vecs = img ? scanVecs(img.gray, CV_SCALE) : scan.vecs
+  if (img) for (const s of spans) if (s.hidden) { const c = inkAndPaper(img.rgb, img.w, img.h, CV_SCALE, s.rect); s.color = c.ink; s.paper = c.paper }
+  const blanks = detectBlanks(i, w, vecs, spans, underscoreRuns(scan.chars.filter((c) => !c.hidden)))
   const rotation = Number(page.getObject().getInheritable('Rotate').asNumber?.() ?? 0) || 0
-  return { w: Math.round(w * 100) / 100, h: Math.round(h * 100) / 100, rotation, spans, blanks, widgets: widgetsOf(page), scanned: !scan.chars.some((c) => c.c.trim()) && scan.imageArea > w * h * 0.4 }
+  return { w: Math.round(w * 100) / 100, h: Math.round(h * 100) / 100, rotation, spans, blanks, widgets: widgetsOf(page), scanned }
+}
+
+export const MAX_CV_PAGES = 20
+export interface OcrPageIn { page: number; dpi: number; lines: OcrLine[] }
+/** תוצאת OCR מהדפדפן → spans עם צבעי דיו/נייר + שדות ריקים מהתמונה (עם התוויות שה-OCR קרא) */
+export async function ocrPages(bytes: Uint8Array, input: OcrPageIn[]): Promise<{ pages: { page: number; spans: OcrSpan[]; blanks: Blank[] }[] }> {
+  const { M, pdf } = await openPdf(bytes)
+  try {
+    const n = pdf.countPages(), out: { page: number; spans: OcrSpan[]; blanks: Blank[] }[] = []
+    for (const p of input.slice(0, MAX_EDIT_PAGES)) {
+      if (!(p.page >= 0 && p.page < n)) continue
+      const page = pdf.loadPage(p.page) as InstanceType<MU['PDFPage']>, b = page.getBounds(), img = pageImage(M, page)
+      const spans = ocrSpans(p.lines, p.dpi, 10000)
+      for (const s of spans) { const c = inkAndPaper(img.rgb, img.w, img.h, CV_SCALE, s.rect); s.color = c.ink; s.paper = c.paper }
+      out.push({ page: p.page, spans, blanks: detectBlanks(p.page, at(b, 2) - at(b, 0), scanVecs(img.gray, CV_SCALE), spans, []) })
+    }
+    return { pages: out }
+  } finally { pdf.destroy() }
 }
 
 export async function countPages(bytes: Uint8Array): Promise<number> {
@@ -116,7 +159,8 @@ export async function analyzePdf(bytes: Uint8Array, maxPages = MAX_EDIT_PAGES): 
   const { M, pdf } = await openPdf(bytes)
   try {
     const n = pdf.countPages(), pages: PageInfo[] = []
-    for (let i = 0; i < Math.min(n, maxPages); i++) { const page = pdf.loadPage(i) as InstanceType<MU['PDFPage']>; pages.push(pageInfo(page, i, scanPage(M, page))) }
+    let cv = 0
+    for (let i = 0; i < Math.min(n, maxPages); i++) { const page = pdf.loadPage(i) as InstanceType<MU['PDFPage']>, info = pageInfo(M, page, i, scanPage(M, page), cv < MAX_CV_PAGES); if (info.scanned) cv++; pages.push(info) }
     return { pages, truncated: n > maxPages }
   } finally { pdf.destroy() }
 }
@@ -145,7 +189,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
     const getFallback = async (file: string) => { let f = fallback.get(file); if (!f) { f = new M.Font(file.replace(/\.ttf$/, ''), await readFallbackFont(file)); fallback.set(file, f) } return f }
     const embedded = new Map<InstanceType<MU['Font']> | string, InstanceType<MU['PDFObject']>>()
     let resN = 0
-    const touched = new Set<number>([...req.edits, ...req.erase, ...req.adds].map((o) => o.page))
+    const touched = new Set<number>([...req.edits, ...req.erase, ...req.adds, ...req.ocrEdits, ...req.ocrLayer].map((o) => o.page))
     const formOn = Object.keys(req.form).length > 0
     if (formOn || req.flatten) for (let i = 0; i < nPages; i++) touched.add(i)
     const editedSpans: { page: number; rect: Rect; old: string; text: string }[] = []
@@ -188,16 +232,17 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         return newRes('Font', 'HEf', ref)
       }
       // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס
-      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number }) => {
+      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean }) => {
         const visual = isRtl(text) ? logicalToVisual(text) : text
         const { font, gids, orig } = await chooseFont(visual, o.origFont, o.style)
         const adv = gids.reduce((s, g) => s + font.advanceGlyph(g, 0), 0)
-        const fit = fitText(adv * o.size, o.avail, o.size)
+        // שכבה נסתרת: נמתחת/מתכווצת בדיוק לרוחב המילים בתמונה (כך שסימון בחיפוש יושב על המילה)
+        const fit = o.invisible ? { size: o.size, scale: adv > 0 ? Math.max(0.2, Math.min(5, o.avail / (adv * o.size))) : 1 } : fitText(adv * o.size, o.avail, o.size)
         const width = adv * fit.size * fit.scale
         const x = o.rtl ? o.right - width : o.left
         const trm = M.Matrix.concat([fit.size * fit.scale, 0, 0, -fit.size, x, o.baseline], inv)
         const name = fontRes(font, orig)
-        ops.push(`BT /${name} 1 Tf ${rg(o.color)} rg ${mat(trm)} Tm <${gids.map((g) => g.toString(16).padStart(4, '0')).join('')}> Tj ET`)
+        ops.push(`BT /${name} 1 Tf ${o.invisible ? '3 Tr' : rg(o.color) + ' rg'} ${mat(trm)} Tm <${gids.map((g) => g.toString(16).padStart(4, '0')).join('')}> Tj ET`)
         return { orig: !!orig }
       }
       const pathOps = (pts: [number, number][], close: boolean) => pts.map((p, i) => { const q = apply(inv, p[0], p[1]); return f3(q[0]) + ' ' + f3(q[1]) + (i ? ' l' : ' m') }).join(' ') + (close ? ' h' : '')
@@ -213,9 +258,23 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       }
       if (live.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_NONE, M.PDFPage.REDACT_LINE_ART_NONE, M.PDFPage.REDACT_TEXT_REMOVE)
       // 2. מחיקת אזור — טקסט, תמונה (הפיקסלים) וקווים שבתוכו
-      const er = req.erase.filter((e) => e.page === pi)
-      for (const e of er) { const a = page.createAnnotation('Redact'); a.setRect(e.rect); a.update() }
-      if (er.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_PIXELS, M.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED, M.PDFPage.REDACT_TEXT_REMOVE)
+      // + עריכות בסרוק: הפיקסלים של הטקסט הישן (וטקסט נסתר שעליהם) נמחקים מהתמונה עצמה
+      const er = req.erase.filter((e) => e.page === pi), oe = req.ocrEdits.filter((e) => e.page === pi)
+      const pad = (r: Rect, d: number): Rect => [r[0] - d, r[1] - d, r[2] + d, r[3] + d]
+      for (const r of [...er.map((e) => e.rect), ...oe.map((e) => pad(e.rect, 0.8))]) { const a = page.createAnnotation('Redact'); a.setRect(r); a.update() }
+      if (er.length || oe.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_PIXELS, M.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED, M.PDFPage.REDACT_TEXT_REMOVE)
+      const fillRect = (r: Rect, c: string) => ops.push(`q ${rg(hexColor(c))} rg ${pathOps([[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]], true)} f Q`)
+      for (const e of er) if (e.fill) fillRect(e.rect, e.fill)
+      for (const e of oe) {
+        if (e.paper) fillRect(pad(e.rect, 0.8), e.paper)
+        editedSpans.push({ page: pi, rect: e.rect, old: '', text: e.text })
+        if (!e.text.trim()) continue
+        const w0 = e.rect[2] - e.rect[0]
+        await writeLine(e.text, { left: e.rect[0], right: e.rect[2], baseline: e.baseline, size: e.size, color: hexColor(e.color ?? '#111111'), rtl: isRtl(e.text), origFont: null, style: { family: 'sans', bold: false, italic: false }, avail: Math.max(w0, Math.min(w0 * 1.6, w0 + 60)) })
+      }
+      // שכבה נסתרת (בר-חיפוש), בלי שורות שנערכו או נמחקו
+      for (const l of ocrLayerFor(req.ocrLayer.filter((o) => o.page === pi).flatMap((o) => o.lines), [...er.map((e) => e.rect), ...oe.map((e) => e.rect)]))
+        await writeLine(l.text, { left: l.rect[0], right: l.rect[2], baseline: l.baseline, size: l.size, color: [0, 0, 0], rtl: isRtl(l.text), origFont: null, style: { family: 'sans', bold: false, italic: false }, avail: l.rect[2] - l.rect[0], invisible: true })
 
       // 3. הטקסט החדש במקום הישן
       for (const { span: s, text } of live) {
