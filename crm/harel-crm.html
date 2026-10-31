@@ -564,6 +564,30 @@ body.locked { padding-inline-start: 0; }
 .pef.sel { outline: 2px dashed var(--ink); outline-offset: 2px; }
 .pef .rz { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; background: var(--sgc); cursor: nwse-resize; }
 .pef span { pointer-events: none; white-space: nowrap; padding: 0 2px; }
+/* עורך PDF (pdfEdit) */
+.pxs { position: absolute; white-space: nowrap; line-height: 1; display: flex; align-items: flex-end; pointer-events: none; }
+.pxediting .pxs { pointer-events: auto; cursor: text; border-radius: 2px; }
+.pxediting .pxs:hover { outline: 1px solid var(--q-violet); background: color-mix(in srgb, var(--q-violet) 10%, transparent); }
+.pxs.ed { background: #fff; outline: 1px dashed var(--q-violet); }
+.pxs.ed:empty::after { content: '(יימחק)'; font: 600 10px Heebo, Arial, sans-serif; color: var(--text-3); }
+.pxin { width: 100%; min-width: 40px; height: 100%; border: 0; outline: 2px solid var(--q-violet); background: #fff; font: inherit; color: inherit; padding: 0; margin: 0; }
+.pxe { position: absolute; background: rgba(255, 255, 255, .9); outline: 1.5px dashed var(--q-slate); cursor: pointer; }
+.pxa { position: absolute; cursor: move; }
+.pxa.sel { outline: 1.5px dashed var(--ink); outline-offset: 1px; }
+.pxa .rz { position: absolute; right: -4px; bottom: -4px; width: 9px; height: 9px; background: var(--ink); cursor: nwse-resize; display: none; }
+.pxa.sel .rz { display: block; }
+.pxa svg, .pxa img { width: 100%; height: 100%; display: block; pointer-events: none; }
+.pxa.k-highlight { background: rgba(255, 225, 77, .45); mix-blend-mode: multiply; }
+.pxa.k-text, .pxa.k-date { line-height: 1.25; white-space: pre; }
+.pxt { outline: none; min-width: 10px; min-height: 100%; cursor: text; white-space: pre; }
+.pxa.k-text .pxt:empty::before { content: 'טקסט'; color: var(--text-3); }
+.pxb { position: absolute; border: 1.5px dashed var(--q-violet); background: color-mix(in srgb, var(--q-violet) 12%, transparent); cursor: pointer; border-radius: 2px; }
+.pxw { position: absolute; }
+.pxw input[type=text], .pxw select { width: 100%; height: 100%; border: 1px solid var(--q-violet); background: color-mix(in srgb, var(--q-violet) 8%, #fff); padding: 0 2px; font-family: Arial, sans-serif; }
+.pxw input[type=checkbox] { width: 100%; height: 100%; margin: 0; }
+.pxdraw { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pg.pxdel canvas { opacity: .3; }
+.pgbadge { position: absolute; top: 4px; right: 6px; font: 700 11px Heebo, Arial, sans-serif; color: var(--text-2); pointer-events: none; }
 .sgdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--sgc); vertical-align: middle; }
 .tplgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .tplgrid .card { margin: 0; padding: 10px 12px; }
@@ -4763,6 +4787,25 @@ async function pdfDetect(doc, pages) {
     fields.push({ id: 'f' + uid(), page: pages.length - 1, kind: 'signature', signer: i, w, h, x: clamp(1 - 0.06 - w - (i - 1) * (w + 0.03)), y: clamp(0.88 - h) }); }
   return fields;
 }
+/* ✨ זיהוי שדות + שדות ריקים מהשרת (עורך ה-PDF): קווים ריקים, ריבועי סימון ומשבצות — מה שהתוויות לבד לא מוצאות.
+   מתווסף רק מה שלא חופף לשדה שכבר זוהה; הלווה — של השדה הקרוב באותו עמוד. הצעה בלבד: בודקים ושומרים. */
+async function pxMergeBlanks(fileId, fields) {
+  if (!window.__harelServer || !fileId) return fields;
+  try {
+    const r = await fetch('/api/crm/pdf/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: { file: fileId } }) }); const j = await r.json().catch(() => ({})); if (!r.ok || !j.pages) return fields;
+    const out = fields.slice(), hit = (a, b) => a.page === b.page && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    j.pages.forEach((p, i) => { if (p.rotation) return; for (const b of p.blanks) {
+      const kind = b.kind === 'checkbox' ? 'checkbox' : b.kind === 'comb' ? (/זהות|ת\.?\s*ז/.test(b.label) ? 'id_number' : 'text') : ['signature', 'date', 'name', 'id_number'].includes(b.kind) ? b.kind : 'text';
+      const f = { id: 'f' + uid(), page: i, kind, signer: 1, x: b.rect[0] / p.w, y: b.rect[1] / p.h, w: (b.rect[2] - b.rect[0]) / p.w, h: (b.rect[3] - b.rect[1]) / p.h };
+      if (kind === 'signature' && f.h < 0.045) { f.y = Math.max(0, f.y + f.h - 0.045); f.h = 0.045; }
+      ['x', 'y', 'w', 'h'].forEach((k) => { f[k] = Math.round(Math.max(0, Math.min(1, f[k])) * 10000) / 10000; });
+      if ((kind === 'text' || kind === 'checkbox') && b.label) f.label = b.label.slice(0, 60);
+      if (out.some((o) => hit(o, f))) continue;
+      const near = out.filter((o) => o.page === i).sort((a, c) => (Math.abs(a.y - f.y) * 2 + Math.abs(a.x - f.x)) - (Math.abs(c.y - f.y) * 2 + Math.abs(c.x - f.x)))[0]; if (near) f.signer = near.signer;
+      out.push(f); } });
+    return out.slice(0, 300);
+  } catch (e) { return fields; }
+}
 function pdfEditor(o) {
   const E = { fileId: o.fileId, pages: o.pages, fields: JSON.parse(JSON.stringify(o.fields || [])), signer: 1, kind: 'signature', sel: null, max: Math.max(1, Math.min(6, o.signers || pdfSignersOf(o.fields) || 1)) };
   S.pe = E;
@@ -4794,7 +4837,7 @@ function pdfEditor(o) {
   // העמודים — pdf.js (מאותו מקור, מאחורי שער הכניסה)
   (async () => { try { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       const doc = await lib.getDocument({ url: '/api/files/' + E.fileId }).promise; E.doc = doc;
-      if (o.auto && !E.fields.length) { try { E.fields = await pdfDetect(doc, E.pages); draw(); toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק, לתקן ולשמור' : 'לא זוהו תוויות — מציבים ידנית'); } catch (x) {} }
+      if (o.auto && !E.fields.length) { try { E.fields = await pxMergeBlanks(E.fileId, await pdfDetect(doc, E.pages)); draw(); toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק, לתקן ולשמור' : 'לא זוהו תוויות — מציבים ידנית'); } catch (x) {} }
       for (const box of root.querySelectorAll('.pg')) { const pg = await doc.getPage(+box.dataset.pg + 1), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(2.2, box.clientWidth * (devicePixelRatio || 1) / v1.width), v = pg.getViewport({ scale: sc }), cv = box.querySelector('canvas');
         cv.width = Math.round(v.width); cv.height = Math.round(v.height); await pg.render({ canvasContext: cv.getContext('2d'), viewport: v }).promise; } }
     catch (e) { toast('התצוגה של המסמך לא נטענה: ' + (e.message || e)); } })();
@@ -4820,7 +4863,7 @@ function pdfEditor(o) {
     const k = e.target.closest('[data-pek]'); if (k) { E.kind = k.dataset.pek; root.querySelectorAll('[data-pek]').forEach((b) => b.setAttribute('aria-pressed', String(b === k))); return; }
     const a = e.target.closest('[data-pe]'); if (!a) return;
     if (a.dataset.pe === 'auto') { if (!E.doc) return toast('המסמך עוד נטען…'); if (E.fields.length && !confirm('להחליף את השדות הקיימים בהצעה האוטומטית?')) return;
-      E.fields = await pdfDetect(E.doc, E.pages); E.sel = null; draw(); return toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק ולתקן' : 'לא זוהו תוויות בטופס'); }
+      E.fields = await pxMergeBlanks(E.fileId, await pdfDetect(E.doc, E.pages)); E.sel = null; draw(); return toast(E.fields.length ? 'זוהו ' + E.fields.length + ' שדות — לבדוק ולתקן' : 'לא זוהו שדות בטופס'); }
     if (a.dataset.pe === 'del') { E.fields = E.fields.filter((x) => x.id !== E.sel); E.sel = null; return draw(); }
     if (a.dataset.pe === 'dup') { const f = E.fields.find((x) => x.id === E.sel); if (!f) return; const g = { ...f, id: 'f' + uid(), y: Math.min(1 - f.h, f.y + f.h + 0.01) }; E.fields.push(g); E.sel = g.id; return draw(); }
     if (a.dataset.pe === 'cancel') { if (E.fields.length && !confirm('לצאת בלי לשמור את השדות?')) return; $('layer').innerHTML = ''; S.pe = null; return o.onCancel && o.onCancel(); }
@@ -5148,7 +5191,8 @@ function vForms() {
   if (!S.pdfTpls) setTimeout(() => pdfTplLoad(), 20);
   const v = ['send', 'lib', 'sent'].includes(S.f.formsView) ? S.f.formsView : 'send', T = (S.pdfTpls && S.pdfTpls.templates) || [];
   const seg = '<div class="seg" role="group" aria-label="תצוגה">' + [['send', 'שליחה לחתימה'], ['lib', 'ספריית טפסים'], ['sent', 'מה נשלח']].map(([k, t]) => '<button data-formsview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
-  const head = '<div class="pghead"><h1>טפסים</h1>' + (T.length ? '<span class="chip soft num">' + T.length + ' טפסים</span>' : '') + '<span class="grow"></span>' + seg + '</div>';
+  const head = '<div class="pghead"><h1>טפסים</h1>' + (T.length ? '<span class="chip soft num">' + T.length + ' טפסים</span>' : '') + '<span class="grow"></span>' +
+    (S.canWrite ? '<label class="btn small" style="cursor:pointer" title="עריכת PDF מהמחשב: טקסט קיים, ✓, חתימה, תמונה, מחיקה, עמודים (עד 5 קבצים — מאוחדים)">✏️ עורך PDF<input type="file" accept="application/pdf,.pdf" multiple hidden data-pxup="1"></label>' : '') + seg + '</div>';
   if (v === 'lib') return head + (pdfTplCard() || '<p class="hint">טוען…</p>');
   if (v === 'sent') return head + vSignDocs();
   const id = S.view.clientId, subj = id ? signSubject(id) : null;
@@ -5261,9 +5305,229 @@ function docTile(f, w, sel) {
     (w && !f.folderLink ? '<input type="checkbox" class="cb dsel" data-docsel="' + esc(f.id) + '"' + (sel.has(f.id) ? ' checked' : '') + ' aria-label="לצרף למייל">' : '') +
     (f.loose ? '<span class="dflag" title="הסוג זוהה לפי שם הקובץ — אפשר לשנות למטה">לפי השם</span>' : '') +
     '<div class="dname" title="' + esc(f.title) + '">' + docName(f.title) + '</div>' +
+    (w && window.__harelServer && isPdfDoc(f) ? '<button type="button" class="xlink" data-pdfedit="' + esc(f.id) + '" data-pdfname="' + esc(f.title) + '" title="עריכת הטקסט, הוספת ✓/חתימה/תמונה, מחיקה — נשמר כקובץ חדש">✏️ ערוך PDF</button>' : '') +
     '<div class="hint dmeta"><span class="num">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</span>' + (f.sub ? ' · <bdi>' + esc(f.sub) + '</bdi>' : '') + '</div>' +
     (w && !f.folderLink ? '<select class="f small" data-docmove="' + esc(f.id) + '" aria-label="קטגוריה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === f.cat ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : '') + '</div>';
 }
+/* ═════ עורך PDF (דן 31/10: "כמו pdfFiller") — רק במערכת בשרת.
+   פותח PDF מתיק הלקוח בדרייב או מהמחשב; לחיצה על טקסט קיים = עריכה באותו מקום, באותו גופן/גודל/צבע (השרת מוחק את
+   הגליפים הישנים מהקובץ וכותב חדשים — לא מכסה בלבן). כלים: טקסט, ✓, ✗, תאריך, חתימה/חותמת, תמונה, סימון, ציור, מחיקת אזור.
+   שדות ריקים (קווים, ריבועים, משבצות) מזוהים בשרת — לחיצה ממלאת. שדות טופס (AcroForm) — ממלאים במקום, אפשר לשטח.
+   עמודים: סיבוב, מחיקה, דחיסה. השמירה = קובץ חדש "(ערוך)" ליד המקור; המקור לא נדרס. המנוע: lib/pdfedit/engine.ts ═════ */
+const PX_TOOLS = [['edit', 'עריכת טקסט'], ['text', 'טקסט'], ['check', '✓'], ['cross', '✗'], ['date', 'תאריך'], ['sign', 'חתימה'], ['image', 'תמונה'], ['hl', 'סימון'], ['draw', 'ציור'], ['erase', 'מחיקה']];
+const PX_HINT = { edit: 'לחיצה על טקסט קיים — עורכים אותו במקום, באותו גופן', text: 'לחיצה על העמוד מוסיפה תיבת טקסט', check: 'לחיצה מוסיפה ✓', cross: 'לחיצה מוסיפה ✗', date: 'לחיצה מוסיפה את התאריך של היום', sign: 'לחיצה מוסיפה את החתימה (נחתם פעם אחת, נשמר לשימוש חוזר)', image: 'לחיצה בוחרת תמונה ומוסיפה אותה', hl: 'גוררים מלבן לסימון בצהוב', draw: 'מציירים ביד חופשית', erase: 'גוררים מלבן — כל מה שבתוכו נמחק מהקובץ (טקסט, תמונה, קווים)' };
+const pxFam = (s) => 'HE-' + (s.family || 'sans') + (s.bold && s.italic ? '-bolditalic' : s.bold ? '-bold' : s.italic ? '-italic' : '');
+function pxFonts() { if (document.getElementById('pxFonts')) return; const st = document.createElement('style'); st.id = 'pxFonts';
+  st.textContent = ['sans', 'serif', 'mono'].flatMap((f) => ['', '-bold', '-italic', '-bolditalic'].map((v) => "@font-face{font-family:'HE-" + f + v + "';src:url('/api/crm/pdf/font?k=" + f + v + "') format('truetype');font-display:swap}")).join('');
+  document.head.appendChild(st); }
+const pxR = (r, P) => 'left:' + (r[0] / P.w * 100) + '%;top:' + (r[1] / P.h * 100) + '%;width:' + ((r[2] - r[0]) / P.w * 100) + '%;height:' + ((r[3] - r[1]) / P.h * 100) + '%';
+const pxToday = () => { const d = today().split('-'); return d[2] + '/' + d[1] + '/' + d[0]; };
+async function pxImageData(file, max = 1600) {
+  const url = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(file); });
+  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('התמונה לא נקראה')); i.src = url; });
+  const k = Math.min(1, max / Math.max(img.width, img.height)), cv = document.createElement('canvas'); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); const png = /png/i.test(file.type);
+  return { data: cv.toDataURL(png ? 'image/png' : 'image/jpeg', 0.88), w: cv.width, h: cv.height };
+}
+/* חתימה ביד — חלון מעל העורך (לא drawer: הוא מחליף את השכבה של העורך). נשמרת בדפדפן הזה לשימוש חוזר, לא בשרת */
+function pxSignPad() {
+  return new Promise((done) => {
+    const saved = (() => { try { return localStorage.getItem('harel-pxsig') || ''; } catch (e) { return ''; } })();
+    const box = document.createElement('div'); box.className = 'scrim'; box.style.zIndex = '70';
+    box.innerHTML = '<div class="drawer" role="dialog" aria-modal="true" aria-label="חתימה"><header><h2 class="grow">חתימה</h2><button class="btn small ghost" data-pp="x" aria-label="סגור">✕</button></header>' +
+      '<div style="padding:0 16px"><canvas width="520" height="170" style="width:100%;max-width:520px;height:auto;aspect-ratio:52/17;border:1px dashed var(--border);border-radius:8px;background:#fff;touch-action:none"></canvas>' +
+      '<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn small ghost" data-pp="clr">נקה</button>' + (saved ? '<button type="button" class="btn small" data-pp="old">השתמש בחתימה השמורה</button>' : '') + (S.stampUrl ? '<button type="button" class="btn small" data-pp="stamp">חותמת החברה</button>' : '') + '</div>' +
+      '<p class="hint">חותמים עם העכבר או האצבע. החתימה נשמרת בדפדפן הזה בלבד.</p></div>' +
+      '<footer><button class="btn primary" type="button" data-pp="ok">הוסף</button><button class="btn" type="button" data-pp="x">ביטול</button></footer></div>';
+    document.body.appendChild(box);
+    const cv = box.querySelector('canvas'), g = cv.getContext('2d'); g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#0b2a6f'; let on = false, ink = false;
+    const end = (v) => { box.remove(); done(v); };
+    const pt = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+    cv.addEventListener('pointerdown', (e) => { on = true; cv.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); });
+    cv.addEventListener('pointermove', (e) => { if (!on) return; const [x, y] = pt(e); g.lineTo(x, y); g.stroke(); ink = true; });
+    cv.addEventListener('pointerup', () => { on = false; });
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-pp]'); if (!b && e.target === box) return end(null); if (!b) return; const k = b.dataset.pp;
+      if (k === 'x') return end(null); if (k === 'clr') { g.clearRect(0, 0, cv.width, cv.height); ink = false; return; }
+      if (k === 'old') return end({ data: saved, w: 520, h: 170 });
+      if (k === 'stamp') { const i = new Image(); i.onload = () => end({ data: S.stampUrl, w: i.width, h: i.height }); i.onerror = () => end(null); i.src = S.stampUrl; return; }
+      if (k === 'ok') { if (!ink) return toast('לא נחתם'); const d = cv.toDataURL('image/png'); try { localStorage.setItem('harel-pxsig', d); } catch (x) {} end({ data: d, w: cv.width, h: cv.height }); } });
+  });
+}
+async function pxOpenLocal(files, clientId) {
+  try { toast('מעלה…'); const up = await pdfUpload(files, files[0] && files[0].name); pdfEdit({ src: { file: up.fileId }, name: up.name, clientId }); }
+  catch (e) { toast(e.message || 'ההעלאה נכשלה'); }
+}
+function pdfEdit(o) {
+  if (!window.__harelServer) return toast('עורך ה-PDF עובד במערכת בשרת');
+  pxFonts();
+  const E = S.px = { src: o.src, name: o.name || 'מסמך.pdf', clientId: o.clientId || null, A: null, edits: {}, erase: [], adds: [], form: {}, rot: {}, del: new Set(), tool: 'edit', sel: null, blanks: false, flatten: false, compress: false, busy: false };
+  $('layer').innerHTML = '<div class="pdfed" id="pxEd" role="dialog" aria-modal="true" aria-label="עורך PDF">' +
+    '<div class="pdfbar"><b class="grow" style="min-width:140px"><bdi>' + esc(E.name) + '</bdi></b>' +
+      '<div class="seg" role="group" aria-label="כלי" style="flex-wrap:wrap">' + PX_TOOLS.map(([k, t]) => '<button type="button" data-pxt="' + k + '" aria-pressed="' + (k === 'edit') + '">' + t + '</button>').join('') + '</div>' +
+      '<button type="button" class="btn small" data-px="blanks" aria-pressed="false" title="קווים ריקים, ריבועי סימון ומשבצות שזוהו בטופס — לחיצה ממלאת">✨ שדות ריקים</button>' +
+      '<button type="button" class="btn small" data-px="pages">עמודים</button>' +
+      '<button type="button" class="btn primary" data-px="save">שמור כקובץ חדש</button><button type="button" class="btn" data-px="close">סגור</button></div>' +
+    '<div class="pdfsel" id="pxSel"><span class="hint">טוען את המסמך…</span></div>' +
+    '<div class="pdfpages" id="pxPages"></div></div>';
+  const root = $('pxEd'), pagesEl = $('pxPages');
+  const P = (i) => E.A.pages[i];
+  const setK = () => root.querySelectorAll('.pg').forEach((pg) => { const p = P(+pg.dataset.pg); if (p) pg.style.setProperty('--k', pg.clientWidth / p.w); });
+  const dirty = () => Object.keys(E.edits).length + E.erase.length + E.adds.length + Object.keys(E.form).length + Object.keys(E.rot).length + E.del.size;
+  const selBar = () => {
+    const el = $('pxSel'); if (!el) return; const a = E.adds.find((x) => x.id === E.sel), n = dirty();
+    let h = '<span class="hint">' + esc(PX_HINT[E.tool]) + '</span><span class="grow"></span>';
+    if (a) { h = '<b>' + esc({ text: 'טקסט', date: 'תאריך', check: '✓', cross: '✗', image: 'תמונה', sign: 'חתימה', hl: 'סימון', draw: 'ציור' }[a.ui] || '') + '</b>' +
+      (a.kind === 'text' || a.kind === 'date' ? '<label class="row" style="gap:4px;align-items:center">גודל<select class="f small" id="pxSize">' + [8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map((s) => '<option' + (s === a.size ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></label>' +
+        '<label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="pxBold"' + (a.bold ? ' checked' : '') + '> מודגש</label>' : '') +
+      (['text', 'date', 'check', 'cross', 'draw'].includes(a.kind) ? '<label class="row" style="gap:4px;align-items:center">צבע<select class="f small" id="pxColor">' + [['#111827', 'שחור'], ['#1d4ed8', 'כחול'], ['#b42318', 'אדום']].map(([v, t]) => '<option value="' + v + '"' + ((a.color || '#111827') === v ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></label>' : '') +
+      '<button type="button" class="btn small ghost danger" data-px="del">מחק</button><span class="grow"></span>'; }
+    else if (E.saved && !n) { const j = E.saved, w = (j.checks && j.checks.warnings) || [];
+      h = '<b>נשמר ✓</b> <bdi>' + esc(j.saved.name) + '</bdi>' + (j.checks && j.checks.edits ? ' <span class="hint">· ' + j.checks.verified + ' מתוך ' + j.checks.edits + ' עריכות נבדקו: הטקסט הישן נמחק מהקובץ</span>' : '') +
+        (w.length ? '<span class="pill open" title="' + esc(w.join('\n')) + '">' + w.length + ' אזהרות</span>' : '') + '<span class="grow"></span><a class="btn small" href="' + esc(j.saved.url) + '" target="_blank" rel="noopener">' + (j.saved.where === 'drive' ? 'פתח בדרייב ↗' : 'פתח / הורד') + '</a>';
+      return void (el.innerHTML = h); }
+    else if (E.sel && E.sel.startsWith('s:')) { h = '<b>טקסט קיים</b><span class="hint">כותבים ומקישים Enter · ריק = מחיקה</span><button type="button" class="btn small ghost" data-px="undo">↺ החזר למקור</button><span class="grow"></span>'; }
+    el.innerHTML = h + '<span class="hint num">' + (n ? n + ' שינויים' : 'אין שינויים') + '</span>';
+  };
+  const spanEl = (p, s) => { const k = p + ':' + s.id, ed = Object.prototype.hasOwnProperty.call(E.edits, k), d = document.createElement('div');
+    d.className = 'pxs' + (ed ? ' ed' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + (s.rtl ? 'right' : 'left');
+    if (ed) d.textContent = E.edits[k]; return d; };
+  const addEl = (a) => { const d = document.createElement('div'); d.className = 'pxa k-' + a.kind + (E.sel === a.id ? ' sel' : ''); d.dataset.pa = a.id; d.style.cssText = pxR(a.rect, P(a.page));
+    if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'HE-sans" + (a.bold ? '-bold' : '') + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
+      const t = document.createElement('div'); t.className = 'pxt'; t.contentEditable = 'true'; t.dir = 'auto'; t.textContent = a.text || ''; d.appendChild(t); }
+    else if (a.kind === 'check' || a.kind === 'cross') d.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="' + (a.kind === 'check' ? 'M14 55 L40 82 L88 16' : 'M18 18 L82 82 M82 18 L18 82') + '" fill="none" stroke="' + (a.color || '#111827') + '" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" style="stroke-width:calc(var(--k) * 1.6px)"/></svg>';
+    else if (a.kind === 'image') d.innerHTML = '<img src="' + a.image + '" alt="" draggable="false">';
+    else if (a.kind === 'draw') { const p = P(a.page); d.style.cssText = 'left:0;top:0;width:100%;height:100%;pointer-events:none';
+      d.innerHTML = '<svg viewBox="0 0 ' + p.w + ' ' + p.h + '" preserveAspectRatio="none" style="pointer-events:none">' + a.points.map((s) => '<polyline points="' + s.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ') + '" fill="none" stroke="' + (a.color || '#111827') + '" stroke-width="' + (a.width || 1.5) + '" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:stroke;cursor:pointer" data-pa="' + a.id + '"/>').join('') + '</svg>'; }
+    if (a.kind !== 'draw') d.insertAdjacentHTML('beforeend', '<i class="rz" data-rz="1"></i>');
+    return d; };
+  const drawPage = (pg) => { const i = +pg.dataset.pg, p = P(i); pg.querySelectorAll('.pxs,.pxe,.pxa,.pxb,.pxw').forEach((x) => x.remove());
+    pg.classList.toggle('pxdel', E.del.has(i));
+    for (const s of p.spans) pg.appendChild(spanEl(i, s));
+    for (const r of E.erase.filter((x) => x.page === i)) { const d = document.createElement('div'); d.className = 'pxe'; d.dataset.pe = E.erase.indexOf(r); d.style.cssText = pxR(r.rect, p); d.title = 'יימחק מהקובץ — לחיצה מבטלת'; pg.appendChild(d); }
+    if (E.blanks) for (const [bi, b] of p.blanks.entries()) { const d = document.createElement('div'); d.className = 'pxb'; d.dataset.pb = i + ':' + bi; d.style.cssText = pxR(b.rect, p); d.title = (b.label ? b.label + ' — ' : '') + 'לחיצה ממלאת'; pg.appendChild(d); }
+    for (const w of p.widgets) { if (w.readOnly || w.type === 'button' || w.type === 'signature') continue; const d = document.createElement('div'); d.className = 'pxw'; d.style.cssText = pxR(w.rect, p); const v = Object.prototype.hasOwnProperty.call(E.form, w.name) ? E.form[w.name] : w.value;
+      d.innerHTML = w.type === 'checkbox' || w.type === 'radiobutton' ? '<input type="checkbox" data-pw="' + esc(w.name) + '"' + (v && v !== 'Off' ? ' checked' : '') + ' aria-label="' + esc(w.name) + '">'
+        : w.options ? '<select data-pw="' + esc(w.name) + '" aria-label="' + esc(w.name) + '"><option value=""></option>' + w.options.map((x) => '<option' + (x === v ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>'
+        : '<input type="text" dir="auto" data-pw="' + esc(w.name) + '" value="' + esc(v || '') + '" aria-label="' + esc(w.name) + '" style="font-size:calc(var(--k) * ' + Math.max(7, Math.min(12, (w.rect[3] - w.rect[1]) * 0.7)).toFixed(1) + 'px)">'; pg.appendChild(d); }
+    for (const a of E.adds.filter((x) => x.page === i)) pg.appendChild(addEl(a));
+    const b = pg.querySelector('.pgbadge'); if (b) b.textContent = (E.del.has(i) ? 'יימחק' : '') + (E.rot[i] ? (E.del.has(i) ? ' · ' : '') + 'סיבוב ' + E.rot[i] + '°' : '');
+  };
+  const drawAll = () => { root.querySelectorAll('.pg').forEach(drawPage); setK(); selBar(); };
+  const pagesPanel = () => { const box = $('pxPagesBar'); if (!box) return;
+    box.innerHTML = '<b>עמודים</b>' + E.A.pages.map((_, i) => '<span class="chip soft" style="gap:4px">' + (i + 1) + '<button type="button" class="xlink" data-pxrot="' + i + '" title="סובב 90°">⟳</button><button type="button" class="xlink" data-pxdel="' + i + '" title="' + (E.del.has(i) ? 'החזר' : 'מחק עמוד') + '">' + (E.del.has(i) ? '↺' : '🗑') + '</button></span>').join('') +
+      '<label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="pxCompress"' + (E.compress ? ' checked' : '') + '> דחיסה</label>' +
+      (E.A.pages.some((p) => p.widgets.length) ? '<label class="row" style="gap:4px;align-items:center" title="השדות הופכים לטקסט רגיל — אי אפשר לשנות אותם אחר כך"><input type="checkbox" class="cb" id="pxFlatten"' + (E.flatten ? ' checked' : '') + '> שיטוח הטופס</label>' : ''); };
+  const place = (pg, ui, cx, cy, extra = {}) => { const i = +pg.dataset.pg, p = P(i);
+    const sz = { text: [150, 16], date: [64, 15], check: [11, 11], cross: [11, 11], sign: [130, 42], image: [120, 80] }[ui] || [100, 20];
+    let [w, h] = extra.wh || sz; if (w > p.w * 0.9) { h = h * p.w * 0.9 / w; w = p.w * 0.9; }
+    const x0 = Math.max(0, Math.min(p.w - w, cx - w / 2)), y0 = Math.max(0, Math.min(p.h - h, cy - h / 2));
+    const kind = ui === 'sign' ? 'image' : ui; const a = { id: 'a' + uid(), page: i, ui, kind, rect: [x0, y0, x0 + w, y0 + h], ...extra }; delete a.wh;
+    if (kind === 'text') { a.size = 11; a.text = ''; } if (kind === 'date') { a.size = 10; a.text = pxToday(); }
+    E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); if (kind === 'text') { const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus(); } };
+  const ptOf = (pg, e) => { const r = pg.getBoundingClientRect(), p = P(+pg.dataset.pg); return [(e.clientX - r.left) / r.width * p.w, (e.clientY - r.top) / r.height * p.h]; };
+  // עריכת טקסט קיים: input במקום, באותו גופן/גודל/צבע
+  const editSpan = (el) => { const [p, s] = el.dataset.ps.split(':').map(Number), sp = P(p).spans[s], k = p + ':' + s;
+    E.sel = 's:' + k; selBar(); el.classList.add('ed', 'on'); const inp = document.createElement('input'); inp.className = 'pxin'; inp.value = Object.prototype.hasOwnProperty.call(E.edits, k) ? E.edits[k] : sp.text; inp.dir = sp.rtl ? 'rtl' : 'ltr';
+    el.textContent = ''; el.appendChild(inp); inp.focus(); inp.select();
+    let done = false; // הסרת השדה מפעילה blur — שלא ירוץ פעמיים
+    const fin = (keep) => { if (done || !inp.isConnected) return; done = true; const v = inp.value.replace(/\s+/g, ' ').trim(); if (keep && v !== sp.text) E.edits[k] = v; else if (keep && v === sp.text) delete E.edits[k]; el.classList.remove('on'); drawPage(el.closest('.pg')); setK(); selBar(); };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fin(true); } if (e.key === 'Escape') { e.preventDefault(); fin(false); } });
+    inp.addEventListener('blur', () => fin(true)); };
+  let drag = null;
+  pagesEl.addEventListener('pointerdown', async (e) => {
+    const pg = e.target.closest('.pg'); if (!pg || !E.A || e.target.closest('.pxw') || e.target.closest('.pxin')) return;
+    if (e.target.closest('.pxt') && document.activeElement === e.target.closest('.pxt')) return;
+    const [x, y] = ptOf(pg, e), p = P(+pg.dataset.pg);
+    const ae = e.target.closest('[data-pa]');
+    if (ae) { const a = E.adds.find((q) => q.id === ae.dataset.pa); if (!a) return; E.sel = a.id; root.querySelectorAll('.pxa.sel').forEach((q) => q.classList.remove('sel')); const box = pg.querySelector('.pxa[data-pa="' + a.id + '"]'); if (box) box.classList.add('sel'); selBar();
+      if (a.kind === 'draw') return; if (e.target.closest('.pxt') && !e.target.dataset.rz) { if (e.detail >= 2 || a.kind === 'text') return; }
+      drag = { a, mode: e.target.dataset.rz ? 'rz' : 'mv', x0: x, y0: y, r0: a.rect.slice(), pg, moved: false }; pg.setPointerCapture(e.pointerId); return; }
+    const pe = e.target.closest('.pxe'); if (pe && E.tool !== 'erase') { E.erase.splice(+pe.dataset.pe, 1); drawPage(pg); setK(); return selBar(); }
+    const pb = e.target.closest('.pxb'); if (pb) { const [i, bi] = pb.dataset.pb.split(':').map(Number), b = P(i).blanks[bi], r = b.rect;
+      const ui = b.kind === 'checkbox' ? 'check' : b.kind === 'date' ? 'date' : b.kind === 'signature' ? 'sign' : 'text';
+      if (ui === 'sign') { const s = await pxSignPad(); if (!s) return; const k = Math.min((r[2] - r[0]) / s.w, Math.max(24, (r[3] - r[1]) * 2.4) / s.h); return place(pg, 'sign', (r[0] + r[2]) / 2, r[3] - s.h * k / 2, { image: s.data, wh: [s.w * k, s.h * k] }); }
+      const h = ui === 'check' ? r[3] - r[1] : Math.min(18, r[3] - r[1]);
+      return place(pg, ui, (r[0] + r[2]) / 2, r[3] - h / 2 - (ui === 'check' ? 0 : 1), { wh: [ui === 'check' ? r[2] - r[0] : r[2] - r[0] - 4, h] }); }
+    if (E.tool === 'edit') return; // עריכת טקסט קיים — ב-click (כאן הדפדפן עוד מעביר את המיקוד אחרי pointerdown)
+    if (['text', 'check', 'cross', 'date'].includes(E.tool)) { e.preventDefault(); return place(pg, E.tool, x, y); } // בלי preventDefault הדפדפן מעביר את המיקוד מהתיבה החדשה
+    if (E.tool === 'sign') { const s = await pxSignPad(); if (!s) return; const k = Math.min(130 / s.w, 48 / s.h); return place(pg, 'sign', x, y, { image: s.data, wh: [s.w * k, s.h * k] }); }
+    if (E.tool === 'image') { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg'; inp.onchange = async () => { const f = inp.files[0]; if (!f) return; try { const im = await pxImageData(f); const k = Math.min(160 / im.w, 120 / im.h); place(pg, 'image', x, y, { image: im.data, wh: [im.w * k, im.h * k] }); } catch (x2) { toast(x2.message); } }; inp.click(); return; }
+    if (E.tool === 'hl' || E.tool === 'erase') { const d = document.createElement('div'); d.className = E.tool === 'hl' ? 'pxa k-highlight' : 'pxe'; pg.appendChild(d); drag = { mode: 'box', x0: x, y0: y, el: d, pg, p }; pg.setPointerCapture(e.pointerId); return; }
+    if (E.tool === 'draw') { const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 ' + p.w + ' ' + p.h); svg.setAttribute('preserveAspectRatio', 'none'); svg.classList.add('pxdraw'); const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', '#111827'); pl.setAttribute('stroke-width', '1.5'); pl.setAttribute('stroke-linecap', 'round'); svg.appendChild(pl); pg.appendChild(svg);
+      drag = { mode: 'draw', pts: [[x, y]], svg, pl, pg }; pg.setPointerCapture(e.pointerId); }
+  });
+  pagesEl.addEventListener('pointermove', (e) => { if (!drag) return; const [x, y] = ptOf(drag.pg, e), p = P(+drag.pg.dataset.pg);
+    if (drag.mode === 'box') { const r = [Math.min(drag.x0, x), Math.min(drag.y0, y), Math.max(drag.x0, x), Math.max(drag.y0, y)]; drag.r = r; drag.el.style.cssText = pxR(r, p); return; }
+    if (drag.mode === 'draw') { drag.pts.push([x, y]); drag.pl.setAttribute('points', drag.pts.map((q) => q.join(',')).join(' ')); return; }
+    const { a, r0 } = drag, dx = x - drag.x0, dy = y - drag.y0; if (Math.abs(dx) + Math.abs(dy) > 1) drag.moved = true; if (!drag.moved) return;
+    if (drag.mode === 'mv') { const w = r0[2] - r0[0], h = r0[3] - r0[1], nx = Math.max(0, Math.min(p.w - w, r0[0] + dx)), ny = Math.max(0, Math.min(p.h - h, r0[1] + dy)); a.rect = [nx, ny, nx + w, ny + h]; }
+    else { const keep = a.kind === 'image' || a.kind === 'check' || a.kind === 'cross', w0 = r0[2] - r0[0], h0 = r0[3] - r0[1]; let w = Math.max(6, Math.min(p.w - r0[0], w0 + dx)), h = Math.max(6, Math.min(p.h - r0[1], h0 + dy)); if (keep) { const k = Math.max(w / w0, h / h0); w = w0 * k; h = h0 * k; } a.rect = [r0[0], r0[1], r0[0] + w, r0[1] + h]; }
+    const el = drag.pg.querySelector('.pxa[data-pa="' + a.id + '"]'); if (el) el.style.cssText = pxR(a.rect, p); });
+  pagesEl.addEventListener('pointerup', () => { if (!drag) return; const d = drag; drag = null; const i = +d.pg.dataset.pg;
+    if (d.mode === 'box') { d.el.remove(); if (d.r && d.r[2] - d.r[0] > 3 && d.r[3] - d.r[1] > 3) { if (E.tool === 'erase') E.erase.push({ page: i, rect: d.r }); else { const a = { id: 'a' + uid(), page: i, ui: 'hl', kind: 'highlight', rect: d.r }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
+    if (d.mode === 'draw') { d.svg.remove(); if (d.pts.length > 1) { const pts = d.pts.filter((q, k) => k === 0 || Math.hypot(q[0] - d.pts[k - 1][0], q[1] - d.pts[k - 1][1]) > 0.6); const last = E.adds.find((a) => a.kind === 'draw' && a.page === i && a.id === E.sel);
+        if (last) last.points.push(pts); else { const a = { id: 'a' + uid(), page: i, ui: 'draw', kind: 'draw', rect: [0, 0, P(i).w, P(i).h], points: [pts], width: 1.5 }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
+    if (d.a && !d.moved && d.a.kind === 'text') { const t = d.pg.querySelector('.pxa[data-pa="' + d.a.id + '"] .pxt'); if (t) t.focus(); } });
+  root.addEventListener('input', (e) => { const t = e.target.closest('.pxt'); if (t) { const a = E.adds.find((q) => q.id === t.parentNode.dataset.pa); if (a) { a.text = t.innerText.replace(/\n$/, ''); const pg = t.closest('.pg'), p = P(a.page), r = pg.getBoundingClientRect(), need = (t.scrollWidth + 6) / r.width * p.w;
+      if (need > a.rect[2] - a.rect[0]) { const rtl = /[֐-׿]/.test(a.text); if (rtl) a.rect[0] = Math.max(0, a.rect[2] - need); else a.rect[2] = Math.min(p.w, a.rect[0] + need); t.parentNode.style.cssText = t.parentNode.style.cssText.replace(/left:[^;]+;top:[^;]+;width:[^;]+;height:[^;]+/, pxR(a.rect, p)); }
+      const needH = (t.scrollHeight + 2) / r.height * p.h; if (needH > a.rect[3] - a.rect[1]) { a.rect[3] = Math.min(p.h, a.rect[1] + needH); t.parentNode.style.height = ((a.rect[3] - a.rect[1]) / p.h * 100) + '%'; } } selBar(); return; }
+    const w = e.target.dataset.pw; if (w != null && e.target.type === 'text') { E.form[w] = e.target.value; selBar(); } });
+  root.addEventListener('change', (e) => { const t = e.target, a = E.adds.find((q) => q.id === E.sel);
+    if (t.dataset.pw != null) { E.form[t.dataset.pw] = t.type === 'checkbox' ? t.checked : t.value; return selBar(); }
+    if (t.id === 'pxCompress') E.compress = t.checked; if (t.id === 'pxFlatten') E.flatten = t.checked;
+    if (a && t.id === 'pxSize') a.size = +t.value; if (a && t.id === 'pxBold') a.bold = t.checked; if (a && t.id === 'pxColor') a.color = t.value;
+    if (a && ['pxSize', 'pxBold', 'pxColor'].includes(t.id)) { const pg = root.querySelector('.pg[data-pg="' + a.page + '"]'); drawPage(pg); setK(); selBar(); } });
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.pxt')) document.activeElement.blur(); E.sel = null; root.querySelectorAll('.pxa.sel').forEach((q) => q.classList.remove('sel')); return selBar(); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && E.sel && !e.target.closest('input,select,textarea,[contenteditable]')) { const a = E.adds.find((q) => q.id === E.sel); if (a) { E.adds = E.adds.filter((q) => q !== a); E.sel = null; drawAll(); e.preventDefault(); } } });
+  root.addEventListener('click', async (e) => {
+    const se = E.tool === 'edit' && E.A && e.target.closest('.pxs'); if (se && !e.target.closest('.pxin')) return editSpan(se);
+    const t = e.target.closest('[data-pxt]'); if (t) { E.tool = t.dataset.pxt; E.sel = null; root.querySelectorAll('[data-pxt]').forEach((b) => b.setAttribute('aria-pressed', String(b === t))); root.classList.toggle('pxediting', E.tool === 'edit'); return selBar(); }
+    const r = e.target.closest('[data-pxrot]'); if (r) { const i = +r.dataset.pxrot; E.rot[i] = ((E.rot[i] || 0) + 90) % 360; if (!E.rot[i]) delete E.rot[i]; pagesPanel(); drawPage(root.querySelector('.pg[data-pg="' + i + '"]')); return selBar(); }
+    const dl = e.target.closest('[data-pxdel]'); if (dl) { const i = +dl.dataset.pxdel; if (E.del.has(i)) E.del.delete(i); else { if (E.del.size + 1 >= E.A.pages.length) return toast('צריך להשאיר לפחות עמוד אחד'); E.del.add(i); } pagesPanel(); drawPage(root.querySelector('.pg[data-pg="' + i + '"]')); return selBar(); }
+    const b = e.target.closest('[data-px]'); if (!b) return; const act = b.dataset.px;
+    if (act === 'close') { if (dirty() && !confirm('לצאת בלי לשמור את השינויים?')) return; $('layer').innerHTML = ''; S.px = null; return; }
+    if (act === 'blanks') { E.blanks = !E.blanks; b.setAttribute('aria-pressed', String(E.blanks)); const n = E.A ? E.A.pages.reduce((s, p) => s + p.blanks.length, 0) : 0; if (E.blanks) toast(n ? 'זוהו ' + n + ' שדות ריקים — לחיצה על שדה ממלאת אותו' : 'לא זוהו שדות ריקים'); return drawAll(); }
+    if (act === 'pages') { const ex = $('pxPagesBar'); if (ex) { ex.remove(); return; } $('pxSel').insertAdjacentHTML('afterend', '<div class="pdfsel" id="pxPagesBar"></div>'); return pagesPanel(); }
+    if (act === 'del') { E.adds = E.adds.filter((q) => q.id !== E.sel); E.sel = null; return drawAll(); }
+    if (act === 'undo' && E.sel && E.sel.startsWith('s:')) { delete E.edits[E.sel.slice(2)]; E.sel = null; return drawAll(); }
+    if (act === 'save') {
+      if (E.busy) return; if (!dirty()) return toast('אין שינויים לשמור');
+      const keep = E.A.pages.map((_, i) => i).filter((i) => !E.del.has(i));
+      const ops = { edits: Object.entries(E.edits).map(([k, text]) => { const [page, span] = k.split(':').map(Number); return { page, span, text }; }),
+        erase: E.erase, adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
+          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
+        form: E.form, flatten: E.flatten, compress: E.compress, pages: { ...(Object.keys(E.rot).length ? { rotate: E.rot } : {}), ...(E.del.size ? { order: keep } : {}) } };
+      E.busy = true; b.disabled = true; b.textContent = 'שומר…';
+      try { const res = await fetch('/api/crm/pdf/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src, ops }) }); const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'השמירה נכשלה (' + res.status + ')');
+        const w = (j.checks && j.checks.warnings) || [], c = E.clientId && S.clients.get(E.clientId);
+        if (c && S.canWrite) logClient(c.id, 'עריכת PDF: ' + E.name + ' → ' + j.saved.name + (j.saved.where === 'drive' ? ' (נשמר בדרייב)' : ''), false).catch(() => {});
+        E.saved = j; if (w.length) toast(w.length + ' אזהרות — ראו בשורה למעלה'); else toast('נשמר כקובץ חדש — המקור לא השתנה');
+        if (c && j.saved.where === 'drive' && typeof docsLoad === 'function') setTimeout(() => docsLoad(c, true), 400);
+        E.edits = {}; E.erase = []; E.adds = []; E.form = {}; E.rot = {}; E.del = new Set(); E.sel = null;
+        E.src = j.saved.where === 'drive' ? { drive: j.saved.id } : { file: j.saved.id }; E.name = j.saved.name; const nb = root.querySelector('.pdfbar bdi'); if (nb) nb.textContent = E.name; selBar(); await load(); }
+      catch (x) { toast(x.message || String(x)); }
+      finally { E.busy = false; b.disabled = false; b.textContent = 'שמור כקובץ חדש'; }
+    }
+  });
+  window.addEventListener('resize', setK);
+  async function load() {
+    try {
+      const res = await fetch('/api/crm/pdf/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src }) }); const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.message || 'המסמך לא נקרא (' + res.status + ')');
+      E.A = j; const scanned = j.pages.some((p) => p.scanned);
+      pagesEl.innerHTML = j.pages.map((p, i) => '<div class="pg" data-pg="' + i + '" style="aspect-ratio:' + p.w + '/' + p.h + '"><canvas></canvas><span class="pgn">' + (i + 1) + '/' + j.pages.length + '</span><span class="pgbadge"></span></div>').join('') +
+        (j.truncated ? '<p class="hint">מוצגים ' + j.pages.length + ' העמודים הראשונים.</p>' : '') + (scanned ? '<p class="notice info" style="display:block;max-width:860px">חלק מהעמודים סרוקים (תמונה) — אין בהם טקסט לעריכה. אפשר להוסיף טקסט, ✓, חתימה ולמחוק אזורים.</p>' : '');
+      root.classList.toggle('pxediting', E.tool === 'edit'); drawAll();
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const doc = await lib.getDocument({ url: 'drive' in E.src ? '/api/crm/drive?id=' + encodeURIComponent(E.src.drive) : '/api/files/' + E.src.file }).promise;
+      for (const box of root.querySelectorAll('.pg')) { const pg = await doc.getPage(+box.dataset.pg + 1), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(2.5, box.clientWidth * (devicePixelRatio || 1) / v1.width), v = pg.getViewport({ scale: sc }), cv = box.querySelector('canvas');
+        cv.width = Math.round(v.width); cv.height = Math.round(v.height); await pg.render({ canvasContext: cv.getContext('2d'), viewport: v }).promise; }
+    } catch (x) { $('pxSel').innerHTML = '<span class="pill open">' + esc(x.message || String(x)) + '</span>'; }
+  }
+  load();
+}
+const isPdfDoc = (f) => !f.folderLink && (f.mimeType === 'application/pdf' || /\.pdf$/i.test(String(f.title || '')));
 /* צפייה במסמכים בתוך הכרטיס (דן 16/10): קטגוריה אחת — כל המסמכים שלה זה אחר זה; או כל המסמכים יחד, לפי קטגוריות */
 const docPrevUrl = (f) => f.mimeType === 'application/vnd.google-apps.document' ? 'https://docs.google.com/document/d/' + f.id + '/preview' : f.mimeType === 'application/vnd.google-apps.spreadsheet' ? 'https://docs.google.com/spreadsheets/d/' + f.id + '/preview' : 'https://drive.google.com/file/d/' + f.id + '/preview';
 function docViewer(c, files) {
@@ -5275,7 +5539,7 @@ function docViewer(c, files) {
       (V.cat !== 'all' ? '<button class="btn small ghost" data-docview="all">כל המסמכים</button>' : '') + '<button class="btn small" data-docview="">סגור תצוגה</button></div>' +
     (list.length ? '<div class="hint" style="margin:4px 0 8px">' + list.map((f, i) => '<button class="xlink" data-docjump="' + i + '"><bdi>' + esc(f.title) + '</bdi></button>').join(' · ') + '</div>' +
       list.map((f, i) => { const head = V.cat === 'all' && f.cat !== lastCat ? '<h3 class="sec" style="margin-top:14px">' + esc(catLabel(f.cat)) + '</h3>' : ''; lastCat = f.cat;
-        return head + '<div id="dv-' + i + '" style="margin:10px 0"><div class="row" style="align-items:center"><b class="grow">' + docName(f.title) + '</b><a class="btn small ghost" href="' + esc(f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view')) + '" target="_blank" rel="noopener">פתח בדרייב ↗</a></div>' +
+        return head + '<div id="dv-' + i + '" style="margin:10px 0"><div class="row" style="align-items:center"><b class="grow">' + docName(f.title) + '</b>' + (S.canWrite && window.__harelServer && isPdfDoc(f) ? '<button type="button" class="btn small ghost" data-pdfedit="' + esc(f.id) + '" data-pdfname="' + esc(f.title) + '">✏️ ערוך PDF</button>' : '') + '<a class="btn small ghost" href="' + esc(f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view')) + '" target="_blank" rel="noopener">פתח בדרייב ↗</a></div>' +
           '<iframe src="' + esc(docPrevUrl(f)) + '" loading="lazy" title="' + esc(f.title) + '" style="width:100%;height:70vh;border:1px solid var(--line,#e4e7ec);border-radius:8px;background:#fff" allow="autoplay"></iframe></div>'; }).join('')
       : '<p class="empty">אין מסמכים כאן.</p>') + '</div>';
 }
@@ -12121,6 +12385,7 @@ document.addEventListener('click', async (e) => {
     if (d.formsfor) return go('forms', d.formsfor);
     if (d.payconfset) { const [pid, pk] = d.payconfset.split('|'), ps = document.querySelector('select[data-payconf="' + pid + '"]'); if (ps && !ps.disabled) { ps.value = ps.value === pk ? '' : pk; ps.dispatchEvent(new Event('change', { bubbles: true })); } return; }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.pdfedit) return pdfEdit({ src: { drive: d.pdfedit }, name: d.pdfname, clientId: S.view.clientId });
     if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
     if (d.docjump !== undefined) { const t = document.getElementById('dv-' + d.docjump); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     if (d.reper !== undefined && el.matches('[data-reper]')) { S.f.reP = d.reper; S.reDrillOpen = null; return render(); }
@@ -12731,6 +12996,7 @@ document.addEventListener('change', async (e) => {
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
+  if (el.dataset && el.dataset.pxup && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return pxOpenLocal(fl, S.view.clientId); }
   if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup === '@pick' ? (($('docUpCat') || {}).value || 'other') : el.dataset.docup, el.files);
   if (el.dataset && el.dataset.rootpick !== undefined && S.rootMatch) { S.rootMatch[+el.dataset.rootpick].pick = el.checked; return; }
   if (el.dataset && el.dataset.ctsel) { S.ctSel = S.ctSel || new Set(); if (el.checked) S.ctSel.add(el.dataset.ctsel); else S.ctSel.delete(el.dataset.ctsel); return render(); }
@@ -12925,7 +13191,7 @@ document.addEventListener('input', async (e) => {
 });
 document.addEventListener('focusin', async (e) => { if (e.target.id === 'teamSearch' && S.user && !e.target.value) { const ev = new Event('input', { bubbles: true }); e.target.dispatchEvent(ev); } });
 document.addEventListener('keydown', async (e) => {
-  if (e.key === 'Escape' && $('layer').innerHTML) $('layer').innerHTML = '';
+  if (e.key === 'Escape' && $('layer').innerHTML && !S.px) $('layer').innerHTML = ''; /* עורך ה-PDF נסגר רק בכפתור סגור — שלא יאבדו שינויים */
   const el = e.target;
   if (e.key === 'Enter' && el.dataset && el.dataset.laneadd && el.value.trim()) {
     e.preventDefault(); const r = el.dataset.laneadd, id = uid(), now = new Date();
