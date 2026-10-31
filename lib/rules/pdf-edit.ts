@@ -65,6 +65,26 @@ export function fallbackFile(st: FontStyle): string {
   return `Liberation${fam}-${sty}.ttf`
 }
 
+/**
+ * גופן עברי באותו עיצוב כשבמקורי חסרות אותיות (דן 31/10: "שיראה אותו הדבר וללא הבדל"):
+ * David → David Libre, Frank Ruehl / Narkisim → Frank Ruhl Libre, Miriam → Miriam Libre (כולם OFL, assets/fonts/hebrew).
+ * כל גופן בשני קבצים (עברית / לטינית וספרות) — הכותב בוחר לכל אות את הראשון שיש בו אותה.
+ */
+export function designFiles(fontName: string | null | undefined, bold: boolean): string[] {
+  const n = String(fontName ?? '').replace(/^[A-Z]{6}\+/, '')
+  const fam = /david/i.test(n) ? 'david-libre' : /frank|narkis|hadasa|hadassah/i.test(n) ? 'frank-ruhl-libre' : /miriam/i.test(n) ? 'miriam-libre' : null
+  if (!fam) return []
+  const w = bold ? 700 : 400
+  return [`hebrew/${fam}-hebrew-${w}.ttf`, `hebrew/${fam}-latin-${w}.ttf`]
+}
+
+/** יחס הרוחב בפועל לרוחב הצפוי (מרווח בין אותיות / דחיסה במקור) — כדי שהטקסט החדש ייכתב באותו מרווח */
+export function widthRatio(actual: number, expected: number): number {
+  if (!(actual > 0) || !(expected > 0)) return 1
+  const k = actual / expected
+  return Math.abs(k - 1) < 0.015 ? 1 : Math.max(0.6, Math.min(1.6, Math.round(k * 1000) / 1000))
+}
+
 export const FALLBACK_KEYS = ['sans', 'sans-bold', 'sans-italic', 'sans-bolditalic', 'serif', 'serif-bold', 'serif-italic', 'serif-bolditalic', 'mono', 'mono-bold', 'mono-italic', 'mono-bolditalic'] as const
 export const fallbackKey = (st: FontStyle) => st.family + (st.bold && st.italic ? '-bolditalic' : st.bold ? '-bold' : st.italic ? '-italic' : '')
 export function fileOfKey(key: string): string | null {
@@ -254,7 +274,7 @@ export type AddKind = 'text' | 'check' | 'cross' | 'date' | 'image' | 'highlight
 export interface EditOp { page: number; span: number; text: string }
 export interface EraseOp { page: number; rect: Rect; fill?: string }
 /** עריכה בסרוק: מוחקים את הפיקסלים (וטקסט נסתר) בתיבה, צובעים בצבע הנייר, וכותבים את החדש על קו הבסיס */
-export interface OcrEditOp { page: number; rect: Rect; text: string; size: number; baseline: number; color?: string; paper?: string }
+export interface OcrEditOp { page: number; rect: Rect; text: string; size: number; baseline: number; color?: string; paper?: string; old?: string }
 export interface OcrLayerOp { page: number; lines: { rect: Rect; baseline: number; size: number; text: string }[] }
 export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean; match?: number /* span בעמוד שממנו לוקחים גופן/גודל/צבע */ }
 export interface PageOps { order?: number[]; rotate?: Record<string, number> }
@@ -287,7 +307,7 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
   for (const e of Array.isArray(b.ocrEdits) ? b.ocrEdits : []) {
     const p = pg(e?.page), r = rectOf(e?.rect), size = num(e?.size, 4, 72), base = num(e?.baseline, -20000, 20000), t = typeof e?.text === 'string' ? e.text.replace(/[\r\n]+/g, ' ').slice(0, 2000) : null
     if (p == null || !r || size == null || base == null || t == null || !hexOk(e?.color) || !hexOk(e?.paper)) { errors.push('עריכה בסרוק לא תקינה'); continue }
-    ocrEdits.push({ page: p, rect: r, text: t, size, baseline: base, ...(e.color ? { color: String(e.color) } : {}), ...(e.paper ? { paper: String(e.paper) } : {}) })
+    ocrEdits.push({ page: p, rect: r, text: t, size, baseline: base, ...(e.color ? { color: String(e.color) } : {}), ...(e.paper ? { paper: String(e.paper) } : {}), ...(typeof e.old === 'string' && e.old.trim() ? { old: e.old.slice(0, 2000) } : {}) })
   }
   const ocrLayer: OcrLayerOp[] = []
   let layerLines = 0

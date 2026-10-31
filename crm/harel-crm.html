@@ -5525,7 +5525,7 @@ function pdfEdit(o) {
       const r2 = (v) => Math.round(v * 100) / 100, rr = (r) => r.map(r2);
       const ops = { edits: ed.filter((x) => !x.s.ocr && !x.s.hidden).map((x) => ({ page: x.page, span: x.s.id, text: x.text })),
         // סרוק: מוחקים את הפיקסלים, צובעים בצבע הנייר וכותבים בצבע הדיו
-        ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
+        ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, old: x.s.text, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
         ocrLayer: E.ocrLayer ? Object.entries(E.ocr).map(([page, sp]) => ({ page: +page, lines: sp.map((x) => ({ rect: rr(x.rect), baseline: r2(x.baseline), size: x.size, text: x.text })) })) : [],
         erase: E.erase, adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
           if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
