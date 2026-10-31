@@ -3049,6 +3049,7 @@ function clientTools(c, w) {
     fin && { k: 'credit', t: 'דוח אשראי', n: repsOf(x).length, body: () => repCard(x, S.canTask) },
     fin && { k: 'osh', t: 'עו״ש לאקסל', body: () => oshCard(c.id, S.canTask) },
     S.isDan && { k: 'oshsim', t: 'סימולציית עו״ש 🔒', body: () => oshSimCard(c.id) },
+    window.__harelServer && w && { k: 'pdfedit', t: '✏️ עורך PDF', body: () => pdfEditCard(c) },
     plan() && { k: 'plan', t: 'תוכנית לקרן', body: plan },
     ai() && { k: 'ai', t: 'ניתוחי Claude', body: ai },
     inst() && { k: 'inst', t: 'פעימות שכ״ט', body: inst },
@@ -5569,6 +5570,16 @@ function pdfEdit(o) {
   }
   load();
 }
+/* עורך PDF בכרטיס הלקוח (דן 31/10: "איפה מופיע — לא רואה"): כל ה-PDF בתיקיית הלקוח + קובץ מהמחשב */
+function pdfEditCard(c) {
+  const st = (S.docRes || {})[c.id]; if (hasDocs(c) && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
+  const pdfs = ((st && st.files) || []).filter(isPdfDoc).sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')));
+  return '<section class="card"><header><h2>✏️ עורך PDF</h2><span class="grow"></span><label class="btn small primary" style="cursor:pointer">PDF מהמחשב<input type="file" accept="application/pdf,.pdf" multiple hidden data-pxup="1"></label></header>' +
+    '<p class="hint" style="margin-top:0">עריכת טקסט קיים באותו גופן · סרוק → 🔎 OCR ועריכה · ✓ / ✗ / תאריך / חתימה / תמונה · מחיקת אזור · שדות ריקים · סיבוב ומחיקת עמודים. נשמר כקובץ חדש "(ערוך)" ליד המקור.</p>' +
+    (!hasDocs(c) ? '<p class="hint">ללקוח אין תיקייה בדרייב — אפשר לפתוח קובץ מהמחשב.</p>' : st && st.loading && !st.files ? '<p class="hint">טוען את המסמכים מהדרייב…</p>' : !pdfs.length ? '<p class="hint">אין קבצי PDF בתיקיית הלקוח.</p>' :
+      '<div style="overflow-x:auto"><table><tbody>' + pdfs.slice(0, 60).map((f) => '<tr><td><bdi>' + esc(f.title) + '</bdi>' + (f.cat ? ' <span class="hint">· ' + esc(catLabel(f.cat)) + '</span>' : '') + '</td><td class="num hint">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</td>' +
+        '<td style="text-align:left"><button type="button" class="btn small" data-pdfedit="' + esc(f.id) + '" data-pdfname="' + esc(f.title) + '">ערוך</button></td></tr>').join('') + '</tbody></table></div>') + '</section>';
+}
 const isPdfDoc = (f) => !f.folderLink && (f.mimeType === 'application/pdf' || /\.pdf$/i.test(String(f.title || '')));
 /* צפייה במסמכים בתוך הכרטיס (דן 16/10): קטגוריה אחת — כל המסמכים שלה זה אחר זה; או כל המסמכים יחד, לפי קטגוריות */
 const docPrevUrl = (f) => f.mimeType === 'application/vnd.google-apps.document' ? 'https://docs.google.com/document/d/' + f.id + '/preview' : f.mimeType === 'application/vnd.google-apps.spreadsheet' ? 'https://docs.google.com/spreadsheets/d/' + f.id + '/preview' : 'https://drive.google.com/file/d/' + f.id + '/preview';
@@ -5603,7 +5614,8 @@ function docsCard(c) {
   if (st && st.files) setTimeout(thumbsKick, 30);
   return '<section class="card docs"><header><h2>מסמכי לקוח</h2>' + (st && st.files ? '<span class="pill muted">' + files.length + '</span>' : '') + '<span class="grow"></span>' +
       (c.driveFolder ? '<a class="btn small ghost" href="' + folderUrl(c.driveFolder) + '" target="_blank" rel="noopener">דרייב ↗</a>' : '') + (on ? '<button class="btn small ghost" data-act="docsReload">' + (st && st.loading ? 'טוען…' : 'רענן') + '</button>' : (S.mcp && w ? '<button class="btn small" data-act="mkFolder">פתח תיקייה בדרייב</button>' : '')) +
-      (w ? '<button class="btn small ghost" data-act="docsLinkFolder" title="תיקייה קיימת בדרייב עם מסמכים של הלקוח">+ תיקייה קיימת</button>' : '') + '</header>' +
+      (w ? '<button class="btn small ghost" data-act="docsLinkFolder" title="תיקייה קיימת בדרייב עם מסמכים של הלקוח">+ תיקייה קיימת</button>' : '') +
+      (w && window.__harelServer ? '<button class="btn small" data-ctool="' + esc(c.id) + '|pdfedit" title="עריכת PDF: טקסט קיים, OCR לסרוקים, ✓, חתימה, מחיקה">✏️ עורך PDF</button>' : '') + '</header>' +
     (st && st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') + (!S.mcp ? '<p class="hint">דרייב לא זמין בתצוגה הזו.</p>' : !on ? '<p class="hint">עוד אין תיקייה בדרייב ללקוח הזה.</p>' : '') +
     (w && cand.length ? '<div class="ppanel" style="margin:6px 0 10px"><b>נמצאו תיקיות קיימות בדרייב בשם הזה</b>' + cand.slice(0, 4).map((m) => '<div class="row" style="align-items:center;margin-top:6px"><span class="grow"><bdi>' + esc(m.f.title) + '</bdi> <span class="hint">ב' + esc(m.root) + (m.full ? '' : ' · התאמה חלקית') + '</span></span><button class="btn small" data-doclink="' + esc(m.f.id) + '">שייך</button></div>').join('') + '</div>' : '') +
     ((c.driveLinks || []).length ? '<p class="hint" style="margin:-2px 0 8px">משקף גם: ' + c.driveLinks.map((l) => '<a href="' + folderUrl(l.id) + '" target="_blank" rel="noopener"><bdi>' + esc(l.title || 'תיקייה') + '</bdi></a>' + (w ? ' <button class="xlink" data-docunlink="' + esc(l.id) + '" aria-label="הסר שיקוף">×</button>' : '')).join(' · ') + '</p>' : '') +
