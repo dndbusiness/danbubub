@@ -259,3 +259,33 @@ describe('באותו גופן ובאותו גודל (דן 31/10: "במקום ח�
     expect(n.font).toMatch(/DejaVu/); expect(n.size).toBeCloseTo(10.5, 1); expect(n.color).toBe(s.color)
   }, 30000)
 })
+
+describe('"שיראה אותו הדבר וללא הבדל" — גודל, מרווח ועיצוב', () => {
+  it('מרווח בין אותיות במקור (Tc) נשמר בטקסט החדש; טקסט ארוך — אותו גודל + אזהרה', async () => {
+    const { setCharacterSpacing, pushGraphicsState, popGraphicsState } = await import('pdf-lib')
+    const d = await PDFDocument.create(), hv = await d.embedFont(StandardFonts.Helvetica), p = d.addPage([595, 842])
+    p.pushOperators(pushGraphicsState(), setCharacterSpacing(1.2)); p.drawText('Account 12345', { x: 60, y: 700, size: 11, font: hv }); p.pushOperators(popGraphicsState())
+    p.drawText('Short', { x: 60, y: 650, size: 11, font: hv }); p.drawText('Neighbor', { x: 120, y: 650, size: 11, font: hv })
+    const src = await d.save(), A0 = await analyzePdf(src)
+    const acc = A0.pages[0]!.spans.find((x) => x.text.startsWith('Account'))!, sh = A0.pages[0]!.spans.find((x) => x.text === 'Short')!
+    const r = await applyPdf(src, cleanApply({ edits: [{ page: 0, span: acc.id, text: 'Account 54321' }, { page: 0, span: sh.id, text: 'Much longer text here' }] }, 1).req)
+    const B = (await analyzePdf(r.bytes)).pages[0]!.spans
+    const acc2 = B.find((x) => x.text.startsWith('Account 54321'))!
+    expect(Math.abs((acc2.rect[2] - acc2.rect[0]) - (acc.rect[2] - acc.rect[0]))).toBeLessThan(1.5)
+    const long = B.find((x) => x.text.startsWith('Much'))!
+    expect(long.size).toBeCloseTo(11, 1)
+    expect(r.checks.warnings.some((w) => /ארוך מהמקום/.test(w))).toBe(true)
+  }, 30000)
+  it('גופן David חסר אותיות → David Libre (אותו עיצוב), לא Liberation; ספרות מהקובץ הלטיני של אותו עיצוב', async () => {
+    const d = await PDFDocument.create(); d.registerFontkit(fontkit)
+    const dv = await d.embedFont(readFileSync('assets/fonts/hebrew/david-libre-hebrew-400.ttf'), { subset: true })
+    const p = d.addPage([595, 842]); drawHe(p, dv, 'חובה', 480, 700, 12)
+    const src = await d.save(), s = (await analyzePdf(src)).pages[0]!.spans.find((x) => x.text === 'חובה')!
+    expect(s.font).toMatch(/david/i)
+    const r = await applyPdf(src, cleanApply({ edits: [{ page: 0, span: s.id, text: 'זכות 250' }] }, 1).req)
+    const n = (await analyzePdf(r.bytes)).pages[0]!.spans.filter((x) => Math.abs(x.baseline - s.baseline) < 1)
+    expect(n.map((x) => x.text)).toContain('זכות 250')
+    expect(n.every((x) => !/liberation/i.test(x.font))).toBe(true)
+    expect(n.every((x) => Math.abs(x.size - 12) < 0.1)).toBe(true)
+  }, 30000)
+})

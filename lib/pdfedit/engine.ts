@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type AddOp, type ApplyReq, type Blank, type PdfChar, type Rect, type Span, type Vec,
-  detectBlanks, fallbackFile, fitText, fontStyle, groupSpans, hexColor, isRtl, logicalToVisual, shrinkForRedact, toUnicodeCMap, underscoreRuns,
+  designFiles, detectBlanks, fallbackFile, fitText, fontStyle, groupSpans, hexColor, isRtl, logicalToVisual, shrinkForRedact, toUnicodeCMap, underscoreRuns, widthRatio,
 } from '../rules/pdf-edit.js'
 import { type Gray, type OcrLine, type OcrSpan, inkAndPaper, ocrLayerFor, ocrSpans, scanVecs } from '../rules/pdf-ocr.js'
 
@@ -170,7 +170,7 @@ const FONT_DIR = path.join(process.cwd(), 'assets', 'fonts')
 const fontFiles = new Map<string, Promise<Buffer>>()
 export const readFallbackFont = (file: string) => {
   let p = fontFiles.get(file)
-  if (!p) { p = readFile(file === 'DejaVuSans.ttf' ? path.join(FONT_DIR, file) : path.join(FONT_DIR, 'liberation', file)); fontFiles.set(file, p) }
+  if (!p) { p = readFile(file === 'DejaVuSans.ttf' || file.startsWith('hebrew/') ? path.join(FONT_DIR, file) : path.join(FONT_DIR, 'liberation', file)); fontFiles.set(file, p) }
   return p
 }
 
@@ -208,21 +208,37 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       const newRes = (key: string, prefix: string, ref: InstanceType<MU['PDFObject']>) => { const d = sub(key); let name: string; do { name = prefix + (++resN) } while (!d.get(name).isNull()); d.put(name, ref); return name }
       const pageW = at(page.getBounds(), 2)
 
-      // הגופן לטקסט: המקורי אם יש בו את כל האותיות, אחרת Liberation באותו סגנון, ולתווים חסרים — DejaVu
-      const chooseFont = async (visual: string, origName: string | null, style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }) => {
-        const cs = [...visual]
+      // לכל אות — הגופן הראשון שיש בו אותה: המקורי (גם אותיות חדשות, כשה-cmap שלו תואם למה שידוע) → אותו עיצוב (David/Frank/Miriam)
+      // → Liberation באותה משפחה → DejaVu. אותיות רצופות באותו גופן = רצף אחד. כך מילה שנערכה נשארת בגופן של המסמך ככל האפשר.
+      type Run = { font: InstanceType<MU['Font']>; orig: GlyphFont | null; gids: number[] }
+      const planRuns = async (visual: string, origName: string | null, style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }): Promise<{ runs: Run[]; allOrig: boolean }> => {
+        const chain: { font: InstanceType<MU['Font']>; orig: GlyphFont | null; gid: (c: string) => number }[] = []
         const g = origName ? scan.glyphs.get(origName) : null
         if (g) {
-          // אותיות שלא הופיעו במסמך: אם בגופן המקורי יש cmap שמתאים למה שכבר ידוע (גופן מלא, או subset עם cmap) — גם הן מהמקורי
           const known = [...g.map.entries()].slice(0, 40), cmapOk = known.length >= 3 && known.every(([c, gid]) => g.font.encodeCharacter(c.codePointAt(0)!) === gid)
-          const gidOf = (c: string) => g.map.get(c) ?? (cmapOk ? g.font.encodeCharacter(c.codePointAt(0)!) || undefined : undefined)
-          if (cs.every((c) => gidOf(c) !== undefined)) { for (const c of cs) if (!g.map.has(c)) g.map.set(c, gidOf(c)!); return { font: g.font, gids: cs.map((c) => g.map.get(c)!), orig: g } }
+          chain.push({ font: g.font, orig: g, gid: (c) => g.map.get(c) ?? (cmapOk ? g.font.encodeCharacter(c.codePointAt(0)!) : 0) })
         }
-        for (const file of [fallbackFile(style), 'DejaVuSans.ttf']) {
-          const f = await getFallback(file), gids = cs.map((c) => f.encodeCharacter(c.codePointAt(0)!))
-          if (gids.every((x, i) => x > 0 || !cs[i]?.trim()) || file === 'DejaVuSans.ttf') return { font: f, gids: gids.map((x) => Math.max(0, x)), orig: null }
+        for (const file of [...designFiles(origName, style.bold), fallbackFile(style), 'DejaVuSans.ttf']) { const f = await getFallback(file); chain.push({ font: f, orig: null, gid: (c) => f.encodeCharacter(c.codePointAt(0)!) }) }
+        // מילה שלמה באותו גופן (לא מערבבים גופנים בתוך מילה): הראשון בשרשרת שיש בו את כל אותיות המילה; רווח — ברצף הנוכחי
+        const runs: Run[] = []
+        const push = (link: (typeof chain)[number], c: string) => {
+          const gid = Math.max(0, link.gid(c)), cur = runs[runs.length - 1]
+          if (link.orig && !link.orig.map.has(c) && gid > 0) link.orig.map.set(c, gid) // ל-ToUnicode
+          if (cur && cur.font === link.font) cur.gids.push(gid); else runs.push({ font: link.font, orig: link.orig, gids: [gid] })
         }
-        throw new Error('unreachable')
+        for (const w of visual.match(/\s+|\S+/g) ?? []) {
+          const cs = [...w], cur = runs[runs.length - 1]
+          if (!w.trim()) { const same = cur && chain.find((x) => x.font === cur.font && cs.every((c) => x.gid(c) > 0)); for (const c of cs) push(same || chain.find((x) => x.gid(c) > 0) || chain[chain.length - 1]!, c); continue }
+          const whole = chain.find((x) => cs.every((c) => x.gid(c) > 0))
+          for (const c of cs) push(whole || chain.find((x) => x.gid(c) > 0) || chain[chain.length - 1]!, c)
+        }
+        return { runs, allOrig: !!g && runs.every((r) => r.orig) }
+      }
+      /** רוחב הטקסט הישן כפי שהגופן המקורי היה כותב אותו ↔ הרוחב בפועל (מרווח בין אותיות / דחיסה במקור) */
+      const measuredRatio = (oldText: string, origName: string | null, actual: number, size: number) => {
+        const g = origName ? scan.glyphs.get(origName) : null, vis = [...(isRtl(oldText) ? logicalToVisual(oldText) : oldText)]
+        if (!g || !vis.length || !vis.every((c) => g.map.has(c))) return 1
+        return widthRatio(actual, vis.reduce((sum, c) => sum + g.font.advanceGlyph(g.map.get(c)!, 0), 0) * size)
       }
       const fontRes = (font: InstanceType<MU['Font']>, orig: GlyphFont | null) => {
         const cmap = () => toUnicodeCMap([...orig!.map.entries()].map(([c, gid]) => [gid, c.codePointAt(0)!]))
@@ -239,18 +255,26 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         return newRes('Font', 'HEf', e.ref)
       }
       // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס
-      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean }) => {
+      // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס.
+      // keep — עריכה / "באותו סגנון": אותו גודל תמיד (לא מקטינים ולא דוחסים); k — יחס הרוחב שנמדד מהמקור
+      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean; keep?: boolean; k?: number }) => {
         const visual = isRtl(text) ? logicalToVisual(text) : text
-        const { font, gids, orig } = await chooseFont(visual, o.origFont, o.style)
-        const adv = gids.reduce((s, g) => s + font.advanceGlyph(g, 0), 0)
+        const { runs, allOrig } = await planRuns(visual, o.origFont, o.style)
+        const advOf = (r: Run) => r.gids.reduce((s, g) => s + r.font.advanceGlyph(g, 0), 0)
+        const adv = runs.reduce((s, r) => s + advOf(r), 0)
+        let size = o.size, scale = o.k ?? 1
         // שכבה נסתרת: נמתחת/מתכווצת בדיוק לרוחב המילים בתמונה (כך שסימון בחיפוש יושב על המילה)
-        const fit = o.invisible ? { size: o.size, scale: adv > 0 ? Math.max(0.2, Math.min(5, o.avail / (adv * o.size))) : 1 } : fitText(adv * o.size, o.avail, o.size)
-        const width = adv * fit.size * fit.scale
-        const x = o.rtl ? o.right - width : o.left
-        const trm = M.Matrix.concat([fit.size * fit.scale, 0, 0, -fit.size, x, o.baseline], inv)
-        const name = fontRes(font, orig)
-        ops.push(`BT /${name} 1 Tf ${o.invisible ? '3 Tr' : rg(o.color) + ' rg'} ${mat(trm)} Tm <${gids.map((g) => g.toString(16).padStart(4, '0')).join('')}> Tj ET`)
-        return { orig: !!orig }
+        if (o.invisible) scale = adv > 0 ? Math.max(0.2, Math.min(5, o.avail / (adv * o.size))) : 1
+        else if (!o.keep) { const f = fitText(adv * size * scale, o.avail, size); size = f.size; scale *= f.scale }
+        else if (adv * size * scale > o.avail + 0.5) warnings.push(`עמוד ${pi + 1}: "${text.slice(0, 30)}" ארוך מהמקום — נכתב באותו גודל וחורג ב-${Math.round(adv * size * scale - o.avail)}pt`)
+        const width = adv * size * scale
+        let x = o.rtl ? o.right - width : o.left
+        for (const r of runs) {
+          const trm = M.Matrix.concat([size * scale, 0, 0, -size, x, o.baseline], inv)
+          ops.push(`BT /${fontRes(r.font, r.orig)} 1 Tf ${o.invisible ? '3 Tr' : rg(o.color) + ' rg'} ${mat(trm)} Tm <${r.gids.map((g) => g.toString(16).padStart(4, '0')).join('')}> Tj ET`)
+          x += advOf(r) * size * scale
+        }
+        return { orig: allOrig }
       }
       const pathOps = (pts: [number, number][], close: boolean) => pts.map((p, i) => { const q = apply(inv, p[0], p[1]); return f3(q[0]) + ' ' + f3(q[1]) + (i ? ' l' : ' m') }).join(' ') + (close ? ' h' : '')
 
@@ -277,7 +301,10 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         editedSpans.push({ page: pi, rect: e.rect, old: '', text: e.text })
         if (!e.text.trim()) continue
         const w0 = e.rect[2] - e.rect[0]
-        await writeLine(e.text, { left: e.rect[0], right: e.rect[2], baseline: e.baseline, size: e.size, color: hexColor(e.color ?? '#111111'), rtl: isRtl(e.text), origFont: null, style: { family: 'sans', bold: false, italic: false }, avail: Math.max(w0, Math.min(w0 * 1.6, w0 + 60)) })
+        // יחס הרוחב: הטקסט הישן בסריקה ↔ אותו טקסט בגופן החלופי — כדי שהחדש יתפוס רוחב דומה לאותיות שבסריקה
+        let k = 1
+        if (e.old) { const f = await getFallback(fallbackFile({ family: 'sans', bold: false, italic: false })), vis = [...(isRtl(e.old) ? logicalToVisual(e.old) : e.old)]; k = widthRatio(w0, vis.reduce((sum, c) => sum + f.advanceGlyph(Math.max(0, f.encodeCharacter(c.codePointAt(0)!)), 0), 0) * e.size) }
+        await writeLine(e.text, { left: e.rect[0], right: e.rect[2], baseline: e.baseline, size: e.size, color: hexColor(e.color ?? '#111111'), rtl: isRtl(e.text), origFont: null, style: { family: 'sans', bold: false, italic: false }, avail: Math.max(w0, Math.min(w0 * 1.6, w0 + 60)), keep: true, k })
       }
       // שכבה נסתרת (בר-חיפוש), בלי שורות שנערכו או נמחקו
       for (const l of ocrLayerFor(req.ocrLayer.filter((o) => o.page === pi).flatMap((o) => o.lines), [...er.map((e) => e.rect), ...oe.map((e) => e.rect)]))
@@ -293,7 +320,8 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         const avail = rtl
           ? Math.min(cap, s.rect[2] - Math.max(14, ...sameLine.filter((o) => o.rect[2] <= s.rect[0] + 1).map((o) => o.rect[2] + 3)))
           : Math.min(cap, Math.min(pageW - 14, ...sameLine.filter((o) => o.rect[0] >= s.rect[2] - 1).map((o) => o.rect[0] - 3)) - s.rect[0])
-        await writeLine(text, { left: s.rect[0], right: s.rect[2], baseline: s.baseline, size: s.size, color: hexColor(s.color), rtl, origFont: scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === s.font)?.font ?? null, style: fontStyle(s.font), avail: Math.max(avail, w0) })
+        const origFont = scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === s.font)?.font ?? null
+        await writeLine(text, { left: s.rect[0], right: s.rect[2], baseline: s.baseline, size: s.size, color: hexColor(s.color), rtl, origFont, style: fontStyle(s.font), avail: Math.max(avail, w0), keep: true, k: measuredRatio(s.text, origFont, w0, s.size) })
       }
 
       // 4. תוספות
@@ -311,7 +339,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
           for (let i = 0; i < lines.length; i++) {
             const ln = lines[i] ?? ''; if (!ln.trim()) continue
             const rtl = isRtl(ln)
-            await writeLine(ln, { left: x0 + 1, right: x1 - 1, baseline: y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: W - 2 })
+            await writeLine(ln, { left: x0 + 1, right: x1 - 1, baseline: y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: W - 2, ...(likeOk ? { keep: true, k: measuredRatio(like.text, origFont, like.rect[2] - like.rect[0], like.size) } : {}) })
           }
         } else if (a.kind === 'check' || a.kind === 'cross') {
           const lw = Math.max(0.8, Math.min(W, H) * 0.12)
@@ -382,8 +410,11 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
           const pg = chk.loadPage(e.page) as InstanceType<MU['PDFPage']>, sp = groupSpans(scanPage(M, pg).chars)
           const near = sp.filter((s) => s.rect[1] < e.rect[3] + 2 && s.rect[3] > e.rect[1] - 2).map((s) => s.text).join(' ')
           const norm = (t: string) => t.replace(/\s+/g, '')
-          const newOk = !e.text.trim() || norm(near).includes(norm(e.text))
-          const oldGone = !e.old.trim() || norm(e.text).includes(norm(e.old)) || !norm(near).includes(norm(e.old))
+          // מילה-מילה: שורה שחלקה בגופן המקורי וחלקה בגופן אחר נקראת בחזרה כמה קטעים
+          const words = (t: string) => t.split(/\s+/).map(norm).filter(Boolean)
+          const newOk = !e.text.trim() || words(e.text).every((w) => norm(near).includes(w))
+          const gone = words(e.old).filter((w) => !words(e.text).includes(w))
+          const oldGone = !e.old.trim() || gone.every((w) => !norm(near).includes(w))
           if (newOk && oldGone) verified++
           else warnings.push(`עמוד ${e.page + 1}: "${e.old.slice(0, 30)}" → "${e.text.slice(0, 30)}" — ${!oldGone ? 'הטקסט הישן עדיין בקובץ' : 'הטקסט החדש לא נקרא בחזרה'}`)
         }
