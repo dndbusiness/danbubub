@@ -9,6 +9,7 @@ import {
 import { fontkitRuns, visualOrder } from '../lib/rules/sign-pdf'
 import { stampPdf } from '../lib/sign/pdf'
 import { analyzePdf, applyPdf, type Analysis } from '../lib/pdfedit/engine'
+import * as mupdf from 'mupdf'
 
 const ch = (c: string, x: number, line = 0, o: Partial<PdfChar> = {}): PdfChar => ({ c, rect: [x, 100, x + 6, 112], origin: [x, 110], font: 'ABCDEF+ArialMT', size: 11, color: [0, 0, 0], line, ...o })
 const span = (text: string, rect: [number, number, number, number], o: Partial<Span> = {}): Span => ({ id: 0, text, rect, baseline: rect[3] - 2, font: 'ArialMT', size: 10, color: '#000000', bold: false, italic: false, family: 'sans', rtl: /[א-ת]/.test(text), ...o })
@@ -287,5 +288,37 @@ describe('"שיראה אותו הדבר וללא הבדל" — גודל, מרו�
     expect(n.map((x) => x.text)).toContain('זכות 250')
     expect(n.every((x) => !/liberation/i.test(x.font))).toBe(true)
     expect(n.every((x) => Math.abs(x.size - 12) < 0.1)).toBe(true)
+  }, 30000)
+})
+
+describe('מחק קסם (דן 31/10: "כמו בקאנווה — מזהה את הרקע ומוחק רק את מה שסומן")', () => {
+  const px = (bytes: Uint8Array, x: number, y: number) => { const m = mupdf.Document.openDocument(bytes, 'application/pdf'), p = m.loadPage(0).toPixmap(mupdf.Matrix.scale(2, 2), mupdf.ColorSpace.DeviceRGB, false), a = p.getPixels(), i = (Math.round(y * 2) * p.getWidth() + Math.round(x * 2)) * 3; return [a[i], a[i + 1], a[i + 2]] }
+  it('קובץ וקטורי: הטקסט בתוך האזור נמחק, הרקע הצבעוני נשאר; הטקסט החדש באותו גופן/גודל/צבע ועל אותו קו בסיס', async () => {
+    const d = await PDFDocument.create(); d.registerFontkit(fontkit)
+    const f = await d.embedFont(readFileSync('assets/fonts/DejaVuSans.ttf'), { subset: false }), p = d.addPage([400, 200])
+    p.drawRectangle({ x: 50, y: 90, width: 300, height: 30, color: rgb(0.85, 0.92, 1) })
+    drawHe(p, f, 'חובה', 320, 100, 11); p.drawText('Other', { x: 60, y: 100, size: 11, font: f })
+    const src = await d.save(), s = (await analyzePdf(src)).pages[0]!.spans.find((x) => x.text === 'חובה')!
+    const r = await applyPdf(src, cleanApply({ erase: [{ page: 0, rect: [s.rect[0] - 1, s.rect[1] - 1, s.rect[2] + 1, s.rect[3] + 1], magic: true }],
+      adds: [{ page: 0, kind: 'text', rect: s.rect, text: 'זכות', match: s.id, baseline: s.baseline }] }, 1).req)
+    const B = (await analyzePdf(r.bytes)).pages[0]!.spans
+    expect(B.some((x) => x.text === 'חובה')).toBe(false); expect(B.some((x) => x.text === 'Other')).toBe(true)
+    const n = B.find((x) => x.text === 'זכות')!
+    expect(n.font).toMatch(/DejaVu/); expect(n.size).toBeCloseTo(11, 1); expect(n.color).toBe(s.color); expect(Math.abs(n.baseline - s.baseline)).toBeLessThan(0.3)
+    expect(Math.abs(n.rect[2] - s.rect[2])).toBeLessThan(1) // מיושר לימין כמו המקור
+    const bg = px(r.bytes, s.rect[0] - 0.5, s.rect[1]) // בתוך האזור, ליד המילה — הרקע התכלת נשאר
+    expect(bg[2]).toBeGreaterThan(240); expect(bg[0]).toBeLessThan(230)
+  }, 30000)
+  it('סריקה: הפיקסלים באזור נצבעים בצבע הנייר שמסביב (לא לבן), מחוץ לאזור — כלום לא זז', async () => {
+    const W = 200, H = 100, raw = new Uint8Array(W * H * 3)
+    for (let i = 0; i < W * H; i++) { raw[i * 3] = 238; raw[i * 3 + 1] = 232; raw[i * 3 + 2] = 214 } // נייר צהבהב
+    for (let y = 40; y < 60; y++) for (let x = 60; x < 140; x++) { const i = (y * W + x) * 3; raw[i] = raw[i + 1] = raw[i + 2] = 20 } // "דיו"
+    const pm = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, W, H], false); pm.getPixels().set(raw)
+    const d = await PDFDocument.create(), im = await d.embedPng(pm.asPNG()); d.addPage([W, H]).drawImage(im, { x: 0, y: 0, width: W, height: H })
+    const src = await d.save()
+    const r = await applyPdf(src, cleanApply({ erase: [{ page: 0, rect: [55, 35, 145, 65], magic: true }] }, 1).req)
+    const c = px(r.bytes, 100, 50), out = px(r.bytes, 20, 20)
+    expect(Math.abs(c[0]! - 238) + Math.abs(c[1]! - 232) + Math.abs(c[2]! - 214)).toBeLessThan(12)
+    expect(out).toEqual(px(src, 20, 20))
   }, 30000)
 })

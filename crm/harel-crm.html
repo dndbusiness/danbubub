@@ -577,6 +577,7 @@ body.locked { padding-inline-start: 0; }
 .pxs.ed:empty::after { content: '(יימחק)'; font: 600 10px Heebo, Arial, sans-serif; color: var(--text-3); }
 .pxin { width: 100%; min-width: 40px; height: 100%; border: 0; outline: 2px solid var(--q-violet); background: #fff; font: inherit; color: inherit; padding: 0; margin: 0; }
 .pxe { position: absolute; background: rgba(255, 255, 255, .9); outline: 1.5px dashed var(--q-slate); cursor: pointer; }
+.pxe.magic { outline: 1px dotted var(--q-violet); }
 .pxa { position: absolute; cursor: move; }
 .pxa.sel { outline: 1.5px dashed var(--ink); outline-offset: 1px; }
 .pxa .rz { position: absolute; right: -4px; bottom: -4px; width: 9px; height: 9px; background: var(--ink); cursor: nwse-resize; display: none; }
@@ -5439,8 +5440,8 @@ function docTile(f, w, sel) {
    הגליפים הישנים מהקובץ וכותב חדשים — לא מכסה בלבן). כלים: טקסט, ✓, ✗, תאריך, חתימה/חותמת, תמונה, סימון, ציור, מחיקת אזור.
    שדות ריקים (קווים, ריבועים, משבצות) מזוהים בשרת — לחיצה ממלאת. שדות טופס (AcroForm) — ממלאים במקום, אפשר לשטח.
    עמודים: סיבוב, מחיקה, דחיסה. השמירה = קובץ חדש "(ערוך)" ליד המקור; המקור לא נדרס. המנוע: lib/pdfedit/engine.ts ═════ */
-const PX_TOOLS = [['edit', 'עריכת טקסט'], ['text', 'טקסט'], ['check', '✓'], ['cross', '✗'], ['date', 'תאריך'], ['sign', 'חתימה'], ['image', 'תמונה'], ['hl', 'סימון'], ['draw', 'ציור'], ['erase', 'מחיקה']];
-const PX_HINT = { edit: 'לחיצה על טקסט קיים — עורכים אותו במקום, באותו גופן', text: 'לחיצה על העמוד מוסיפה תיבת טקסט', check: 'לחיצה מוסיפה ✓', cross: 'לחיצה מוסיפה ✗', date: 'לחיצה מוסיפה את התאריך של היום', sign: 'לחיצה מוסיפה את החתימה (נחתם פעם אחת, נשמר לשימוש חוזר)', image: 'לחיצה בוחרת תמונה ומוסיפה אותה', hl: 'גוררים מלבן לסימון בצהוב', draw: 'מציירים ביד חופשית', erase: 'גוררים מלבן — כל מה שבתוכו נמחק מהקובץ (טקסט, תמונה, קווים)' };
+const PX_TOOLS = [['edit', 'עריכת טקסט'], ['text', 'טקסט'], ['check', '✓'], ['cross', '✗'], ['date', 'תאריך'], ['sign', 'חתימה'], ['image', 'תמונה'], ['hl', 'סימון'], ['draw', 'ציור'], ['erase', 'מחיקה'], ['magic', '✨ מחק קסם']];
+const PX_HINT = { edit: 'לחיצה על טקסט קיים — עורכים אותו במקום, באותו גופן', text: 'לחיצה על העמוד מוסיפה תיבת טקסט', check: 'לחיצה מוסיפה ✓', cross: 'לחיצה מוסיפה ✗', date: 'לחיצה מוסיפה את התאריך של היום', sign: 'לחיצה מוסיפה את החתימה (נחתם פעם אחת, נשמר לשימוש חוזר)', image: 'לחיצה בוחרת תמונה ומוסיפה אותה', hl: 'גוררים מלבן לסימון בצהוב', draw: 'מציירים ביד חופשית', erase: 'גוררים מלבן — כל מה שבתוכו נמחק מהקובץ (טקסט, תמונה, קווים)', magic: 'מסמנים בדיוק את מה שרוצים למחוק — הרקע נשאר (או נצבע בצבע שמסביב), ונפתחת תיבה באותו גופן, גודל וצבע לכתוב במקום' };
 const pxFam = (s) => 'HE-' + (s.family || 'sans') + (s.bold && s.italic ? '-bolditalic' : s.bold ? '-bold' : s.italic ? '-italic' : '');
 function pxFonts() { if (document.getElementById('pxFonts')) return; const st = document.createElement('style'); st.id = 'pxFonts';
   st.textContent = ['sans', 'serif', 'mono'].flatMap((f) => ['', '-bold', '-italic', '-bolditalic'].map((v) => "@font-face{font-family:'HE-" + f + v + "';src:url('/api/crm/pdf/font?k=" + f + v + "') format('truetype');font-display:swap}")).join('');
@@ -5509,7 +5510,7 @@ function pdfEdit(o) {
     const el = $('pxSel'); if (!el) return; const a = E.adds.find((x) => x.id === E.sel), n = dirty();
     let h = '<span class="hint">' + esc(PX_HINT[E.tool]) + '</span><span class="grow"></span>';
     if (a) { h = '<b>' + esc({ text: 'טקסט', date: 'תאריך', check: '✓', cross: '✗', image: 'תמונה', sign: 'חתימה', hl: 'סימון', draw: 'ציור' }[a.ui] || '') + '</b>' +
-      (a.kind === 'text' || a.kind === 'date' ? (a.likeText ? '<span class="chip soft" title="הגופן, הגודל והצבע של הטקסט הזה במסמך">בסגנון של: <bdi>' + esc(a.likeText) + '</bdi></span><button type="button" class="btn small ghost" data-px="plain">סגנון רגיל</button>' : '') +
+      (a.kind === 'text' || a.kind === 'date' ? (a.likeText ? '<span class="chip soft" title="הגופן, הגודל והצבע של הטקסט הזה במסמך">' + (a.magicOf ? 'במקום: ' : 'בסגנון של: ') + '<bdi>' + esc(a.likeText) + '</bdi></span><button type="button" class="btn small ghost" data-px="plain">סגנון רגיל</button>' : '') +
         '<button type="button" class="btn small ghost" data-px="pick" title="לוחצים על טקסט במסמך — והתיבה מקבלת את הגופן, הגודל והצבע שלו">' + (E.picking === a.id ? 'לחץ על טקסט במסמך…' : 'בחר סגנון מהמסמך') + '</button>' +
         '<label class="row" style="gap:4px;align-items:center">גודל<select class="f small" id="pxSize">' + [...new Set([7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, a.size])].sort((x, y) => x - y).map((s) => '<option value="' + s + '"' + (s === a.size ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></label>' +
         '<label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="pxBold"' + (a.bold ? ' checked' : '') + '> מודגש</label>' : '') +
@@ -5537,7 +5538,7 @@ function pdfEdit(o) {
   const drawPage = (pg) => { const i = +pg.dataset.pg, p = P(i); pg.querySelectorAll('.pxs,.pxe,.pxa,.pxb,.pxw').forEach((x) => x.remove());
     pg.classList.toggle('pxdel', E.del.has(i));
     for (const s of p.spans) pg.appendChild(spanEl(i, s));
-    for (const r of E.erase.filter((x) => x.page === i)) { const d = document.createElement('div'); d.className = 'pxe'; d.dataset.pe = E.erase.indexOf(r); d.style.cssText = pxR(r.rect, p); d.title = 'יימחק מהקובץ — לחיצה מבטלת'; pg.appendChild(d); }
+    for (const r of E.erase.filter((x) => x.page === i)) { const d = document.createElement('div'); d.className = 'pxe' + (r.magic ? ' magic' : ''); d.dataset.pe = E.erase.indexOf(r); d.style.cssText = pxR(r.rect, p) + (r.bg ? ';background:' + r.bg : ''); d.title = (r.magic ? 'מחק קסם' : 'יימחק מהקובץ') + ' — לחיצה מבטלת'; pg.appendChild(d); }
     if (E.blanks) for (const [bi, b] of p.blanks.entries()) { const d = document.createElement('div'); d.className = 'pxb'; d.dataset.pb = i + ':' + bi; d.style.cssText = pxR(b.rect, p); d.title = (b.label ? b.label + ' — ' : '') + 'לחיצה ממלאת'; pg.appendChild(d); }
     for (const w of p.widgets) { if (w.readOnly || w.type === 'button' || w.type === 'signature') continue; const d = document.createElement('div'); d.className = 'pxw'; d.style.cssText = pxR(w.rect, p); const v = Object.prototype.hasOwnProperty.call(E.form, w.name) ? E.form[w.name] : w.value;
       d.innerHTML = w.type === 'checkbox' || w.type === 'radiobutton' ? '<input type="checkbox" data-pw="' + esc(w.name) + '"' + (v && v !== 'Off' ? ' checked' : '') + ' aria-label="' + esc(w.name) + '">'
@@ -5565,6 +5566,24 @@ function pdfEdit(o) {
   const pxTakeStyle = (a, s, p) => { a.size = s.size; a.color = s.color; a.family = s.family; a.bold = s.bold; a.likeText = s.text.slice(0, 30); if (!s.ocr && !s.hidden) a.match = s.id; else delete a.match;
     const h = s.size * 1.35, y0 = a.rect[1] + (a.rect[3] - a.rect[1]) / 2 - h / 2; a.rect[1] = Math.max(0, y0); a.rect[3] = Math.min(p.h, a.rect[1] + h); };
   const pxPlainStyle = (a) => { delete a.match; delete a.likeText; a.family = 'sans'; a.bold = false; a.color = '#111827'; a.size = a.kind === 'date' ? 10 : 11; };
+  /* מחק קסם: צבע הרקע נדגם מהעמוד המוצג (טבעת סביב האזור, הבהירים) — לתצוגה; בשמירה השרת מוחק רק את מה שבתוך האזור:
+     טקסט ופיקסלים של תמונה. רקע וקווים וקטוריים נשארים כמו שהם. אם נמחק טקסט — תיבה במקומו, באותו גופן/גודל/צבע ועל אותו קו בסיס */
+  const pxBg = (pg, r) => { try { const cv = pg.querySelector('canvas'), p = P(+pg.dataset.pg), k = cv.width / p.w, m = 3 * k, g = cv.getContext('2d');
+      const X0 = Math.max(0, Math.floor(r[0] * k - m)), Y0 = Math.max(0, Math.floor(r[1] * k - m)), X1 = Math.min(cv.width, Math.ceil(r[2] * k + m)), Y1 = Math.min(cv.height, Math.ceil(r[3] * k + m));
+      const data = g.getImageData(X0, Y0, X1 - X0, Y1 - Y0).data, px = [];
+      for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) if (x < r[0] * k || x > r[2] * k || y < r[1] * k || y > r[3] * k) { const o = ((y - Y0) * (X1 - X0) + (x - X0)) * 4; px.push([data[o], data[o + 1], data[o + 2]]); }
+      if (!px.length) return '#ffffff'; px.sort((a, b) => (b[0] + b[1] + b[2]) - (a[0] + a[1] + a[2])); const c = px[Math.floor(px.length * 0.3)];
+      return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join(''); } catch (x) { return '#ffffff'; } };
+  const pxMagic = (pg, i, r) => {
+    const p = P(i), bg = pxBg(pg, r), ov = (s) => Math.max(0, Math.min(s.rect[2], r[2]) - Math.max(s.rect[0], r[0])) * Math.max(0, Math.min(s.rect[3], r[3]) - Math.max(s.rect[1], r[1]));
+    E.erase.push({ page: i, rect: r.map((v) => Math.round(v * 100) / 100), magic: true, bg });
+    const s = p.spans.filter((x) => x.text.trim() && ov(x) > 0).sort((a, b) => ov(b) - ov(a))[0];
+    if (s) { const a = { id: 'a' + uid(), page: i, ui: 'text', kind: 'text', text: '', rect: [Math.min(s.rect[0], r[0]), s.rect[1] - s.size * 0.15, Math.max(s.rect[2], r[2]), s.rect[3] + s.size * 0.1], baseline: s.baseline, magicOf: s.text.slice(0, 30) };
+      pxTakeStyle(a, s, p); /* הקצה של הטקסט המקורי (ימין בעברית, שמאל באנגלית) — בדיוק במקומו; לצד השני יש מקום להתארך */
+      a.rect = s.rtl ? [Math.min(s.rect[0], r[0]), s.baseline - s.size * 0.95, s.rect[2], s.baseline + s.size * 0.3] : [s.rect[0], s.baseline - s.size * 0.95, Math.max(s.rect[2], r[2]), s.baseline + s.size * 0.3];
+      E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus();
+      toast('נמחק — כתוב במקום, באותו גופן ' + s.size + 'pt' + (p.scanned && !s.ocr && !s.hidden ? '' : '')); return; }
+    drawPage(pg); setK(); selBar(); toast(p.scanned && !p.spans.length ? 'נמחק. כדי לכתוב במקום באותו גודל וצבע — הפעל קודם 🔎 OCR' : 'נמחק — הרקע נשאר'); };
   const ptOf = (pg, e) => { const r = pg.getBoundingClientRect(), p = P(+pg.dataset.pg); return [(e.clientX - r.left) / r.width * p.w, (e.clientY - r.top) / r.height * p.h]; };
   // עריכת טקסט קיים: input במקום, באותו גופן/גודל/צבע
   const editSpan = (el) => { const k = el.dataset.ps, sp = spanOf(k); if (!sp) return;
@@ -5594,7 +5613,7 @@ function pdfEdit(o) {
     if (['text', 'check', 'cross', 'date'].includes(E.tool)) { e.preventDefault(); return place(pg, E.tool, x, y); } // בלי preventDefault הדפדפן מעביר את המיקוד מהתיבה החדשה
     if (E.tool === 'sign') { const s = await pxSignPad(); if (!s) return; const k = Math.min(130 / s.w, 48 / s.h); return place(pg, 'sign', x, y, { image: s.data, wh: [s.w * k, s.h * k] }); }
     if (E.tool === 'image') { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg'; inp.onchange = async () => { const f = inp.files[0]; if (!f) return; try { const im = await pxImageData(f); const k = Math.min(160 / im.w, 120 / im.h); place(pg, 'image', x, y, { image: im.data, wh: [im.w * k, im.h * k] }); } catch (x2) { toast(x2.message); } }; inp.click(); return; }
-    if (E.tool === 'hl' || E.tool === 'erase') { const d = document.createElement('div'); d.className = E.tool === 'hl' ? 'pxa k-highlight' : 'pxe'; pg.appendChild(d); drag = { mode: 'box', x0: x, y0: y, el: d, pg, p }; pg.setPointerCapture(e.pointerId); return; }
+    if (E.tool === 'hl' || E.tool === 'erase' || E.tool === 'magic') { const d = document.createElement('div'); d.className = E.tool === 'hl' ? 'pxa k-highlight' : 'pxe' + (E.tool === 'magic' ? ' magic' : ''); pg.appendChild(d); drag = { mode: 'box', x0: x, y0: y, el: d, pg, p }; pg.setPointerCapture(e.pointerId); return; }
     if (E.tool === 'draw') { const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 ' + p.w + ' ' + p.h); svg.setAttribute('preserveAspectRatio', 'none'); svg.classList.add('pxdraw'); const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', '#111827'); pl.setAttribute('stroke-width', '1.5'); pl.setAttribute('stroke-linecap', 'round'); svg.appendChild(pl); pg.appendChild(svg);
       drag = { mode: 'draw', pts: [[x, y]], svg, pl, pg }; pg.setPointerCapture(e.pointerId); }
   });
@@ -5606,7 +5625,7 @@ function pdfEdit(o) {
     else { const keep = a.kind === 'image' || a.kind === 'check' || a.kind === 'cross', w0 = r0[2] - r0[0], h0 = r0[3] - r0[1]; let w = Math.max(6, Math.min(p.w - r0[0], w0 + dx)), h = Math.max(6, Math.min(p.h - r0[1], h0 + dy)); if (keep) { const k = Math.max(w / w0, h / h0); w = w0 * k; h = h0 * k; } a.rect = [r0[0], r0[1], r0[0] + w, r0[1] + h]; }
     const el = drag.pg.querySelector('.pxa[data-pa="' + a.id + '"]'); if (el) el.style.cssText = pxR(a.rect, p); });
   pagesEl.addEventListener('pointerup', () => { if (!drag) return; const d = drag; drag = null; const i = +d.pg.dataset.pg;
-    if (d.mode === 'box') { d.el.remove(); if (d.r && d.r[2] - d.r[0] > 3 && d.r[3] - d.r[1] > 3) { if (E.tool === 'erase') E.erase.push({ page: i, rect: d.r }); else { const a = { id: 'a' + uid(), page: i, ui: 'hl', kind: 'highlight', rect: d.r }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
+    if (d.mode === 'box') { d.el.remove(); if (E.tool === 'magic' && d.r && d.r[2] - d.r[0] > 1.5 && d.r[3] - d.r[1] > 1.5) return pxMagic(d.pg, i, d.r); if (d.r && d.r[2] - d.r[0] > 3 && d.r[3] - d.r[1] > 3) { if (E.tool === 'erase') E.erase.push({ page: i, rect: d.r }); else { const a = { id: 'a' + uid(), page: i, ui: 'hl', kind: 'highlight', rect: d.r }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
     if (d.mode === 'draw') { d.svg.remove(); if (d.pts.length > 1) { const pts = d.pts.filter((q, k) => k === 0 || Math.hypot(q[0] - d.pts[k - 1][0], q[1] - d.pts[k - 1][1]) > 0.6); const last = E.adds.find((a) => a.kind === 'draw' && a.page === i && a.id === E.sel);
         if (last) last.points.push(pts); else { const a = { id: 'a' + uid(), page: i, ui: 'draw', kind: 'draw', rect: [0, 0, P(i).w, P(i).h], points: [pts], width: 1.5 }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
     if (d.a && !d.moved && d.a.kind === 'text') { const t = d.pg.querySelector('.pxa[data-pa="' + d.a.id + '"] .pxt'); if (t) t.focus(); } });
@@ -5645,8 +5664,8 @@ function pdfEdit(o) {
         // סרוק: מוחקים את הפיקסלים, צובעים בצבע הנייר וכותבים בצבע הדיו
         ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, old: x.s.text, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
         ocrLayer: E.ocrLayer ? Object.entries(E.ocr).map(([page, sp]) => ({ page: +page, lines: sp.map((x) => ({ rect: rr(x.rect), baseline: r2(x.baseline), size: x.size, text: x.text })) })) : [],
-        erase: E.erase, adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
-          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
+        erase: E.erase.map((x) => ({ page: x.page, rect: x.rect, ...(x.magic ? { magic: true } : {}) })), adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
+          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; if (a.baseline != null) o.baseline = Math.round(a.baseline * 100) / 100; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
         form: E.form, flatten: E.flatten, compress: E.compress, pages: { ...(Object.keys(E.rot).length ? { rotate: E.rot } : {}), ...(E.del.size ? { order: keep } : {}) } };
       E.busy = true; b.disabled = true; b.textContent = 'שומר…';
       try { const res = await fetch('/api/crm/pdf/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src, ops }) }); const j = await res.json().catch(() => ({}));

@@ -21,6 +21,7 @@ import {
   designFiles, detectBlanks, fallbackFile, fitText, fontStyle, groupSpans, hexColor, isRtl, logicalToVisual, shrinkForRedact, toUnicodeCMap, underscoreRuns, widthRatio,
 } from '../rules/pdf-edit.js'
 import { type Gray, type OcrLine, type OcrSpan, inkAndPaper, ocrLayerFor, ocrSpans, scanVecs } from '../rules/pdf-ocr.js'
+import type { EraseOp } from '../rules/pdf-edit.js'
 
 type MU = typeof import('mupdf')
 type Matrix = [number, number, number, number, number, number]
@@ -47,7 +48,7 @@ const quadRect = (q: ArrayLike<number>): Rect => [Math.min(at(q, 0), at(q, 4)), 
 const apply = (m: ArrayLike<number>, x: number, y: number): [number, number] => [at(m, 0) * x + at(m, 2) * y + at(m, 4), at(m, 1) * x + at(m, 3) * y + at(m, 5)]
 
 interface GlyphFont { font: InstanceType<MU['Font']>; map: Map<string, number> }
-interface PageScan { chars: PdfChar[]; vecs: Vec[]; imageArea: number; glyphs: Map<string, GlyphFont> }
+interface PageScan { chars: PdfChar[]; vecs: Vec[]; imageArea: number; images: Rect[]; glyphs: Map<string, GlyphFont> }
 
 function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   // קודם: מיקומי הגליפים הנסתרים (Tr 3 — שכבת OCR של סורק), כדי לסמן את התווים שלהם
@@ -62,6 +63,7 @@ function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   })
   const vecs: Vec[] = []
   let imageArea = 0
+  const images: Rect[] = []
   const glyphs = new Map<string, GlyphFont>()
   const subpaths = (p: InstanceType<MU['Path']>, ctm: ArrayLike<number>, kind: 'S' | 'F') => {
     let pts: [number, number][] = []
@@ -72,7 +74,7 @@ function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   const dev = new M.Device({
     fillPath(p, _eo, ctm) { if (vecs.length < 5000) subpaths(p, ctm, 'F') },
     strokePath(p, _st, ctm) { if (vecs.length < 5000) subpaths(p, ctm, 'S') },
-    fillImage(_img, ctm) { imageArea += Math.abs(at(ctm, 0) * at(ctm, 3) - at(ctm, 1) * at(ctm, 2)) },
+    fillImage(_img, ctm) { imageArea += Math.abs(at(ctm, 0) * at(ctm, 3) - at(ctm, 1) * at(ctm, 2)); const q = [apply(ctm, 0, 0), apply(ctm, 1, 0), apply(ctm, 0, 1), apply(ctm, 1, 1)]; images.push([Math.min(...q.map((x) => x[0])), Math.min(...q.map((x) => x[1])), Math.max(...q.map((x) => x[0])), Math.max(...q.map((x) => x[1]))]) },
     fillText(text) {
       text.walk({ showGlyph(font, _trm, gid, uni) {
         if (uni <= 0 || gid <= 0) return
@@ -83,7 +85,7 @@ function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   })
   page.run(dev, M.Matrix.identity)
   dev.close()
-  return { chars, vecs, imageArea, glyphs }
+  return { chars, vecs, imageArea, images, glyphs }
 }
 
 function widgetsOf(page: InstanceType<MU['PDFPage']>): WidgetInfo[] {
@@ -290,12 +292,20 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       if (live.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_NONE, M.PDFPage.REDACT_LINE_ART_NONE, M.PDFPage.REDACT_TEXT_REMOVE)
       // 2. מחיקת אזור — טקסט, תמונה (הפיקסלים) וקווים שבתוכו
       // + עריכות בסרוק: הפיקסלים של הטקסט הישן (וטקסט נסתר שעליהם) נמחקים מהתמונה עצמה
-      const er = req.erase.filter((e) => e.page === pi), oe = req.ocrEdits.filter((e) => e.page === pi)
+      const erAll = req.erase.filter((e) => e.page === pi), er = erAll.filter((e) => !e.magic), mg = erAll.filter((e) => e.magic), oe = req.ocrEdits.filter((e) => e.page === pi)
+      /* מחק קסם (דן 31/10: "כמו בקאנווה — מזהה את הרקע ומוחק רק את מה שסומן"): קודם הטקסט (והפיקסלים בתמונה) בתוך האזור בלבד —
+         קווים ורקע וקטוריים נשארים. אזור על תמונה (סריקה / רקע) — נצבע בצבע הרקע שמסביב, שנדגם לפני המחיקה */
+      const hitImg = (r: Rect) => scan.images.some((b) => r[0] < b[2] && b[0] < r[2] && r[1] < b[3] && b[1] < r[3])
+      const mgFill = new Map<EraseOp, string>()
+      if (mg.some((e) => hitImg(e.rect))) { const img = pageImage(M, page); for (const e of mg) if (hitImg(e.rect)) mgFill.set(e, e.fill ?? inkAndPaper(img.rgb, img.w, img.h, CV_SCALE, e.rect).paper) }
+      for (const e of mg) { const a = page.createAnnotation('Redact'); a.setRect(e.rect); a.update() }
+      if (mg.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_PIXELS, M.PDFPage.REDACT_LINE_ART_NONE, M.PDFPage.REDACT_TEXT_REMOVE)
       const pad = (r: Rect, d: number): Rect => [r[0] - d, r[1] - d, r[2] + d, r[3] + d]
       for (const r of [...er.map((e) => e.rect), ...oe.map((e) => pad(e.rect, 0.8))]) { const a = page.createAnnotation('Redact'); a.setRect(r); a.update() }
       if (er.length || oe.length) page.applyRedactions(false, M.PDFPage.REDACT_IMAGE_PIXELS, M.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED, M.PDFPage.REDACT_TEXT_REMOVE)
       const fillRect = (r: Rect, c: string) => ops.push(`q ${rg(hexColor(c))} rg ${pathOps([[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]], true)} f Q`)
       for (const e of er) if (e.fill) fillRect(e.rect, e.fill)
+      for (const [e, c] of mgFill) fillRect(e.rect, c)
       for (const e of oe) {
         if (e.paper) fillRect(pad(e.rect, 0.8), e.paper)
         editedSpans.push({ page: pi, rect: e.rect, old: '', text: e.text })
@@ -339,7 +349,9 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
           for (let i = 0; i < lines.length; i++) {
             const ln = lines[i] ?? ''; if (!ln.trim()) continue
             const rtl = isRtl(ln)
-            await writeLine(ln, { left: x0 + 1, right: x1 - 1, baseline: y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: W - 2, ...(likeOk ? { keep: true, k: measuredRatio(like.text, origFont, like.rect[2] - like.rect[0], like.size) } : {}) })
+            const exact = a.baseline != null // במקום טקסט שנמחק (מחק קסם): בדיוק על קו הבסיס והקצוות שלו
+            await writeLine(ln, { left: exact ? x0 : x0 + 1, right: exact ? x1 : x1 - 1, baseline: exact ? a.baseline! + i * size * 1.25 : y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: exact ? Math.max(W, W * 1.6) : W - 2,
+              ...(likeOk ? { keep: true, k: measuredRatio(like.text, origFont, like.rect[2] - like.rect[0], like.size) } : exact ? { keep: true } : {}) })
           }
         } else if (a.kind === 'check' || a.kind === 'cross') {
           const lw = Math.max(0.8, Math.min(W, H) * 0.12)
