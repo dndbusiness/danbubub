@@ -3422,11 +3422,83 @@ function oshMerge(accounts, notes, adds, openingOverride) {
     ...(adds || []).map((x, j) => ({ k: 'add:' + x.id, add: true, acc: 'sim', accLabel: 'מדומה', ai: 999, i: j, date: x.date, desc: x.desc || 'תנועה מדומה', amount: Number(x.amount) || 0 }))]
     .sort((a, b) => a.date.localeCompare(b.date) || a.ai - b.ai || a.i - b.i);
   let bal = opening, minBal = opening, minDate = rows.length ? rows[0].date : null, inn = 0, out = 0; const negDays = new Set();
-  const R = rows.map((r) => { const n0 = N[r.k] || {}, sim = n0.sim != null && n0.sim !== '' ? Number(n0.sim) : null, off = !!n0.off;
-    const eff = r.internal || off ? 0 : sim != null ? sim : r.amount; bal = r2_(bal + eff); if (eff > 0) inn += eff; else out -= eff;
+  /* עריכה מלאה (דן 31/10): תאריך, שם התנועה, סכום וכיוון (כניסה↔יציאה) — הכל דרך notes[k]; הסדר נקבע לפי התאריך אחרי העריכה */
+  const E0 = rows.map((r) => { const n0 = N[r.k] || {}, sim = n0.sim != null && n0.sim !== '' && !isNaN(Number(n0.sim)) ? Number(n0.sim) : null;
+    return { ...r, date0: r.date, desc0: r.desc || '', date: n0.date || r.date, desc: n0.desc != null ? n0.desc : r.desc || '', sim, off: !!n0.off, note: n0.note || '' }; })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.ai - b.ai || a.i - b.i);
+  const R = E0.map((r) => { const eff = r.internal || r.off ? 0 : r.sim != null ? r.sim : r.amount; bal = r2_(bal + eff); if (eff > 0) inn += eff; else out -= eff;
     if (bal < minBal) { minBal = bal; minDate = r.date; } if (bal < 0) negDays.add(r.date);
-    return { ...r, sim, off, note: n0.note || '', eff, bal }; });
+    return { ...r, eff, bal }; });
   return { rows: R, opening, closing: bal, minBal: r2_(minBal), minDate, inn: r2_(inn), out: r2_(out), negDays: negDays.size, internal: used.size, actualClosing: r2_(accounts.reduce((s, A) => s + (A.closing != null ? A.closing : 0), 0)) };
+}
+/* סכום בתוך משפט בעברית — מבודד (LRI…PDI), כדי שמינוס ו-₪ לא יקפצו למקום אחר בשורה */
+const oshFmt = (v) => { const x = Math.round(Number(v) * 100) / 100; return '\u2066' + (x < 0 ? '−' : '') + '₪' + Math.abs(x).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '\u2069'; };
+/* יום עסקים בישראל: א׳–ה׳ (ו׳ ושבת — הבנק סגור; חגים לא מסומנים). תנועה בסוף שבוע נכנסת ליתרה ביום העסקים הבא (יום ערך). */
+const oshBiz = (d) => { const w = new Date(d + 'T12:00:00Z').getUTCDay(); return w !== 5 && w !== 6; };
+const oshNextBiz = (d) => { let x = d; for (let i = 0; i < 7 && !oshBiz(x); i++) x = new Date(Date.parse(x + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10); return x; };
+const oshDays = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 864e5);
+/* מה שיניתי (דן 31/10: "יסכם לי איזה שורות שונו — מה שבאמת נגעתי בהם, והאם היתרה השתנתה"):
+   כל שורה שנגעתי בה — מה היה ומה עכשיו, וכמה זה הזיז את היתרה; שינוי שלא משנה יתרה (שם / הערה) — מסומן "בלי השפעה";
+   שינוי תאריך — משנה את היתרות בדרך, לא את הסגירה. בסוף: הצלבה — הפרש הסגירה = סכום ההשפעות. */
+function oshChanges(accounts, notes, adds, opening) {
+  const r2_ = (x) => Math.round(x * 100) / 100, N = notes || {};
+  const now = oshMerge(accounts, N, adds, opening), base = oshMerge(accounts, {}, [], null), B = new Map(base.rows.map((r) => [r.k, r]));
+  const list = [];
+  if (opening != null && opening !== '' && r2_(Number(opening)) !== base.opening) list.push({ k: 'opening', what: 'יתרת פתיחה', before: base.opening, after: r2_(Number(opening)), delta: r2_(Number(opening) - base.opening), fields: ['פתיחה'] });
+  for (const r of now.rows) {
+    const b = B.get(r.k), n0 = N[r.k] || {};
+    if (r.add) { list.push({ k: r.k, what: r.desc, date: r.date, add: true, after: r.eff, delta: r2_(r.eff), fields: ['תנועה חדשה'] }); continue; }
+    if (!b) continue;
+    const f = [];
+    if (r.date !== b.date) f.push('תאריך'); if ((r.desc || '') !== (b.desc || '')) f.push('שם');
+    if (r.sim != null && r.sim !== b.amount) f.push(Math.sign(r.sim) !== Math.sign(b.amount) && b.amount ? 'כיוון' : 'סכום');
+    if (r.off) f.push('הוצאה מהחישוב'); if (r.internal !== b.internal) f.push(r.internal ? 'סומנה פנימית' : 'בוטלה פנימית');
+    if (n0.note) f.push('הערה');
+    if (!f.length) continue;
+    const delta = r2_(r.eff - b.eff);
+    list.push({ k: r.k, what: r.desc || b.desc, desc0: b.desc, date: r.date, date0: b.date, acc: r.accLabel, before: b.eff, after: r.eff, delta, fields: f,
+      effect: delta ? (delta > 0 ? 'מעלה' : 'מוריד') + ' את היתרה מכאן והלאה' : f.includes('תאריך') && b.eff ? 'אותו סכום — מזיז את היתרות בין ' + [b.date, r.date].sort().join(' ל-') + ', לא את הסגירה' : 'בלי השפעה על היתרה' });
+  }
+  const sum = r2_(list.reduce((s, x) => s + (x.delta || 0), 0)), delta = r2_(now.closing - base.closing);
+  return { list, touched: list.filter((x) => x.k !== 'opening').length, closingBefore: base.closing, closingAfter: now.closing, delta, sum, cross: Math.abs(sum - delta) <= 0.011,
+    minBefore: base.minBal, minAfter: now.minBal, negBefore: base.negDays, negAfter: now.negDays, now, base };
+}
+/* הלוגיקה וההצלבה (דן 31/10: "צריך להגיד את כל הלוגיקות ... כל אוברדרפט ... שבסוף, בהצלבה, זה באמת עובד"):
+   1. תחשיב מיידי — כל תנועה משנה מיד את היתרה (קודמת + סכום), נבדק לכל שורה; 2. זהות — פתיחה + נכנס − יצא = סגירה;
+   3. יום עסקים — יתרה בסוף כל יום ערך (סוף שבוע → יום העסקים הבא), והיתרה נשארת עד יום הערך הבא;
+   4. מינוס (אוברדרפט) — כל תקופה: מתי התחיל, מתי נגמר, כמה ימים, השפל, ריבית משוערת; חריגה ממסגרת אם הוזנה;
+   5. העברות פנימיות — אפס השפעה; 6. הצלבה מול הדפים — יתרות רצות, וסגירה בלי שינויים = סכום יתרות הסגירה של החשבונות. */
+function oshLogic(M, accounts, opts) {
+  const r2_ = (x) => Math.round(x * 100) / 100, o = opts || {}, limit = Math.abs(Number(o.limit) || 0), rate = Number(o.rate) || 0, rules = [];
+  let prev = M.opening, chainOk = 0, chainBad = [];
+  for (const r of M.rows) { if (Math.abs(r2_(prev + r.eff) - r.bal) <= 0.011) chainOk++; else chainBad.push(r.k); prev = r.bal; }
+  rules.push({ key: 'chain', ok: !chainBad.length, title: 'תחשיב מיידי', detail: 'כל תנועה משנה מיד את היתרה: יתרה קודמת + סכום התנועה = היתרה אחריה. נבדקו ' + M.rows.length + ' שורות' + (chainBad.length ? ', ' + chainBad.length + ' לא מתיישבות' : ' — כולן מתיישבות') + '.' });
+  const ident = Math.abs(r2_(M.opening + M.inn - M.out) - M.closing) <= 0.011;
+  rules.push({ key: 'ident', ok: ident, title: 'פתיחה + נכנס − יצא = סגירה', detail: oshFmt(M.opening) + ' + ' + oshFmt(M.inn) + ' − ' + oshFmt(M.out) + ' = ' + oshFmt(r2_(M.opening + M.inn - M.out)) + (ident ? ' = יתרת הסגירה ✓' : ' ≠ ' + oshFmt(M.closing)) });
+  // יום ערך: תנועות לפי יום העסקים שבו הן נכנסות ליתרה
+  const V = M.rows.map((r) => ({ ...r, vday: oshNextBiz(r.date) })).sort((a, b) => a.vday.localeCompare(b.vday) || a.date.localeCompare(b.date) || a.ai - b.ai || a.i - b.i);
+  const days = []; let vb = M.opening;
+  for (const r of V) { vb = r2_(vb + r.eff); const d = days[days.length - 1]; if (d && d.day === r.vday) { d.bal = vb; d.n++; } else days.push({ day: r.vday, bal: vb, n: 1 }); }
+  const moved = V.filter((r) => r.vday !== r.date).length;
+  days.forEach((d, i) => { d.held = i + 1 < days.length ? oshDays(d.day, days[i + 1].day) : 1; });
+  rules.push({ key: 'bizday', ok: true, title: 'יתרה לפי יום עסקים (יום ערך)', detail: 'היתרה היומית = היתרה בסוף יום העסקים, והיא נשארת עד יום העסקים הבא (גם בסוף שבוע). ' + days.length + ' ימי ערך' + (moved ? ' · ' + moved + ' תנועות בו׳/שבת נכנסו ביום העסקים הבא' : '') + '.' });
+  // מינוס: תקופות רצופות של יתרה יומית שלילית
+  const periods = []; let cur = null;
+  for (const d of days) {
+    if (d.bal < 0) { if (!cur) cur = { start: d.day, end: d.day, days: 0, min: d.bal, minDay: d.day, sumNeg: 0 }; cur.end = d.day; cur.days += d.held; cur.sumNeg += -d.bal * d.held; if (d.bal < cur.min) { cur.min = d.bal; cur.minDay = d.day; } }
+    else if (cur) { periods.push(cur); cur = null; }
+  }
+  if (cur) periods.push({ ...cur, open: true });
+  periods.forEach((p) => { p.avg = r2_(-p.sumNeg / p.days); p.interest = rate ? r2_(p.sumNeg * rate / 100 / 365) : null; p.min = r2_(p.min); });
+  const negDaysTotal = periods.reduce((s, p) => s + p.days, 0), interest = rate ? r2_(periods.reduce((s, p) => s + (p.interest || 0), 0)) : null;
+  rules.push({ key: 'od', ok: !periods.length, warn: !!periods.length, title: 'מינוס (אוברדרפט)', detail: periods.length ? periods.length + ' תקופות במינוס, ' + negDaysTotal + ' ימים בסך הכל; השפל ' + oshFmt(Math.min(...periods.map((p) => p.min))) + (interest != null ? ' · ריבית משוערת ' + oshFmt(interest) + ' (' + rate + '% לשנה, לפי יתרה יומית × ימים)' : ' · להערכת ריבית — הזן ריבית שנתית') : 'היתרה היומית לא ירדה מתחת לאפס.' });
+  const exceed = limit ? days.filter((d) => d.bal < -limit) : [];
+  if (limit) rules.push({ key: 'limit', ok: !exceed.length, warn: !!exceed.length, title: 'מסגרת אשראי ' + oshFmt(limit), detail: exceed.length ? exceed.length + ' ימי ערך מעבר למסגרת — הראשון ' + exceed[0].day + ', החריגה הגדולה ' + oshFmt(r2_(Math.min(...exceed.map((d) => d.bal)) + limit)) : 'היתרה לא חרגה מהמסגרת.' });
+  rules.push({ key: 'internal', ok: true, title: 'העברות בין החשבונות', detail: M.internal ? M.internal + ' תנועות פנימיות (העברה מחשבון לחשבון של הלקוח) — לא נספרות, אפס השפעה על היתרה המאוחדת.' : 'לא נמצאו העברות פנימיות.' });
+  const accs = (accounts || []).map((a) => ({ label: a.label, ...(a.check || {}), order: a.order, opening: a.opening, closing: a.closing }));
+  const bad = accs.filter((a) => a.broken);
+  rules.push({ key: 'source', ok: !bad.length, warn: !!bad.length, title: 'הצלבה מול הדפים', detail: accs.length ? accs.map((a) => a.label + ': ' + (a.checked ? a.ok + '/' + a.checked + ' שורות תואמות ליתרה הרצה' + (a.fixed ? ', ' + a.fixed + ' תוקנו לפי היתרה' : '') + (a.broken ? ', ' + a.broken + ' פערים' : '') : 'אין יתרה בקובץ')).join(' · ') : 'אין דפים.' });
+  return { rules, days, periods, exceed, interest, negDaysTotal, moved };
 }
 /* ══ סוף סימולציית עו״ש ══ */
 /* ═════ סימולציית עו״ש — המסך. נשמר ב-private/osh-<לקוח> (רק דן קורא וכותב — OWNER_ONLY בשרת), ונפתח עם סיסמת הפרייבט ═════ */
@@ -3467,23 +3539,53 @@ function oshSimCard(cid) {
   const accRows = A.map((x) => { const c0 = x.check || {}; return '<tr><td><input class="f small" data-oshlbl="' + esc(cid + '|' + x.id) + '" value="' + esc(x.label || '') + '" aria-label="שם החשבון" style="max-width:150px"></td><td class="wide"><bdi>' + esc(x.file || '') + '</bdi>' + (x.status === 'proposal' ? ' <span class="pill expected">Claude קרא — לבדוק</span>' : '') + '<div class="hint">' + (x.rows.length ? dLabel(x.rows[0].date) + '–' + dLabel(x.rows[x.rows.length - 1].date) : '') + ' · ' + x.rows.length + ' תנועות</div></td>' +
     '<td>' + (c0.checked ? '<span class="pill ' + (c0.broken ? 'open' : 'actual') + '">' + c0.ok + '/' + c0.checked + ' תואמות ליתרה</span>' + (c0.fixed ? ' <span class="pill expected">' + c0.fixed + ' תוקנו לפי היתרה</span>' : '') + (c0.broken ? ' <span class="pill open">' + c0.broken + ' פערים</span>' : '') : '<span class="hint">אין יתרה בקובץ — לא נבדק</span>') + '</td>' +
     '<td>' + (x.opening != null ? money(x.opening, { cents: true }) : '—') + '</td><td>' + (x.closing != null ? money(x.closing, { cents: true }) : '—') + '</td><td><button class="xlink" data-oshdel="' + esc(cid + '|' + x.id) + '">הסר</button></td></tr>'; }).join('');
-  const tiles = '<div class="grid4" style="margin:10px 0">' + kpi('יתרת פתיחה (כל החשבונות)', money(M.opening, { cents: true }), '<label class="hint">ידנית: <input class="f small num" style="width:110px" data-oshopen="' + esc(cid) + '" value="' + esc(doc.opening ?? '') + '" placeholder="אוטומטי" inputmode="decimal"></label>', null) +
+  const tiles = '<div class="grid4" style="margin:10px 0">' + kpi('יתרת פתיחה (כל החשבונות)', money(M.opening, { cents: true, tone: M.opening < 0 ? 'open' : '' }), '<span class="row" style="gap:4px;align-items:center;flex-wrap:wrap"><select class="f small" data-oshopensign="' + esc(cid) + '" aria-label="פלוס או מינוס"><option value="1"' + (M.opening >= 0 ? ' selected' : '') + '>פלוס</option><option value="-1"' + (M.opening < 0 ? ' selected' : '') + '>מינוס</option></select>' +
+      '<input class="f small num" style="width:100px" data-oshopen="' + esc(cid) + '" value="' + esc(doc.opening != null && doc.opening !== '' ? Math.abs(doc.opening) : '') + '" placeholder="' + esc(String(Math.abs(M.opening))) + '" inputmode="decimal" aria-label="סכום הפתיחה">' + (doc.opening != null && doc.opening !== '' ? '<button class="xlink" data-oshopenauto="' + esc(cid) + '">אוטומטי</button>' : '') + '</span>', null) +
     kpi('נכנס / יצא', money(M.inn, { tone: 'actual' }) + ' / ' + money(-M.out), M.internal + ' תנועות פנימיות לא נספרו', null) +
     kpi('יתרת סגירה — סימולציה', money(M.closing, { tone: M.closing < 0 ? 'open' : 'committed' }), 'בפועל (סכום החשבונות): ' + plain(M.actualClosing), null, M.closing < 0 ? 'open' : '') +
     kpi('השפל', money(M.minBal, { tone: M.minBal < 0 ? 'open' : '' }), dLabel(M.minDate) + (M.negDays ? ' · ' + M.negDays + ' ימים ביתרה שלילית' : ''), null, M.minBal < 0 ? 'open' : '') + '</div>';
-  const addForm = '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin:6px 0"><b>תנועה מדומה:</b><input class="f small" type="date" id="oshAddDate" value="' + esc(today()) + '"><input class="f small" id="oshAddDesc" placeholder="תיאור" style="max-width:180px"><input class="f small num" id="oshAddAmt" placeholder="סכום (יציאה במינוס)" inputmode="decimal" style="max-width:150px"><button class="btn small" data-act="oshSimAdd" data-cid="' + esc(cid) + '">+ הוסף</button>' +
+  const addForm = '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin:6px 0"><b>תנועה מדומה:</b><input class="f small" type="date" id="oshAddDate" value="' + esc(today()) + '"><input class="f small" id="oshAddDesc" placeholder="תיאור" style="max-width:180px"><select class="f small" id="oshAddDir" aria-label="כניסה או יציאה"><option value="-1">יציאה (מינוס)</option><option value="1">כניסה (פלוס)</option></select><input class="f small num" id="oshAddAmt" placeholder="סכום" inputmode="decimal" style="max-width:150px"><button class="btn small" data-act="oshSimAdd" data-cid="' + esc(cid) + '">+ הוסף</button>' +
     '<label class="check" style="margin-inline-start:auto"><input type="checkbox" data-oshonly="' + esc(cid) + '"' + (only ? ' checked' : '') + '><span>רק עם הערה / שינוי / פער</span></label></div>';
-  const L = M.rows.filter((r) => !only || r.note || r.sim != null || r.off || r.add || r.check === 'gap' || r.check === 'fixed'), id = (k) => esc(cid + '|' + k);
-  const row = (r) => '<tr class="' + (r.internal || r.off ? 'muted' : '') + '"' + (r.internal || r.off ? ' style="opacity:.55"' : '') + '><td class="num">' + dLabel(r.date) + '</td><td>' + esc(r.accLabel) + '</td><td class="wide"><bdi>' + esc(r.desc || '') + '</bdi>' +
-      (r.internal ? ' <span class="pill muted">פנימית</span>' : '') + (r.check === 'fixed' ? ' <span class="pill expected" title="נקרא ' + esc(String(r.parsed ?? '')) + '">תוקן לפי היתרה</span>' : '') + (r.check === 'gap' ? ' <span class="pill open">פער ביתרה ' + plain(r.gap) + '</span>' : '') + (r.add ? ' <span class="pill committed">מדומה</span>' : '') + '</td>' +
-    '<td>' + money(r.amount, { cents: true, tone: r.amount > 0 ? 'actual' : '' }) + '</td>' +
-    '<td>' + (r.add ? '' : '<input class="f small num" style="width:100px" data-oshsim="' + id(r.k) + '" value="' + esc(r.sim ?? '') + '" placeholder="—" inputmode="decimal" aria-label="סכום מדומה">') + '</td>' +
-    '<td><input class="f small" style="min-width:140px" data-oshnote="' + id(r.k) + '" value="' + esc(r.note || '') + '" placeholder="הערה" aria-label="הערה"></td>' +
-    '<td>' + money(r.bal, { cents: true, tone: r.bal < 0 ? 'open' : '' }) + '</td>' +
-    '<td style="white-space:nowrap">' + (r.add ? '<button class="xlink" data-oshdeladd="' + id(r.k.slice(4)) + '">מחק</button>' : '<button class="xlink" data-oshoff="' + id(r.k) + '">' + (r.off ? 'החזר' : 'הוצא') + '</button>' + (r.internal || (doc.notes[r.k] || {}).internal === false ? ' · <button class="xlink" data-oshint="' + id(r.k) + '">' + (r.internal ? 'לא פנימית' : 'פנימית') + '</button>' : '')) + '</td></tr>';
+  const ch = (r) => r.add || r.date !== r.date0 || (r.desc || '') !== (r.desc0 || '') || r.sim != null || r.off;
+  const L = M.rows.filter((r) => !only || r.note || ch(r) || r.check === 'gap' || r.check === 'fixed'), id = (k) => esc(cid + '|' + k);
+  /* עריכה מלאה (דן 31/10): תאריך, שם, כיוון (כניסה↔יציאה), סכום — כל שדה ששונה מסומן; "↺" מחזיר את השורה למקור */
+  const hl = (on) => on ? ';background:color-mix(in srgb, var(--q-violet) 12%, transparent);border-color:var(--q-violet)' : '';
+  const row = (r) => { const base = r.sim != null ? r.sim : r.amount, dirIn = base > 0, f = (fld) => 'data-oshf="' + id(r.k) + '|' + fld + '"';
+    return '<tr' + (r.internal || r.off ? ' style="opacity:.55"' : '') + '>' +
+      '<td><input type="date" class="f small" ' + f('date') + ' value="' + esc(r.date) + '" style="width:130px' + hl(r.date !== r.date0) + '" aria-label="תאריך"></td><td>' + esc(r.accLabel) + '</td>' +
+      '<td class="wide"><input class="f small" ' + f('desc') + ' value="' + esc(r.desc || '') + '" style="min-width:160px;width:100%' + hl((r.desc || '') !== (r.desc0 || '') && !r.add) + '" aria-label="שם התנועה">' +
+        (r.internal ? ' <span class="pill muted">פנימית</span>' : '') + (r.check === 'fixed' ? ' <span class="pill expected" title="נקרא ' + esc(String(r.parsed ?? '')) + '">תוקן לפי היתרה</span>' : '') + (r.check === 'gap' ? ' <span class="pill open">פער ביתרה ' + plain(r.gap) + '</span>' : '') + (r.add ? ' <span class="pill committed">חדשה</span>' : '') +
+        ((r.desc || '') !== (r.desc0 || '') && !r.add ? '<div class="hint">במקור: <bdi>' + esc(r.desc0) + '</bdi></div>' : '') + '</td>' +
+      '<td><select class="f small" ' + f('dir') + ' style="' + hl(!r.add && r.sim != null && Math.sign(r.sim) !== Math.sign(r.amount)) + '" aria-label="כניסה או יציאה"><option value="1"' + (dirIn ? ' selected' : '') + '>כניסה</option><option value="-1"' + (!dirIn ? ' selected' : '') + '>יציאה</option></select></td>' +
+      '<td><input class="f small num" ' + f('amt') + ' value="' + esc(String(Math.abs(base))) + '" style="width:100px' + hl(!r.add && r.sim != null && Math.abs(r.sim) !== Math.abs(r.amount)) + '" inputmode="decimal" aria-label="סכום">' + (!r.add && r.sim != null ? '<div class="hint">במקור ' + plain(r.amount) + '</div>' : '') + '</td>' +
+      '<td>' + money(r.bal, { cents: true, tone: r.bal < 0 ? 'open' : '' }) + '</td>' +
+      '<td><input class="f small" style="min-width:120px" data-oshnote="' + id(r.k) + '" value="' + esc(r.note || '') + '" placeholder="הערה" aria-label="הערה"></td>' +
+      '<td style="white-space:nowrap">' + (r.add ? '<button class="xlink" data-oshdeladd="' + id(r.k.slice(4)) + '">מחק</button>' : (ch(r) ? '<button class="xlink" data-oshreset="' + id(r.k) + '" title="החזר את השורה למקור">↺</button> · ' : '') + '<button class="xlink" data-oshoff="' + id(r.k) + '">' + (r.off ? 'החזר' : 'הוצא') + '</button>' + (r.internal || (doc.notes[r.k] || {}).internal === false ? ' · <button class="xlink" data-oshint="' + id(r.k) + '">' + (r.internal ? 'לא פנימית' : 'פנימית') + '</button>' : '')) + '</td></tr>'; };
+  /* מה שיניתי + הלוגיקה וההצלבה */
+  const C = oshChanges(A, doc.notes, doc.adds, doc.opening), G = oshLogic(M, A, { limit: doc.limit, rate: doc.rate });
+  const sign = (v) => (v > 0 ? '+' : '') + plain(v);
+  const changes = '<section class="card" style="margin-top:12px"><header><h2>מה שיניתי</h2><span class="pill ' + (C.touched ? 'expected' : 'muted') + '">' + C.touched + ' שורות</span>' + (C.list.some((x) => x.k === 'opening') ? '<span class="pill expected">פתיחה</span>' : '') + '</header>' +
+    (!C.list.length ? '<p class="empty">עוד לא שינית שום תנועה — הסימולציה זהה לדפים.</p>' :
+      '<div class="scroll"><table><thead><tr><th>תאריך</th><th>תנועה</th><th>מה שונה</th><th>לפני</th><th>אחרי</th><th>השפעה על היתרה</th><th>הסבר</th></tr></thead><tbody>' +
+      C.list.map((x) => '<tr><td class="num">' + (x.date ? dLabel(x.date) + (x.date0 && x.date0 !== x.date ? '<div class="hint">היה ' + dLabel(x.date0) + '</div>' : '') : '—') + '</td><td><bdi>' + esc(x.what || '') + '</bdi>' + (x.desc0 && x.desc0 !== x.what ? '<div class="hint">היה: <bdi>' + esc(x.desc0) + '</bdi></div>' : '') + '</td>' +
+        '<td>' + x.fields.map((t) => '<span class="chip soft">' + esc(t) + '</span>').join(' ') + '</td><td>' + (x.before != null ? money(x.before, { cents: true }) : '—') + '</td><td>' + (x.after != null ? money(x.after, { cents: true }) : '—') + '</td>' +
+        '<td><b class="' + (x.delta > 0 ? 'm actual' : x.delta < 0 ? 'm open' : 'hint') + '">' + (x.delta ? sign(x.delta) : '0') + '</b></td><td class="hint">' + esc(x.k === 'opening' ? 'מזיז את כל היתרות באותו סכום' : x.add ? 'תנועה חדשה — ' + (x.delta > 0 ? 'מעלה' : 'מורידה') + ' את היתרה מכאן והלאה' : x.effect || '') + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="grid4" style="margin-top:10px">' + kpi('יתרת סגירה', money(C.closingAfter, { tone: C.closingAfter < 0 ? 'open' : 'committed' }), 'לפני השינויים ' + plain(C.closingBefore), null) +
+        kpi('השינוי ביתרה', '<b class="' + (C.delta > 0 ? 'm actual' : C.delta < 0 ? 'm open' : '') + '">' + (C.delta ? sign(C.delta) : 'לא השתנתה') + '</b>', C.cross ? '✓ הצלבה: סכום ההשפעות ' + sign(C.sum) + ' = הפרש הסגירה' : '⚠ סכום ההשפעות ' + sign(C.sum) + ' ≠ הפרש הסגירה', null, C.cross ? '' : 'open') +
+        kpi('השפל', money(C.minAfter, { tone: C.minAfter < 0 ? 'open' : '' }), 'לפני ' + plain(C.minBefore), null) +
+        kpi('ימים ביתרה שלילית', String(C.negAfter), 'לפני ' + C.negBefore, null) + '</div>' +
+      (!C.delta && C.touched ? '<p class="hint">היתרה לא השתנתה: ' + (C.list.every((x) => !x.delta) ? 'כל השינויים הם שם / הערה / תאריך — הם לא מזיזים את הסגירה' : 'השינויים מקזזים זה את זה (סכום ההשפעות 0)') + '.</p>' : '')) + '</section>';
+  const logic = '<section class="card" style="margin-top:12px"><header><h2>הלוגיקה וההצלבה</h2><span class="grow"></span>' +
+      '<label class="hint row" style="gap:4px;align-items:center">מסגרת אשראי<input class="f small num" style="width:90px" data-oshopt="' + esc(cid) + '|limit" value="' + esc(doc.limit ?? '') + '" placeholder="—" inputmode="decimal"></label>' +
+      '<label class="hint row" style="gap:4px;align-items:center">ריבית שנתית %<input class="f small num" style="width:60px" data-oshopt="' + esc(cid) + '|rate" value="' + esc(doc.rate ?? '') + '" placeholder="—" inputmode="decimal"></label></header>' +
+    '<ol style="margin:0;padding-inline-start:20px">' + G.rules.map((x) => '<li style="margin:6px 0"><b>' + (x.ok ? '✓' : x.warn ? '⚠' : '✗') + ' ' + esc(x.title) + '</b> — <span class="' + (x.ok ? '' : 'm open') + '">' + esc(x.detail) + '</span></li>').join('') + '</ol>' +
+    (G.periods.length ? '<h3 class="sec">תקופות במינוס</h3><div class="scroll"><table><thead><tr><th>מ-</th><th>עד</th><th>ימים</th><th>השפל</th><th>ממוצע במינוס</th>' + (doc.rate ? '<th>ריבית משוערת</th>' : '') + '</tr></thead><tbody>' +
+      G.periods.map((p) => '<tr><td class="num">' + dLabel(p.start) + '</td><td class="num">' + dLabel(p.end) + (p.open ? ' <span class="hint">(עדיין במינוס)</span>' : '') + '</td><td class="num">' + p.days + '</td><td>' + money(p.min, { cents: true, tone: 'open' }) + ' <span class="hint">' + dLabel(p.minDay) + '</span></td><td>' + money(p.avg, { cents: true, tone: 'open' }) + '</td>' + (doc.rate ? '<td>' + money(p.interest, { cents: true }) + '</td>' : '') + '</tr>').join('') + '</tbody></table></div>' : '') +
+    '<details style="margin-top:8px"><summary class="hint">יתרה לפי יום עסקים (' + G.days.length + ' ימים)</summary><div class="scroll"><table><thead><tr><th>יום ערך</th><th>תנועות</th><th>יתרה בסוף היום</th><th>נשארת</th></tr></thead><tbody>' +
+      G.days.map((d0) => '<tr><td class="num">' + dLabel(d0.day) + '</td><td class="num">' + d0.n + '</td><td>' + money(d0.bal, { cents: true, tone: d0.bal < 0 ? 'open' : '' }) + '</td><td class="num">' + d0.held + ' ימים</td></tr>').join('') + '</tbody></table></div></details></section>';
   return head + '<div class="scroll"><table><thead><tr><th>חשבון</th><th>קובץ</th><th>בדיקה מול היתרה</th><th>פתיחה</th><th>סגירה</th><th></th></tr></thead><tbody>' + accRows + '</tbody></table></div>' + tiles + addForm +
-    '<div class="scroll"><table><thead><tr><th>תאריך</th><th>חשבון</th><th>תיאור</th><th>סכום</th><th>סכום מדומה</th><th>הערה</th><th>יתרה (סימולציה)</th><th></th></tr></thead><tbody>' + L.slice(0, show).map(row).join('') + '</tbody></table></div>' +
-    (L.length > show ? '<button class="btn small ghost" data-oshall="' + esc(cid) + '">הצג את כל ' + L.length + ' התנועות</button>' : '') + '</section>';
+    '<div class="scroll"><table><thead><tr><th>תאריך</th><th>חשבון</th><th>שם התנועה</th><th>כיוון</th><th>סכום</th><th>יתרה (סימולציה)</th><th>הערה</th><th></th></tr></thead><tbody>' + L.slice(0, show).map(row).join('') + '</tbody></table></div>' +
+    (L.length > show ? '<button class="btn small ghost" data-oshall="' + esc(cid) + '">הצג את כל ' + L.length + ' התנועות</button>' : '') + changes + logic + '</section>';
 }
 function oshSimPdfHtml(cid) {
   const doc = oshSimDoc(cid), M = oshMerge(doc.accounts || [], doc.notes, doc.adds, doc.opening), name = oshName(cid), cell = 'padding:4px 5px;border-bottom:1px solid #EAECF0;font-size:11px;vertical-align:top', mute = 'color:#475467', red = 'color:#B42318';
@@ -3496,9 +3598,25 @@ function oshSimPdfHtml(cid) {
     M.rows.map((r) => '<tr style="' + (r.internal || r.off ? 'color:#98A2B3' : r.note || r.sim != null || r.add ? 'background:#FFFAEB' : '') + '"><td style="' + cell + ';white-space:nowrap">' + dLabel(r.date) + '</td><td style="' + cell + '">' + esc(r.accLabel) + '</td><td style="' + cell + '">' + esc(r.desc || '') + (r.internal ? ' (פנימית)' : '') + (r.off ? ' (הוצא)' : '') + (r.check === 'gap' ? ' <span style="' + red + '">(פער ' + plain(r.gap) + ')</span>' : '') + '</td><td style="' + cell + '">' + m(r.amount) + '</td><td style="' + cell + '">' + (r.sim != null ? m(r.sim) : '') + '</td><td style="' + cell + '">' + m(r.bal) + '</td><td style="' + cell + '">' + esc(r.note || '') + '</td></tr>').join('') +
     '</tbody></table></div>';
 }
+/* ב-PDF: מה שיניתי + הלוגיקה וההצלבה (דן 31/10) */
+function oshSimPdfExtra(cid) {
+  const doc = oshSimDoc(cid), A = doc.accounts || [], M = oshMerge(A, doc.notes, doc.adds, doc.opening), C = oshChanges(A, doc.notes, doc.adds, doc.opening), G = oshLogic(M, A, { limit: doc.limit, rate: doc.rate });
+  const cell = 'padding:4px 5px;border-bottom:1px solid #EAECF0;font-size:11px;vertical-align:top', mute = 'color:#475467', red = 'color:#B42318', green = 'color:#067647';
+  const m = (v) => '<span dir="ltr" style="unicode-bidi:isolate;' + (v < 0 ? red : '') + '">' + plain(v) + '</span>', sg = (v) => '<span dir="ltr" style="unicode-bidi:isolate;' + (v > 0 ? green : v < 0 ? red : mute) + '">' + (v > 0 ? '+' : '') + plain(v) + '</span>';
+  return '<div data-pk="h"><h3 style="font-size:14px;margin:16px 0 6px">מה שיניתי — ' + C.touched + ' שורות</h3></div>' +
+    (C.list.length ? '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['תאריך', 'תנועה', 'מה שונה', 'לפני', 'אחרי', 'השפעה', 'הסבר'].map((h) => '<th style="' + cell + ';text-align:start;background:#F2F4F7">' + h + '</th>').join('') + '</tr></thead><tbody>' +
+      C.list.map((x) => '<tr data-pk><td style="' + cell + ';white-space:nowrap">' + (x.date ? dLabel(x.date) : '—') + '</td><td style="' + cell + '">' + esc(x.what || '') + (x.desc0 && x.desc0 !== x.what ? '<div style="' + mute + '">היה: ' + esc(x.desc0) + '</div>' : '') + '</td><td style="' + cell + '">' + esc(x.fields.join(', ')) + '</td>' +
+        '<td style="' + cell + '">' + (x.before != null ? m(x.before) : '—') + '</td><td style="' + cell + '">' + (x.after != null ? m(x.after) : '—') + '</td><td style="' + cell + '">' + sg(x.delta || 0) + '</td><td style="' + cell + ';' + mute + '">' + esc(x.k === 'opening' ? 'מזיז את כל היתרות' : x.add ? 'תנועה חדשה' : x.effect || '') + '</td></tr>').join('') + '</tbody></table>' +
+      '<p data-pk style="font-size:12px">יתרת סגירה: לפני ' + m(C.closingBefore) + ' → אחרי ' + m(C.closingAfter) + ' · שינוי ' + sg(C.delta) + ' · ' + (C.cross ? '<span style="' + green + '">✓ הצלבה: סכום ההשפעות = הפרש הסגירה</span>' : '<span style="' + red + '">⚠ סכום ההשפעות ≠ הפרש הסגירה</span>') + ' · השפל ' + m(C.minBefore) + ' → ' + m(C.minAfter) + ' · ימים במינוס ' + C.negBefore + ' → ' + C.negAfter + '</p>'
+      : '<p style="font-size:12px;' + mute + '">לא שונתה אף תנועה — הסימולציה זהה לדפים.</p>') +
+    '<div data-pk="h"><h3 style="font-size:14px;margin:16px 0 6px">הלוגיקה וההצלבה</h3></div><ol style="margin:0;padding-inline-start:18px;font-size:11.5px">' +
+      G.rules.map((x) => '<li data-pk style="margin:4px 0"><b>' + (x.ok ? '✓' : '⚠') + ' ' + esc(x.title) + '</b> — <span style="' + (x.ok ? '' : red) + '">' + esc(x.detail) + '</span></li>').join('') + '</ol>' +
+    (G.periods.length ? '<table style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr>' + ['תקופה במינוס', 'ימים', 'השפל', 'ממוצע', ...(doc.rate ? ['ריבית משוערת'] : [])].map((h) => '<th style="' + cell + ';text-align:start;background:#F2F4F7">' + h + '</th>').join('') + '</tr></thead><tbody>' +
+      G.periods.map((p) => '<tr data-pk><td style="' + cell + '">' + dLabel(p.start) + ' – ' + dLabel(p.end) + (p.open ? ' (עדיין)' : '') + '</td><td style="' + cell + '">' + p.days + '</td><td style="' + cell + '">' + m(p.min) + '</td><td style="' + cell + '">' + m(p.avg) + '</td>' + (doc.rate ? '<td style="' + cell + '">' + m(p.interest) + '</td>' : '') + '</tr>').join('') + '</tbody></table>' : '');
+}
 async function oshSimPdf(cid) {
   const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
-  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(oshSimPdfHtml(cid)); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(oshSimPdfHtml(cid).replace(/<\/div>$/, oshSimPdfExtra(cid) + '</div>')); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
   try { await dlc.save({ filename: 'סימולציית עו״ש — ' + oshName(cid) + ' — ' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 /* ═════ עו״ש לאקסל (דן 21/10): מעלים דף עו״ש של לקוח (PDF / צילום / CSV / אקסל) → אקסל לניתוח, להורדה או לתיקיית הלקוח בדרייב ═════
@@ -12666,6 +12784,8 @@ document.addEventListener('click', async (e) => {
     if (d.books) { S.f.books = d.books; return render(); }
     if (d.intake) return go('intake', d.intake);
     /* סימולציית עו״ש */
+    if (d.oshreset) { const [cid, k] = d.oshreset.split('|'), d0 = oshSimDoc(cid), N = { ...(d0.notes || {}) }, cur = { ...(N[k] || {}) }; delete cur.date; delete cur.desc; delete cur.sim; delete cur.off; if (Object.keys(cur).length) N[k] = cur; else delete N[k]; return oshSimSave(cid, { notes: N }); }
+    if (d.oshopenauto) return oshSimSave(d.oshopenauto, { opening: null });
     if (d.oshdel || d.oshoff || d.oshint || d.oshdeladd) { const [cid, k] = (d.oshdel || d.oshoff || d.oshint || d.oshdeladd).split('|'), D0 = oshSimDoc(cid);
       if (d.oshdel) { if (!confirm('להסיר את החשבון מהסימולציה? ההערות שלו יימחקו.')) return; const N = Object.fromEntries(Object.entries(D0.notes || {}).filter(([kk]) => !kk.startsWith(k + ':'))); return oshSimSave(cid, { accounts: (D0.accounts || []).filter((a) => a.id !== k), notes: N }); }
       if (d.oshdeladd) return oshSimSave(cid, { adds: (D0.adds || []).filter((x) => x.id !== k) });
@@ -12852,8 +12972,8 @@ document.addEventListener('click', async (e) => {
         case 'newPlanned': return formPlanned();
         case 'nissimEntry': return formNissim();
         case 'oshSimPdf': return oshSimPdf(d.cid);
-        case 'oshSimAdd': { const cid = d.cid, dt = ($('oshAddDate') || {}).value, ds = (($('oshAddDesc') || {}).value || '').trim(), am = oshN(($('oshAddAmt') || {}).value);
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(dt || '') || !am) return toast('צריך תאריך וסכום (יציאה במינוס)');
+        case 'oshSimAdd': { const cid = d.cid, dt = ($('oshAddDate') || {}).value, ds = (($('oshAddDesc') || {}).value || '').trim(), a0 = oshN(($('oshAddAmt') || {}).value), dir = Number(($('oshAddDir') || {}).value) || -1, am = a0 == null ? null : (a0 < 0 ? a0 : dir * Math.abs(a0));
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dt || '') || !am) return toast('צריך תאריך וסכום');
           return oshSimSave(cid, { adds: [...(oshSimDoc(cid).adds || []), { id: uid().slice(0, 8), date: dt, desc: ds || 'תנועה מדומה', amount: am }] }); }
         case 'settleAdd': { /* "+ הוסף" מהריבועים בהתחשבנות — אותם טפסים כמו בשאר המערכת */
           const mm = d.m || today().slice(0, 7), last = mm + '-' + String(new Date(Date.UTC(+mm.slice(0, 4), +mm.slice(5, 7), 0)).getUTCDate()).padStart(2, '0'), day = today().slice(0, 7) === mm ? today() : (today() > last ? last : mm + '-01');
@@ -13209,7 +13329,24 @@ document.addEventListener('change', async (e) => {
       if (el.dataset.oshsim) { const v = el.value.trim(); if (v === '') delete cur.sim; else { const x = oshN(v); if (x == null) return toast('סכום לא תקין'); cur.sim = x; } } else { const v = el.value.trim(); if (v) cur.note = v.slice(0, 300); else delete cur.note; }
       if (Object.keys(cur).length) N[k] = cur; else delete N[k]; return oshSimSave(cid, { notes: N }); }
     if (el.dataset.oshlbl) { const [cid, aid] = el.dataset.oshlbl.split('|'), d = oshSimDoc(cid); return oshSimSave(cid, { accounts: (d.accounts || []).map((a) => a.id === aid ? { ...a, label: el.value.trim().slice(0, 40) || a.label } : a) }); }
-    if (el.dataset.oshopen) { const cid = el.dataset.oshopen, v = el.value.trim(), x = v === '' ? null : oshN(v); if (v !== '' && x == null) return toast('סכום לא תקין'); return oshSimSave(cid, { opening: x }); }
+    if (el.dataset.oshopen || el.dataset.oshopensign) { /* פתיחה: סכום + פלוס/מינוס (דן 31/10: "שישאל אותי אם במינוס או בפלוס") */
+      const cid = el.dataset.oshopen || el.dataset.oshopensign, d0 = oshSimDoc(cid), M0 = oshMerge(d0.accounts || [], d0.notes, d0.adds, d0.opening);
+      const box = document.querySelector('[data-oshopen="' + cid + '"]'), sel = document.querySelector('[data-oshopensign="' + cid + '"]');
+      const v = (box && box.value.trim()) || '', abs = v === '' ? Math.abs(M0.opening) : oshN(v); if (abs == null) return toast('סכום לא תקין');
+      return oshSimSave(cid, { opening: (Number(sel && sel.value) || 1) * Math.abs(abs) }); }
+    if (el.dataset.oshopt) { const [cid, k] = el.dataset.oshopt.split('|'), v = el.value.trim(), x = v === '' ? null : oshN(v); if (v !== '' && x == null) return toast('מספר לא תקין'); return oshSimSave(cid, { [k]: x == null ? null : Math.abs(x) }); }
+    if (el.dataset.oshf) { /* עריכה מלאה של תנועה: תאריך / שם / כיוון / סכום. שורה מדומה — נשמרת בתנועה עצמה; שורה מהדף — כשינוי מול המקור */
+      const [cid, k, fld] = el.dataset.oshf.split('|'), d0 = oshSimDoc(cid), v = el.value.trim();
+      if (fld === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return toast('תאריך לא תקין');
+      if (k.startsWith('add:')) { const aid = k.slice(4); return oshSimSave(cid, { adds: (d0.adds || []).map((x) => { if (x.id !== aid) return x; const y = { ...x };
+          if (fld === 'date') y.date = v; if (fld === 'desc') y.desc = v.slice(0, 120); if (fld === 'dir') y.amount = Number(v) * Math.abs(y.amount); if (fld === 'amt') { const a = oshN(v); if (a == null || !a) { toast('סכום לא תקין'); return x; } y.amount = Math.sign(y.amount || -1) * Math.abs(a); } return y; }) }); }
+      const r = oshMerge(d0.accounts || [], d0.notes, [], d0.opening).rows.find((x) => x.k === k); if (!r) return;
+      const N = { ...(d0.notes || {}) }, cur = { ...(N[k] || {}) }, base = cur.sim != null ? Number(cur.sim) : r.amount;
+      if (fld === 'date') { if (v === r.date0) delete cur.date; else cur.date = v; }
+      if (fld === 'desc') { if (v === (r.desc0 || '')) delete cur.desc; else cur.desc = v.slice(0, 120); }
+      if (fld === 'dir' || fld === 'amt') { const abs = fld === 'amt' ? oshN(v) : Math.abs(base); if (abs == null) return toast('סכום לא תקין');
+        const sg = fld === 'dir' ? Number(v) : (base < 0 ? -1 : 1), sim = Math.round(sg * Math.abs(abs) * 100) / 100; if (sim === r.amount) delete cur.sim; else cur.sim = sim; }
+      if (Object.keys(cur).length) N[k] = cur; else delete N[k]; return oshSimSave(cid, { notes: N }); }
     if (el.dataset.oshonly) { S.f.oshOnly = el.checked ? el.dataset.oshonly : null; return render(); }
     if (el.id === 'repFile' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], ($('repWho') || {}).value);
     if (el.id === 'repMore' && el.files && el.files[0]) return repUpload(S.view.clientId, el.files[0], null, Number(el.dataset.ri));
