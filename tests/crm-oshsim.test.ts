@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 /** סימולציית עו״ש — אותו קוד שרץ במסך (crm/harel-crm.html). נתונים סינתטיים. */
 const html = readFileSync('crm/harel-crm.html', 'utf8')
 const a = html.indexOf('/* ══ סימולציית עו״ש (דן 29/10)'), b = html.indexOf('/* ══ סוף סימולציית עו״ש ══ */')
-const F = new Function(html.slice(a, b) + '; return { oshParseSheet, oshReconcile, oshMerge };')() as any
+const F = new Function(html.slice(a, b) + '; return { oshParseSheet, oshReconcile, oshMerge, oshChanges, oshLogic, oshNextBiz };')() as any
 
 describe('קריאת דף מכל בנק', () => {
   it('זכות / חובה נפרדים + יתרה (כמו פועלים / לאומי), כותרת לא בשורה הראשונה', () => {
@@ -60,5 +60,45 @@ describe('כל החשבונות כחשבון אחד', () => {
   it('יתרה שלילית נספרת בימים', () => {
     const M = F.oshMerge([{ id: 'z', opening: 100, rows: [{ date: '2026-10-01', amount: -300 }, { date: '2026-10-02', amount: 50 }, { date: '2026-10-04', amount: 500 }] }], {}, [], null)
     expect(M.negDays).toBe(2); expect(M.minBal).toBe(-200); expect(M.minDate).toBe('2026-10-01')
+  })
+})
+
+/* דן 31/10: עריכה מלאה, סיכום מה שונה, הלוגיקה וההצלבה */
+const ACC = [
+  { id: 'a', label: 'לאומי', opening: 1000, closing: 1700, check: { checked: 2, ok: 2, fixed: 0, broken: 0 }, rows: [
+    { date: '2026-10-01', desc: 'משכורת', amount: 2000, balance: 3000 }, { date: '2026-10-02', desc: 'ויזה', amount: -1500, balance: 1500 }, { date: '2026-10-08', desc: 'העברה לדיסקונט', amount: -300, balance: 1200 }] },
+  { id: 'b', label: 'דיסקונט', opening: 0, closing: 300, rows: [{ date: '2026-10-09', desc: 'העברה מלאומי', amount: 300, balance: 300 }] },
+]
+describe('עריכה מלאה וסיכום שינויים', () => {
+  it('שם, תאריך, סכום וכיוון (כניסה↔יציאה) — הסדר לפי התאריך אחרי העריכה', () => {
+    const M = F.oshMerge(ACC, { 'a:1': { desc: 'ויזה — עסקאות', sim: 1500 }, 'a:0': { date: '2026-10-05' } }, [], null)
+    expect(M.rows.map((r: any) => r.desc)).toEqual(['ויזה — עסקאות', 'משכורת', 'העברה לדיסקונט', 'העברה מלאומי'])
+    expect(M.rows[0].eff).toBe(1500); expect(M.closing).toBe(1000 + 1500 + 2000)
+  })
+  it('סיכום: רק השורות שנגעתי בהן, ההשפעה של כל אחת, והצלבה — הפרש הסגירה = סכום ההשפעות', () => {
+    const C = F.oshChanges(ACC, { 'a:1': { sim: 1500 }, 'a:0': { desc: 'משכורת אוקטובר', date: '2026-10-04' }, 'b:0': { note: 'בדיקה' } }, [{ id: 'x', date: '2026-10-10', desc: 'מענק', amount: 500 }], -200)
+    const by = (k: string) => C.list.find((x: any) => x.k === k)
+    expect(by('a:1')).toMatchObject({ fields: ['כיוון'], before: -1500, after: 1500, delta: 3000 })
+    expect(by('a:0')).toMatchObject({ fields: ['תאריך', 'שם'], delta: 0 }); expect(by('a:0').effect).toMatch(/לא את הסגירה/)
+    expect(by('b:0')).toMatchObject({ fields: ['הערה'], delta: 0, effect: 'בלי השפעה על היתרה' })
+    expect(by('opening')).toMatchObject({ before: 1000, after: -200, delta: -1200 })
+    expect(by('add:x')).toMatchObject({ add: true, delta: 500 })
+    expect(C.touched).toBe(4); expect(C.cross).toBe(true)
+    expect(C.delta).toBe(3000 + 500 - 1200); expect(C.closingBefore).toBe(1500)
+  })
+})
+describe('הלוגיקה וההצלבה', () => {
+  it('תחשיב מיידי + זהות + יום ערך (שבת → ראשון) + תקופות מינוס עם ריבית + מסגרת', () => {
+    expect(F.oshNextBiz('2026-10-03')).toBe('2026-10-04') // שבת → ראשון
+    const M = F.oshMerge(ACC, {}, [{ id: 'y', date: '2026-10-02', desc: 'משיכה', amount: -2500 }], null) // יורד למינוס 2.10–7.10
+    const L = F.oshLogic(M, ACC, { limit: 500, rate: 12 })
+    const r = (k: string) => L.rules.find((x: any) => x.key === k)
+    expect(r('chain').ok).toBe(true); expect(r('ident').ok).toBe(true)
+    expect(L.periods.length).toBe(1)
+    expect(L.periods[0]).toMatchObject({ start: '2026-10-04', min: -1000 }) // 2.10 = יום ו׳ → נכנס ביום א׳
+    expect(L.periods[0].interest).toBeGreaterThan(0)
+    expect(r('limit').ok).toBe(false); expect(r('od').warn).toBe(true)
+    expect(r('internal').detail).toMatch(/2 תנועות פנימיות/)
+    expect(r('source').detail).toMatch(/לאומי: 2\/2/)
   })
 })
