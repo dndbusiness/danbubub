@@ -187,6 +187,16 @@ export function visualOrder(s: string): string {
   return runs.reverse().map((r) => (r.length === 1 && !/[A-Za-z0-9]/.test(r) ? MIRROR[r] ?? r : r)).join('')
 }
 
+/**
+ * המחרוזות ל-pdf-lib כדי שעברית תצא בסדר הנכון (דן 31/10 — נמצא בבדיקת עורך ה-PDF: שם ש"נחתם" יצא "ןהכ השמ").
+ * pdf-lib מעביר כל drawText דרך fontkit, ו-fontkit הופך מחרוזת שהכתב החזק הראשון בה עברי. לכן כותבים ברצפים, משמאל לימין:
+ * רצף לטיני/ספרות — כמו שהוא; רצף שיש בו עברית — הפוך (fontkit מחזיר אותו לסדר החזותי); רצף של רווחים/פיסוק בלבד — כמו שהוא.
+ */
+export function fontkitRuns(s: string): string[] {
+  const v = visualOrder(s)
+  return (v.match(/[A-Za-z0-9](?:[A-Za-z0-9@._\-/:+]*[A-Za-z0-9])?|[^A-Za-z0-9]+/g) ?? []).map((r) => (RTL.test(r) ? [...r].reverse().join('') : r))
+}
+
 /** "התבניות הכי פעילות": ספירה לפי template_key ב-N הימים האחרונים. */
 export function mostActive(rows: { template_key: string | null; created_at: string | Date }[], since: Date, top = 5): { key: string; n: number }[] {
   const by = new Map<string, number>()

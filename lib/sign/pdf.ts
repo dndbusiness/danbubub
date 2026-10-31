@@ -5,13 +5,13 @@
  *               במקומות שהוצבו. הטקסט נשאר טקסט (ניתן לחיפוש), לא תמונה.
  *   appendPdf — עמוד התיעוד (HTML → Playwright) בסוף המסמך החתום.
  * הגופן: DejaVu Sans (רישיון חופשי, assets/fonts) — כולל עברית. pdf-lib לא עושה bidi,
- * ולכן עברית עוברת visualOrder (lib/rules/sign-pdf).
+ * ולכן עברית עוברת visualOrder (lib/rules/sign-pdf) — ונכתבת ברצפים, כי fontkit הופך בעצמו מחרוזת עברית (fontkitRuns).
  */
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
-import { fieldText, initialsOf, pdfRect, visualOrder, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
+import { fieldText, fontkitRuns, initialsOf, pdfRect, visualOrder, type PageSize, type PdfField } from '@/lib/rules/sign-pdf'
 
 export class PdfInputError extends Error {}
 
@@ -66,8 +66,12 @@ function drawText(page: PDFPage, font: PDFFont, raw: string, r: { x: number; y: 
   const text = visualOrder(raw)
   const size = fitText(font, text, r.w, r.h)
   const tw = font.widthOfTextAtSize(text, size)
-  const x = hebrew ? r.x + r.w - tw - 1 : r.x + 1
-  page.drawText(text, { x, y: r.y + (r.h - size) / 2 + size * 0.18, size, font, color: INK })
+  let x = hebrew ? r.x + r.w - tw - 1 : r.x + 1
+  // ברצפים — fontkit הופך מחרוזת עברית בעצמו (ראו fontkitRuns)
+  for (const run of fontkitRuns(raw)) {
+    page.drawText(run, { x, y: r.y + (r.h - size) / 2 + size * 0.18, size, font, color: INK })
+    x += font.widthOfTextAtSize(run, size)
+  }
 }
 
 /** החתימות והטקסטים על ה-PDF המקורי. חותם שאין לו רשומה (לא חתם) — השדות שלו נשארים ריקים. */
