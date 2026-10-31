@@ -234,3 +234,28 @@ describe('stampPdf — עברית בסדר הנכון (נמצא בבדיקה: ש
     expect(fontkitRuns('Bank Leumi')).toEqual(['Bank', ' ', 'Leumi'])
   })
 })
+
+describe('באותו גופן ובאותו גודל (דן 31/10: "במקום חובה — זכות")', () => {
+  let doc2: Uint8Array, A2: Analysis
+  beforeAll(async () => {
+    const d = await PDFDocument.create(); d.registerFontkit(fontkit)
+    const dv = await d.embedFont(readFileSync('assets/fonts/DejaVuSans.ttf'), { subset: false }) // גופן מלא מוטמע (כמו בדוחות בנק)
+    const p = d.addPage([595, 842])
+    drawHe(p, dv, 'חובה', 480, 700, 10.5); drawHe(p, dv, 'יתרה', 480, 680, 10.5)
+    doc2 = await d.save(); A2 = await analyzePdf(doc2)
+  }, 30000)
+  it('החלפת מילה באותיות שלא הופיעו במסמך — עדיין בגופן המקורי (cmap של הגופן המלא)', async () => {
+    const s = A2.pages[0]!.spans.find((x) => x.text === 'חובה')!
+    expect(s.font).toMatch(/DejaVu/)
+    const r = await applyPdf(doc2, cleanApply({ edits: [{ page: 0, span: s.id, text: 'זכות' }] }, 1).req)
+    expect(r.checks.verified).toBe(1)
+    const n = (await analyzePdf(r.bytes)).pages[0]!.spans.find((x) => x.text === 'זכות')!
+    expect(n.font).toMatch(/DejaVu/); expect(n.size).toBeCloseTo(10.5, 1)
+  }, 30000)
+  it('תיבת טקסט חדשה בסגנון של טקסט קיים (match) — אותו גופן, גודל וצבע', async () => {
+    const s = A2.pages[0]!.spans.find((x) => x.text === 'יתרה')!
+    const r = await applyPdf(doc2, cleanApply({ adds: [{ page: 0, kind: 'text', rect: [300, 300, 420, 316], text: 'זכות 250', match: s.id }] }, 1).req)
+    const n = (await analyzePdf(r.bytes)).pages[0]!.spans.find((x) => x.text === 'זכות 250')!
+    expect(n.font).toMatch(/DejaVu/); expect(n.size).toBeCloseTo(10.5, 1); expect(n.color).toBe(s.color)
+  }, 30000)
+})
