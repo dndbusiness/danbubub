@@ -98,6 +98,14 @@ try {
   const st = await page.evaluate(() => { const a = S.px.adds[S.px.adds.length - 1]; return { match: a.match, size: a.size, color: a.color, chip: /בסגנון של/.test(document.querySelector('#pxSel').textContent) } })
   assert(st.match === nm.id && st.size === nm.size && st.color === nm.color && st.chip, `התיבה בסגנון של "${nm.text}": ${st.size}pt ${st.color}`)
 
+  step('✨ מחק קסם: מסמנים את הכותרת → נמחקת, ותיבה נפתחת באותו גופן/גודל/צבע — כותבים במקום')
+  const title = await page.evaluate(() => S.px.A.pages[0].spans.find((x) => x.text === 'בקשה לבדיקת זכאות'))
+  await page.click('#pxEd [data-pxt="magic"]')
+  await page.mouse.move(...at(title.rect[0] - 2, title.rect[1] - 2)); await page.mouse.down(); await page.mouse.move(...at(title.rect[2] + 2, title.rect[3] + 2), { steps: 6 }); await page.mouse.up()
+  await page.keyboard.type('בקשה לבדיקת משכנתא')
+  const mg = await page.evaluate(() => { const a = S.px.adds[S.px.adds.length - 1], e = S.px.erase[S.px.erase.length - 1]; return { magic: e.magic, bg: e.bg, size: a.size, color: a.color, base: a.baseline, match: a.match, text: a.text } })
+  assert(mg.magic && mg.size === title.size && mg.color === title.color && Math.abs(mg.base - title.baseline) < 0.01 && mg.match === title.id && mg.text === 'בקשה לבדיקת משכנתא', `מחק קסם: ${mg.size}pt ${mg.color}, רקע ${mg.bg}`)
+
   step('שמירה כקובץ חדש')
   await page.click('#pxEd [data-px="save"]')
   await page.waitForFunction(() => /נשמר ✓/.test(document.querySelector('#pxSel')?.textContent || ''), null, { timeout: 60000 })
@@ -116,7 +124,10 @@ try {
   assert(!has(t, 'ישראלי'), 'השם הישן נמחק מהקובץ (לא רק כוסה)')
   assert(t.includes('54321') && !t.includes('12345'), 'מספר החשבון הוחלף')
   assert(has(t, 'נבדק') && t.includes('31/10'), 'הטקסט שנוסף בקובץ')
-  assert(!has(t, 'שצריך למחוק') && has(t, 'בקשה לבדיקת זכאות'), 'האזור שנמחק — לא בקובץ; השאר נשאר')
+  assert(!has(t, 'שצריך למחוק'), 'האזור שנמחק — לא בקובץ')
+  const nt = A.pages[0].spans.find((x) => x.text === 'בקשה לבדיקת משכנתא')
+  assert(nt && !A.pages[0].spans.some((x) => x.text === 'בקשה לבדיקת זכאות') && Math.abs(nt.size - title.size) < 0.1 && nt.color === title.color && Math.abs(nt.baseline - title.baseline) < 0.3 && Math.abs(nt.rect[2] - title.rect[2]) < 1,
+    'מחק קסם בקובץ: הכותרת הוחלפה באותו גודל (' + (nt && nt.size) + 'pt), צבע וקו בסיס, מיושרת לימין כמו המקור')
   assert(await page.evaluate(() => S.px && S.px.A && Object.keys(S.px.edits).length === 0 && /\(ערוך\)/.test(S.px.name)), 'העורך ממשיך על הקובץ החדש: ' + await page.evaluate(() => S.px.name))
   await shot('saved')
   assert(!errs.length, 'בלי שגיאות בדף' + (errs.length ? ': ' + errs.join(' | ') : ''))

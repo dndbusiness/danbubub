@@ -272,11 +272,11 @@ export function toUnicodeCMap(pairs: [number, number][]): string {
 /* ── בקשת השמירה: מה העורך שולח, ובדיקה לפני שנוגעים בקובץ ── */
 export type AddKind = 'text' | 'check' | 'cross' | 'date' | 'image' | 'highlight' | 'draw'
 export interface EditOp { page: number; span: number; text: string }
-export interface EraseOp { page: number; rect: Rect; fill?: string }
+export interface EraseOp { page: number; rect: Rect; fill?: string; magic?: boolean /* מחק קסם: רק מה שבתוך האזור; הרקע (וקטורי) נשאר, בתמונה — צבע הרקע מסביב */ }
 /** עריכה בסרוק: מוחקים את הפיקסלים (וטקסט נסתר) בתיבה, צובעים בצבע הנייר, וכותבים את החדש על קו הבסיס */
 export interface OcrEditOp { page: number; rect: Rect; text: string; size: number; baseline: number; color?: string; paper?: string; old?: string }
 export interface OcrLayerOp { page: number; lines: { rect: Rect; baseline: number; size: number; text: string }[] }
-export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean; match?: number /* span בעמוד שממנו לוקחים גופן/גודל/צבע */ }
+export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean; match?: number /* span בעמוד שממנו לוקחים גופן/גודל/צבע */; baseline?: number /* קו הבסיס המדויק (במקום הטקסט שנמחק) */ }
 export interface PageOps { order?: number[]; rotate?: Record<string, number> }
 export interface ApplyReq { edits: EditOp[]; erase: EraseOp[]; adds: AddOp[]; form: Record<string, string | boolean>; flatten: boolean; pages: PageOps; compress: boolean; ocrEdits: OcrEditOp[]; ocrLayer: OcrLayerOp[] }
 
@@ -302,7 +302,7 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
   }
   const erase: EraseOp[] = []
   const hexOk = (v: unknown) => v == null || /^#[0-9a-f]{6}$/i.test(String(v))
-  for (const e of Array.isArray(b.erase) ? b.erase : []) { const p = pg(e?.page), r = rectOf(e?.rect); if (p == null || !r || !hexOk(e?.fill)) { errors.push('אזור מחיקה לא תקין'); continue } erase.push({ page: p, rect: r, ...(e.fill ? { fill: String(e.fill) } : {}) }) }
+  for (const e of Array.isArray(b.erase) ? b.erase : []) { const p = pg(e?.page), r = rectOf(e?.rect); if (p == null || !r || !hexOk(e?.fill)) { errors.push('אזור מחיקה לא תקין'); continue } erase.push({ page: p, rect: r, ...(e.fill ? { fill: String(e.fill) } : {}), ...(e.magic === true ? { magic: true } : {}) }) }
   const ocrEdits: OcrEditOp[] = []
   for (const e of Array.isArray(b.ocrEdits) ? b.ocrEdits : []) {
     const p = pg(e?.page), r = rectOf(e?.rect), size = num(e?.size, 4, 72), base = num(e?.baseline, -20000, 20000), t = typeof e?.text === 'string' ? e.text.replace(/[\r\n]+/g, ' ').slice(0, 2000) : null
@@ -325,7 +325,8 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
     const o: AddOp = { page: p, kind: k, rect: r }
     if (k === 'text' || k === 'date') { const t = typeof a.text === 'string' ? a.text.slice(0, 4000) : ''; if (!t.trim()) continue; o.text = t; if (a.family === 'serif' || a.family === 'mono') o.family = a.family; if (a.bold) o.bold = true
       const m = num(a.match, 0, 1e6); if (m != null && Number.isInteger(m)) o.match = m
-      const sz = num(a.size, 4, 72); if (sz != null) o.size = sz; else if (o.match == null) o.size = 11 }
+      const sz = num(a.size, 4, 72); if (sz != null) o.size = sz; else if (o.match == null) o.size = 11
+      const bl = num(a.baseline, -20000, 20000); if (bl != null) o.baseline = bl }
     if (a.color != null) { if (!/^#[0-9a-f]{6}$/i.test(String(a.color))) { errors.push('צבע לא תקין'); continue } o.color = String(a.color) }
     if (k === 'image') { const m = String(a.image ?? '').match(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/); if (!m || String(a.image).length > 6_000_000) { errors.push('תמונה לא תקינה (PNG/JPEG עד ~4MB)'); continue } o.image = String(a.image) }
     if (k === 'draw') {
