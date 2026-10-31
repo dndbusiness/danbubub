@@ -466,6 +466,7 @@ nav.tabs button::before, .navx::before { content: ""; flex: none; width: 20px; h
 [data-tab="service"]   { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12a9 9 0 0 1-13.5 7.8L3 21l1.2-4.5A9 9 0 1 1 21 12z'/></svg>"); }
 [data-tab="reports"]   { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><path d='M3 3v18h18M8 17v-5M13 17V8M18 17v-9'/></svg>"); }
 [data-tab="settings"]  { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg>"); }
+[data-tab="pdfedit"]   { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4'/><path d='M14 3v5h5'/><path d='M19 8v3'/><path d='M18.4 13.6a1.9 1.9 0 0 1 2.7 2.7L16 21.4l-3.5.9.9-3.5z'/></svg>"); }
 [data-tab="forms"]     { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5'/><path d='M9 17c1.2-1.6 2-1.6 2.6-.4.5 1 1.2 1 2.4-.6'/></svg>"); }
 #tabAdd  { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'><path d='M12 5v14M5 12h14'/></svg>"); }
 #tabMore { --ic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><path d='M4 6h16M4 12h16M4 18h16'/></svg>"); }
@@ -1597,6 +1598,7 @@ ul.log li time { font-size: 12.5px; color: var(--text-3); }
     <button role="tab" data-tab="clients">לקוחות</button>
     <button role="tab" data-tab="tasks">משימות</button>
     <button role="tab" data-tab="forms" hidden>טפסים</button>
+    <button role="tab" data-tab="pdfedit" hidden>עורך PDF</button>
     <span class="navgrp" aria-hidden="true">כסף</span>
     <button role="tab" data-tab="money">כספים</button>
     <button role="tab" data-tab="books">הנהלת חשבונות</button>
@@ -5570,6 +5572,19 @@ function pdfEdit(o) {
   }
   load();
 }
+/* מסך "עורך PDF" בתפריט (דן 31/10: "לא מוצא") — קובץ מהמחשב, או PDF מתיקיית לקוח בדרייב */
+function vPdfEdit() {
+  if (!formsOk()) return '<h1>עורך PDF</h1><p class="hint">עורך ה-PDF עובד במערכת בשרת.</p>';
+  const cl = live(S.clients).filter((c) => inDiv(c) && !['cancelled', 'lost'].includes(c.status)).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'));
+  const cid = S.f.pxClient && S.clients.get(S.f.pxClient) ? S.f.pxClient : '';
+  return '<div class="pghead"><h1>✏️ עורך PDF</h1></div>' +
+    '<section class="card"><header><h2>פתיחת PDF מהמחשב</h2></header><p class="hint" style="margin-top:0">עריכת טקסט קיים באותו גופן · סרוק → 🔎 OCR ועריכה · ✓ / ✗ / תאריך / חתימה / תמונה · מחיקת אזור · שדות ריקים · סיבוב ומחיקת עמודים. עד 5 קבצים — מאוחדים לאחד.</p>' +
+      '<label class="btn primary" style="cursor:pointer">בחר קובץ PDF<input type="file" accept="application/pdf,.pdf" multiple hidden data-pxup="1"></label></section>' +
+    '<section class="card"><header><h2>PDF מתיק לקוח</h2></header><label class="row" style="gap:6px;align-items:center">לקוח<select class="f" id="pxClientSel"><option value="">— בחר לקוח —</option>' +
+      cl.map((c) => '<option value="' + esc(c.id) + '"' + (c.id === cid ? ' selected' : '') + '>' + esc(c.name || '') + '</option>').join('') + '</select></label></section>' +
+    (cid ? pdfEditCard(S.clients.get(cid)) : '');
+}
+document.addEventListener('change', (e) => { if (e.target && e.target.id === 'pxClientSel') { S.f.pxClient = e.target.value; render(); } });
 /* עורך PDF בכרטיס הלקוח (דן 31/10: "איפה מופיע — לא רואה"): כל ה-PDF בתיקיית הלקוח + קובץ מהמחשב */
 function pdfEditCard(c) {
   const st = (S.docRes || {})[c.id]; if (hasDocs(c) && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
@@ -12329,7 +12344,7 @@ function render() {
   const OWNER_TABS = ['home', 'money', 'books', 'private', 'marketing', 'lenders', 'reports', 'settings'];
   const HIDE = { owner: [], admin: ['private'], admin_re: ['private', 'books'], partner: ['books', 'private', 'settings'], center: [...OWNER_TABS, 'service', 'clients'], team: OWNER_TABS };
   const hideT = S.can ? [...OWNER_TABS, 'day', 'clients', 'leads', 'tasks', 'service'].filter((t) => !S.can(t)) : HIDE[S.role] || OWNER_TABS;
-  if (!formsOk()) hideT.push('forms');
+  if (!formsOk()) hideT.push('forms', 'pdfedit');
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => { b.hidden = hideT.includes(b.dataset.tab); });
   { const lb = document.querySelector('#tabs [data-tab="lenders"]'); if (lb) lb.textContent = screenDiv('lendDiv') === 'realestate' && S.division !== 'all' ? 'יזמים' : S.division === 'all' && DIVS.filter(canSeeDiv).length > 1 ? 'גופים ויזמים' : 'גופים ומימון'; }
   $('divs').hidden = !(S.isOwner || S.isCenter) || (S.allowedDivs || DIVS).length < 2;
@@ -12341,7 +12356,7 @@ function render() {
   if (hideT.includes(S.view.tab) && !(['client', 'intake'].includes(S.view.tab) && S.can('clients')) && !(S.view.tab === 'lead' && S.can('leads'))) S.view.tab = 'day';
   applyBrand();
   document.body.classList.toggle('bn-money', S.can('money')); document.body.classList.toggle('bn-priv', S.can('private'));
-  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: () => leadSyncBanner() + vLeads(), lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, service: vService, reports: vReports, settings: vSettings };
+  const V = { day: () => approvalsCard() + myDecisionsCard() + vDay(), home: vHome, clients: vClients, client: () => vClient(S.view.clientId), leads: () => leadSyncBanner() + vLeads(), lead: () => vLead(S.view.clientId), intake: () => vIntake(S.view.clientId), tasks: vTasks, money: vMoney, books: vBooks, private: vPrivate, marketing: vMarketing, lenders: vLendersTab, forms: vForms, pdfedit: vPdfEdit, service: vService, reports: vReports, settings: vSettings };
   const active = document.activeElement && document.activeElement.id, pos = active && document.activeElement.selectionStart;
   const KEEP = ['planNotes', 'planReq', 'planChatUrl'], keep = KEEP.map((id) => $(id) ? [id, $(id).value] : null).filter(Boolean); /* טיוטה שבהקלדה לא נדרסת ברינדור */
   const ikA = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ik, ikV = ikA && document.activeElement.value, ikP = ikA && (() => { try { return document.activeElement.selectionStart; } catch (e) { return null; } })();
@@ -12439,7 +12454,7 @@ document.addEventListener('click', async (e) => {
     if (d.formsfor) return go('forms', d.formsfor);
     if (d.payconfset) { const [pid, pk] = d.payconfset.split('|'), ps = document.querySelector('select[data-payconf="' + pid + '"]'); if (ps && !ps.disabled) { ps.value = ps.value === pk ? '' : pk; ps.dispatchEvent(new Event('change', { bubbles: true })); } return; }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
-    if (d.pdfedit) return pdfEdit({ src: { drive: d.pdfedit }, name: d.pdfname, clientId: S.view.clientId });
+    if (d.pdfedit) return pdfEdit({ src: { drive: d.pdfedit }, name: d.pdfname, clientId: S.view.clientId || (S.view.tab === 'pdfedit' && S.f.pxClient) || null });
     if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
     if (d.docjump !== undefined) { const t = document.getElementById('dv-' + d.docjump); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     if (d.reper !== undefined && el.matches('[data-reper]')) { S.f.reP = d.reper; S.reDrillOpen = null; return render(); }
@@ -13050,7 +13065,7 @@ document.addEventListener('change', async (e) => {
   const el = e.target, c = S.view.clientId && S.clients.get(S.view.clientId);
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
-  if (el.dataset && el.dataset.pxup && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return pxOpenLocal(fl, S.view.clientId); }
+  if (el.dataset && el.dataset.pxup && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return pxOpenLocal(fl, S.view.clientId || (S.view.tab === 'pdfedit' && S.f.pxClient) || null); }
   if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup === '@pick' ? (($('docUpCat') || {}).value || 'other') : el.dataset.docup, el.files);
   if (el.dataset && el.dataset.rootpick !== undefined && S.rootMatch) { S.rootMatch[+el.dataset.rootpick].pick = el.checked; return; }
   if (el.dataset && el.dataset.ctsel) { S.ctSel = S.ctSel || new Set(); if (el.checked) S.ctSel.add(el.dataset.ctsel); else S.ctSel.delete(el.dataset.ctsel); return render(); }
