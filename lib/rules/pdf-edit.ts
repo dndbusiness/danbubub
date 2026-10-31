@@ -19,6 +19,7 @@ export interface PdfChar {
   size: number
   color: [number, number, number] // 0..1
   line: number        // מספר השורה (מה-stext)
+  hidden?: boolean    // טקסט נסתר (Tr 3 — שכבת OCR)
 }
 
 export interface Span {
@@ -33,6 +34,8 @@ export interface Span {
   italic: boolean
   family: FontFamily
   rtl: boolean
+  hidden?: boolean    // טקסט נסתר (שכבת OCR של סורק) — עריכה = מחיקת הפיקסלים שמתחת, לא רק הגליפים
+  paper?: string      // בסרוק: צבע הנייר סביב הטקסט (לצביעה אחרי מחיקת הפיקסלים)
 }
 
 export type FontFamily = 'sans' | 'serif' | 'mono'
@@ -77,7 +80,7 @@ export function hexColor(s: string | null | undefined): [number, number, number]
   const n = parseInt(m[1]!, 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
-const sameStyle = (a: PdfChar, b: PdfChar) => a.font === b.font && Math.abs(a.size - b.size) < 0.25 &&
+const sameStyle = (a: PdfChar, b: PdfChar) => a.font === b.font && !a.hidden === !b.hidden && Math.abs(a.size - b.size) < 0.25 &&
   a.color.every((v, i) => Math.abs(v - b.color[i]!) < 0.02)
 
 /**
@@ -100,7 +103,7 @@ export function groupSpans(chars: PdfChar[]): Span[] {
       id: out.length, text: rtl ? visualToLogical(visual) : visual,
       rect: [Math.min(...r.map((x) => x.rect[0])), Math.min(...r.map((x) => x.rect[1])), Math.max(...r.map((x) => x.rect[2])), Math.max(...r.map((x) => x.rect[3]))].map(round2) as Rect,
       baseline: round2(f.origin[1]), font: f.font.replace(/^[A-Z]{6}\+/, ''), size: round2(f.size), color: colorHex(f.color),
-      bold: st.bold, italic: st.italic, family: st.family, rtl,
+      bold: st.bold, italic: st.italic, family: st.family, rtl, ...(f.hidden ? { hidden: true } : {}),
     })
   }
   for (const line of [...byLine.keys()].sort((x, y) => x - y)) {
@@ -138,7 +141,7 @@ export function underscoreRuns(chars: PdfChar[]): { rect: Rect; size: number }[]
 
 export interface Vec { kind: 'S' | 'F'; rect: Rect }
 export type BlankKind = 'text' | 'checkbox' | 'comb' | 'signature' | 'date' | 'name' | 'id_number'
-export interface Blank { page: number; rect: Rect; kind: BlankKind; label: string; cells?: number; from: 'line' | 'box' | 'comb' | 'underscore' }
+export interface Blank { page: number; rect: Rect; kind: BlankKind; label: string; cells?: number; from: 'line' | 'box' | 'comb' | 'underscore' | 'field' }
 
 const LABEL_KIND: [RegExp, BlankKind][] = [
   [/חתימ|signature/i, 'signature'],
@@ -192,6 +195,9 @@ export function detectBlanks(page: number, pageW: number, vecs: Vec[], spans: Sp
       if (!textOn(r)) out.push({ page, rect: line.map(round2) as Rect, kind: 'text', label: '', from: 'line' })
     } else if (W >= 6 && W <= 26 && H >= 6 && H <= 30) {
       if (!boxes.some((b) => iou(b, r) > 0.8)) boxes.push(r)
+    } else if (v.kind === 'S' && W >= 40 && W <= pageW * 0.85 && H >= 10 && H <= 30) {
+      // תיבה רחבה ריקה (טופס עם מסגרת לכל שדה)
+      if (!spans.some((s) => s.text.replace(/[_.…\s]/g, '') && iou(s.rect, r) > 0.3)) out.push({ page, rect: [r[0] + 1, r[1] + 1, r[2] - 1, r[3] - 1].map(round2) as Rect, kind: 'text', label: '', from: 'field' })
     }
   }
   // משבצות: 4+ תיבות באותה שורה, דומות, צמודות
@@ -246,10 +252,13 @@ export function toUnicodeCMap(pairs: [number, number][]): string {
 /* ── בקשת השמירה: מה העורך שולח, ובדיקה לפני שנוגעים בקובץ ── */
 export type AddKind = 'text' | 'check' | 'cross' | 'date' | 'image' | 'highlight' | 'draw'
 export interface EditOp { page: number; span: number; text: string }
-export interface EraseOp { page: number; rect: Rect }
+export interface EraseOp { page: number; rect: Rect; fill?: string }
+/** עריכה בסרוק: מוחקים את הפיקסלים (וטקסט נסתר) בתיבה, צובעים בצבע הנייר, וכותבים את החדש על קו הבסיס */
+export interface OcrEditOp { page: number; rect: Rect; text: string; size: number; baseline: number; color?: string; paper?: string }
+export interface OcrLayerOp { page: number; lines: { rect: Rect; baseline: number; size: number; text: string }[] }
 export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean }
 export interface PageOps { order?: number[]; rotate?: Record<string, number> }
-export interface ApplyReq { edits: EditOp[]; erase: EraseOp[]; adds: AddOp[]; form: Record<string, string | boolean>; flatten: boolean; pages: PageOps; compress: boolean }
+export interface ApplyReq { edits: EditOp[]; erase: EraseOp[]; adds: AddOp[]; form: Record<string, string | boolean>; flatten: boolean; pages: PageOps; compress: boolean; ocrEdits: OcrEditOp[]; ocrLayer: OcrLayerOp[] }
 
 export const MAX_OPS = 600
 const num = (v: unknown, lo: number, hi: number) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : null }
@@ -272,7 +281,23 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
     edits.push({ page: p, span: s, text: t })
   }
   const erase: EraseOp[] = []
-  for (const e of Array.isArray(b.erase) ? b.erase : []) { const p = pg(e?.page), r = rectOf(e?.rect); if (p == null || !r) { errors.push('אזור מחיקה לא תקין'); continue } erase.push({ page: p, rect: r }) }
+  const hexOk = (v: unknown) => v == null || /^#[0-9a-f]{6}$/i.test(String(v))
+  for (const e of Array.isArray(b.erase) ? b.erase : []) { const p = pg(e?.page), r = rectOf(e?.rect); if (p == null || !r || !hexOk(e?.fill)) { errors.push('אזור מחיקה לא תקין'); continue } erase.push({ page: p, rect: r, ...(e.fill ? { fill: String(e.fill) } : {}) }) }
+  const ocrEdits: OcrEditOp[] = []
+  for (const e of Array.isArray(b.ocrEdits) ? b.ocrEdits : []) {
+    const p = pg(e?.page), r = rectOf(e?.rect), size = num(e?.size, 4, 72), base = num(e?.baseline, -20000, 20000), t = typeof e?.text === 'string' ? e.text.replace(/[\r\n]+/g, ' ').slice(0, 2000) : null
+    if (p == null || !r || size == null || base == null || t == null || !hexOk(e?.color) || !hexOk(e?.paper)) { errors.push('עריכה בסרוק לא תקינה'); continue }
+    ocrEdits.push({ page: p, rect: r, text: t, size, baseline: base, ...(e.color ? { color: String(e.color) } : {}), ...(e.paper ? { paper: String(e.paper) } : {}) })
+  }
+  const ocrLayer: OcrLayerOp[] = []
+  let layerLines = 0
+  for (const o of Array.isArray(b.ocrLayer) ? b.ocrLayer : []) {
+    const p = pg(o?.page); if (p == null || !Array.isArray(o?.lines)) { errors.push('שכבת OCR לא תקינה'); continue }
+    const lines: OcrLayerOp['lines'] = []
+    for (const l of o.lines.slice(0, 2000)) { const r = rectOf(l?.rect), size = num(l?.size, 2, 120), base = num(l?.baseline, -20000, 20000); if (!r || size == null || base == null || typeof l?.text !== 'string' || !l.text.trim()) continue; lines.push({ rect: r, size, baseline: base, text: l.text.slice(0, 1000) }) }
+    layerLines += lines.length; if (lines.length) ocrLayer.push({ page: p, lines })
+  }
+  if (layerLines > 20000) errors.push('שכבת OCR גדולה מדי')
   const adds: AddOp[] = []
   for (const a of Array.isArray(b.adds) ? b.adds : []) {
     const p = pg(a?.page), r = rectOf(a?.rect), k = ADD_KINDS.includes(a?.kind) ? a.kind as AddKind : null
@@ -297,9 +322,9 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
   if (P.rotate && typeof P.rotate === 'object') { const rot: Record<string, number> = {}
     for (const [k, v] of Object.entries(P.rotate as Record<string, unknown>)) { const p = pg(k), d = Number(v); if (p == null || ![0, 90, 180, 270].includes(((d % 360) + 360) % 360)) { errors.push('סיבוב לא תקין'); continue } if (d % 360) rot[p] = ((d % 360) + 360) % 360 }
     if (Object.keys(rot).length) pages.rotate = rot }
-  const total = edits.length + erase.length + adds.length + Object.keys(form).length
+  const total = edits.length + erase.length + adds.length + Object.keys(form).length + ocrEdits.length
   if (total > MAX_OPS) errors.push(`יותר מדי שינויים בבת אחת (${total}, עד ${MAX_OPS})`)
-  return { req: { edits, erase, adds, form, flatten: b.flatten === true, pages, compress: b.compress === true }, errors }
+  return { req: { edits, erase, adds, form, flatten: b.flatten === true, pages, compress: b.compress === true, ocrEdits, ocrLayer }, errors }
 }
 
 /** תיבה שמכווצת מעט לפני מחיקת הטקסט הישן — כדי לא לגעת בשורה שמעל/מתחת (מלכודת 6.4 במפרט של דן). */

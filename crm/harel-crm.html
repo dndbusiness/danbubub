@@ -569,6 +569,8 @@ body.locked { padding-inline-start: 0; }
 .pxediting .pxs { pointer-events: auto; cursor: text; border-radius: 2px; }
 .pxediting .pxs:hover { outline: 1px solid var(--q-violet); background: color-mix(in srgb, var(--q-violet) 10%, transparent); }
 .pxs.ed { background: #fff; outline: 1px dashed var(--q-violet); }
+.pxediting .pxs.ocr:not(.ed):hover { background: color-mix(in srgb, var(--q-violet) 16%, transparent); }
+.pxs.ocr:not(.ed) { color: transparent !important; }
 .pxs.ed:empty::after { content: '(יימחק)'; font: 600 10px Heebo, Arial, sans-serif; color: var(--text-3); }
 .pxin { width: 100%; min-width: 40px; height: 100%; border: 0; outline: 2px solid var(--q-violet); background: #fff; font: inherit; color: inherit; padding: 0; margin: 0; }
 .pxe { position: absolute; background: rgba(255, 255, 255, .9); outline: 1.5px dashed var(--q-slate); cursor: pointer; }
@@ -5353,6 +5355,11 @@ function pxSignPad() {
       if (k === 'ok') { if (!ink) return toast('לא נחתם'); const d = cv.toDataURL('image/png'); try { localStorage.setItem('harel-pxsig', d); } catch (x) {} end({ data: d, w: cv.width, h: cv.height }); } });
   });
 }
+/* OCR בדפדפן (Tesseract, עברית+אנגלית) — הסריקה לא יוצאת לשירות חיצוני. נטען בפעם הראשונה (~4MB, נשמר במטמון הדפדפן) */
+const TESS_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js', OCR_DPI = 250;
+async function pxTess() { await loadScript(TESS_URL); if (!S._tess) S._tess = window.Tesseract.createWorker(['heb', 'eng'], 1, { logger: (m) => { if (S._tessLog) S._tessLog(m); } }).catch((e) => { S._tess = null; throw e; }); return S._tess; }
+const pxOcrLines = (data) => (data.blocks || []).flatMap((b) => (b.paragraphs || []).flatMap((p) => (p.lines || []).map((l) => ({ text: l.text, bbox: l.bbox, baseline: l.baseline,
+  words: (l.words || []).map((w) => ({ text: w.text, bbox: w.bbox, confidence: w.confidence, symbols: (w.symbols || []).map((y) => ({ text: y.text, bbox: y.bbox })) })) }))));
 async function pxOpenLocal(files, clientId) {
   try { toast('מעלה…'); const up = await pdfUpload(files, files[0] && files[0].name); pdfEdit({ src: { file: up.fileId }, name: up.name, clientId }); }
   catch (e) { toast(e.message || 'ההעלאה נכשלה'); }
@@ -5360,10 +5367,11 @@ async function pxOpenLocal(files, clientId) {
 function pdfEdit(o) {
   if (!window.__harelServer) return toast('עורך ה-PDF עובד במערכת בשרת');
   pxFonts();
-  const E = S.px = { src: o.src, name: o.name || 'מסמך.pdf', clientId: o.clientId || null, A: null, edits: {}, erase: [], adds: [], form: {}, rot: {}, del: new Set(), tool: 'edit', sel: null, blanks: false, flatten: false, compress: false, busy: false };
+  const E = S.px = { src: o.src, name: o.name || 'מסמך.pdf', clientId: o.clientId || null, A: null, edits: {}, erase: [], adds: [], form: {}, rot: {}, del: new Set(), tool: 'edit', sel: null, blanks: false, flatten: false, compress: false, busy: false, ocr: {}, ocrLayer: true, doc: null };
   $('layer').innerHTML = '<div class="pdfed" id="pxEd" role="dialog" aria-modal="true" aria-label="עורך PDF">' +
     '<div class="pdfbar"><b class="grow" style="min-width:140px"><bdi>' + esc(E.name) + '</bdi></b>' +
       '<div class="seg" role="group" aria-label="כלי" style="flex-wrap:wrap">' + PX_TOOLS.map(([k, t]) => '<button type="button" data-pxt="' + k + '" aria-pressed="' + (k === 'edit') + '">' + t + '</button>').join('') + '</div>' +
+      '<button type="button" class="btn small" data-px="ocr" hidden title="זיהוי הטקסט בעמודים סרוקים (עברית ואנגלית) — כדי לערוך, לחפש ולמלא שדות">🔎 OCR</button>' +
       '<button type="button" class="btn small" data-px="blanks" aria-pressed="false" title="קווים ריקים, ריבועי סימון ומשבצות שזוהו בטופס — לחיצה ממלאת">✨ שדות ריקים</button>' +
       '<button type="button" class="btn small" data-px="pages">עמודים</button>' +
       '<button type="button" class="btn primary" data-px="save">שמור כקובץ חדש</button><button type="button" class="btn" data-px="close">סגור</button></div>' +
@@ -5372,7 +5380,8 @@ function pdfEdit(o) {
   const root = $('pxEd'), pagesEl = $('pxPages');
   const P = (i) => E.A.pages[i];
   const setK = () => root.querySelectorAll('.pg').forEach((pg) => { const p = P(+pg.dataset.pg); if (p) pg.style.setProperty('--k', pg.clientWidth / p.w); });
-  const dirty = () => Object.keys(E.edits).length + E.erase.length + E.adds.length + Object.keys(E.form).length + Object.keys(E.rot).length + E.del.size;
+  const dirty = () => Object.keys(E.edits).length + E.erase.length + E.adds.length + Object.keys(E.form).length + Object.keys(E.rot).length + E.del.size + (E.ocrLayer && Object.keys(E.ocr).length ? 1 : 0);
+  const spanOf = (k) => { const [p, id] = k.split(':').map(Number); return P(p) && P(p).spans.find((x) => x.id === id); };
   const selBar = () => {
     const el = $('pxSel'); if (!el) return; const a = E.adds.find((x) => x.id === E.sel), n = dirty();
     let h = '<span class="hint">' + esc(PX_HINT[E.tool]) + '</span><span class="grow"></span>';
@@ -5389,7 +5398,7 @@ function pdfEdit(o) {
     el.innerHTML = h + '<span class="hint num">' + (n ? n + ' שינויים' : 'אין שינויים') + '</span>';
   };
   const spanEl = (p, s) => { const k = p + ':' + s.id, ed = Object.prototype.hasOwnProperty.call(E.edits, k), d = document.createElement('div');
-    d.className = 'pxs' + (ed ? ' ed' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + (s.rtl ? 'right' : 'left');
+    d.className = 'pxs' + (ed ? ' ed' : '') + (s.ocr || s.hidden ? ' ocr' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + (s.rtl ? 'right' : 'left') + (ed && s.paper ? ';background:' + s.paper : '');
     if (ed) d.textContent = E.edits[k]; return d; };
   const addEl = (a) => { const d = document.createElement('div'); d.className = 'pxa k-' + a.kind + (E.sel === a.id ? ' sel' : ''); d.dataset.pa = a.id; d.style.cssText = pxR(a.rect, P(a.page));
     if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'HE-sans" + (a.bold ? '-bold' : '') + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
@@ -5416,6 +5425,7 @@ function pdfEdit(o) {
   const pagesPanel = () => { const box = $('pxPagesBar'); if (!box) return;
     box.innerHTML = '<b>עמודים</b>' + E.A.pages.map((_, i) => '<span class="chip soft" style="gap:4px">' + (i + 1) + '<button type="button" class="xlink" data-pxrot="' + i + '" title="סובב 90°">⟳</button><button type="button" class="xlink" data-pxdel="' + i + '" title="' + (E.del.has(i) ? 'החזר' : 'מחק עמוד') + '">' + (E.del.has(i) ? '↺' : '🗑') + '</button></span>').join('') +
       '<label class="row" style="gap:4px;align-items:center"><input type="checkbox" class="cb" id="pxCompress"' + (E.compress ? ' checked' : '') + '> דחיסה</label>' +
+      (Object.keys(E.ocr).length ? '<label class="row" style="gap:4px;align-items:center" title="הטקסט שזוהה נשמר כשכבה שקופה — אפשר לחפש ולהעתיק מהסריקה"><input type="checkbox" class="cb" id="pxOcrLayer"' + (E.ocrLayer ? ' checked' : '') + '> לשמור כבר-חיפוש</label>' : '') +
       (E.A.pages.some((p) => p.widgets.length) ? '<label class="row" style="gap:4px;align-items:center" title="השדות הופכים לטקסט רגיל — אי אפשר לשנות אותם אחר כך"><input type="checkbox" class="cb" id="pxFlatten"' + (E.flatten ? ' checked' : '') + '> שיטוח הטופס</label>' : ''); };
   const place = (pg, ui, cx, cy, extra = {}) => { const i = +pg.dataset.pg, p = P(i);
     const sz = { text: [150, 16], date: [64, 15], check: [11, 11], cross: [11, 11], sign: [130, 42], image: [120, 80] }[ui] || [100, 20];
@@ -5426,8 +5436,8 @@ function pdfEdit(o) {
     E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); if (kind === 'text') { const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus(); } };
   const ptOf = (pg, e) => { const r = pg.getBoundingClientRect(), p = P(+pg.dataset.pg); return [(e.clientX - r.left) / r.width * p.w, (e.clientY - r.top) / r.height * p.h]; };
   // עריכת טקסט קיים: input במקום, באותו גופן/גודל/צבע
-  const editSpan = (el) => { const [p, s] = el.dataset.ps.split(':').map(Number), sp = P(p).spans[s], k = p + ':' + s;
-    E.sel = 's:' + k; selBar(); el.classList.add('ed', 'on'); const inp = document.createElement('input'); inp.className = 'pxin'; inp.value = Object.prototype.hasOwnProperty.call(E.edits, k) ? E.edits[k] : sp.text; inp.dir = sp.rtl ? 'rtl' : 'ltr';
+  const editSpan = (el) => { const k = el.dataset.ps, sp = spanOf(k); if (!sp) return;
+    E.sel = 's:' + k; selBar(); el.classList.add('ed', 'on'); const inp = document.createElement('input'); inp.className = 'pxin'; inp.value = Object.prototype.hasOwnProperty.call(E.edits, k) ? E.edits[k] : sp.text; inp.dir = sp.rtl ? 'rtl' : 'ltr'; if (sp.paper) inp.style.background = sp.paper;
     el.textContent = ''; el.appendChild(inp); inp.focus(); inp.select();
     let done = false; // הסרת השדה מפעילה blur — שלא ירוץ פעמיים
     const fin = (keep) => { if (done || !inp.isConnected) return; done = true; const v = inp.value.replace(/\s+/g, ' ').trim(); if (keep && v !== sp.text) E.edits[k] = v; else if (keep && v === sp.text) delete E.edits[k]; el.classList.remove('on'); drawPage(el.closest('.pg')); setK(); selBar(); };
@@ -5474,7 +5484,7 @@ function pdfEdit(o) {
     const w = e.target.dataset.pw; if (w != null && e.target.type === 'text') { E.form[w] = e.target.value; selBar(); } });
   root.addEventListener('change', (e) => { const t = e.target, a = E.adds.find((q) => q.id === E.sel);
     if (t.dataset.pw != null) { E.form[t.dataset.pw] = t.type === 'checkbox' ? t.checked : t.value; return selBar(); }
-    if (t.id === 'pxCompress') E.compress = t.checked; if (t.id === 'pxFlatten') E.flatten = t.checked;
+    if (t.id === 'pxCompress') E.compress = t.checked; if (t.id === 'pxFlatten') E.flatten = t.checked; if (t.id === 'pxOcrLayer') { E.ocrLayer = t.checked; selBar(); }
     if (a && t.id === 'pxSize') a.size = +t.value; if (a && t.id === 'pxBold') a.bold = t.checked; if (a && t.id === 'pxColor') a.color = t.value;
     if (a && ['pxSize', 'pxBold', 'pxColor'].includes(t.id)) { const pg = root.querySelector('.pg[data-pg="' + a.page + '"]'); drawPage(pg); setK(); selBar(); } });
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.pxt')) document.activeElement.blur(); E.sel = null; root.querySelectorAll('.pxa.sel').forEach((q) => q.classList.remove('sel')); return selBar(); }
@@ -5486,6 +5496,7 @@ function pdfEdit(o) {
     const dl = e.target.closest('[data-pxdel]'); if (dl) { const i = +dl.dataset.pxdel; if (E.del.has(i)) E.del.delete(i); else { if (E.del.size + 1 >= E.A.pages.length) return toast('צריך להשאיר לפחות עמוד אחד'); E.del.add(i); } pagesPanel(); drawPage(root.querySelector('.pg[data-pg="' + i + '"]')); return selBar(); }
     const b = e.target.closest('[data-px]'); if (!b) return; const act = b.dataset.px;
     if (act === 'close') { if (dirty() && !confirm('לצאת בלי לשמור את השינויים?')) return; $('layer').innerHTML = ''; S.px = null; return; }
+    if (act === 'ocr') return runOcr();
     if (act === 'blanks') { E.blanks = !E.blanks; b.setAttribute('aria-pressed', String(E.blanks)); const n = E.A ? E.A.pages.reduce((s, p) => s + p.blanks.length, 0) : 0; if (E.blanks) toast(n ? 'זוהו ' + n + ' שדות ריקים — לחיצה על שדה ממלאת אותו' : 'לא זוהו שדות ריקים'); return drawAll(); }
     if (act === 'pages') { const ex = $('pxPagesBar'); if (ex) { ex.remove(); return; } $('pxSel').insertAdjacentHTML('afterend', '<div class="pdfsel" id="pxPagesBar"></div>'); return pagesPanel(); }
     if (act === 'del') { E.adds = E.adds.filter((q) => q.id !== E.sel); E.sel = null; return drawAll(); }
@@ -5493,7 +5504,12 @@ function pdfEdit(o) {
     if (act === 'save') {
       if (E.busy) return; if (!dirty()) return toast('אין שינויים לשמור');
       const keep = E.A.pages.map((_, i) => i).filter((i) => !E.del.has(i));
-      const ops = { edits: Object.entries(E.edits).map(([k, text]) => { const [page, span] = k.split(':').map(Number); return { page, span, text }; }),
+      const ed = Object.entries(E.edits).map(([k, text]) => ({ k, text, s: spanOf(k), page: +k.split(':')[0] })).filter((x) => x.s);
+      const r2 = (v) => Math.round(v * 100) / 100, rr = (r) => r.map(r2);
+      const ops = { edits: ed.filter((x) => !x.s.ocr && !x.s.hidden).map((x) => ({ page: x.page, span: x.s.id, text: x.text })),
+        // סרוק: מוחקים את הפיקסלים, צובעים בצבע הנייר וכותבים בצבע הדיו
+        ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
+        ocrLayer: E.ocrLayer ? Object.entries(E.ocr).map(([page, sp]) => ({ page: +page, lines: sp.map((x) => ({ rect: rr(x.rect), baseline: r2(x.baseline), size: x.size, text: x.text })) })) : [],
         erase: E.erase, adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
           if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
         form: E.form, flatten: E.flatten, compress: E.compress, pages: { ...(Object.keys(E.rot).length ? { rotate: E.rot } : {}), ...(E.del.size ? { order: keep } : {}) } };
@@ -5504,23 +5520,49 @@ function pdfEdit(o) {
         if (c && S.canWrite) logClient(c.id, 'עריכת PDF: ' + E.name + ' → ' + j.saved.name + (j.saved.where === 'drive' ? ' (נשמר בדרייב)' : ''), false).catch(() => {});
         E.saved = j; if (w.length) toast(w.length + ' אזהרות — ראו בשורה למעלה'); else toast('נשמר כקובץ חדש — המקור לא השתנה');
         if (c && j.saved.where === 'drive' && typeof docsLoad === 'function') setTimeout(() => docsLoad(c, true), 400);
-        E.edits = {}; E.erase = []; E.adds = []; E.form = {}; E.rot = {}; E.del = new Set(); E.sel = null;
+        E.edits = {}; E.erase = []; E.adds = []; E.form = {}; E.rot = {}; E.del = new Set(); E.sel = null; E.ocr = {};
         E.src = j.saved.where === 'drive' ? { drive: j.saved.id } : { file: j.saved.id }; E.name = j.saved.name; const nb = root.querySelector('.pdfbar bdi'); if (nb) nb.textContent = E.name; selBar(); await load(); }
       catch (x) { toast(x.message || String(x)); }
       finally { E.busy = false; b.disabled = false; b.textContent = 'שמור כקובץ חדש'; }
     }
   });
   window.addEventListener('resize', setK);
+  /* OCR לעמודים הסרוקים שעוד אין בהם טקסט: עמוד → תמונה (250dpi, pdf.js) → Tesseract → השרת: spans, צבעים, שדות ריקים */
+  async function runOcr() {
+    if (E.ocrBusy || !E.A) return; const todo = E.A.pages.map((p, i) => i).filter((i) => P(i).scanned && !P(i).spans.length && !E.ocr[i]);
+    if (!todo.length) return toast(E.A.pages.some((p) => p.scanned) ? 'הטקסט בעמודים הסרוקים כבר מזוהה — לוחצים עליו כדי לערוך' : 'אין עמודים סרוקים — הטקסט כבר ניתן לעריכה');
+    E.ocrBusy = true; const btn = root.querySelector('[data-px="ocr"]'); if (btn) btn.disabled = true;
+    const say = (t) => { const el = $('pxSel'); if (el) el.innerHTML = '<b>🔎 OCR</b> <span class="hint">' + esc(t) + '</span>'; };
+    try {
+      say('טוען את מנוע הזיהוי (בפעם הראשונה כמה שניות)…'); let cur = 0; S._tessLog = (m) => { if (m.status === 'recognizing text') say('עמוד ' + (todo.indexOf(cur) + 1) + ' מתוך ' + todo.length + ' · ' + Math.round((m.progress || 0) * 100) + '%'); };
+      const w = await pxTess(); if (!E.doc) throw new Error('המסמך עוד נטען');
+      let found = 0;
+      for (const i of todo) { cur = i; say('עמוד ' + (todo.indexOf(i) + 1) + ' מתוך ' + todo.length + ' · מכין תמונה…');
+        const pg = await E.doc.getPage(i + 1), v = pg.getViewport({ scale: OCR_DPI / 72 }), cv = document.createElement('canvas'); cv.width = Math.round(v.width); cv.height = Math.round(v.height);
+        await pg.render({ canvasContext: cv.getContext('2d'), viewport: v }).promise;
+        const r = await w.recognize(cv, {}, { blocks: true }); const lines = pxOcrLines(r.data); cv.width = cv.height = 0;
+        const res = await fetch('/api/crm/pdf/ocr', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src, pages: [{ page: i, dpi: OCR_DPI, lines }] }) }); const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'עיבוד ה-OCR נכשל (' + res.status + ')');
+        const out = (j.pages || [])[0]; if (!out) continue; E.ocr[i] = out.spans; P(i).spans = P(i).spans.concat(out.spans); P(i).blanks = out.blanks; found += out.spans.length;
+        drawPage(root.querySelector('.pg[data-pg="' + i + '"]')); setK(); }
+      S._tessLog = null; selBar(); pagesPanel();
+      toast(found ? 'זוהו ' + found + ' שורות טקסט — לוחצים על טקסט כדי לערוך · הקובץ יישמר גם כבר-חיפוש' : 'לא זוהה טקסט בעמודים הסרוקים');
+      const n = root.querySelector('.pxscan'); if (n && found) n.remove();
+    } catch (x) { S._tessLog = null; say(''); toast('ה-OCR נכשל: ' + (x.message || x)); selBar(); }
+    finally { E.ocrBusy = false; if (btn) btn.disabled = false; }
+  }
   async function load() {
     try {
       const res = await fetch('/api/crm/pdf/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src }) }); const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.message || 'המסמך לא נקרא (' + res.status + ')');
       E.A = j; const scanned = j.pages.some((p) => p.scanned);
       pagesEl.innerHTML = j.pages.map((p, i) => '<div class="pg" data-pg="' + i + '" style="aspect-ratio:' + p.w + '/' + p.h + '"><canvas></canvas><span class="pgn">' + (i + 1) + '/' + j.pages.length + '</span><span class="pgbadge"></span></div>').join('') +
-        (j.truncated ? '<p class="hint">מוצגים ' + j.pages.length + ' העמודים הראשונים.</p>' : '') + (scanned ? '<p class="notice info" style="display:block;max-width:860px">חלק מהעמודים סרוקים (תמונה) — אין בהם טקסט לעריכה. אפשר להוסיף טקסט, ✓, חתימה ולמחוק אזורים.</p>' : '');
+        (j.truncated ? '<p class="hint">מוצגים ' + j.pages.length + ' העמודים הראשונים.</p>' : '');
+      const needOcr = j.pages.filter((p) => p.scanned && !p.spans.length).length, ob = root.querySelector('[data-px="ocr"]'); if (ob) ob.hidden = !j.pages.some((p) => p.scanned);
+      if (needOcr) pagesEl.insertAdjacentHTML('afterbegin', '<p class="notice info pxscan" style="display:block;max-width:860px;margin:0">' + (needOcr === j.pages.length ? 'המסמך סרוק' : needOcr + ' עמודים סרוקים') + ' — הטקסט הוא תמונה. <button type="button" class="btn small primary" data-px="ocr">🔎 זיהוי טקסט (OCR)</button> כדי לערוך אותו, לחפש בו ולזהות שדות. אפשר גם בלי: טקסט, ✓, חתימה ומחיקת אזורים.</p>');
       root.classList.toggle('pxediting', E.tool === 'edit'); drawAll();
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'); const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const doc = await lib.getDocument({ url: 'drive' in E.src ? '/api/crm/drive?id=' + encodeURIComponent(E.src.drive) : '/api/files/' + E.src.file }).promise;
+      const doc = await lib.getDocument({ url: 'drive' in E.src ? '/api/crm/drive?id=' + encodeURIComponent(E.src.drive) : '/api/files/' + E.src.file }).promise; E.doc = doc;
       for (const box of root.querySelectorAll('.pg')) { const pg = await doc.getPage(+box.dataset.pg + 1), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(2.5, box.clientWidth * (devicePixelRatio || 1) / v1.width), v = pg.getViewport({ scale: sc }), cv = box.querySelector('canvas');
         cv.width = Math.round(v.width); cv.height = Math.round(v.height); await pg.render({ canvasContext: cv.getContext('2d'), viewport: v }).promise; }
     } catch (x) { $('pxSel').innerHTML = '<span class="pill open">' + esc(x.message || String(x)) + '</span>'; }
