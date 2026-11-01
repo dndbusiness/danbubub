@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import {
-  cleanApply, detectBlanks, editedName, fallbackFile, fileOfKey, fitText, fontStyle, groupSpans, kindFromLabel, labelFor, toUnicodeCMap, underscoreRuns,
+  alignSpans, cleanApply, detectBlanks, editedName, fallbackFile, fileOfKey, fitText, fontStyle, groupSpans, kindFromLabel, labelFor, toUnicodeCMap, underscoreRuns,
   type PdfChar, type Span,
 } from '../lib/rules/pdf-edit'
 import { fontkitRuns, visualOrder } from '../lib/rules/sign-pdf'
@@ -346,4 +346,33 @@ describe('טבלה בדף עו״ש (דן 1/11: "לא מזהה את הכל — א
     const s = (await analyzePdf(r.bytes)).pages[0]!.spans.find((x) => x.text === '13524')!
     expect(Math.abs(s.rect[2] - 200)).toBeLessThan(0.8); expect(Math.abs(s.baseline - 52)).toBeLessThan(0.3)
   }, 30000)
+})
+
+describe('ייצוא מ-Chromium: כמה תת-קבוצות של גופן באותו שם (דן 01/11: "העריכה יוצאת על הפנים")', () => {
+  const sp = (text: string, x0: number, x1: number, base: number, rtl = false): Span => ({ id: 0, text, rect: [x0, base - 10, x1, base + 2], baseline: base, font: 'DejaVuSans', size: 12, color: '#000000', bold: false, italic: false, family: 'sans', rtl })
+  it('alignSpans: עמודת מספרים בטבלה בעברית — ימין; עמודה משמאל — שמאל; בלי שכנים — לפי השפה', () => {
+    const col = [sp('4000', 270, 300.7, 130), sp('28.8', 279, 300.7, 160), sp('1180', 270, 300.7, 190)]
+    const left = [sp('12', 50, 62, 130), sp('345', 50, 70, 160)]
+    const he = [sp('זיכוי מיידי', 540, 586, 130, true), sp('אחר', 400, 420, 300, true), sp('עמלה', 450, 480, 330, true)]
+    const out = alignSpans([...col, ...left, ...he])
+    expect(out.slice(0, 3).map((s) => s.align)).toEqual(['right', 'right', 'right'])
+    expect(out.slice(3, 5).map((s) => s.align)).toEqual(['left', 'left'])
+    expect(out[5]!.align).toBe('right')
+    expect(alignSpans([sp('7', 10, 17, 50)])[0]!.align).toBe('left') // מסמך באנגלית, בלי שכנים
+  })
+  it('עריכה: האותיות מאותה תת-קבוצה, הכל נקרא בחזרה, ומספר שגדל נשאר צמוד לקצה התא', async () => {
+    const pdf = new Uint8Array(readFileSync('tests/fixtures/pdfedit/chromium-subsets.pdf'))
+    const A = await analyzePdf(pdf), S = A.pages[0]!.spans, find = (t: string) => S.find((s) => s.text === t)!
+    const a = find('4000'), b = find('5551.09'), c = find('זיכוי מיידי'), d = find('184')
+    expect([a, b, d].map((s) => s.align)).toEqual(['right', 'right', 'right'])
+    const r = await applyPdf(pdf, cleanApply({ edits: [{ page: 0, span: a.id, text: '11800' }, { page: 0, span: b.id, text: '66' }, { page: 0, span: c.id, text: 'זיכוי מיידי מהיר' }, { page: 0, span: d.id, text: '152' }] }, 1).req)
+    expect(r.checks).toMatchObject({ edits: 4, verified: 4, warnings: [] })
+    const B = (await analyzePdf(r.bytes)).pages[0]!.spans, got = (t: string) => B.find((s) => s.text === t)
+    for (const [old, now] of [[a, '11800'], [b, '66'], [c, 'זיכוי מיידי מהיר'], [d, '152']] as const) {
+      const n = got(now); expect(n, now).toBeTruthy()
+      expect(Math.abs(n!.rect[2] - old.rect[2]), now).toBeLessThan(0.3) // הקצה הימני של התא — לא זז
+      expect(Math.abs(n!.baseline - old.baseline)).toBeLessThan(0.3); expect(n!.size).toBeCloseTo(old.size, 1)
+      expect(n!.rect[2] - n!.rect[0], now).toBeGreaterThan(now.length * old.size * 0.3) // רוחב אמיתי (לא גליפים ריקים)
+    }
+  })
 })
