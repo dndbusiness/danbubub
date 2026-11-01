@@ -567,7 +567,9 @@ body.locked { padding-inline-start: 0; }
 .pef span { pointer-events: none; white-space: nowrap; padding: 0 2px; }
 /* עורך PDF (pdfEdit) */
 .pxs { position: absolute; white-space: nowrap; line-height: 1; display: flex; align-items: flex-end; pointer-events: none; }
-.pxediting .pxs, .pxpicking .pxs { pointer-events: auto; cursor: text; border-radius: 2px; }
+.pxediting .pxs, .pxpicking .pxs { pointer-events: auto; cursor: text; border-radius: 2px; z-index: 3; }
+.pxb { z-index: 1; }
+.pxa { z-index: 4; }
 .pxpicking .pxs { cursor: copy; }
 .pxpicking .pxs:hover { outline: 2px solid var(--q-violet); }
 .pxediting .pxs:hover { outline: 1px solid var(--q-violet); background: color-mix(in srgb, var(--q-violet) 10%, transparent); }
@@ -5528,7 +5530,7 @@ function pdfEdit(o) {
     if (ed) d.textContent = E.edits[k]; return d; };
   const addEl = (a) => { const d = document.createElement('div'); d.className = 'pxa k-' + a.kind + (E.sel === a.id ? ' sel' : ''); d.dataset.pa = a.id; d.style.cssText = pxR(a.rect, P(a.page));
     if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'" + pxFam(a) + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
-      const t = document.createElement('div'); t.className = 'pxt'; t.contentEditable = 'true'; t.dir = 'auto'; t.textContent = a.text || ''; d.appendChild(t); }
+      const t = document.createElement('div'); t.className = 'pxt'; t.contentEditable = 'true'; t.dir = 'auto'; t.textContent = a.text || ''; if (a.align) { d.style.textAlign = a.align; t.style.textAlign = a.align; } d.appendChild(t); }
     else if (a.kind === 'check' || a.kind === 'cross') d.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="' + (a.kind === 'check' ? 'M14 55 L40 82 L88 16' : 'M18 18 L82 82 M82 18 L18 82') + '" fill="none" stroke="' + (a.color || '#111827') + '" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" style="stroke-width:calc(var(--k) * 1.6px)"/></svg>';
     else if (a.kind === 'image') d.innerHTML = '<img src="' + a.image + '" alt="" draggable="false">';
     else if (a.kind === 'draw') { const p = P(a.page); d.style.cssText = 'left:0;top:0;width:100%;height:100%;pointer-events:none';
@@ -5562,6 +5564,31 @@ function pdfEdit(o) {
     if (kind === 'text' || kind === 'date') { const near = pxNearest(p, cx, cy); if (near) pxTakeStyle(a, near, p); }
     E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); if (kind === 'text') { const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus(); } };
   // "באותו גופן ובאותו גודל" (דן 31/10): תיבת טקסט חדשה לוקחת את הסגנון של הטקסט הקרוב בעמוד
+  /* הצמדה לטבלה (דן 1/11: "אני צריך לבחור איפה להזין"): לוחצים בתא — הטקסט נכתב על קו הבסיס של השורה,
+     מיושר כמו שאר העמודה (ימין או שמאל, לפי מה שעקבי יותר), בגופן/גודל/צבע של העמודה */
+  const pxSnap = (p, cx, cy, cell) => {
+    const T = p.spans.filter((s) => s.text.trim());
+    const inCol = (s) => cell ? s.rect[0] >= cell[0] - 3 && s.rect[2] <= cell[2] + 3 : s.rect[0] - 3 <= cx && s.rect[2] + 3 >= cx;
+    const col = T.filter((s) => inCol(s) && Math.abs(s.baseline - cy) < 500);
+    const row = T.filter((s) => cell ? s.baseline > cell[1] && s.baseline <= cell[3] + 1 : Math.abs((s.rect[1] + s.rect[3]) / 2 - cy) < s.size * 0.75);
+    if (!col.length && !row.length) return null;
+    const src = (col.length ? col : row).slice().sort((a, b) => Math.abs((a.rect[1] + a.rect[3]) / 2 - cy) - Math.abs((b.rect[1] + b.rect[3]) / 2 - cy))[0];
+    const med = (v) => { const x = v.slice().sort((a, b) => a - b); return x[Math.floor(x.length / 2)]; }, spread = (v) => v.length < 2 ? 99 : Math.max(...v) - Math.min(...v);
+    let align = null, edge = null;
+    if (col.length >= 2) { const R = col.map((s) => s.rect[2]), Lf = col.map((s) => s.rect[0]); align = spread(R) <= spread(Lf) ? 'right' : 'left'; edge = align === 'right' ? med(R) : med(Lf); }
+    else if (cell) { align = src.rtl || /^[\d.,\-−]+$/.test(src.text) ? 'right' : 'left'; edge = align === 'right' ? cell[2] - 3 : cell[0] + 3; }
+    const baseline = row.length ? med(row.map((s) => s.baseline)) : cell ? cell[1] + (cell[3] - cell[1] + src.size * 0.7) / 2 : cy + src.size * 0.35;
+    return { src, align, edge, baseline };
+  };
+  const pxPlaceSnap = (pg, i, cx, cy, cell) => {
+    const p = P(i), sn = pxSnap(p, cx, cy, cell); if (!sn) return false;
+    const s = sn.src, wd = cell ? Math.max(30, cell[2] - cell[0] - 4) : 120;
+    const a = { id: 'a' + uid(), page: i, ui: 'text', kind: 'text', text: '', rect: [0, 0, 1, 1], baseline: sn.baseline };
+    pxTakeStyle(a, s, p); if (sn.align) a.align = sn.align;
+    const x1 = sn.align === 'right' ? sn.edge : sn.align === 'left' ? sn.edge + wd : (cell ? cell[2] - 2 : cx + wd / 2), x0 = x1 - wd;
+    a.rect = [Math.max(0, x0), sn.baseline - s.size * 0.95, Math.min(p.w, x1), sn.baseline + s.size * 0.3];
+    E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus(); return true;
+  };
   const pxNearest = (p, x, y) => { let best = null, bd = 1e9; for (const s of p.spans) { if (!s.text.trim()) continue; const dx = x < s.rect[0] ? s.rect[0] - x : x > s.rect[2] ? x - s.rect[2] : 0, dy = y < s.rect[1] ? s.rect[1] - y : y > s.rect[3] ? y - s.rect[3] : 0, d = dx + dy * 3; if (d < bd) { bd = d; best = s; } } return bd < 200 ? best : null; };
   const pxTakeStyle = (a, s, p) => { a.size = s.size; a.color = s.color; a.family = s.family; a.bold = s.bold; a.likeText = s.text.slice(0, 30); if (!s.ocr && !s.hidden) a.match = s.id; else delete a.match;
     const h = s.size * 1.35, y0 = a.rect[1] + (a.rect[3] - a.rect[1]) / 2 - h / 2; a.rect[1] = Math.max(0, y0); a.rect[3] = Math.min(p.h, a.rect[1] + h); };
@@ -5605,12 +5632,15 @@ function pdfEdit(o) {
       drag = { a, mode: e.target.dataset.rz ? 'rz' : 'mv', x0: x, y0: y, r0: a.rect.slice(), pg, moved: false }; pg.setPointerCapture(e.pointerId); return; }
     const pe = e.target.closest('.pxe'); if (pe && E.tool !== 'erase') { E.erase.splice(+pe.dataset.pe, 1); drawPage(pg); setK(); return selBar(); }
     const pb = e.target.closest('.pxb'); if (pb) { const [i, bi] = pb.dataset.pb.split(':').map(Number), b = P(i).blanks[bi], r = b.rect;
+      if (b.from === 'cell') { e.preventDefault(); if (pxPlaceSnap(pg, i, (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, r)) return; }
       const ui = b.kind === 'checkbox' ? 'check' : b.kind === 'date' ? 'date' : b.kind === 'signature' ? 'sign' : 'text';
       if (ui === 'sign') { const s = await pxSignPad(); if (!s) return; const k = Math.min((r[2] - r[0]) / s.w, Math.max(24, (r[3] - r[1]) * 2.4) / s.h); return place(pg, 'sign', (r[0] + r[2]) / 2, r[3] - s.h * k / 2, { image: s.data, wh: [s.w * k, s.h * k] }); }
       const h = ui === 'check' ? r[3] - r[1] : Math.min(18, r[3] - r[1]);
       return place(pg, ui, (r[0] + r[2]) / 2, r[3] - h / 2 - (ui === 'check' ? 0 : 1), { wh: [ui === 'check' ? r[2] - r[0] : r[2] - r[0] - 4, h] }); }
     if (E.tool === 'edit') return; // עריכת טקסט קיים — ב-click (כאן הדפדפן עוד מעביר את המיקוד אחרי pointerdown)
-    if (['text', 'check', 'cross', 'date'].includes(E.tool)) { e.preventDefault(); return place(pg, E.tool, x, y); } // בלי preventDefault הדפדפן מעביר את המיקוד מהתיבה החדשה
+    if (E.tool === 'text') { e.preventDefault(); const cell = P(+pg.dataset.pg).blanks.find((b) => b.from === 'cell' && x >= b.rect[0] && x <= b.rect[2] && y >= b.rect[1] && y <= b.rect[3]);
+      if (cell && pxPlaceSnap(pg, +pg.dataset.pg, x, y, cell.rect)) return; return place(pg, E.tool, x, y); }
+    if (['check', 'cross', 'date'].includes(E.tool)) { e.preventDefault(); return place(pg, E.tool, x, y); } // בלי preventDefault הדפדפן מעביר את המיקוד מהתיבה החדשה
     if (E.tool === 'sign') { const s = await pxSignPad(); if (!s) return; const k = Math.min(130 / s.w, 48 / s.h); return place(pg, 'sign', x, y, { image: s.data, wh: [s.w * k, s.h * k] }); }
     if (E.tool === 'image') { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg'; inp.onchange = async () => { const f = inp.files[0]; if (!f) return; try { const im = await pxImageData(f); const k = Math.min(160 / im.w, 120 / im.h); place(pg, 'image', x, y, { image: im.data, wh: [im.w * k, im.h * k] }); } catch (x2) { toast(x2.message); } }; inp.click(); return; }
     if (E.tool === 'hl' || E.tool === 'erase' || E.tool === 'magic') { const d = document.createElement('div'); d.className = E.tool === 'hl' ? 'pxa k-highlight' : 'pxe' + (E.tool === 'magic' ? ' magic' : ''); pg.appendChild(d); drag = { mode: 'box', x0: x, y0: y, el: d, pg, p }; pg.setPointerCapture(e.pointerId); return; }
@@ -5630,7 +5660,7 @@ function pdfEdit(o) {
         if (last) last.points.push(pts); else { const a = { id: 'a' + uid(), page: i, ui: 'draw', kind: 'draw', rect: [0, 0, P(i).w, P(i).h], points: [pts], width: 1.5 }; E.adds.push(a); E.sel = a.id; } } drawPage(d.pg); setK(); return selBar(); }
     if (d.a && !d.moved && d.a.kind === 'text') { const t = d.pg.querySelector('.pxa[data-pa="' + d.a.id + '"] .pxt'); if (t) t.focus(); } });
   root.addEventListener('input', (e) => { const t = e.target.closest('.pxt'); if (t) { const a = E.adds.find((q) => q.id === t.parentNode.dataset.pa); if (a) { a.text = t.innerText.replace(/\n$/, ''); const pg = t.closest('.pg'), p = P(a.page), r = pg.getBoundingClientRect(), need = (t.scrollWidth + 6) / r.width * p.w;
-      if (need > a.rect[2] - a.rect[0]) { const rtl = /[֐-׿]/.test(a.text); if (rtl) a.rect[0] = Math.max(0, a.rect[2] - need); else a.rect[2] = Math.min(p.w, a.rect[0] + need); t.parentNode.style.cssText = t.parentNode.style.cssText.replace(/left:[^;]+;top:[^;]+;width:[^;]+;height:[^;]+/, pxR(a.rect, p)); }
+      if (need > a.rect[2] - a.rect[0]) { const rtl = a.align ? a.align === 'right' : /[֐-׿]/.test(a.text); if (rtl) a.rect[0] = Math.max(0, a.rect[2] - need); else a.rect[2] = Math.min(p.w, a.rect[0] + need); t.parentNode.style.cssText = t.parentNode.style.cssText.replace(/left:[^;]+;top:[^;]+;width:[^;]+;height:[^;]+/, pxR(a.rect, p)); }
       const needH = (t.scrollHeight + 2) / r.height * p.h; if (needH > a.rect[3] - a.rect[1]) { a.rect[3] = Math.min(p.h, a.rect[1] + needH); t.parentNode.style.height = ((a.rect[3] - a.rect[1]) / p.h * 100) + '%'; } } selBar(); return; }
     const w = e.target.dataset.pw; if (w != null && e.target.type === 'text') { E.form[w] = e.target.value; selBar(); } });
   root.addEventListener('change', (e) => { const t = e.target, a = E.adds.find((q) => q.id === E.sel);
@@ -5665,7 +5695,7 @@ function pdfEdit(o) {
         ocrEdits: ed.filter((x) => x.s.ocr || x.s.hidden).map((x) => ({ page: x.page, rect: rr(x.s.rect), text: x.text, size: x.s.size, baseline: r2(x.s.baseline), color: x.s.color, old: x.s.text, ...(x.s.paper ? { paper: x.s.paper } : {}) })),
         ocrLayer: E.ocrLayer ? Object.entries(E.ocr).map(([page, sp]) => ({ page: +page, lines: sp.map((x) => ({ rect: rr(x.rect), baseline: r2(x.baseline), size: x.size, text: x.text })) })) : [],
         erase: E.erase.map((x) => ({ page: x.page, rect: x.rect, ...(x.magic ? { magic: true } : {}) })), adds: E.adds.filter((a) => !(a.kind === 'text' && !String(a.text || '').trim())).map((a) => { const o = { page: a.page, kind: a.kind, rect: a.rect.map((v) => Math.round(v * 100) / 100) };
-          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; if (a.baseline != null) o.baseline = Math.round(a.baseline * 100) / 100; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
+          if (a.kind === 'text' || a.kind === 'date') { o.text = a.text; o.size = a.size; if (a.bold) o.bold = true; if (a.family && a.family !== 'sans') o.family = a.family; if (a.match != null) o.match = a.match; if (a.baseline != null) o.baseline = Math.round(a.baseline * 100) / 100; if (a.align) o.align = a.align; } if (a.color) o.color = a.color; if (a.kind === 'image') o.image = a.image; if (a.kind === 'draw') { o.points = a.points.map((s) => s.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])); o.width = a.width; } return o; }),
         form: E.form, flatten: E.flatten, compress: E.compress, pages: { ...(Object.keys(E.rot).length ? { rotate: E.rot } : {}), ...(E.del.size ? { order: keep } : {}) } };
       E.busy = true; b.disabled = true; b.textContent = 'שומר…';
       try { const res = await fetch('/api/crm/pdf/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: E.src, ops }) }); const j = await res.json().catch(() => ({}));

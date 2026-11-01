@@ -128,3 +128,21 @@ describe('סרוק מקצה לקצה (בלי Tesseract — שורות מדומו
     expect(dark).toBe(0)
   }, 30000)
 })
+
+describe('טבלה בסריקה (דן 1/11)', () => {
+  it('קווים אנכיים מהתמונה → גבולות הטבלה אינם "קווים למילוי"; תא ריק = שדה', () => {
+    const I = img(1000, 400), S = 2
+    const xs = [100, 300, 460, 620, 900], ys = [100, 140, 180, 220]
+    for (const y of ys) I.rect(xs[0]!, y, xs[4]!, y + 1)
+    for (const x of xs) I.rect(x, ys[0]!, x + 1, ys[3]! + 1)
+    const v = scanVecs({ data: I.d, w: I.w, h: I.h }, S)
+    expect(v.filter((x) => x.rect[3] - x.rect[1] > 50).length).toBe(5) // 5 עמודות
+    // טקסט בכל התאים חוץ מאחד
+    const sp: any[] = []; let id = 0
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) if (!(r === 1 && c === 1)) { const x0 = xs[c]! / S + 8, y0 = ys[r]! / S + 5; sp.push({ id: id++, text: 'x' + r + c, rect: [x0, y0, x0 + 30, y0 + 10], baseline: y0 + 8, font: 'A', size: 10, color: '#000000', bold: false, italic: false, family: 'sans', rtl: false }) }
+    const b = detectBlanks(0, 500, v, sp, [])
+    expect(b.filter((x) => x.from === 'line')).toEqual([])
+    const cells = b.filter((x) => x.from === 'cell'); expect(cells.length).toBe(1)
+    expect(Math.abs(cells[0]!.rect[0] - 151)).toBeLessThan(1.5)
+  })
+})

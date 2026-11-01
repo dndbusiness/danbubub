@@ -348,7 +348,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
           const col = a.color ? color : like ? hexColor(like.color) : color
           for (let i = 0; i < lines.length; i++) {
             const ln = lines[i] ?? ''; if (!ln.trim()) continue
-            const rtl = isRtl(ln)
+            const rtl = a.align ? a.align === 'right' : isRtl(ln) // יישור: לעמודה בטבלה (align), אחרת לפי השפה
             const exact = a.baseline != null // במקום טקסט שנמחק (מחק קסם): בדיוק על קו הבסיס והקצוות שלו
             await writeLine(ln, { left: exact ? x0 : x0 + 1, right: exact ? x1 : x1 - 1, baseline: exact ? a.baseline! + i * size * 1.25 : y0 + size * 0.92 + i * size * 1.25, size, color: col, rtl, origFont, style, avail: exact ? Math.max(W, W * 1.6) : W - 2,
               ...(likeOk ? { keep: true, k: measuredRatio(like.text, origFont, like.rect[2] - like.rect[0], like.size) } : exact ? { keep: true } : {}) })

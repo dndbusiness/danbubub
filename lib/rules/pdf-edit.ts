@@ -161,7 +161,7 @@ export function underscoreRuns(chars: PdfChar[]): { rect: Rect; size: number }[]
 
 export interface Vec { kind: 'S' | 'F'; rect: Rect }
 export type BlankKind = 'text' | 'checkbox' | 'comb' | 'signature' | 'date' | 'name' | 'id_number'
-export interface Blank { page: number; rect: Rect; kind: BlankKind; label: string; cells?: number; from: 'line' | 'box' | 'comb' | 'underscore' | 'field' }
+export interface Blank { page: number; rect: Rect; kind: BlankKind; label: string; cells?: number; from: 'line' | 'box' | 'comb' | 'underscore' | 'field' | 'cell' }
 
 const LABEL_KIND: [RegExp, BlankKind][] = [
   [/חתימ|signature/i, 'signature'],
@@ -206,16 +206,22 @@ export function detectBlanks(page: number, pageW: number, vecs: Vec[], spans: Sp
   const typical = (() => { const s = spans.map((x) => x.size).sort((a, b) => a - b); return s[Math.floor(s.length / 2)] ?? 10 })()
   const fieldH = Math.max(10, Math.min(20, typical * 1.5))
   const textOn = (r: Rect) => spans.some((s) => s.text.replace(/[_.…\s]/g, '') && overlapX(s.rect, r) > Math.min(w(r), w(s.rect)) * 0.5 && s.rect[3] >= r[1] - 4 && s.rect[3] <= r[1] + 2)
+  /* טבלאות (דן 1/11: בדף עו״ש סימן שורות שלמות): קו אופקי שקווים אנכיים חוצים אותו = גבול של טבלה, לא "קו למילוי".
+     במקום זה — תאים: בין שני גבולות אופקיים ובין שני קווים אנכיים; תא בלי טקסט = שדה (למשל עמודת זכות/חובה ריקה) */
+  const verts = vecs.map((v) => v.rect).filter((r) => w(r) <= 2.5 && h(r) >= 7)
+  const crossers = (r: Rect) => { const y = (r[1] + r[3]) / 2; return verts.filter((v) => v[0] >= r[0] - 1.5 && v[2] <= r[2] + 1.5 && v[1] <= y + 2.5 && v[3] >= y - 2.5).length }
+  const innerVerts = (r: Rect) => verts.filter((v) => v[0] > r[0] + 3 && v[2] < r[2] - 3 && Math.min(v[3], r[3]) - Math.max(v[1], r[1]) >= h(r) * 0.7).length
+  const hasText = (r: Rect) => spans.some((s) => s.text.replace(/[_.…\s]/g, '') && overlapX(s.rect, r) * overlapY(s.rect, r) > area(s.rect) * 0.3)
   // תיבות קטנות: ריבועים (סימון) ומלבנים צרים (משבצות)
   const boxes: Rect[] = []
   for (const v of vecs) {
     const r = v.rect, W = w(r), H = h(r)
     if (H <= 2 && W >= 40 && W <= pageW * 0.85) {
       const line: Rect = [r[0], r[1] - fieldH, r[2], r[1]]
-      if (!textOn(r)) out.push({ page, rect: line.map(round2) as Rect, kind: 'text', label: '', from: 'line' })
+      if (!textOn(r) && crossers(r) < 2 && !hasText(line)) out.push({ page, rect: line.map(round2) as Rect, kind: 'text', label: '', from: 'line' })
     } else if (W >= 6 && W <= 26 && H >= 6 && H <= 30) {
       if (!boxes.some((b) => iou(b, r) > 0.8)) boxes.push(r)
-    } else if (v.kind === 'S' && W >= 40 && W <= pageW * 0.85 && H >= 10 && H <= 30) {
+    } else if (v.kind === 'S' && W >= 40 && W <= pageW * 0.85 && H >= 10 && H <= 30 && !innerVerts(r)) {
       // תיבה רחבה ריקה (טופס עם מסגרת לכל שדה)
       if (!spans.some((s) => s.text.replace(/[_.…\s]/g, '') && iou(s.rect, r) > 0.3)) out.push({ page, rect: [r[0] + 1, r[1] + 1, r[2] - 1, r[3] - 1].map(round2) as Rect, kind: 'text', label: '', from: 'field' })
     }
@@ -236,14 +242,32 @@ export function detectBlanks(page: number, pageW: number, vecs: Vec[], spans: Sp
     if (!hasText) out.push({ page, rect: b.map(round2) as Rect, kind: 'checkbox', label: '', from: 'box' })
   }
   for (const u of unders) out.push({ page, rect: [u.rect[0], u.rect[3] - fieldH, u.rect[2], u.rect[3]].map(round2) as Rect, kind: 'text', label: '', from: 'underscore' })
+  // תאים ריקים בטבלה: רצועות שורה (בין קווים אופקיים של הטבלה, או רקע שורה) × עמודות (קווים אנכיים שחוצים את הרצועה)
+  const hLines = vecs.map((v) => v.rect).filter((r) => h(r) <= 2.5 && w(r) >= 40 && crossers(r) >= 2).map((r) => ({ y: (r[1] + r[3]) / 2, x0: r[0], x1: r[2] })).sort((a, b) => a.y - b.y)
+  const bands: Rect[] = []
+  for (let i = 0; i + 1 < hLines.length; i++) { const a = hLines[i]!, b = hLines[i + 1]!, gap = b.y - a.y; if (gap >= 7 && gap <= 45 && Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 40) bands.push([Math.max(a.x0, b.x0), a.y, Math.min(a.x1, b.x1), b.y]) }
+  for (const v of vecs) { const r = v.rect; if (v.kind === 'F' && w(r) >= 100 && h(r) >= 7 && h(r) <= 45 && !bands.some((b) => iou(b, r) > 0.6)) bands.push(r) }
+  const cellLabel = (c: Rect) => { const above = spans.filter((s) => s.text.trim() && overlapX(s.rect, c) > Math.min(w(c), w(s.rect)) * 0.5 && s.rect[3] <= c[1] + 1 && c[1] - s.rect[3] < 600).sort((a, b) => a.rect[1] - b.rect[1]); return above[0] ? cleanLabel(above[0].text) : '' }
+  let nCells = 0
+  for (const b of bands.sort((x, y) => x[1] - y[1])) {
+    const xs = verts.filter((v) => v[0] >= b[0] - 2 && v[2] <= b[2] + 2 && Math.min(v[3], b[3]) - Math.max(v[1], b[1]) >= h(b) * 0.7).map((v) => (v[0] + v[2]) / 2).sort((x, y) => x - y)
+    const cols: number[] = []; for (const x of [b[0], ...xs, b[2]]) if (!cols.length || x - cols[cols.length - 1]! > 3) cols.push(x)
+    if (cols.length < 3) continue
+    for (let i = 0; i + 1 < cols.length && nCells < 400; i++) {
+      const c: Rect = [cols[i]! + 1, b[1] + 1, cols[i + 1]! - 1, b[3] - 1]
+      if (w(c) < 12 || hasText(c)) continue
+      out.push({ page, rect: c.map(round2) as Rect, kind: 'text', label: cellLabel(c), from: 'cell' }); nCells++
+    }
+  }
   // כפילויות (קו גרפי + ____ באותו מקום)
   const dedup: Blank[] = []
   for (const b of out) if (!dedup.some((x) => iou(x.rect, b.rect) > 0.5)) dedup.push(b)
   for (const b of dedup) {
-    b.label = labelFor(b.rect, spans)
-    if (b.kind === 'text') { const k = kindFromLabel(b.label); if (k) b.kind = k }
+    if (b.from !== 'cell') b.label = labelFor(b.rect, spans)
+    if (b.kind === 'text' && b.from !== 'cell') { const k = kindFromLabel(b.label); if (k) b.kind = k }
   }
-  return dedup.sort((a, b) => a.rect[1] - b.rect[1] || b.rect[0] - a.rect[0]).slice(0, 200)
+  // שדה שמכסה טקסט קיים — לא שדה (הטקסט תמיד ניתן לעריכה)
+  return dedup.filter((b) => b.kind === 'checkbox' || b.from === 'comb' || !hasText(b.rect)).sort((a, b) => a.rect[1] - b.rect[1] || b.rect[0] - a.rect[0]).slice(0, 500)
 }
 
 /** הטקסט החדש ארוך מהמקום: דחיסה אופקית עד 80%, ואם לא מספיק — גם הקטנת גודל (לא מתחת ל-5pt). */
@@ -276,7 +300,7 @@ export interface EraseOp { page: number; rect: Rect; fill?: string; magic?: bool
 /** עריכה בסרוק: מוחקים את הפיקסלים (וטקסט נסתר) בתיבה, צובעים בצבע הנייר, וכותבים את החדש על קו הבסיס */
 export interface OcrEditOp { page: number; rect: Rect; text: string; size: number; baseline: number; color?: string; paper?: string; old?: string }
 export interface OcrLayerOp { page: number; lines: { rect: Rect; baseline: number; size: number; text: string }[] }
-export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean; match?: number /* span בעמוד שממנו לוקחים גופן/גודל/צבע */; baseline?: number /* קו הבסיס המדויק (במקום הטקסט שנמחק) */ }
+export interface AddOp { page: number; kind: AddKind; rect: Rect; text?: string; size?: number; color?: string; image?: string; points?: [number, number][][]; width?: number; family?: FontFamily; bold?: boolean; match?: number /* span בעמוד שממנו לוקחים גופן/גודל/צבע */; baseline?: number /* קו הבסיס המדויק (במקום הטקסט שנמחק) */; align?: 'left' | 'right' /* יישור לעמודה בטבלה */ }
 export interface PageOps { order?: number[]; rotate?: Record<string, number> }
 export interface ApplyReq { edits: EditOp[]; erase: EraseOp[]; adds: AddOp[]; form: Record<string, string | boolean>; flatten: boolean; pages: PageOps; compress: boolean; ocrEdits: OcrEditOp[]; ocrLayer: OcrLayerOp[] }
 
@@ -326,7 +350,8 @@ export function cleanApply(raw: unknown, pageCount: number): { req: ApplyReq; er
     if (k === 'text' || k === 'date') { const t = typeof a.text === 'string' ? a.text.slice(0, 4000) : ''; if (!t.trim()) continue; o.text = t; if (a.family === 'serif' || a.family === 'mono') o.family = a.family; if (a.bold) o.bold = true
       const m = num(a.match, 0, 1e6); if (m != null && Number.isInteger(m)) o.match = m
       const sz = num(a.size, 4, 72); if (sz != null) o.size = sz; else if (o.match == null) o.size = 11
-      const bl = num(a.baseline, -20000, 20000); if (bl != null) o.baseline = bl }
+      const bl = num(a.baseline, -20000, 20000); if (bl != null) o.baseline = bl
+      if (a.align === 'left' || a.align === 'right') o.align = a.align }
     if (a.color != null) { if (!/^#[0-9a-f]{6}$/i.test(String(a.color))) { errors.push('צבע לא תקין'); continue } o.color = String(a.color) }
     if (k === 'image') { const m = String(a.image ?? '').match(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/); if (!m || String(a.image).length > 6_000_000) { errors.push('תמונה לא תקינה (PNG/JPEG עד ~4MB)'); continue } o.image = String(a.image) }
     if (k === 'draw') {
