@@ -50,6 +50,12 @@ const apply = (m: ArrayLike<number>, x: number, y: number): [number, number] => 
 interface GlyphFont { font: InstanceType<MU['Font']>; map: Map<string, number> }
 interface PageScan { chars: PdfChar[]; vecs: Vec[]; imageArea: number; images: Rect[]; glyphs: Map<string, GlyphFont> }
 
+/** מזהה גופן מדויק. Chromium (וכל מה שמבוסס עליו — Winnovative, דפי בנק, ייצוא מאתרים) כותב כמה תת-קבוצות של אותו גופן
+ *  באותו שם בדיוק (AAAAAA+DejaVuSans ×3), כל אחת עם מספרי גליפים משלה. לפי שם בלבד — גליף מתת-קבוצה אחת נכתב בגופן של
+ *  אחרת: אותיות נעלמות ("זיכוי מיידי" → "יוי יידי"), רוחב שגוי ויישור שבור (דן 01/11) */
+const fontKey = (f: InstanceType<MU['Font']>) => f.getName() + '#' + String((f as unknown as { pointer?: number }).pointer ?? '')
+export const fontBase = (k: string | null) => (k ? k.replace(/#[^#]*$/, '') : null)
+
 function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   // קודם: מיקומי הגליפים הנסתרים (Tr 3 — שכבת OCR של סורק), כדי לסמן את התווים שלהם
   const hiddenAt = new Set<string>(), key = (x: number, y: number) => Math.round(x * 2) + ':' + Math.round(y * 2)
@@ -59,7 +65,7 @@ function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
   let line = -1
   page.toStructuredText('preserve-whitespace').walk({
     beginLine() { line++ },
-    onChar(c, origin, font, size, quad, color) { const o: [number, number] = [at(origin, 0), at(origin, 1)]; chars.push({ c, rect: quadRect(quad), origin: o, font: font.getName(), size, color: rgbOf(color as unknown as number[]), line, ...(hiddenAt.size && hiddenAt.has(key(o[0], o[1])) ? { hidden: true } : {}) }) },
+    onChar(c, origin, font, size, quad, color) { const o: [number, number] = [at(origin, 0), at(origin, 1)]; chars.push({ c, rect: quadRect(quad), origin: o, font: font.getName(), fk: fontKey(font), size, color: rgbOf(color as unknown as number[]), line, ...(hiddenAt.size && hiddenAt.has(key(o[0], o[1])) ? { hidden: true } : {}) }) },
   })
   const vecs: Vec[] = []
   let imageArea = 0
@@ -78,7 +84,7 @@ function scanPage(M: MU, page: InstanceType<MU['PDFPage']>): PageScan {
     fillText(text) {
       text.walk({ showGlyph(font, _trm, gid, uni) {
         if (uni <= 0 || gid <= 0) return
-        const n = font.getName(); let g = glyphs.get(n); if (!g) { g = { font, map: new Map() }; glyphs.set(n, g) }
+        const n = fontKey(font); let g = glyphs.get(n); if (!g) { g = { font, map: new Map() }; glyphs.set(n, g) }
         const ch = String.fromCodePoint(uni); if (!g.map.has(ch)) g.map.set(ch, gid)
       } })
     },
@@ -209,18 +215,34 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       const sub = (key: string) => { const res = resources(); let d = res.get(key); if (d.isNull()) { d = pdf.newDictionary(); res.put(key, d) } return d }
       const newRes = (key: string, prefix: string, ref: InstanceType<MU['PDFObject']>) => { const d = sub(key); let name: string; do { name = prefix + (++resN) } while (!d.get(name).isNull()); d.put(name, ref); return name }
       const pageW = at(page.getBounds(), 2)
+      /** הגופן המדויק של קטע טקסט: המופע שכתב את רוב התווים שלו (לא "הראשון באותו שם" בעמוד) */
+      const spanFont = (s: Span): string | null => {
+        const cnt = new Map<string, number>()
+        for (const c of scan.chars) {
+          if (!c.fk || !c.c.trim() || c.font.replace(/^[A-Z]{6}\+/, '') !== s.font) continue
+          if (c.origin[0] < s.rect[0] - 0.5 || c.origin[0] > s.rect[2] + 0.5 || Math.abs(c.origin[1] - s.baseline) > Math.max(1, s.size * 0.3)) continue
+          cnt.set(c.fk, (cnt.get(c.fk) ?? 0) + 1)
+        }
+        let best: string | null = null, n = 0
+        for (const [k, v] of cnt) if (v > n) { best = k; n = v }
+        return best ?? scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === s.font)?.fk ?? null
+      }
+      /** גופן מהמסמך שאפשר לסמוך עליו: לגליפים המוכרים יש רוחב (תוכנית גופן תקינה, לא Type3 / גליפים ריקים) */
+      const usable = (g: GlyphFont) => { const vis = [...g.map.entries()].filter(([c]) => c.trim()).slice(0, 24); return vis.length > 0 && vis.filter(([, gid]) => g.font.advanceGlyph(gid, 0) > 0).length >= vis.length * 0.8 }
 
       // לכל אות — הגופן הראשון שיש בו אותה: המקורי (גם אותיות חדשות, כשה-cmap שלו תואם למה שידוע) → אותו עיצוב (David/Frank/Miriam)
       // → Liberation באותה משפחה → DejaVu. אותיות רצופות באותו גופן = רצף אחד. כך מילה שנערכה נשארת בגופן של המסמך ככל האפשר.
       type Run = { font: InstanceType<MU['Font']>; orig: GlyphFont | null; gids: number[] }
       const planRuns = async (visual: string, origName: string | null, style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }): Promise<{ runs: Run[]; allOrig: boolean }> => {
         const chain: { font: InstanceType<MU['Font']>; orig: GlyphFont | null; gid: (c: string) => number }[] = []
-        const g = origName ? scan.glyphs.get(origName) : null
+        const g0 = origName ? scan.glyphs.get(origName) : undefined, g = g0 && usable(g0) ? g0 : null
         if (g) {
           const known = [...g.map.entries()].slice(0, 40), cmapOk = known.length >= 3 && known.every(([c, gid]) => g.font.encodeCharacter(c.codePointAt(0)!) === gid)
           chain.push({ font: g.font, orig: g, gid: (c) => g.map.get(c) ?? (cmapOk ? g.font.encodeCharacter(c.codePointAt(0)!) : 0) })
+          // תת-קבוצות אחרות של אותו גופן בעמוד — אות שחסרה בקטע הזה נמצאת לרוב בקטע אחר באותו עיצוב בדיוק
+          for (const [k, o] of scan.glyphs) if (o !== g && fontBase(k) === fontBase(origName) && usable(o)) chain.push({ font: o.font, orig: o, gid: (c) => o.map.get(c) ?? 0 })
         }
-        for (const file of [...designFiles(origName, style.bold), fallbackFile(style), 'DejaVuSans.ttf']) { const f = await getFallback(file); chain.push({ font: f, orig: null, gid: (c) => f.encodeCharacter(c.codePointAt(0)!) }) }
+        for (const file of [...designFiles(fontBase(origName), style.bold), fallbackFile(style), 'DejaVuSans.ttf']) { const f = await getFallback(file); chain.push({ font: f, orig: null, gid: (c) => f.encodeCharacter(c.codePointAt(0)!) }) }
         // מילה שלמה באותו גופן (לא מערבבים גופנים בתוך מילה): הראשון בשרשרת שיש בו את כל אותיות המילה; רווח — ברצף הנוכחי
         const runs: Run[] = []
         const push = (link: (typeof chain)[number], c: string) => {
@@ -238,7 +260,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       }
       /** רוחב הטקסט הישן כפי שהגופן המקורי היה כותב אותו ↔ הרוחב בפועל (מרווח בין אותיות / דחיסה במקור) */
       const measuredRatio = (oldText: string, origName: string | null, actual: number, size: number) => {
-        const g = origName ? scan.glyphs.get(origName) : null, vis = [...(isRtl(oldText) ? logicalToVisual(oldText) : oldText)]
+        const g0 = origName ? scan.glyphs.get(origName) : undefined, g = g0 && usable(g0) ? g0 : null, vis = [...(isRtl(oldText) ? logicalToVisual(oldText) : oldText)]
         if (!g || !vis.length || !vis.every((c) => g.map.has(c))) return 1
         return widthRatio(actual, vis.reduce((sum, c) => sum + g.font.advanceGlyph(g.map.get(c)!, 0), 0) * size)
       }
@@ -259,7 +281,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
       // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס
       // שורת טקסט אחת: x = קצה שמאלי (במרחב העמוד), y = קו הבסיס.
       // keep — עריכה / "באותו סגנון": אותו גודל תמיד (לא מקטינים ולא דוחסים); k — יחס הרוחב שנמדד מהמקור
-      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean; keep?: boolean; k?: number }) => {
+      const writeLine = async (text: string, o: { left: number; right: number; baseline: number; size: number; color: [number, number, number]; rtl: boolean; align?: 'left' | 'right' | 'center'; origFont: string | null; style: { family: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean }; avail: number; invisible?: boolean; keep?: boolean; k?: number }) => {
         const visual = isRtl(text) ? logicalToVisual(text) : text
         const { runs, allOrig } = await planRuns(visual, o.origFont, o.style)
         const advOf = (r: Run) => r.gids.reduce((s, g) => s + r.font.advanceGlyph(g, 0), 0)
@@ -270,7 +292,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         else if (!o.keep) { const f = fitText(adv * size * scale, o.avail, size); size = f.size; scale *= f.scale }
         else if (adv * size * scale > o.avail + 0.5) warnings.push(`עמוד ${pi + 1}: "${text.slice(0, 30)}" ארוך מהמקום — נכתב באותו גודל וחורג ב-${Math.round(adv * size * scale - o.avail)}pt`)
         const width = adv * size * scale
-        let x = o.rtl ? o.right - width : o.left
+        let x = o.align === 'center' ? (o.left + o.right - width) / 2 : (o.align ? o.align === 'right' : o.rtl) ? o.right - width : o.left
         for (const r of runs) {
           const trm = M.Matrix.concat([size * scale, 0, 0, -size, x, o.baseline], inv)
           ops.push(`BT /${fontRes(r.font, r.orig)} 1 Tf ${o.invisible ? '3 Tr' : rg(o.color) + ' rg'} ${mat(trm)} Tm <${r.gids.map((g) => g.toString(16).padStart(4, '0')).join('')}> Tj ET`)
@@ -327,11 +349,13 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
         const rtl = isRtl(text) || (s.rtl && !/[A-Za-z]/.test(text))
         const sameLine = spans.filter((o) => o !== s && o.rect[1] < s.baseline && o.rect[3] > s.baseline - s.size * 0.5)
         const w0 = s.rect[2] - s.rect[0], cap = Math.max(w0 * 1.6, w0 + 60)
-        const avail = rtl
-          ? Math.min(cap, s.rect[2] - Math.max(14, ...sameLine.filter((o) => o.rect[2] <= s.rect[0] + 1).map((o) => o.rect[2] + 3)))
-          : Math.min(cap, Math.min(pageW - 14, ...sameLine.filter((o) => o.rect[0] >= s.rect[2] - 1).map((o) => o.rect[0] - 3)) - s.rect[0])
-        const origFont = scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === s.font)?.font ?? null
-        await writeLine(text, { left: s.rect[0], right: s.rect[2], baseline: s.baseline, size: s.size, color: hexColor(s.color), rtl, origFont, style: fontStyle(s.font), avail: Math.max(avail, w0), keep: true, k: measuredRatio(s.text, origFont, w0, s.size) })
+        // יישור: כמו העמודה של הקטע המקורי (מספר בטבלה בעברית — לימין), אחרת לפי השפה של הטקסט החדש
+        const align = s.align ?? (rtl ? 'right' : 'left')
+        const lim0 = Math.max(14, ...sameLine.filter((o) => o.rect[2] <= s.rect[0] + 1).map((o) => o.rect[2] + 3)), lim1 = Math.min(pageW - 14, ...sameLine.filter((o) => o.rect[0] >= s.rect[2] - 1).map((o) => o.rect[0] - 3))
+        const mid = (s.rect[0] + s.rect[2]) / 2
+        const avail = Math.min(cap, align === 'right' ? s.rect[2] - lim0 : align === 'left' ? lim1 - s.rect[0] : 2 * Math.min(mid - lim0, lim1 - mid))
+        const origFont = spanFont(s)
+        await writeLine(text, { left: s.rect[0], right: s.rect[2], baseline: s.baseline, size: s.size, color: hexColor(s.color), rtl, align, origFont, style: fontStyle(s.font), avail: Math.max(avail, w0), keep: true, k: measuredRatio(s.text, origFont, w0, s.size) })
       }
 
       // 4. תוספות
@@ -344,7 +368,7 @@ export async function applyPdf(bytes: Uint8Array, req: ApplyReq): Promise<ApplyR
           const like = a.match != null ? spans[a.match] : undefined, likeOk = like && !like.hidden
           const size = a.size ?? like?.size ?? 11, lines = String(a.text ?? '').split(/\r?\n/).slice(0, 80)
           const style = likeOk ? fontStyle(like.font) : { family: a.family ?? 'sans', bold: !!a.bold, italic: false }
-          const origFont = likeOk ? scan.chars.find((c) => c.font.replace(/^[A-Z]{6}\+/, '') === like.font)?.font ?? null : null
+          const origFont = likeOk ? spanFont(like) : null
           const col = a.color ? color : like ? hexColor(like.color) : color
           for (let i = 0; i < lines.length; i++) {
             const ln = lines[i] ?? ''; if (!ln.trim()) continue

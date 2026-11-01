@@ -5532,8 +5532,10 @@ function pdfEdit(o) {
     else if (E.sel && E.sel.startsWith('s:')) { h = '<b>טקסט קיים</b><span class="hint">כותבים ומקישים Enter · ריק = מחיקה</span><button type="button" class="btn small ghost" data-px="undo">↺ החזר למקור</button><span class="grow"></span>'; }
     el.innerHTML = h + '<span class="hint num">' + (n ? n + ' שינויים' : 'אין שינויים') + '</span>';
   };
+  // יישור הקטע בעמודה שלו (מהשרת — מספר בטבלה בעברית מיושר לימין): העריכה גדלה לאותו כיוון כמו בקובץ שנשמר
+  const pxAl = (s) => s.align || (s.rtl ? 'right' : 'left');
   const spanEl = (p, s) => { const k = p + ':' + s.id, ed = Object.prototype.hasOwnProperty.call(E.edits, k), d = document.createElement('div');
-    d.className = 'pxs' + (ed ? ' ed' : '') + (s.ocr || s.hidden ? ' ocr' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + (s.rtl ? 'right' : 'left') + (ed && s.paper ? ';background:' + s.paper : '');
+    d.className = 'pxs' + (ed ? ' ed' : '') + (s.ocr || s.hidden ? ' ocr' : ''); d.dataset.ps = k; d.style.cssText = pxR([s.rect[0] - 0.5, s.rect[1] - 0.5, s.rect[2] + 0.5, s.rect[3] + 0.5], P(p)) + ';font-family:\'' + pxFam(s) + '\',Arial,sans-serif;font-size:calc(var(--k) * ' + s.size + 'px);color:' + s.color + ';direction:' + (s.rtl ? 'rtl' : 'ltr') + ';text-align:' + pxAl(s) + ';justify-content:' + (pxAl(s) === 'center' ? 'center' : (pxAl(s) === 'right') === !!s.rtl ? 'flex-start' : 'flex-end') + (ed && s.paper ? ';background:' + s.paper : '');
     if (ed) d.textContent = E.edits[k]; return d; };
   const addEl = (a) => { const d = document.createElement('div'); d.className = 'pxa k-' + a.kind + (E.sel === a.id ? ' sel' : ''); d.dataset.pa = a.id; d.style.cssText = pxR(a.rect, P(a.page));
     if (a.kind === 'text' || a.kind === 'date') { d.style.fontSize = 'calc(var(--k) * ' + a.size + 'px)'; d.style.fontFamily = "'" + pxFam(a) + "',Arial,sans-serif"; d.style.color = a.color || '#111827'; d.dir = 'auto';
@@ -5629,14 +5631,14 @@ function pdfEdit(o) {
     const s = p.spans.filter((x) => x.text.trim() && ov(x) > 0).sort((a, b) => ov(b) - ov(a))[0];
     if (s) { const a = { id: 'a' + uid(), page: i, ui: 'text', kind: 'text', text: '', rect: [Math.min(s.rect[0], r[0]), s.rect[1] - s.size * 0.15, Math.max(s.rect[2], r[2]), s.rect[3] + s.size * 0.1], baseline: s.baseline, magicOf: s.text.slice(0, 30) };
       pxTakeStyle(a, s, p); /* הקצה של הטקסט המקורי (ימין בעברית, שמאל באנגלית) — בדיוק במקומו; לצד השני יש מקום להתארך */
-      a.align = s.rtl ? 'right' : 'left'; a.ax = s.rtl ? s.rect[2] : s.rect[0]; a.baseline = s.baseline; a.w0 = Math.max(s.rect[2] - s.rect[0], r[2] - r[0]); pxFit(a);
+      a.align = pxAl(s) === 'left' ? 'left' : 'right'; a.ax = a.align === 'right' ? s.rect[2] : s.rect[0]; a.baseline = s.baseline; a.w0 = Math.max(s.rect[2] - s.rect[0], r[2] - r[0]); pxFit(a);
       E.adds.push(a); E.sel = a.id; drawPage(pg); setK(); selBar(); const t = pg.querySelector('[data-pa="' + a.id + '"] .pxt'); if (t) t.focus();
       toast('נמחק — כתוב במקום, באותו גופן ' + s.size + 'pt' + (p.scanned && !s.ocr && !s.hidden ? '' : '')); return; }
     drawPage(pg); setK(); selBar(); toast(p.scanned && !p.spans.length ? 'נמחק. כדי לכתוב במקום באותו גודל וצבע — הפעל קודם 🔎 OCR' : 'נמחק — הרקע נשאר'); };
   const ptOf = (pg, e) => { const r = pg.getBoundingClientRect(), p = P(+pg.dataset.pg); return [(e.clientX - r.left) / r.width * p.w, (e.clientY - r.top) / r.height * p.h]; };
   // עריכת טקסט קיים: input במקום, באותו גופן/גודל/צבע
   const editSpan = (el) => { const k = el.dataset.ps, sp = spanOf(k); if (!sp) return;
-    E.sel = 's:' + k; selBar(); el.classList.add('ed', 'on'); const inp = document.createElement('input'); inp.className = 'pxin'; inp.value = Object.prototype.hasOwnProperty.call(E.edits, k) ? E.edits[k] : sp.text; inp.dir = sp.rtl ? 'rtl' : 'ltr'; if (sp.paper) inp.style.background = sp.paper;
+    E.sel = 's:' + k; selBar(); el.classList.add('ed', 'on'); const inp = document.createElement('input'); inp.className = 'pxin'; inp.value = Object.prototype.hasOwnProperty.call(E.edits, k) ? E.edits[k] : sp.text; inp.dir = sp.rtl ? 'rtl' : 'ltr'; inp.style.textAlign = pxAl(sp); if (sp.paper) inp.style.background = sp.paper;
     el.textContent = ''; el.appendChild(inp); inp.focus(); inp.select();
     let done = false; // הסרת השדה מפעילה blur — שלא ירוץ פעמיים
     const fin = (keep) => { if (done || !inp.isConnected) return; done = true; const v = inp.value.replace(/\s+/g, ' ').trim(); if (keep && v !== sp.text) E.edits[k] = v; else if (keep && v === sp.text) delete E.edits[k]; el.classList.remove('on'); drawPage(el.closest('.pg')); setK(); selBar(); };

@@ -1,0 +1,8 @@
+// קובץ בדיקה סינתטי (נתונים מומצאים): טבלה בעברית ב-DejaVu, מודפסת ב-Chromium — כמו ייצוא PDF מאתרים (Winnovative וכו'):
+// כמה תת-קבוצות של אותו גופן באותו שם בדיוק. הרצה: CHROMIUM=/opt/pw-browsers/chromium node tests/fixtures/pdfedit/make-chromium-subsets.mjs
+import { chromium } from 'playwright'
+import { readFileSync, writeFileSync } from 'node:fs'
+const f = readFileSync(new URL('../../../assets/fonts/DejaVuSans.ttf', import.meta.url)).toString('base64')
+const rows = [['01/01/2030','משיכת מזומן 100','','4000','0','111111'],['01/01/2030','עמלת פעולה בערוץ ישיר','','28.8','5431.09','2222'],['10/01/2030','כרטיס אשראי - 1234','','1180','5551.09','3333'],['10/01/2030','זיכוי מיידי','184','','366.69','444444'],['26/01/2030','העברה מחשבון אחר','240','','606.69','555555']]
+const html = `<html dir="rtl"><head><style>@font-face{font-family:DV;src:url(data:font/ttf;base64,${f})} body{font-family:DV;font-size:13px} table{border-collapse:collapse;width:90%;margin:80px auto} td,th{border:1px solid #ddd;padding:10px 6px;text-align:right} tr:nth-child(even){background:#f0f4f7} th{background:#cfdbe0}</style></head><body><h2>תנועות בחשבון</h2><table><tr><th>תאריך</th><th>תיאור</th><th>זכות</th><th>חובה</th><th>יתרה</th><th>אסמכתא</th></tr>${rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')}</table></body></html>`
+const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}); const p = await b.newPage(); await p.setContent(html); writeFileSync(new URL('chromium-subsets.pdf', import.meta.url), await p.pdf({ width: '1024px', height: '1123px', printBackground: true })); await b.close()

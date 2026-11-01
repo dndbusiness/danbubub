@@ -15,6 +15,7 @@ export interface PdfChar {
   c: string
   rect: Rect          // תיבת התו
   origin: [number, number] // נקודת קו הבסיס
+  fk?: string         // מזהה הגופן המדויק (שם + מופע): כמה תת-קבוצות באותו שם הן גופנים שונים
   font: string
   size: number
   color: [number, number, number] // 0..1
@@ -34,6 +35,7 @@ export interface Span {
   italic: boolean
   family: FontFamily
   rtl: boolean
+  align?: TextAlign   // יישור הקטע בעמודה שלו (טבלה) — עריכה שומרת עליו
   hidden?: boolean    // טקסט נסתר (שכבת OCR של סורק) — עריכה = מחיקת הפיקסלים שמתחת, לא רק הגליפים
   paper?: string      // בסרוק: צבע הנייר סביב הטקסט (לצביעה אחרי מחיקת הפיקסלים)
 }
@@ -138,7 +140,34 @@ export function groupSpans(chars: PdfChar[]): Span[] {
     }
     flush(run)
   }
-  return out
+  return alignSpans(out)
+}
+
+export type TextAlign = 'left' | 'right' | 'center'
+const NUMERIC = /^[\d\s.,\-+−₪$€%/:()']+$/
+/**
+ * יישור כל קטע לפי העמודה שלו: קטעים אחרים מעליו/מתחתיו שחופפים לו ברוחב — אם הקצוות הימניים שלהם בקו אחד איתו,
+ * העמודה מיושרת לימין (טבלה בעברית: גם מספרים). בלי שכנים / תיקו — לפי השפה, ובמסמך עברי מספר = ימין.
+ * כך "4000" → "11800" גדל שמאלה ונשאר צמוד לקצה התא, ולא נשפך לעמודה הבאה (דן 01/11).
+ */
+export function alignSpans(spans: Span[]): Span[] {
+  const vis = spans.filter((s) => !s.hidden && /\p{L}/u.test(s.text)), pageRtl = vis.filter((s) => s.rtl).length > vis.length / 2
+  for (const s of spans) {
+    if (s.hidden) continue
+    const w = s.rect[2] - s.rect[0], mid = (s.rect[0] + s.rect[2]) / 2, tol = Math.max(1.2, s.size * 0.12)
+    let L = 0, R = 0, C = 0
+    for (const t of spans) {
+      if (t === s || t.hidden || Math.abs(t.baseline - s.baseline) < s.size * 0.5) continue
+      const ov = Math.min(s.rect[2], t.rect[2]) - Math.max(s.rect[0], t.rect[0])
+      if (ov <= Math.min(w, t.rect[2] - t.rect[0]) * 0.3) continue
+      const l = Math.abs(t.rect[0] - s.rect[0]) < tol, r = Math.abs(t.rect[2] - s.rect[2]) < tol, c = Math.abs((t.rect[0] + t.rect[2]) / 2 - mid) < tol
+      if (l && r) continue // אותו רוחב בדיוק (תאריכים) — לא מלמד כלום
+      if (l) L++; if (r) R++; if (c && !l && !r) C++
+    }
+    const lang: TextAlign = s.rtl || (pageRtl && NUMERIC.test(s.text)) ? 'right' : 'left'
+    s.align = R > L && R >= C ? 'right' : L > R && L >= C ? 'left' : C > Math.max(L, R) ? 'center' : lang
+  }
+  return spans
 }
 
 /** רצפי ____ / ...... / ‥‥ בתוך השורות — מקום למילוי (בטפסים שמודפסים בלי קווים גרפיים). */

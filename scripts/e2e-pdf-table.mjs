@@ -85,6 +85,28 @@ try {
   assert(nt && Math.abs(nt.rect[2] - q.ax) < 0.6 && Math.abs(nt.baseline - q.base) < 0.4, `בקובץ: "הערה 123" בדיוק בנקודה (${nt && nt.rect[2].toFixed(2)} מול ${q.ax.toFixed(2)}, קו בסיס ${nt && nt.baseline.toFixed(2)} מול ${q.base.toFixed(2)})`)
   assert(Math.abs(prev.x1 - nt.rect[2]) < 1.2 && Math.abs(prev.x0 - nt.rect[0]) < 1.5, `מה שרואים בעורך = מה שנכתב (תצוגה ${prev.x0.toFixed(1)}–${prev.x1.toFixed(1)}, קובץ ${nt.rect[0].toFixed(1)}–${nt.rect[2].toFixed(1)})`)
   if (OUT) await page.screenshot({ path: path.join(OUT, 'table-saved.png') })
+
+  // דן 01/11 ("העריכה יוצאת על הפנים"): קובץ מ-Chromium (כמו ייצוא מאתר בנק) — כמה תת-קבוצות של DejaVu באותו שם.
+  // עריכת מספר בעמודה מיושרת לימין: בעורך ובקובץ הוא גדל שמאלה, צמוד לקצה התא, וכל האותיות נשארות
+  step('קובץ מ-Chromium: עריכת מספר בעמודה מיושרת לימין')
+  await page.goto(BASE + '/crm?key=' + encodeURIComponent(env.APP_PASSWORD || '')); await page.waitForFunction('typeof S !== "undefined" && S.ready', null, { timeout: 60000 })
+  await page.evaluate(() => go('pdfedit')); await page.waitForSelector('input[data-pxup]', { state: 'attached' })
+  await page.setInputFiles('input[data-pxup]', { name: 'ייצוא.pdf', mimeType: 'application/pdf', buffer: readFileSync('tests/fixtures/pdfedit/chromium-subsets.pdf') })
+  await page.waitForFunction(() => S.px && S.px.A && S.px.doc && document.querySelectorAll('#pxEd .pxs').length > 8, null, { timeout: 30000 }); await page.waitForTimeout(600)
+  const c0 = await page.evaluate(() => { const s = S.px.A.pages[0].spans.find((x) => x.text === '4000'), h = S.px.A.pages[0].spans.find((x) => x.text === 'זיכוי מיידי'); return { id: s.id, r: s.rect, al: s.align, hid: h.id, hr: h.rect } })
+  assert(c0.al === 'right', 'העמודה זוהתה כמיושרת לימין')
+  await page.click('#pxEd .pxs[data-ps="0:' + c0.id + '"]'); await page.fill('#pxEd .pxin', '11800'); await page.keyboard.press('Enter')
+  await page.click('#pxEd .pxs[data-ps="0:' + c0.hid + '"]'); await page.fill('#pxEd .pxin', 'זיכוי מיידי מהיר'); await page.keyboard.press('Enter')
+  const cv = await page.evaluate((id) => { const t = document.querySelector('#pxEd .pxs[data-ps="0:' + id + '"]'), rg = document.createRange(); rg.selectNodeContents(t); const b = rg.getBoundingClientRect(), pg = t.closest('.pg').getBoundingClientRect(), p = S.px.A.pages[0]; return { x0: (b.left - pg.left) / pg.width * p.w, x1: (b.right - pg.left) / pg.width * p.w } }, c0.id)
+  assert(Math.abs(cv.x1 - c0.r[2]) < 1.2 && cv.x0 < c0.r[0], `בעורך: "11800" גדל שמאלה וצמוד לקצה התא (${cv.x0.toFixed(1)}–${cv.x1.toFixed(1)}, קצה ${c0.r[2].toFixed(1)})`)
+  await page.click('#pxEd [data-px="save"]')
+  await page.waitForFunction(() => S.px.saved && !S.px.busy && document.querySelector('#pxSel a.btn'), null, { timeout: 60000 })
+  const w2 = await page.evaluate(() => (S.px.saved.checks && S.px.saved.checks.warnings) || [])
+  const A2 = await (await page.request.post(BASE + '/api/crm/pdf/analyze', { data: { src: { file: (await page.getAttribute('#pxSel a.btn', 'href')).split('/').pop() } } })).json()
+  const n2 = A2.pages[0].spans.find((x) => x.text === '11800'), h2 = A2.pages[0].spans.find((x) => x.text === 'זיכוי מיידי מהיר')
+  assert(n2 && Math.abs(n2.rect[2] - c0.r[2]) < 0.3 && h2 && Math.abs(h2.rect[2] - c0.hr[2]) < 0.3 && !w2.length,
+    `בקובץ: "11800" ו"זיכוי מיידי מהיר" שלמים, באותו קצה ימני (${n2 && n2.rect[2].toFixed(2)} מול ${c0.r[2].toFixed(2)}), בלי אזהרות`)
+  if (OUT) await page.screenshot({ path: path.join(OUT, 'chromium-saved.png') })
   assert(!errs.length, 'בלי שגיאות בדף' + (errs.length ? ': ' + errs.join(' | ') : ''))
   console.log('\nטבלה בעורך — הכל עבר')
 } catch (e) { console.error(e); process.exitCode = 1 } finally { await b.close() }
