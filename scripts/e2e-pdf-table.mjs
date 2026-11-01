@@ -57,6 +57,22 @@ try {
   const ref = await page.evaluate(() => { const S0 = S.px.A.pages[0].spans; return { row: S0.find((x) => x.text === '28.80'), col: S0.find((x) => x.text === '13524') } })
   assert(a.align === 'right' && a.size === ref.col.size && Math.abs(a.base - ref.row.baseline) < 0.01, `התיבה: מיושרת ${a.align}, ${a.size}pt, על קו הבסיס של השורה`)
 
+  step('מקום ריק בדף: הלחיצה = נקודת ההתחלה; מיקום במ״מ; Alt+חיצים; מה שרואים = מה שנכתב')
+  await page.click('#pxEd [data-pxt="text"]')
+  const P = await page.evaluate(() => S.px.A.pages[0]), box = await page.locator('#pxEd .pg').first().boundingBox()
+  const at = (x, y) => [box.x + x / P.w * box.width, box.y + y / P.h * box.height]
+  await page.mouse.click(...at(400, 420)); await page.keyboard.type('הערה 123')
+  let q = await page.evaluate(() => { const a = S.px.adds[S.px.adds.length - 1]; return { ax: a.ax, base: a.baseline, align: a.align } })
+  assert(Math.abs(q.ax - 400) < 0.6 && q.align === 'right', 'הטקסט מתחיל בדיוק בנקודה שנלחצה (מימין)')
+  await page.fill('#pxPosX', '70'); await page.dispatchEvent('#pxPosX', 'change'); await page.fill('#pxPosY', '150'); await page.dispatchEvent('#pxPosY', 'change')
+  await page.focus('#pxEd .pxa.sel .pxt'); await page.keyboard.press('Alt+ArrowLeft'); await page.keyboard.press('Alt+ArrowLeft')
+  q = await page.evaluate(() => { const a = S.px.adds[S.px.adds.length - 1]; return { ax: a.ax, base: a.baseline } })
+  const wantX = P.w - 70 / (25.4 / 72) - 1, wantY = 150 / (25.4 / 72)
+  assert(Math.abs(q.ax - wantX) < 0.05 && Math.abs(q.base - wantY) < 0.05, `מיקום: 70 מ״מ מימין, 150 מ״מ מלמעלה, ועוד 1pt שמאלה בחיצים (${q.ax.toFixed(2)}, ${q.base.toFixed(2)})`)
+  const prev = await page.evaluate(() => { const t = document.querySelector('#pxEd .pxa.sel .pxt'), rg = document.createRange(); rg.selectNodeContents(t); const b = rg.getBoundingClientRect(), pg = t.closest('.pg').getBoundingClientRect(), p = S.px.A.pages[0]; return { x1: (b.right - pg.left) / pg.width * p.w, x0: (b.left - pg.left) / pg.width * p.w } })
+
+  if (OUT) await page.screenshot({ path: path.join(OUT, 'table-position.png') })
+
   step('שמירה ובדיקה בקובץ')
   await page.click('#pxEd [data-px="save"]')
   await page.waitForFunction(() => S.px.saved && !S.px.busy && document.querySelector('#pxSel a.btn'), null, { timeout: 60000 })
@@ -65,6 +81,9 @@ try {
   const n = A.pages[0].spans.find((x) => x.text === '1000.00')
   assert(n && Math.abs(n.baseline - ref.row.baseline) < 0.3 && Math.abs(n.rect[2] - ref.col.rect[2]) < 0.8 && Math.abs(n.size - ref.col.size) < 0.1 && n.font.replace(/-\d+$/, '') === ref.col.font.replace(/-\d+$/, ''),
     `בקובץ: "1000.00" בשורה הנכונה, מיושר לקצה העמודה (${n && n.rect[2]} מול ${ref.col.rect[2]}), ${n && n.size}pt, ${n && n.font}`)
+  const nt = A.pages[0].spans.find((x) => x.text === 'הערה 123')
+  assert(nt && Math.abs(nt.rect[2] - q.ax) < 0.6 && Math.abs(nt.baseline - q.base) < 0.4, `בקובץ: "הערה 123" בדיוק בנקודה (${nt && nt.rect[2].toFixed(2)} מול ${q.ax.toFixed(2)}, קו בסיס ${nt && nt.baseline.toFixed(2)} מול ${q.base.toFixed(2)})`)
+  assert(Math.abs(prev.x1 - nt.rect[2]) < 1.2 && Math.abs(prev.x0 - nt.rect[0]) < 1.5, `מה שרואים בעורך = מה שנכתב (תצוגה ${prev.x0.toFixed(1)}–${prev.x1.toFixed(1)}, קובץ ${nt.rect[0].toFixed(1)}–${nt.rect[2].toFixed(1)})`)
   if (OUT) await page.screenshot({ path: path.join(OUT, 'table-saved.png') })
   assert(!errs.length, 'בלי שגיאות בדף' + (errs.length ? ': ' + errs.join(' | ') : ''))
   console.log('\nטבלה בעורך — הכל עבר')
