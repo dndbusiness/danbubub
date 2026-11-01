@@ -133,6 +133,11 @@ export function scanVecs(img: Gray, scale: number, dark = 150): Vec[] {
   }
   // קווים ארוכים שאינם צלע של מלבן (צלע עליונה הייתה מציעה שדה מעל התיבה)
   for (const s of segs) if (!edges.has(s) && (s.x1 - s.x0) / scale >= 40) out.push({ kind: 'S', rect: [pt(s.x0), pt(s.y0), pt(s.x1 + 1), pt(s.y1 + 1)] })
+  // קווים אנכיים (עמודות של טבלה בסריקה) — אותו חיפוש על התמונה המסובבת; מ-10pt ומעלה (לא קווים של אותיות)
+  const T = new Uint8Array(img.w * img.h)
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) T[x * img.h + y] = img.data[y * img.w + x]!
+  for (const s of hSegments({ data: T, w: img.h, h: img.w }, Math.round(10 * scale), dark, Math.max(3, Math.round(2.2 * scale))))
+    out.push({ kind: 'S', rect: [pt(s.y0), pt(s.x0), pt(s.y1 + 1), pt(s.x1 + 1)] })
   return out
 }
 

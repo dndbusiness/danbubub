@@ -322,3 +322,28 @@ describe('מחק קסם (דן 31/10: "כמו בקאנווה — מזהה את ה
     expect(out).toEqual(px(src, 20, 20))
   }, 30000)
 })
+
+describe('טבלה בדף עו״ש (דן 1/11: "לא מזהה את הכל — אני צריך לבחור איפה להזין")', () => {
+  it('גבולות הטבלה אינם "קווים למילוי"; תא ריק = שדה עם הכותרת של העמודה; שדה לא מכסה טקסט', async () => {
+    const d = await PDFDocument.create(); d.registerFontkit(fontkit)
+    const f = await d.embedFont(readFileSync('assets/fonts/liberation/LiberationSans-Regular.ttf'), { subset: true }), p = d.addPage([595, 842])
+    const cols = [60, 160, 240, 320, 520] // סכום | חובה | זכות | תיאור  (מימין לשמאל: תיאור, זכות, חובה, יתרה)
+    const top = 700, rh = 20, rows = [['יתרה', 'חובה', 'זכות', 'תיאור'], ['5431.09', '28.80', '', 'עמלת פעולה'], ['7155.00', '', '13524', 'זיכוי מיידי'], ['606.69', '', '240', 'זיכוי מבל"ל']]
+    for (let i = 0; i <= rows.length; i++) p.drawLine({ start: { x: cols[0]!, y: top - i * rh }, end: { x: cols[4]!, y: top - i * rh }, thickness: 0.6 })
+    for (const x of cols) p.drawLine({ start: { x, y: top }, end: { x, y: top - rows.length * rh }, thickness: 0.6 })
+    rows.forEach((r, i) => r.forEach((t, j) => { if (!t) return; const x1 = cols[j + 1]! - 4, y = top - i * rh - 14; drawHe(p, f, t, x1 - f.widthOfTextAtSize(t, 10), y, 10) }))
+    const A = await analyzePdf(await d.save()), b = A.pages[0]!.blanks
+    expect(b.filter((x) => x.from === 'line')).toEqual([])
+    const cells = b.filter((x) => x.from === 'cell')
+    expect(cells.length).toBe(3) // זכות בשורה 1, חובה בשורות 2-3
+    expect(cells.map((c) => c.label).sort()).toEqual(['זכות', 'חובה', 'חובה'])
+    const sp = A.pages[0]!.spans
+    for (const c of b) expect(sp.some((s) => s.rect[0] < c.rect[2] - 2 && c.rect[0] < s.rect[2] - 2 && s.rect[1] < c.rect[3] - 2 && c.rect[1] < s.rect[3] - 2)).toBe(false)
+  }, 30000)
+  it('align: מספר בעמודה מיושרת לימין — נכתב צמוד לקצה הימני של התיבה', async () => {
+    const d = await PDFDocument.create(); d.addPage([300, 100]); const src = await d.save()
+    const r = await applyPdf(src, cleanApply({ adds: [{ page: 0, kind: 'text', rect: [100, 40, 200, 56], text: '13524', size: 10, baseline: 52, align: 'right' }] }, 1).req)
+    const s = (await analyzePdf(r.bytes)).pages[0]!.spans.find((x) => x.text === '13524')!
+    expect(Math.abs(s.rect[2] - 200)).toBeLessThan(0.8); expect(Math.abs(s.baseline - 52)).toBeLessThan(0.3)
+  }, 30000)
+})
