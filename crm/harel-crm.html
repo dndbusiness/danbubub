@@ -406,6 +406,26 @@ tr.lc-n { --lc: var(--lc-n); --lc-bar: var(--lc-n-bar); } span.lc-n { --lc: var(
 tr.flash > td { animation: flashrow 2s ease-out; } @keyframes flashrow { 0% { box-shadow: inset 0 0 0 2px var(--brand-accent); } 100% { box-shadow: none; } }
 #cbbar { position: fixed; top: 12px; inset-inline: 12px; z-index: 70; max-width: 720px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--expected-bg); border: 1px solid var(--expected); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow-pop); }
 #cbbar > .hint { flex: 1 1 auto; }
+/* שיחות חזרה: יומן היום + התראה על מסך מלא */
+ol.calls { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+ol.calls > li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-inline-start: 4px solid var(--committed); border-radius: 10px; background: var(--surface, transparent); }
+ol.calls > li .time { font-weight: 700; font-size: 16px; min-width: 48px; }
+ol.calls > li.c-late, ol.calls > li.c-soon { border-inline-start-color: var(--open); }
+ol.calls > li.c-done { border-inline-start-color: var(--actual); opacity: .75; }
+ol.calls > li.c-cancelled { border-inline-start-color: var(--locked); opacity: .65; }
+ol.calls > li.c-cancelled b { text-decoration: line-through; }
+#callpop { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--committed) 88%, #000); color: #fff; }
+#callpop.now { background: color-mix(in srgb, var(--open) 90%, #000); }
+#callpop .cpin { width: min(640px, 100%); text-align: center; display: grid; gap: 10px; justify-items: center; }
+#callpop h1 { font-size: clamp(28px, 7vw, 52px); margin: 0; line-height: 1.15; color: #fff; }
+#callpop .cpwhen { font-size: clamp(18px, 4vw, 26px); font-weight: 700; }
+#callpop .cpphone { font-size: clamp(22px, 5vw, 34px); direction: ltr; }
+#callpop .cpnote { font-size: 18px; margin: 0; opacity: .95; }
+#callpop .cpbtns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
+#callpop .btn { font-size: 16px; padding: 10px 16px; }
+#callpop .btn:not(.ghost):not(.primary) { color: var(--text); background: var(--surface); }
+#callpop .btn.ghost { color: #fff; box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 55%, transparent); }
+#callpop .cpok { color: #fff; margin-top: 6px; }
 .kv.wrap th, .kv.wrap td { white-space: normal; }
 /* שדות ותוויות לא דוחפים את המסך לרוחב בנייד (רשימת נמענים ארוכה, קישור ארוך בצ׳קליסט) */
 .fl select.f, .fl input.f { max-width: 100%; min-width: 0; }
@@ -2185,7 +2205,7 @@ function vDay() {
   const sq = '<div class="lkpis dsq">' + lkpi('alert', 'משימות דחופות', '<span class="num">' + urgent.length + '</span>', urgent.length ? urgent.slice(0, 2).map((t) => esc(t.title)).join(' · ') + (urgent.length > 2 ? ' ועוד ' + (urgent.length - 2) : '') : 'אין דחוף כרגע', 'data-go="tasks:late"', false, urgent.length ? 'open' : '') +
     (S.isOwner ? lkpi('user', 'עובדים במשמרת', '<span class="num">' + onShift.length + '</span>', onShift.length ? onShift.map((a) => esc(a.label || a.key)).join(' · ') : 'אף אחד לא נכנס למשמרת', 'data-sqto="sqTeam"', false, onShift.length ? 'actual' : '') : '') +
     (S.isOwner || S.myKey === 'nissim' || apprP.length ? lkpi('check', S.isDan ? 'אישורים לדן' : 'ממתין לאישורך', '<span class="num">' + apprP.length + '</span>', apprP.length ? apprP.slice(0, 2).map((a) => esc(a.label || '')).join(' · ') : 'אין מה לאשר', 'data-sqto="sqAppr"', false, apprP.length ? 'expected' : '') : '') + '</div>';
-  return '<div class="vday">' + phead + head.replace('<!--DCHIPS-->', chips) + sq + qacts +
+  return '<div class="vday">' + phead + head.replace('<!--DCHIPS-->', chips) + callTodayCard() + sq + qacts +
     '<div class="dgrid12">' + (B.hero ? '<div class="c5">' + B.hero + '</div>' : '') + '<div class="' + (B.hero ? 'c7' : 'c12') + ' dside">' + (B.money ? '<div class="dmoney">' + B.money + '</div>' : '') + B.suggest + '</div></div>' +
     funnelCard + (!B.funnel && !B.stages && B.seg ? '<div class="row">' + B.seg + '</div>' : '') +
     '<div class="dgrid12">' + (stagesCard ? '<div class="c7">' + stagesCard + '</div>' : '') + '<div class="' + (stagesCard ? 'c5' : 'c12') + '">' + feed + dmTiles + '</div></div>' +
@@ -6835,6 +6855,151 @@ setInterval(cbTick, 20000);
 document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#brand') && S.ready && !isLocked()) { S.leadBack = null; go('day'); } });
 document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.id === 'brand' && S.ready) { e.preventDefault(); go('day'); } });
 async function cbSet(lid, patch, text) { const l = S.leads.get(lid); if (!l) return; await write('leads/' + lid, { callback: { ...(l.callback || {}), ...patch }, updatedAt: stamp() }, 'update'); if (text) await leadPatch(lid, {}, text, true); cbTick(); }
+/* ══ שיחות חזרה מתואמות (דן 04/11) ══
+   "מתוך המתעניינים — לתאם שיחה מאוחר יותר עם שעה": שיחה = משימה רגילה (kind: 'call') עם תאריך ושעה, אחת פתוחה לכל מתעניין
+   (rule_key = leadcall:<ליד>). מופיעה בסדר היום ובלוח המשימות, ביומן "למי לחזור ומתי" בראש מסך הבית ובתקציר הבוקר.
+   התראה על מסך מלא 10 דקות לפני, 5 דקות לפני ובשעה עצמה — אלא אם השיחה בוטלה (ביטול = עם סיבה, נרשם בליד) או בוצעה. */
+const CALL_ALERTS = [10, 5, 0], CALL_GRACE_MIN = 30;
+const callMin = (iso) => { const [d, t] = String(iso || '').split('T'), [y, mo, da] = String(d).split('-').map(Number), [h, mi] = String(t || '00:00').split(':').map(Number); return Date.UTC(y, (mo || 1) - 1, da || 1, h || 0, mi || 0) / 60000; };
+const callAtOf = (t) => t && t.due && t.time ? t.due + 'T' + String(t.time).slice(0, 5) : null;
+const isCallTask = (t) => !!t && t.kind === 'call' && !!t.leadId;
+/** איזו התראה מגיעה עכשיו: 10 (עשר דקות לפני), 5 (חמש לפני), 0 (הגיעה השעה — עד חצי שעה אחרי), או null */
+function callAlertStage(at, now) {
+  if (!at || !now) return null; const diff = callMin(at) - callMin(now);
+  if (diff > 10 || diff < -CALL_GRACE_MIN) return null;
+  return diff > 5 ? 10 : diff > 0 ? 5 : 0;
+}
+/** יומן השיחות של יום: לפי השעה, עם מצב — בוצעה / בוטלה (והסיבה) / באיחור / עכשיו (עד 10 דק׳) / בהמשך */
+function callAgenda(tasks, day, now) {
+  return tasks.filter((t) => isCallTask(t) && t.due === day && t.time && (!t.deletedAt || t.cancelled))
+    .map((t) => { const at = callAtOf(t), diff = callMin(at) - callMin(now);
+      const state = t.cancelled ? 'cancelled' : t.status === 'done' ? 'done' : diff < 0 ? 'late' : diff <= 10 ? 'soon' : 'later';
+      return { t, at, state, inMin: Math.round(diff) }; })
+    .sort((a, b) => a.at.localeCompare(b.at));
+}
+const CALL_STATE = { done: ['actual', 'בוצעה'], cancelled: ['muted', 'בוטלה'], late: ['open', 'באיחור'], soon: ['open', 'עכשיו'], later: ['committed', 'מתואמת'] };
+const CALL_REASONS = ['הלקוח ביקש לדחות', 'דיברנו כבר', 'הלקוח לא רלוונטי', 'אין צורך — התקדם בדרך אחרת'];
+/* ══ סוף שיחות חזרה — פונקציות טהורות ══ */
+const callOpenOf = (lid) => live(S.tasks).filter((t) => isCallTask(t) && t.leadId === lid && t.status !== 'done').sort((a, b) => String(callAtOf(a)).localeCompare(String(callAtOf(b))))[0] || null;
+const callWhen = (t) => (t.due === today() ? 'היום' : t.due === addDays(today(), 1) ? 'מחר' : dLabel(t.due)) + ' ' + String(t.time || '').slice(0, 5);
+function callChip(l) {
+  const t = callOpenOf(l.id), w = S.canTask;
+  if (!t) return w ? '<button class="btn small ghost" data-callset="' + esc(l.id) + '">📞 תאם שיחה</button>' : '<span class="hint">—</span>';
+  const st = callAgenda([t], t.due, localNow())[0], late = st && st.state === 'late';
+  return '<span class="row" style="gap:4px;flex-wrap:nowrap"><button class="pill ' + (late ? 'open' : 'committed') + '" data-callset="' + esc(l.id) + '" title="לשנות מועד">⏰ ' + esc(callWhen(t)) + (late ? ' · באיחור' : '') + '</button>' +
+    (w ? '<button class="btn small ghost" data-callcancel="' + esc(t.id) + '" title="ביטול השיחה (עם סיבה)" aria-label="ביטול השיחה">✕</button>' : '') + '</span>';
+}
+/** לתאם / להזיז שיחה למתעניין: תאריך, שעה, מי מתקשר והערה */
+function callDrawer(lid) {
+  const l = S.leads.get(lid); if (!l || !S.canTask) return;
+  const cur = callOpenOf(lid), nx = new Date(Date.now() + 60 * 60e3); nx.setMinutes(nx.getMinutes() < 30 ? 30 : 60, 0, 0);
+  const def = new Date(nx.getTime() - nx.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const people = [...new Map([...respEntries(l.division || 'finance'), ...Object.entries(L.resp)]).entries()];
+  const who = (cur && cur.resp) || myResp(S.me.id) || l.resp || 'dan';
+  drawer((cur ? 'הזזת שיחה — ' : 'תיאום שיחה — ') + (l.name || normPhone(l.phone)),
+    '<p class="hint full" style="margin:0 0 6px">' + esc(normPhone(l.phone) || '') + (cur ? ' · מתואמת ל' + esc(callWhen(cur)) : '') + ' · התראה על מסך מלא 10 דק׳ לפני, 5 דק׳ לפני ובשעה עצמה</p>' +
+    fi('date', 'תאריך', (cur && cur.due) || def.slice(0, 10), 'date', 'required min="' + today() + '"') + fi('time', 'שעה', (cur && cur.time) || def.slice(11, 16), 'time', 'required step="300"') +
+    fs('resp', 'מי מתקשר', people, who) +
+    '<label class="fl full">על מה לדבר<textarea class="f" name="note" rows="2" placeholder="למשל: לחזור אחרי שבדק עם אשתו · להביא תלושים">' + esc((cur && cur.callNote) || '') + '</textarea></label>',
+    async (fd) => {
+      if (!fd.date || !/^\d{2}:\d{2}/.test(fd.time || '')) return 'לבחור תאריך ושעה';
+      const at = fd.date + 'T' + fd.time.slice(0, 5); if (callMin(at) < callMin(localNow())) return 'השעה כבר עברה — לבחור מועד עתידי';
+      const note = String(fd.note || '').trim(), resp = fd.resp || who;
+      const body = { kind: 'call', leadId: lid, ruleKey: 'leadcall:' + lid, title: 'לחזור ל' + (l.name || normPhone(l.phone) || ''), notes: [normPhone(l.phone), note].filter(Boolean).join(' · '), callNote: note,
+        due: fd.date, time: fd.time.slice(0, 5), resp, assigneeId: userOfResp(resp) || null, priority: 'high', status: 'open' };
+      if (cur) await write('tasks/' + cur.id, { ...body, updatedAt: stamp() }, 'update');
+      else { const id = 'leadcall-' + slug(lid + '|' + at + '|' + uid()); await write('tasks/' + id, { id, ...body, createdAt: stamp(), createdBy: S.me.id }); }
+      await leadPatch(lid, {}, (cur ? 'השיחה הוזזה ל' : 'תואמה שיחה ל') + dLabel(fd.date) + ' ' + fd.time.slice(0, 5) + (resp !== myResp(S.me.id) ? ' · ' + (L.resp[resp] || resp) : '') + (note ? ' — ' + note : ''), true).catch(() => {});
+      try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {}
+      toast('השיחה תואמה ל' + dLabel(fd.date) + ' ' + fd.time.slice(0, 5)); render(); callTick();
+    }, cur ? '<button class="btn ghost" type="button" data-callcancel="' + esc(cur.id) + '" data-close>ביטול השיחה</button>' : '', cur ? 'עדכן מועד' : 'קבע שיחה');
+  const sc = document.getElementById('scrim'); if (sc && cur) sc.addEventListener('click', (e) => { const b = e.target.closest('[data-callcancel]'); if (b) setTimeout(() => callCancel(b.dataset.callcancel), 0); });
+}
+/** ביטול שיחה — רק עם סיבה. המשימה יורדת (soft delete), הסיבה נשמרת במשימה ובהיסטוריה של הליד */
+function callCancel(tid) {
+  const t = S.tasks.get(tid); if (!t || !S.canTask) return; const l = S.leads.get(t.leadId);
+  callPopClose(false);
+  drawer('ביטול שיחה — ' + ((l && l.name) || t.title), '<p class="hint full" style="margin:0 0 6px">' + esc(callWhen(t)) + (t.callNote ? ' · ' + esc(t.callNote) : '') + '</p>' +
+    '<div class="row full" style="gap:6px;flex-wrap:wrap">' + CALL_REASONS.map((r) => '<button type="button" class="btn small ghost" data-callreason="' + esc(r) + '">' + esc(r) + '</button>').join('') + '</div>' +
+    '<label class="fl full">סיבת הביטול (חובה)<textarea class="f" name="reason" id="d_reason" rows="2" required></textarea></label>',
+    async (fd) => {
+      const reason = String(fd.reason || '').trim(); if (reason.length < 2) return 'לכתוב למה השיחה מבוטלת';
+      await write('tasks/' + tid, { cancelled: true, cancelReason: reason, cancelledAt: stamp(), cancelledBy: S.me.id, deletedAt: stamp(), deletedReason: 'השיחה בוטלה: ' + reason }, 'update');
+      if (l) await leadPatch(l.id, {}, 'השיחה שתואמה ל' + callWhen(t) + ' בוטלה — ' + reason, true).catch(() => {});
+      toast('השיחה בוטלה — לא יקפצו תזכורות'); render(); callTick();
+    }, '', 'בטל את השיחה');
+  const sc = document.getElementById('scrim'); if (sc) sc.addEventListener('click', (e) => { const b = e.target.closest('[data-callreason]'); if (!b) return; const ta = document.getElementById('d_reason'); if (ta) { ta.value = b.dataset.callreason; ta.focus(); } });
+}
+async function callDone(tid) {
+  const t = S.tasks.get(tid); if (!t) return; callPopClose(false);
+  await write('tasks/' + tid, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update');
+  if (S.leads.get(t.leadId)) await leadPatch(t.leadId, {}, 'השיחה שתואמה ל' + callWhen(t) + ' בוצעה', true).catch(() => {});
+  toastUndo('השיחה סומנה כבוצעה', () => taskReopen(S.tasks.get(tid) || t)); render();
+}
+/* יומן השיחות — במסך הבית, בפתיחת יום ובתחילת יום (פעם ביום) */
+function callAgendaHtml(rows, mine) {
+  if (!rows.length) return '<p class="empty">אין שיחות מתואמות להיום.' + (S.canTask ? ' "📞 תאם שיחה" במתעניינים קובע אחת.' : '') + '</p>';
+  return '<ol class="calls">' + rows.map(({ t, state, inMin }) => { const l = S.leads.get(t.leadId) || {}, [tone, lab] = CALL_STATE[state], open = state !== 'done' && state !== 'cancelled', wa = l.phone && waLink(l.phone);
+    return '<li class="c-' + state + '"><span class="time num">' + esc(t.time) + '</span><div class="grow"><b>' + esc(l.name || t.title) + '</b> <span class="pill ' + tone + '">' + lab + (state === 'soon' && inMin > 0 ? ' · עוד ' + inMin + ' דק׳' : '') + '</span>' +
+      (!mine ? ' ' + respChip(t.resp) : '') + '<div class="hint">' + esc([normPhone(l.phone), state === 'cancelled' ? 'סיבה: ' + (t.cancelReason || '') : t.callNote].filter(Boolean).join(' · ')) + '</div></div>' +
+      (open && l.phone ? '<a class="btn small primary" href="tel:' + esc(normPhone(l.phone)) + '">חיוג</a>' + (wa ? '<a class="btn small" href="' + esc(wa) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') : '') +
+      (open && S.canTask ? '<button class="btn small" data-calldone="' + esc(t.id) + '">בוצעה</button><button class="btn small ghost" data-callset="' + esc(t.leadId) + '">הזז</button><button class="btn small ghost" data-callcancel="' + esc(t.id) + '">בטל</button>' : '') + '</li>'; }).join('') + '</ol>';
+}
+const callRowsFor = (day, all) => callAgenda([...S.tasks.values()].filter((t) => { const l = S.leads.get(t.leadId); return l && !l.deletedAt && (all || isMyTask(t)); }), day, localNow());
+function callTodayCard() {
+  const all = S.isOwner && S.f.callsAll, rows = callRowsFor(today(), all), open = rows.filter((r) => r.state !== 'done' && r.state !== 'cancelled');
+  if (!rows.length && !live(S.tasks).some((t) => isCallTask(t) && t.status !== 'done')) return '';
+  const next = open.find((r) => r.state !== 'late');
+  return '<section class="card callday"><header><h2>📞 למי לחזור היום</h2><span class="pill ' + (open.length ? 'committed' : 'actual') + '">' + open.length + ' פתוחות</span>' + (next ? '<span class="hint">הבאה: ' + esc(next.t.time) + '</span>' : '') + '<span class="grow"></span>' +
+    (S.isOwner ? '<button class="btn small ghost" data-callsall>' + (all ? 'רק שלי' : 'כל הצוות') + '</button>' : '') + '<button class="btn small ghost" data-callpdf>PDF</button></header>' + callAgendaHtml(rows, !all) + '</section>';
+}
+function callDayPop(force) {
+  const rows = callRowsFor(today(), false).filter((r) => r.state !== 'cancelled'), key = 'harel-callday-' + (S.me.id || '');
+  if (!force) { let seen = ''; try { seen = localStorage.getItem(key) || ''; } catch (e) {} if (seen === today() || !rows.some((r) => r.state !== 'done')) return; }
+  try { localStorage.setItem(key, today()); } catch (e) {}
+  if (document.getElementById('scrim')) return;
+  $('layer').innerHTML = '<div class="scrim" id="scrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="יומן השיחות להיום"><header><h2 class="grow">📞 היומן שלך להיום — למי לחזור ומתי</h2><button class="btn small ghost" data-close aria-label="סגור">✕</button></header>' +
+    '<p class="hint" style="margin:0 0 8px">' + esc(new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())) + ' · התראה על מסך מלא 10 דק׳ לפני כל שיחה, 5 דק׳ לפני ובשעה עצמה</p>' +
+    '<div class="callpopday">' + callAgendaHtml(rows, true) + '</div><footer><button class="btn primary" data-close type="button">הבנתי</button><button class="btn" type="button" data-callpdf>PDF</button></footer></div></div>';
+  const sc = $('scrim'); sc.addEventListener('click', (e) => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) $('layer').innerHTML = '';
+    const b = e.target.closest('[data-calldone],[data-callset],[data-callcancel],[data-callpdf]'); if (!b) return; $('layer').innerHTML = '';
+    if (b.dataset.calldone) callDone(b.dataset.calldone); else if (b.dataset.callset) callDrawer(b.dataset.callset); else if (b.dataset.callcancel) callCancel(b.dataset.callcancel); else callPdf(); });
+}
+async function callPdf() {
+  const rows = callRowsFor(today(), S.isOwner && S.f.callsAll), dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  const html = '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:28px 32px;background:#fff"><div style="border-bottom:3px solid #101828;padding-bottom:8px"><div style="font-size:20px;font-weight:700">למי לחזור היום — ' + esc(nameOf(S.me.id) || '') + '</div><div style="font-size:13px;color:#475467">הר-אל · ' + dLabel(today()) + '</div></div>' +
+    '<table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:14px">' + rows.map(({ t, state }) => { const l = S.leads.get(t.leadId) || {}; return '<tr style="border-bottom:1px solid #EAECF0"><td style="padding:8px 4px;width:60px;font-weight:700">' + esc(t.time) + '</td><td style="padding:8px 4px">' + esc(l.name || t.title) + '<div style="color:#667085;font-size:12px">' + esc([normPhone(l.phone), t.callNote].filter(Boolean).join(' · ')) + '</div></td><td style="padding:8px 4px;width:80px">' + CALL_STATE[state][1] + '</td><td style="padding:8px 4px;width:60px">☐</td></tr>'; }).join('') + '</table></div>';
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(html); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'שיחות-' + today() + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
+}
+/* התראה על מסך מלא: כל שלב (10 / 5 / בשעה) פעם אחת בכל מכשיר. בוטלה / בוצעה — אין התראה */
+let CALL_POP = null;
+const callSeen = () => { try { return new Set(JSON.parse(localStorage.getItem('harel-callseen') || '[]')); } catch (e) { return new Set(); } };
+const callSeenAdd = (k) => { try { const s2 = [...callSeen(), k].slice(-300); localStorage.setItem('harel-callseen', JSON.stringify(s2)); } catch (e) {} };
+function callPopClose(mark = true) { const el = document.getElementById('callpop'); if (el) { if (mark && el.dataset.k) callSeenAdd(el.dataset.k); el.remove(); } CALL_POP = null; }
+function callTick() {
+  if (!S.ready || isLocked() || !S.me || !S.me.id) return;
+  const now = localNow(), seen = callSeen();
+  const due = live(S.tasks).filter((t) => isCallTask(t) && t.status !== 'done' && isMyTask(t)).map((t) => ({ t, at: callAtOf(t), st: callAlertStage(callAtOf(t), now) })).filter((x) => x.st != null).sort((a, b) => a.at.localeCompare(b.at));
+  const el = document.getElementById('callpop');
+  if (el && !due.some((x) => x.t.id === el.dataset.tid)) callPopClose(false); // בוטלה / בוצעה / עברה חצי שעה
+  const x = due.find((y) => !seen.has(y.t.id + '|' + y.at + '|' + y.st)); if (!x) return;
+  const k = x.t.id + '|' + x.at + '|' + x.st; if (CALL_POP === k) return;
+  if (el && el.dataset.k) callSeenAdd(el.dataset.k);
+  CALL_POP = k; const l = S.leads.get(x.t.leadId) || {}, wa = l.phone && waLink(l.phone), now0 = x.st === 0;
+  const box = el || document.createElement('div'); box.id = 'callpop'; box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-modal', 'true'); box.dataset.k = k; box.dataset.tid = x.t.id; box.className = now0 ? 'now' : '';
+  box.innerHTML = '<div class="cpin"><div class="cpwhen">' + (now0 ? '⏰ הגיעה השעה — ' + esc(x.t.time) : '⏰ בעוד ' + x.st + ' דקות — ' + esc(x.t.time)) + '</div>' +
+    '<h1>לחזור ל' + esc(l.name || x.t.title) + '</h1><div class="cpphone num">' + esc(normPhone(l.phone) || '') + '</div>' + (x.t.callNote ? '<p class="cpnote">' + esc(x.t.callNote) + '</p>' : '') +
+    '<div class="cpbtns">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">📞 חיוג</a>' + (wa ? '<a class="btn" href="' + esc(wa) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') : '') +
+    '<button class="btn" data-intake="' + esc(x.t.leadId) + '" data-cpclose>לתיק</button><button class="btn" data-calldone="' + esc(x.t.id) + '">בוצעה</button><button class="btn ghost" data-callset="' + esc(x.t.leadId) + '" data-cpclose>להזיז</button><button class="btn ghost" data-callcancel="' + esc(x.t.id) + '">לבטל (עם סיבה)</button></div>' +
+    '<button class="btn small ghost cpok" data-cpclose>' + (now0 ? 'סגור' : 'הבנתי — תזכיר שוב') + '</button></div>';
+  if (!el) document.body.appendChild(box);
+  try { box.querySelector('.btn.primary, .cpok').focus(); } catch (e) {}
+  try { if ('Notification' in window && Notification.permission === 'granted') new Notification('הר-אל — ' + (now0 ? 'עכשיו' : 'בעוד ' + x.st + ' דק׳') + ': לחזור ל' + (l.name || ''), { body: normPhone(l.phone) + (x.t.callNote ? ' · ' + x.t.callNote : ''), tag: 'call-' + x.t.id, requireInteraction: true }); } catch (e) {}
+  try { const ac = new (window.AudioContext || window.webkitAudioContext)(), o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = now0 ? 880 : 660; g.gain.value = 0.08; o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.35); } catch (e) {}
+}
+setInterval(callTick, 15000);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.getElementById('callpop')) { e.stopPropagation(); callPopClose(); } }, true);
 /* ── חזרה לרשימה — לאותו מקום בדיוק ── */
 function leadBackGo() {
   const b = S.leadBack; S.view = { tab: 'leads', clientId: null }; try { location.hash = 'leads'; } catch (e) {} render();
@@ -7154,7 +7319,7 @@ function vLead(id) {
     : [noA, ...['followup', 'fin_waiting', 'fin_later', 'thinking', ...(leadType(l) === 'רכב' ? ['checking', 'fin_checked_inelig'] : []), 'fin_agreement', 'lost', 'fin_fee_high', 'ineligible', 'invalid', 'fin_denies', 'fin_arab', 'fin_noprop', 'duplicate'].map((k) => stageDefs(leadDiv(l)).find((x) => x.key === k)).filter((x) => x && !x.hide).map((x) => [x.key, x.label])];
   const D = [[leadDiv(l) === 'realestate' ? '' : 'סוג', leadType(l)], ['מקור / משווק', leadChannel(l)], ['קמפיין', l.campaign], ['מודעה', l.ad], ['דף נחיתה', l.landing], ['בכוורת', (() => { const k = poolOf(l.phone); return k ? 'כרטיס ' + k.kid + ' · ' + k.name + (k.ok ? ' · אישר דיוור' : '') : l.kaveretId ? 'כרטיס ' + l.kaveretId : ''; })()], ...Object.entries(l.answers || {}).filter(([h]) => leadDiv(l) !== 'realestate' || !RE_LEAD_Q.some((d) => d[3].test(h))), ['סטטוס בקובץ', l.importStatus], ['נשלח ל-WISE', l.wiseSent], ['סטטוס בטבלה', l.sheetStatus], ['נכנס', l.createdAt ? dLabel(dayOf(l.createdAt)) + ' ' + leadTime(l) : ''], ['טבלה', l.sheet ? l.sheet + (l.sheetRow ? ' · שורה ' + l.sheetRow : '') : ''], ['צבע בטבלה', l.sheetColor ? COLOR_LABEL[l.sheetColor] : l.source === 'sheet' && !l.sheetStatus && leadChannel(l) === 'אבינועם' ? 'בלי צבע' : '']].filter((r) => r[0] && r[1]);
   return '<div class="row"><button class="btn small' + (S.leadBack ? ' primary' : ' ghost') + '" data-leadback>' + (S.leadBack ? '↩ חזרה לרשימה — לאותו מקום' : '← לידים') + '</button><h1 class="grow">' + esc(l.name || '—') + '</h1>' + leadPill(l) + (delPending('leads', l.id) ? '<span class="pill expected">ממתין לאישור מחיקה</span>' : '') +
-    (l.callback && l.callback.on ? '<span class="pill expected">⏰ ' + esc(String(l.callback.at).slice(11, 16)) + '</span><button class="btn small ghost" data-cboff="' + esc(l.id) + '">בטל התראה</button>' : '') + '</div>' +
+    (l.callback && l.callback.on ? '<span class="pill expected">⏰ ' + esc(String(l.callback.at).slice(11, 16)) + '</span><button class="btn small ghost" data-cboff="' + esc(l.id) + '">בטל התראה</button>' : '') + (isLeadOpen(l) ? callChip(l) : '') + '</div>' +
     '<section class="card"><div class="row" style="align-items:center">' + (l.phone ? '<a class="btn primary" href="tel:' + esc(normPhone(l.phone)) + '">חייג ' + esc(normPhone(l.phone)) + '</a>' + vcBtn(l.phone, true, 'lead:' + l.id) : '') +
       (waLink(l.phone) ? '<a class="btn" href="' + waLink(l.phone) + '" target="_blank" rel="noopener">וואטסאפ</a>' : '') + copyBtns('l:' + l.id, true) +
       '<span class="grow"></span>' + (c ? '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח ←</button>' : '') +
@@ -9621,9 +9786,11 @@ function morningMail(uid, day = today()) {
   const follow = myOpenCases(uid).filter((c) => c.nextAction && c.nextAction.date && c.nextAction.date <= day);
   const pay = live(S.clients).filter((c) => mine(c, 'ownerId') && c.expectedPayDate && c.expectedPayDate <= addDays(day, 3) && clientMoney(c).open > 0);
   const tickets = live(S.tickets).filter((x) => x.status !== 'closed' && mine(x, 'ownerId'));
-  const count = tasks.length + follow.length + pay.length + tickets.length + rem.length;
+  const calls = callAgenda([...S.tasks.values()].filter((t) => { const l = S.leads.get(t.leadId); return l && !l.deletedAt && isMyTask(t, uid); }), day, day + 'T00:00').filter((r) => r.state !== 'cancelled');
+  const count = tasks.length + follow.length + pay.length + tickets.length + rem.length + calls.length;
   const html = mailWrap('בוקר טוב, ' + nameOf(uid),
-    '<p><b>' + tasks.length + '</b> משימות להיום ובאיחור · <b>' + follow.length + '</b> תיקים שהצעד הבא שלהם הגיע · <b>' + pay.length + '</b> גביות צפויות · <b>' + tickets.length + '</b> פניות פתוחות</p>' +
+    '<p>' + (calls.length ? '<b>' + calls.length + '</b> שיחות לחזור · ' : '') + '<b>' + tasks.length + '</b> משימות להיום ובאיחור · <b>' + follow.length + '</b> תיקים שהצעד הבא שלהם הגיע · <b>' + pay.length + '</b> גביות צפויות · <b>' + tickets.length + '</b> פניות פתוחות</p>' +
+    (calls.length ? '<h3 style="font-size:14px;margin:14px 0 4px">📞 למי לחזור היום</h3>' + mailTable(['שעה', 'למי', 'טלפון', 'על מה'], calls.map(({ t }) => { const l = S.leads.get(t.leadId) || {}; return ['<b>' + esc(t.time) + '</b>', esc(l.name || t.title), esc(normPhone(l.phone) || ''), esc(t.callNote || '')]; })) : '') +
     (rem.length ? '<h3 style="font-size:14px;margin:14px 0 4px;color:#DC2626">תזכורות יומיות</h3>' + mailTable(['לקוח', 'מה'], rem.map((x) => [esc(x.c.name), esc(x.text)])) : '') +
     '<h3 style="font-size:14px;margin:14px 0 4px">משימות</h3>' + mailTable(['משימה', 'יעד', 'לקוח'], tasks.map((t) => [(t.due < day ? '<b style="color:#DC2626">באיחור</b> · ' : '') + esc(t.title), dLabel(t.due), esc(cname(t.clientId))])) +
     '<h3 style="font-size:14px;margin:14px 0 4px">תיקים — הצעד הבא הגיע</h3>' + mailTable(['לקוח', 'הצעד הבא', 'מתי'], follow.map((c) => [esc(c.name), esc(c.nextAction.text || ''), dLabel(c.nextAction.date)])) +
@@ -12081,10 +12248,10 @@ async function intakeSign(id, ok = false) {
 function vInterest() {
   const L2 = live(S.leads).filter(isLeadOpen).sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
   if (!L2.length) return '<section class="card"><p class="empty">אין מתעניינים פתוחים. "+ שיחת מכירה" פותח מתעניין חדש.</p></section>';
-  return '<section class="card"><header><h2>מתעניינים — עוד לא חתמו</h2><span class="pill expected">' + L2.length + '</span><span class="hint">נכנסים לתפעול רק אחרי חתימה על הסכם</span></header><div class="scroll"><table><thead><tr><th>שם</th><th>מקור</th><th>שלב</th><th>בקשה</th><th></th></tr></thead><tbody>' +
+  return '<section class="card"><header><h2>מתעניינים — עוד לא חתמו</h2><span class="pill expected">' + L2.length + '</span><span class="hint">נכנסים לתפעול רק אחרי חתימה על הסכם</span></header><div class="scroll"><table><thead><tr><th>שם</th><th>מקור</th><th>שלב</th><th>בקשה</th><th>שיחה</th><th></th></tr></thead><tbody>' +
     L2.map((l) => { const x = S.intakes.get(l.id), R = (x && x.request) || {};
       return '<tr class="clickable" data-intake="' + esc(l.id) + '"><td class="wide"><b>' + esc(l.name) + '</b>' + (l.phone ? ' <span class="hint num">' + esc(l.phone) + '</span>' : '') + (l.note ? '<div class="hint">' + esc(String(l.note).slice(0, 120)) + '</div>' : '') + '</td><td>' + esc(l.campaign || l.platform || l.source || '—') + '</td><td>' + esc(L.leadStage[l.stage] || l.stage || '') + '</td>' +
-        '<td>' + (R.amount ? plain(R.amount) + ' · ' + esc(IK.purpose[R.purpose] || '') : x ? '<span class="hint">בשיחה</span>' : '—') + '</td><td><button class="btn small" data-intake="' + esc(l.id) + '">' + (x ? 'המשך' : 'הכר את הלקוח') + '</button></td></tr>'; }).join('') +
+        '<td>' + (R.amount ? plain(R.amount) + ' · ' + esc(IK.purpose[R.purpose] || '') : x ? '<span class="hint">בשיחה</span>' : '—') + '</td><td>' + callChip(l) + '</td><td><button class="btn small" data-intake="' + esc(l.id) + '">' + (x ? 'המשך' : 'הכר את הלקוח') + '</button></td></tr>'; }).join('') +
     '</tbody></table></div></section>';
 }
 /* "הכר את הלקוח" בשיחה אחת: כותבים את כל הסיפור במלל חופשי (נשמר אוטומטית) → Claude מציע ערך לכל שדה → מסמנים מה נכנס → נשמר.
@@ -12262,7 +12429,7 @@ function vIntake(cid) {
       (lead ? 'עד החתימה הלקוח נשאר במתעניינים. בחתימה הוא נכנס לתפעול עם השכ״ט, המטרות, ההתניות ורשימת המסמכים.' : 'מעדכן בכרטיס את השכ״ט, המטרות, ההתניות ומוסיף מסמכים חסרים לצ׳קליסט.') + '</p>' +
       (S.canClient ? '<button class="btn primary" data-act="intakeSign">' + (lead ? 'חתם על הסכם — העבר לתפעול' : c.stage === 'prospect' ? 'חתם על הסכם — העבר לתפעול' : 'עדכן את כרטיס הלקוח') + '</button>' : '<p class="hint">דן מעביר לתפעול אחרי החתימה.</p>') + '</section>';
   return '<div class="row"><div class="grow"><h1>הכר את הלקוח — ' + esc(c.name) + '</h1><p class="hint">' + (lead ? '<span class="pill expected">מתעניין</span> ' : '') + 'נשמר אוטומטית בכל שינוי' + (x.updatedAt ? ' · ' + dLabel(dayOf(x.updatedAt)) : '') + '</p></div>' +
-    '<button class="btn primary" data-act="intakeReport">הדפסת תיק (PDF)</button>' + (lead ? '<button class="btn" data-act="toInterest">למתעניינים</button>' : '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח</button>') + '</div>' +
+    (lead ? callChip(c) : '') + '<button class="btn primary" data-act="intakeReport">הדפסת תיק (PDF)</button>' + (lead ? '<button class="btn" data-act="toInterest">למתעניינים</button>' : '<button class="btn" data-client="' + esc(c.id) + '">לכרטיס הלקוח</button>') + '</div>' +
     '<div class="grid2 intake"><div>' + form + '</div><div>' + res + '</div></div>';
 }
 let aiCtl = null;
@@ -12628,6 +12795,12 @@ document.addEventListener('click', async (e) => {
     if (d.code) return codeLogin(d.code);
     if (d.leadback != null) return leadBackGo();
     if (d.cbopen) { S.leadBack = null; return go('lead', d.cbopen); }
+    if (d.callset) { if (d.cpclose != null) callPopClose(); return callDrawer(d.callset); }
+    if (d.callcancel) return callCancel(d.callcancel);
+    if (d.calldone) return callDone(d.calldone);
+    if (d.callsall != null) { S.f.callsAll = !S.f.callsAll; return render(); }
+    if (d.callpdf != null) return callPdf();
+    if (d.cpclose != null) { callPopClose(); if (d.intake) return go('intake', d.intake); return; }
     if (d.cbsnooze) return cbSet(d.cbsnooze, { at: addMinIso(10), on: true }, 'תזכורת — עוד 10 דקות');
     if (d.cboff) return cbSet(d.cboff, { on: false, offAt: stamp() }, 'התזכורת בוטלה (הסטטוס נשאר)');
     if (d.callend) return callEnd(d.callend);
@@ -13129,6 +13302,7 @@ document.addEventListener('click', async (e) => {
           const ex = S.days.get(dayId()) || {};
           await write('days/' + dayId(), { ...ex, userId: S.me.id, date: today(), openedAt: stamp() });
           if (!live(S.team).some((t) => t.userId === S.me.id)) await write('team/' + S.me.id, { id: S.me.id, userId: S.me.id, role: '', createdAt: stamp() }).catch(() => {});
+          setTimeout(() => callDayPop(true), 200);
           return toast('היום נפתח. בהצלחה!');
         }
         case 'closeDay': S.f.closeStep = 1; return render();
@@ -13387,6 +13561,7 @@ document.addEventListener('change', async (e) => {
       await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update');
       if (t.condOf) await condTaskSync(t, true).catch(() => {});
       /* תזכורת ליד שבוצעה — יורדת גם מהליד, כדי שלא תישאר "מעקב להיום" גם בלידים */
+      if (isCallTask(t) && S.leads.get(t.leadId)) await leadPatch(t.leadId, {}, 'השיחה שתואמה ל' + callWhen(t) + ' בוצעה', true).catch(() => {});
       if (String(t.ruleKey || '').startsWith('leadfu:')) { const l = S.leads.get(t.leadId); if (l && l.followUp && l.fuManual) await leadPatch(l.id, { followUp: null, fuManual: false }, 'התזכורת בוצעה (משימה)', true).catch(() => {}); }
       if (el.checked && t.clientId) await logClient(t.clientId, 'בוצע: ' + t.title + ' · ' + (nameOf(S.me.id) || L.resp[taskResp(t)] || '')).catch(() => {});
       if (el.checked && t.clientId && !(n(t.repeatDays) > 0) && S.clients.get(t.clientId)) setTimeout(() => nextTaskDrawer(t), 50);
@@ -13594,7 +13769,7 @@ async function boot() {
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;
-  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); setTimeout(signLibAutoSync, 3000); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
+  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); setTimeout(() => { try { callTick(); if (!isLocked()) callDayPop(false); } catch (e) {} }, 1800); setTimeout(signLibAutoSync, 3000); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
   const fail = (e) => { conn('err', e && e.code === 'revoked' ? 'הגישה בוטלה' : 'תקלה בחיבור'); if (e && e.code === 'revoked') S.canWrite = false; soon(); };
   for (const name of colls) {
     let first = true;
