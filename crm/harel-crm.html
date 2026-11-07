@@ -12544,21 +12544,47 @@ function todayRow() {
 }
 
 /* ── שכר: הדמיה לפי ההסכם, משולם עד ה-10, יוצא לרו״ח בסוף החודש ── */
-const PAY_FIELDS = [['hours', 'שעות', 'hourly'], ['days', 'ימי עבודה (נסיעות)', 'travelDay'], ['zooms', 'פגישות זום', 'perZoom'], ['closes', 'סגירות אביב מליד שהביא', 'perClose']];
-const payEmployees = () => ((S.settings.payroll && S.settings.payroll.employees) || []).filter((e) => e.active !== false);
-const payDoc = (m, key) => S.payroll.get(m + '__' + key) || {};
-function payCalc(e, x = {}) {
-  const rows = [];
-  if (n(e.hourly)) rows.push({ label: 'שעות', q: n(x.hours), rate: n(e.hourly) });
-  if (n(e.perZoom)) rows.push({ label: 'פגישות זום', q: n(x.zooms), rate: n(e.perZoom) });
-  if (n(e.perClose)) rows.push({ label: 'סגירה בפועל של אביב מליד שהביא', q: n(x.closes), rate: n(e.perClose) });
-  if (n(e.travelDay)) rows.push({ label: 'נסיעות (לפי ימי עבודה)', q: n(x.days), rate: n(e.travelDay) });
-  if (n(e.fixedBonus)) rows.push({ label: e.fixedBonusNote || 'בונוס קבוע', q: x.fullMonth === false ? 0 : 1, rate: n(e.fixedBonus) });
-  if (n(x.extra)) rows.push({ label: x.extraNote || 'תוספת', q: 1, rate: n(x.extra) });
-  rows.forEach((r) => (r.sum = r2(r.q * r.rate)));
-  if (n(e.employerPct)) { const g = rows.reduce((a, r) => a + r.sum, 0); rows.push({ label: 'עלות מעביד (' + n(e.employerPct) + '%)', q: 1, rate: r2(g * n(e.employerPct) / 100), sum: r2(g * n(e.employerPct) / 100) }); }
-  return { rows, total: r2(rows.reduce((a, r) => a + r.sum, 0)), explain: rows.filter((r) => r.sum).map((r) => r.label + ': ' + fmt0.format(r.q) + ' × ' + fmt0.format(r.rate) + ' = ' + fmt0.format(r.sum)).join(' · ') };
+/* ══ שכר — רכיבים (דן 07/11: "להוסיף ולהוריד עובדים ולהגדיר קריטריונים לשכר") ══
+   לכל עובד רשימת רכיבים: fixed — סכום חודשי (באחוז מהחודש) · rate — תעריף × כמות (שעות, ימים, פגישות, לידים, סגירות…)
+   · pct — אחוז מסכום (שכ״ט שנגבה, מכירות) · tier — בונוס כשמגיעים ליעד. + רצפה (השלמה) ועלות מעביד.
+   עובד ישן (hourly / perZoom / perClose / travelDay / fixedBonus) מומר לרכיבים באותן יחידות — החודשים שנשמרו נקראים כמו קודם. */
+const PAY_UNITS = [['hours', 'שעות'], ['days', 'ימי עבודה'], ['zooms', 'פגישות זום'], ['meetings', 'פגישות'], ['leads', 'לידים'], ['calls', 'שיחות'], ['closes', 'סגירות'], ['subs', 'הגשות']];
+const PAY_TYPES = { fixed: 'סכום חודשי קבוע', rate: 'תעריף × כמות', pct: 'אחוז מסכום', tier: 'בונוס על יעד' };
+const payUnitLabel = (u) => (PAY_UNITS.find(([k]) => k === u) || [u, u])[1];
+function payComps(e) {
+  if (Array.isArray(e.components)) return e.components;
+  const c = [];
+  if (n(e.hourly)) c.push({ id: 'hourly', type: 'rate', label: 'שעות', unit: 'hours', rate: n(e.hourly) });
+  if (n(e.perZoom)) c.push({ id: 'perZoom', type: 'rate', label: 'פגישות זום', unit: 'zooms', rate: n(e.perZoom) });
+  if (n(e.perClose)) c.push({ id: 'perClose', type: 'rate', label: 'סגירה בפועל של אביב מליד שהביא', unit: 'closes', rate: n(e.perClose) });
+  if (n(e.travelDay)) c.push({ id: 'travelDay', type: 'rate', label: 'נסיעות (לפי ימי עבודה)', unit: 'days', rate: n(e.travelDay) });
+  if (n(e.fixedBonus)) c.push({ id: 'fixedBonus', type: 'fixed', label: e.fixedBonusNote || 'בונוס קבוע', amount: n(e.fixedBonus) });
+  return c;
 }
+const payQty = (x, unit) => { const q = x.q && x.q[unit]; return n(q != null ? q : x[unit]); };
+const payPart = (x, c) => { const p = x.part && x.part[c.id]; return p != null ? n(p) : c.id === 'fixedBonus' && x.fullMonth === false ? 0 : 100; };
+/** היחידות שצריך להזין החודש (כמות אחת לכל יחידה — תעריף ובונוס על אותה יחידה חולקים אותה) */
+const payUnitsOf = (e) => [...new Set(payComps(e).filter((c) => c.type === 'rate' || c.type === 'tier').map((c) => c.unit).filter(Boolean))];
+function payCalc(e, x = {}) {
+  const rows = [], f = (v) => fmt0.format(v);
+  for (const c of payComps(e)) {
+    if (c.type === 'fixed') { if (!n(c.amount)) continue; const part = payPart(x, c); rows.push({ label: c.label || 'שכר חודשי', q: r2(part / 100), rate: n(c.amount), how: part === 100 ? 'חודשי' : part + '% מ-' + f(n(c.amount)) }); }
+    else if (c.type === 'rate') { if (!n(c.rate)) continue; const q = payQty(x, c.unit); rows.push({ label: c.label || payUnitLabel(c.unit), q, rate: n(c.rate), how: f(q) + ' ' + payUnitLabel(c.unit) + ' × ' + f(n(c.rate)) }); }
+    else if (c.type === 'pct') { if (!n(c.pct)) continue; const b = n(x.base && x.base[c.id]); rows.push({ label: c.label || 'עמלה', q: b, rate: r2(n(c.pct) / 100), pct: n(c.pct), sum: r2(b * n(c.pct) / 100), how: n(c.pct) + '% × ' + f(b) }); }
+    else if (c.type === 'tier') { if (!n(c.bonus) || !n(c.threshold)) continue; const q = payQty(x, c.unit), hit = q >= n(c.threshold);
+      rows.push({ label: c.label || 'בונוס יעד', q: hit ? 1 : 0, rate: n(c.bonus), how: f(q) + ' מתוך יעד ' + f(n(c.threshold)) + ' ' + payUnitLabel(c.unit) + (hit ? ' — הגיע' : ' — לא הגיע') }); }
+  }
+  if (n(x.extra)) rows.push({ label: x.extraNote || 'תוספת', q: 1, rate: n(x.extra), how: 'חד-פעמי' });
+  rows.forEach((r) => { if (r.sum == null) r.sum = r2(r.q * r.rate); });
+  const gross = r2(rows.reduce((a, r) => a + r.sum, 0)), started = Object.keys(x || {}).length > 0;
+  if (n(e.floor) && started && x.noFloor !== true && gross < n(e.floor)) { const d = r2(n(e.floor) - gross); rows.push({ label: 'השלמה לרצפה (' + f(n(e.floor)) + ')', q: 1, rate: d, sum: d, how: f(n(e.floor)) + ' − ' + f(gross) }); }
+  if (n(e.employerPct)) { const g = rows.reduce((a, r) => a + r.sum, 0), v = r2(g * n(e.employerPct) / 100); rows.push({ label: 'עלות מעביד (' + n(e.employerPct) + '%)', q: 1, rate: v, sum: v, how: n(e.employerPct) + '% × ' + f(g) }); }
+  return { rows, total: r2(rows.reduce((a, r) => a + r.sum, 0)), explain: rows.filter((r) => r.sum).map((r) => r.label + ': ' + r.how + ' = ' + f(r.sum)).join(' · ') };
+}
+/* ══ סוף שכר — פונקציות טהורות ══ */
+const payEmployees = () => ((S.settings.payroll && S.settings.payroll.employees) || []).filter((e) => e.active !== false);
+const payAllEmployees = () => (S.settings.payroll && S.settings.payroll.employees) || [];
+const payDoc = (m, key) => S.payroll.get(m + '__' + key) || {};
 const payMonthDefault = () => { const t0 = today(); return Number(t0.slice(8, 10)) <= 10 ? addDays(t0.slice(0, 7) + '-01', -1).slice(0, 7) : t0.slice(0, 7); };
 const payDue = (m) => addMonth(m + '-01').slice(0, 8) + String((S.settings.payroll && S.settings.payroll.payDay) || 10).padStart(2, '0');
 function payrollItems() {
@@ -12568,32 +12594,100 @@ function payrollItems() {
   return out;
 }
 function vPayroll() {
-  const emps = payEmployees(), w = S.canWrite;
-  if (!emps.length) return '<section class="card"><p class="empty">לא הוגדרו עובדים לשכר.</p></section>';
+  const emps = payEmployees(), w = S.canWrite, gone = payAllEmployees().filter((e) => e.active === false);
+  const addBtn = w ? '<button class="btn" data-payemp="">+ עובד חדש</button>' : '';
+  if (!emps.length) return '<section class="card"><header><h2>שכר</h2><span class="grow"></span>' + addBtn + '</header><p class="empty">לא הוגדרו עובדים לשכר. "+ עובד חדש" — שם, חטיבה ורכיבי השכר לפי ההסכם.</p></section>';
   const m = S.f.payMonth || payMonthDefault();
   const months = [...new Set([addDays(today().slice(0, 7) + '-01', -32).slice(0, 7), addDays(today().slice(0, 7) + '-01', -1).slice(0, 7), today().slice(0, 7), ...live(S.payroll).map((x) => x.month)])].sort().reverse();
   const calc = emps.map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDoc(m, e.key)) }));
-  const tot = r2(calc.reduce((a, k) => a + k.c.total, 0)), byDiv = (d) => r2(calc.filter((k) => (k.e.division || 'finance') === d).reduce((a, k) => a + k.c.total, 0));
-  return '<div class="row">' + sel('fPayMonth', 'חודש עבודה', months.map((x) => [x, mLabel(x)]), m) + '<span class="hint">משולם עד ' + dLabel(payDue(m)) + '</span><span class="grow"></span>' +
-      '<button class="btn primary" data-act="payCsv">לרו״ח (CSV)</button><button class="btn" data-act="payMail">שלח לי במייל</button></div>' +
+  const tot = r2(calc.reduce((a, k) => a + k.c.total, 0)), inDiv = (d) => calc.filter((k) => (k.e.division || 'finance') === d), byDiv = (d) => r2(inDiv(d).reduce((a, k) => a + k.c.total, 0));
+  const names = (d) => inDiv(d).map((k) => k.e.name).join(', ') || '—';
+  const inp = (e, x, attrs, val, label, width = 90) => '<label class="fl">' + label + '<input class="f num" style="width:' + width + 'px" type="number" ' + attrs + ' data-pay="' + esc(e.key) + '" value="' + esc(val ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>';
+  return '<div class="row">' + sel('fPayMonth', 'חודש עבודה', months.map((x) => [x, mLabel(x)]), m) + '<span class="hint">משולם עד ' + dLabel(payDue(m)) + '</span><span class="grow"></span>' + addBtn +
+      '<button class="btn primary" data-act="payPdf">לרו״ח (PDF)</button><button class="btn" data-act="payCsv">CSV</button><button class="btn" data-act="payMail">שלח לי במייל</button></div>' +
     '<div class="grid4">' + kpi('סה״כ שכר · ' + mLabel(m), money(tot, { tone: 'committed' }), calc.filter((k) => k.x.approved).length + ' מתוך ' + calc.length + ' אושרו', null) +
-      kpi('פתרונות מימון', money(byDiv('finance'), { tone: 'muted' }), 'הדס', null) + kpi('הר-אל השקעות', money(byDiv('realestate'), { tone: 'muted' }), 'ישי, עדן', null) +
+      kpi('פתרונות מימון', money(byDiv('finance'), { tone: 'muted' }), names('finance'), null) + kpi('הר-אל השקעות', money(byDiv('realestate'), { tone: 'muted' }), names('realestate'), null) +
       kpi('לתשלום', dLabel(payDue(m)), calc.filter((k) => k.x.paid).length + ' שולמו · נכנס לצפי התשלומים', 'money:forecast') + '</div>' +
-    '<p class="hint">הדמיה לפי ההסכם — ברוטו לפני ניכויים. רו״ח מחשב נטו, ביטוח לאומי ומס. שינוי בנתונים אחרי אישור מחזיר לטיוטה.</p>' +
-    '<div class="grid3">' + calc.map(({ e, x, c }) => '<section class="card"><header><h2>' + esc(e.name) + '</h2><span class="hint">' + esc(L.division[e.division || 'finance']) + '</span><span class="grow"></span>' +
-        (w ? '<label class="fl" style="max-width:110px">עלות מעביד %<input class="f num" type="number" min="0" max="60" step="0.1" data-empct="' + esc(e.key) + '" value="' + esc(e.employerPct ?? '') + '" placeholder="0"></label>' +
-          '<label class="fl" style="max-width:130px" title="לנקודת ה-0 בהתחשבנות — עד שהשכר נסגר ב-30">צפי חודשי (עלות) ₪<input class="f num" type="number" min="0" step="1" data-empexp="' + esc(e.key) + '" value="' + esc(e.expectedCost ?? '') + '" placeholder="—"></label>' : '') +
-        (x.paid ? '<span class="pill actual">שולם</span>' : x.approved ? '<span class="pill committed">מאושר</span>' : '<span class="pill expected">טיוטה</span>') + '</header>' +
-      '<div class="row">' + PAY_FIELDS.filter(([, , rk]) => n(e[rk])).map(([k, label]) => '<label class="fl">' + label + '<input class="f num" style="width:90px" type="number" min="0" step="' + (k === 'hours' ? '0.25' : '1') + '" data-pay="' + esc(e.key) + '" data-pk="' + k + '" value="' + esc(x[k] ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>').join('') +
-        (n(e.fixedBonus) ? '<label class="check"><input type="checkbox" data-pay="' + esc(e.key) + '" data-pk="fullMonth"' + (x.fullMonth === false ? '' : ' checked') + (w && !x.paid ? '' : ' disabled') + '><span>חודש מלא (' + esc(e.fixedBonusNote || 'בונוס') + ')</span></label>' : '') +
-        '<label class="fl">תוספת ₪<input class="f num" style="width:90px" type="number" step="1" data-pay="' + esc(e.key) + '" data-pk="extra" value="' + esc(x.extra ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label></div>' +
-      '<table style="margin-top:8px"><tbody>' + c.rows.map((r) => '<tr><td class="wide">' + esc(r.label) + '<div class="hint">' + fmt0.format(r.q) + ' × ' + plain(r.rate) + '</div></td><td>' + money(r.sum, { tone: r.sum ? '' : 'muted' }) + '</td></tr>').join('') +
+    '<p class="hint">הדמיה לפי ההסכם — ברוטו לפני ניכויים. רו״ח מחשב נטו, ביטוח לאומי ומס. שינוי בנתונים אחרי אישור מחזיר לטיוטה. "✎ רכיבי שכר" בכל עובד — מוסיפים, משנים ומורידים קריטריונים.</p>' +
+    '<div class="grid3">' + calc.map(({ e, x, c }) => { const comps = payComps(e);
+      return '<section class="card"><header><h2>' + esc(e.name) + '</h2><span class="hint">' + esc([e.role, L.division[e.division || 'finance']].filter(Boolean).join(' · ')) + '</span><span class="grow"></span>' +
+        (x.paid ? '<span class="pill actual">שולם</span>' : x.approved ? '<span class="pill committed">מאושר</span>' : '<span class="pill expected">טיוטה</span>') + (w ? '<button class="btn small ghost" data-payemp="' + esc(e.key) + '">✎ רכיבי שכר</button>' : '') + '</header>' +
+      '<div class="row">' + payUnitsOf(e).map((u) => inp(e, x, 'min="0" step="' + (u === 'hours' ? '0.25' : '1') + '" data-pq="' + esc(u) + '"', (x.q && x.q[u] != null) ? x.q[u] : x[u], esc(payUnitLabel(u)))).join('') +
+        comps.filter((k) => k.type === 'pct' && n(k.pct)).map((k) => inp(e, x, 'min="0" step="1" data-pb="' + esc(k.id) + '"', x.base && x.base[k.id], esc((k.label || 'עמלה') + ' — הסכום ₪'), 120)).join('') +
+        comps.filter((k) => k.type === 'fixed' && n(k.amount)).map((k) => inp(e, x, 'min="0" max="100" step="1" data-pp="' + esc(k.id) + '"', payPart(x, k), esc((k.label || 'שכר חודשי') + ' — % מהחודש'), 80)).join('') +
+        '<label class="fl">תוספת ₪<input class="f num" style="width:90px" type="number" step="1" data-pay="' + esc(e.key) + '" data-pk="extra" value="' + esc(x.extra ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>' +
+        (n(e.floor) ? '<label class="check"><input type="checkbox" data-pay="' + esc(e.key) + '" data-pk="noFloor"' + (x.noFloor === true ? '' : ' checked') + (w && !x.paid ? '' : ' disabled') + '><span>השלמה לרצפה</span></label>' : '') + '</div>' +
+      (comps.length ? '' : '<p class="hint">אין רכיבי שכר — "✎ רכיבי שכר" כדי להגדיר.</p>') +
+      '<table style="margin-top:8px"><tbody>' + c.rows.map((r) => '<tr><td class="wide">' + esc(r.label) + '<div class="hint">' + esc(r.how) + '</div></td><td>' + money(r.sum, { tone: r.sum ? '' : 'muted' }) + '</td></tr>').join('') +
       '</tbody><tfoot><tr><td>סה״כ</td><td>' + money(c.total, { tone: 'committed' }) + '</td></tr></tfoot></table>' +
-      (w ? '<div class="row" style="margin-top:8px">' + (!x.approved ? '<button class="btn small primary" data-payok="' + esc(e.key) + '"' + (c.total ? '' : ' disabled') + '>אשר</button>' : !x.paid ? '<button class="btn small" data-paypaid="' + esc(e.key) + '">סמן ששולם</button><button class="btn small ghost" data-payundo="' + esc(e.key) + '">בטל אישור</button>' : '') + '</div>' : '') + '</section>').join('') + '</div>';
+      (w ? '<div class="row" style="margin-top:8px">' + (!x.approved ? '<button class="btn small primary" data-payok="' + esc(e.key) + '"' + (c.total ? '' : ' disabled') + '>אשר</button>' : !x.paid ? '<button class="btn small" data-paypaid="' + esc(e.key) + '">סמן ששולם</button><button class="btn small ghost" data-payundo="' + esc(e.key) + '">בטל אישור</button>' : '') + '</div>' : '') + '</section>'; }).join('') + '</div>' +
+    (gone.length ? '<details class="lfilt" style="margin-top:10px"><summary class="hint">עובדים שהוסרו מהשכר (' + gone.length + ')</summary>' + gone.map((e) => '<div class="check"><span class="grow">' + esc(e.name) + (e.removedAt ? ' <span class="hint">הוסר ' + dLabel(dayOf(e.removedAt)) + (e.removedReason ? ' — ' + esc(e.removedReason) : '') + '</span>' : '') + '</span>' + (w ? '<button class="btn small ghost" data-payback="' + esc(e.key) + '">החזר לשכר</button>' : '') + '</div>').join('') + '</details>' : '');
+}
+/* עריכת עובד ורכיבי השכר שלו. בלי מספרים ממוצאים — התבניות פותחות רכיבים ריקים שדן ממלא לפי ההסכם */
+const PAY_TEMPLATES = { rep: { role: 'נציג/ה', components: [{ type: 'rate', label: 'שעות', unit: 'hours' }, { type: 'rate', label: 'עמלה לסגירה', unit: 'closes' }, { type: 'tier', label: 'בונוס יעד סגירות', unit: 'closes' }] },
+  monthly: { role: '', components: [{ type: 'fixed', label: 'שכר חודשי' }] }, empty: { role: '', components: [] } };
+async function payEmpSave(list) { await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: list } }, 'update'); }
+function payEmpDrawer(key) {
+  if (!S.canWrite) return; const all = payAllEmployees(), cur = key ? all.find((e) => e.key === key) : null;
+  const st = { comps: (cur ? payComps(cur) : PAY_TEMPLATES.rep.components).map((c) => ({ ...c, id: c.id || 'c' + uid() })) };
+  const compRow = (c, i) => { const t = c.type, num = (k, ph, step = '1') => '<input class="f num" style="width:96px" type="number" min="0" step="' + step + '" data-cf="' + k + '" value="' + esc(c[k] ?? '') + '" placeholder="' + ph + '">';
+    const unitSel = '<select class="f" data-cf="unit">' + PAY_UNITS.map(([k, v]) => '<option value="' + k + '"' + (c.unit === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>';
+    return '<div class="row pcomp" data-ci="' + i + '" style="gap:6px;align-items:flex-end;border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:6px;flex-wrap:wrap">' +
+      '<label class="fl">סוג<select class="f" data-cf="type">' + Object.entries(PAY_TYPES).map(([k, v]) => '<option value="' + k + '"' + (t === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
+      '<label class="fl" style="flex:1 1 160px">שם הרכיב<input class="f" data-cf="label" value="' + esc(c.label || '') + '"></label>' +
+      (t === 'fixed' ? '<label class="fl">₪ לחודש' + num('amount', 'סכום') + '</label>' : '') +
+      (t === 'rate' ? '<label class="fl">יחידה' + unitSel + '</label><label class="fl">₪ ליחידה' + num('rate', 'תעריף', '0.01') + '</label>' : '') +
+      (t === 'pct' ? '<label class="fl">אחוז %' + num('pct', '%', '0.1') + '</label><span class="hint" style="align-self:center">מהסכום שמזינים כל חודש</span>' : '') +
+      (t === 'tier' ? '<label class="fl">יחידה' + unitSel + '</label><label class="fl">יעד (כמות)' + num('threshold', 'יעד') + '</label><label class="fl">בונוס ₪' + num('bonus', 'בונוס') + '</label>' : '') +
+      '<button type="button" class="btn small ghost" data-pcdel="' + i + '" aria-label="הסר רכיב">✕</button></div>'; };
+  const body = '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('name', 'שם', (cur && cur.name) || '') + fi('role', 'תפקיד', (cur && cur.role) || (cur ? '' : 'נציג/ה')) +
+      fs('division', 'חטיבה', Object.entries(L.division), (cur && cur.division) || 'finance') + '</div>' +
+    (cur ? '' : '<div class="row full" style="gap:6px"><span class="hint">תבנית:</span><button type="button" class="btn small" data-ptpl="rep">נציג/ה — שעתי + עמלה + בונוס יעד</button><button type="button" class="btn small ghost" data-ptpl="monthly">שכר חודשי</button><button type="button" class="btn small ghost" data-ptpl="empty">ריק</button></div>') +
+    '<h3 class="sec full">רכיבי השכר</h3><div class="full" id="pcomps"></div>' +
+    '<div class="row full" style="gap:6px;flex-wrap:wrap">' + Object.entries(PAY_TYPES).map(([k, v]) => '<button type="button" class="btn small" data-pcadd="' + k + '">+ ' + v + '</button>').join('') + '</div>' +
+    '<div class="row full" style="gap:8px;flex-wrap:wrap;margin-top:8px">' + fi('floor', 'רצפה חודשית ₪ (השלמה)', cur && cur.floor != null ? cur.floor : '', 'number', 'min="0" step="1"') +
+      fi('employerPct', 'עלות מעביד %', cur && cur.employerPct != null ? cur.employerPct : '', 'number', 'min="0" max="60" step="0.1"') + fi('expectedCost', 'צפי חודשי (עלות) ₪', cur && cur.expectedCost != null ? cur.expectedCost : '', 'number', 'min="0" step="1"') + '</div>' +
+    '<p class="hint full">רצפה = אם סכום הרכיבים בחודש נמוך ממנה, נוספת שורת השלמה (למשל שכר מינימום לנציג על עמלות). הסכומים — לפי ההסכם עם העובד; רו״ח מחשב נטו.</p>';
+  const sync = () => { document.querySelectorAll('#pcomps .pcomp').forEach((row) => { const c = st.comps[Number(row.dataset.ci)]; if (!c) return; row.querySelectorAll('[data-cf]').forEach((f) => { const k = f.dataset.cf; c[k] = f.type === 'number' ? (f.value === '' ? null : r2(f.value)) : f.value; }); }); };
+  const paint = () => { const el = document.getElementById('pcomps'); if (el) el.innerHTML = st.comps.length ? st.comps.map(compRow).join('') : '<p class="hint">אין רכיבים — הוסף למטה.</p>'; };
+  drawer(cur ? 'רכיבי שכר — ' + cur.name : 'עובד חדש לשכר', body, async (fd) => {
+    sync(); const name = String(fd.name || '').trim(); if (!name) return 'לכתוב שם';
+    const comps = st.comps.map((c) => { const o = { id: c.id, type: c.type, label: String(c.label || '').trim() || PAY_TYPES[c.type] };
+      if (c.type === 'fixed') o.amount = c.amount; if (c.type === 'rate') { o.unit = c.unit || 'hours'; o.rate = c.rate; } if (c.type === 'pct') o.pct = c.pct; if (c.type === 'tier') { o.unit = c.unit || 'closes'; o.threshold = c.threshold; o.bonus = c.bonus; } return o; });
+    const numOr = (v) => v === '' || v == null ? null : r2(v);
+    const body2 = { name, role: String(fd.role || '').trim(), division: fd.division || 'finance', components: comps, floor: numOr(fd.floor), employerPct: numOr(fd.employerPct), expectedCost: numOr(fd.expectedCost) };
+    const legacy = { hourly: null, perZoom: null, perClose: null, travelDay: null, fixedBonus: null, fixedBonusNote: null };
+    const list = cur ? all.map((e) => e.key === cur.key ? { ...e, ...legacy, ...body2, updatedAt: stamp() } : e) : [...all, { key: 'e' + uid(), active: true, createdAt: stamp(), ...body2 }];
+    await payEmpSave(list); toast(cur ? 'רכיבי השכר נשמרו — החודשים שלא אושרו מחושבים מחדש' : name + ' נוסף/ה לשכר'); render();
+  }, cur ? '<button type="button" class="btn ghost" data-payremove="' + esc(cur.key) + '">הסר מהשכר</button>' : '', cur ? 'שמור' : 'הוסף לשכר');
+  paint();
+  $('scrim').addEventListener('click', async (ev) => {
+    const b = ev.target.closest('[data-pcadd],[data-pcdel],[data-ptpl],[data-payremove]'); if (!b) return; ev.preventDefault();
+    if (b.dataset.payremove) { const why = prompt('להסיר את ' + cur.name + ' מהשכר? החודשים שנשמרו נשארים. סיבה (לא חובה):', ''); if (why === null) return;
+      await payEmpSave(all.map((e) => e.key === cur.key ? { ...e, active: false, removedAt: stamp(), removedReason: why.trim() || null } : e)); $('layer').innerHTML = ''; toast(cur.name + ' הוסר/ה מהשכר'); return render(); }
+    sync();
+    if (b.dataset.pcadd) st.comps.push({ id: 'c' + uid(), type: b.dataset.pcadd, label: '', unit: b.dataset.pcadd === 'tier' ? 'closes' : 'hours' });
+    else if (b.dataset.pcdel != null) st.comps.splice(Number(b.dataset.pcdel), 1);
+    else if (b.dataset.ptpl) { const T = PAY_TEMPLATES[b.dataset.ptpl]; st.comps = T.components.map((c) => ({ ...c, id: 'c' + uid() })); const r = document.getElementById('d_role'); if (r) r.value = T.role; }
+    paint();
+  });
+  $('scrim').addEventListener('change', (ev) => { if (ev.target.matches('#pcomps [data-cf="type"]')) { sync(); paint(); } });
+}
+async function payPdf(m) {
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  const calc = payEmployees().map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDoc(m, e.key)) })), tot = r2(calc.reduce((a, k) => a + k.c.total, 0));
+  const td = 'padding:6px 4px;border-bottom:1px solid #EAECF0;font-size:13px';
+  const html = '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:28px 32px;background:#fff"><div style="border-bottom:3px solid #101828;padding-bottom:8px"><div style="font-size:20px;font-weight:700">שכר ' + esc(mLabel(m)) + ' — הדמיה לפי ההסכמים</div><div style="font-size:13px;color:#475467">הר-אל · לרו״ח · הופק ' + dLabel(today()) + ' · ברוטו לפני ניכויים</div></div>' +
+    calc.map(({ e, x, c }) => '<h3 style="font-size:15px;margin:16px 0 4px">' + esc(e.name) + (e.role ? ' · ' + esc(e.role) : '') + ' <span style="font-weight:400;color:#475467;font-size:12px">' + esc(L.division[e.division || 'finance']) + ' · ' + (x.paid ? 'שולם' : x.approved ? 'מאושר' : 'טיוטה') + '</span></h3>' +
+      '<table style="width:100%;border-collapse:collapse">' + c.rows.map((r) => '<tr><td style="' + td + '">' + esc(r.label) + '</td><td style="' + td + ';color:#475467">' + esc(r.how) + '</td><td style="' + td + ';text-align:left;white-space:nowrap">' + plain(r.sum) + '</td></tr>').join('') +
+      '<tr><td style="' + td + ';font-weight:700" colspan="2">סה״כ ' + esc(e.name) + '</td><td style="' + td + ';text-align:left;font-weight:700">' + plain(c.total) + '</td></tr></table>').join('') +
+    '<p style="font-size:15px;font-weight:700;margin-top:16px">סה״כ שכר החודש: ' + plain(tot) + '</p><p style="font-size:12px;color:#667085">הדמיה לפי ההסכם עם כל עובד — רו״ח מחשב נטו, ביטוח לאומי, מס ופנסיה.</p></div>';
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(html); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'שכר-' + m + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 function payRows(m) {
   return payEmployees().flatMap((e) => { const x = payDoc(m, e.key), c = payCalc(e, x);
-    return [...c.rows.filter((r) => r.sum).map((r) => [mLabel(m), e.name, L.division[e.division || 'finance'], r.label, r.q, r.rate, r.sum, '']), [mLabel(m), e.name, L.division[e.division || 'finance'], 'סה״כ', '', '', c.total, x.approved ? 'מאושר' : 'טיוטה']]; });
+    return [...c.rows.filter((r) => r.sum).map((r) => [mLabel(m), e.name, L.division[e.division || 'finance'], r.label, r.q, r.pct != null ? r.pct + '%' : r.rate, r.sum, '']), [mLabel(m), e.name, L.division[e.division || 'finance'], 'סה״כ', '', '', c.total, x.approved ? 'מאושר' : 'טיוטה']]; });
 }
 
 /* ── בדיקת הוצאות מול הספירה של דן + מצב מע״מ לכל שורה ── */
@@ -12795,6 +12889,8 @@ document.addEventListener('click', async (e) => {
     if (d.code) return codeLogin(d.code);
     if (d.leadback != null) return leadBackGo();
     if (d.cbopen) { S.leadBack = null; return go('lead', d.cbopen); }
+    if (d.payemp != null && el.matches('[data-payemp]')) return payEmpDrawer(d.payemp || null);
+    if (d.payback) { await payEmpSave(payAllEmployees().map((e) => e.key === d.payback ? { ...e, active: true, removedAt: null, removedReason: null } : e)); toast('הוחזר/ה לשכר'); return render(); }
     if (d.callset) { if (d.cpclose != null) callPopClose(); return callDrawer(d.callset); }
     if (d.callcancel) return callCancel(d.callcancel);
     if (d.calldone) return callDone(d.calldone);
@@ -13385,9 +13481,10 @@ document.addEventListener('click', async (e) => {
         case 'confirmMonth': { const D = settleData(S.f.settleMonth || (nissimCard().slice(-1)[0] || {}).month); if (!D) return;
           for (const t of D.unconfirmed) await write('transactions/' + t.id, { confirmed: true, confirmedAt: stamp(), confirmedBy: S.me.id, updatedAt: stamp() }, 'update');
           return toast(D.unconfirmed.length + ' תקבולים אושרו'); }
+        case 'payPdf': return payPdf(S.f.payMonth || payMonthDefault());
         case 'payCsv': { const m = S.f.payMonth || payMonthDefault(); return exportCsv('שכר-' + m, ['חודש', 'עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], payRows(m)); }
         case 'payMail': { const m = S.f.payMonth || payMonthDefault(); const rows = payRows(m);
-          const r = await sendMail({ to: [mailOf(S.me.id) || mailOf(ownerFallback())], subject: '[הר-אל] שכר ' + mLabel(m) + ' — לרו״ח', html: mailWrap('שכר ' + mLabel(m) + ' — הדמיה לפי ההסכם', mailTable(['עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], rows.map((x) => [esc(x[1]), esc(x[2]), x[3] === 'סה״כ' ? '<b>סה״כ</b>' : esc(x[3]), x[4] === '' ? '' : fmt0.format(x[4]), x[5] === '' ? '' : plain(x[5]), plain(x[6]), esc(x[7])])) + '<p style="color:#6B7280;font-size:12px">ברוטו לפני ניכויים. לתשלום עד ' + dLabel(payDue(m)) + '.</p>'), kind: 'payroll', ref: m });
+          const r = await sendMail({ to: [mailOf(S.me.id) || mailOf(ownerFallback())], subject: '[הר-אל] שכר ' + mLabel(m) + ' — לרו״ח', html: mailWrap('שכר ' + mLabel(m) + ' — הדמיה לפי ההסכם', mailTable(['עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], rows.map((x) => [esc(x[1]), esc(x[2]), x[3] === 'סה״כ' ? '<b>סה״כ</b>' : esc(x[3]), x[4] === '' ? '' : fmt0.format(x[4]), x[5] === '' ? '' : typeof x[5] === 'string' ? esc(x[5]) : plain(x[5]), plain(x[6]), esc(x[7])])) + '<p style="color:#6B7280;font-size:12px">ברוטו לפני ניכויים. לתשלום עד ' + dLabel(payDue(m)) + '.</p>'), kind: 'payroll', ref: m });
           return toast(r.ok ? 'נשלח' : 'לא נשלח: ' + r.why); }
         case 'exportAll': return exportAll();
         case 'driveNow': return driveBackup(true);
@@ -13526,9 +13623,10 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.linklead && el.value) { const l = S.leads.get(el.dataset.linklead), c = S.clients.get(el.value); await write('leads/' + l.id, { clientId: c.id, updatedAt: stamp() }, 'update');
       await write('clients/' + c.id, { leadId: l.id, phone: c.phone || l.phone || '', source: c.source || 'ליד — ' + (l.ad || l.campaign || ''), updatedAt: stamp() }, 'update'); await logClient(c.id, 'קושר לליד מהטבלה: ' + (l.ad || '') + ' · ' + dLabel(dayOf(l.createdAt))); return toast('קושר ל' + c.name); }
     if (el.id === 'reInclFin') { await write('settings/main', { reIncludeFin: el.checked }, 'update'); return toast(el.checked ? 'החלק מפתרונות נכלל בהתחשבנות' : 'החלק מפתרונות הוצא מההתחשבנות'); }
-    if (el.dataset.pay) { const key = el.dataset.pay, m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key), k = el.dataset.pk;
-      const v = k === 'fullMonth' ? el.checked : el.value === '' ? null : r2(el.value);
-      await write('payroll/' + id, { ...x, id, month: m, emp: key, [k]: v, approved: false, updatedAt: stamp() }); return; }
+    if (el.dataset.pay) { const key = el.dataset.pay, m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key), k = el.dataset.pk, num = el.value === '' ? null : r2(el.value);
+      const patch = el.dataset.pq ? { q: { ...(x.q || {}), [el.dataset.pq]: num } } : el.dataset.pb ? { base: { ...(x.base || {}), [el.dataset.pb]: num } } : el.dataset.pp ? { part: { ...(x.part || {}), [el.dataset.pp]: num == null ? null : Math.max(0, Math.min(100, num)) } }
+        : k === 'fullMonth' ? { fullMonth: el.checked } : k === 'noFloor' ? { noFloor: !el.checked } : { [k]: num };
+      await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, approved: false, updatedAt: stamp() }); return; }
     if (el.dataset.vatmode) { const t = S.transactions.get(el.dataset.vatmode); if (!t) return;
       await write('transactions/' + t.id, { ...withVatMode(t, el.value), updatedAt: stamp() }, 'update'); return toast('המע״מ חושב מחדש'); }
     if (el.dataset.teamresp != null && el.dataset.teamresp !== undefined && el.matches('[data-teamresp]')) { const id = el.dataset.teamresp, t = live(S.team).find((x) => x.userId === id);
