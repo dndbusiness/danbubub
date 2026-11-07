@@ -4734,7 +4734,7 @@ async function signSendRun(c, key, o) {
     const ids = pdfBundleIds(key), ts = ids.map(pdfTplOf).filter(Boolean); if (ts.length < 2 || ts.length !== ids.length) throw new Error('אחד הטפסים לא נמצא בספרייה');
     const F = pdfBundleFields(ids), N = ts.reduce((m, t) => Math.max(m, t.signers), 0);
     signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null;
-      return { label: 'לווה ' + (i + 1), name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, i + 1, x, F) }; });
+      return { label: 'לווה ' + (i + 1), name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), verifyId: o.vid !== false, prefill: signPrefill(c, i + 1, x, F) }; });
     signers = signTrim(signers);
     const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
     title = o.title || ts.map((t) => t.name).join(' + ');
@@ -4745,7 +4745,7 @@ async function signSendRun(c, key, o) {
     if (!t && !ad) throw new Error(key === 'adhoc' ? 'מעלים קובץ ומציבים שדות קודם' : 'הטופס לא נמצא');
     const F = t ? t.fields : ad.fields, N = t ? t.signers : pdfSignersOf(F);
     signers = Array.from({ length: N }, (_, i) => o.rows[i] || {}).map((x, i) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null, who = x._i || i + 1;
-      return { label: 'לווה ' + who, name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, who, x, F, i + 1) }; });
+      return { label: 'לווה ' + who, name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), verifyId: o.vid !== false, prefill: signPrefill(c, who, x, F, i + 1) }; });
     signers = signTrim(signers);
     const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
     title = o.title || (t ? t.name : ad.name);
@@ -4757,7 +4757,7 @@ async function signSendRun(c, key, o) {
     const fields = { ...signDefaults(c), ...(o.fields || {}) };
     const miss = signTplRequired(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k) && !String(fields[k] || '').trim()); if (miss.length) throw new Error('חסר: ' + miss.map((k) => SIGN_LABELS[k] || k).join(', '));
     signers = o.rows.filter((x) => x.on).map((x) => { const email = String(x.email || '').trim() || null, phone = String(x.phone || '').trim() || null;
-      return { label: String(x.label || '').trim() || 'חותם', name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), prefill: signPrefill(c, x._i || 99, x, null) }; });
+      return { label: String(x.label || '').trim() || 'חותם', name: String(x.name || '').trim() || null, email, phone, requireOtp: !!o.otp && !!(email || phone), verifyId: o.vid !== false, prefill: signPrefill(c, x._i || 99, x, null) }; });
     if (!signers.length) throw new Error('לא נבחר אף חותם'); const bad = signers.find((x) => !x.email && !x.phone); if (bad) throw new Error(bad.label + ': חסר מייל או טלפון');
     title = o.title || tpl.title;
     /* "צרף שטר חוב": השטר בעמוד חדש אחרי ההסכם, הסכום במילים מתמלא לבד, ואותה חתימה + חותמת החברה */
@@ -4825,12 +4825,13 @@ function signQuickForm(c, key) {
     (!isPdf && it.tpl.category === 'agreement' && it.key !== 'lib:finance-promissory-note' ? '<label class="check full"><input type="checkbox" class="cb" name="noteOn" value="1"' + (nd && nd.on ? ' checked' : '') + '><span><b>צרף שטר חוב</b> — בעמוד נפרד, אותה חתימה וחותמת החברה</span></label>' +
       fi('noteAmount', 'סכום שטר החוב (₪)', nd ? nd.amount : '', 'text', 'inputmode="numeric" dir="ltr"') : '') +
     '<label class="fl full">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" name="notes" rows="3" maxlength="2000"></textarea></label>' +
-    '<label class="check full"><input type="checkbox" class="cb" name="otp" value="1" checked><span>קוד אימות לפני החתימה — מוכיח שהמייל / הטלפון באמת שלו</span></label>',
+    '<label class="check full"><input type="checkbox" class="cb" name="vid" value="1" checked><span>אימות לפי ת״ז מהתיק — הלקוח מקליד ת״ז לפני שרואה את המסמך <span class="hint">(עובד מיד, בלי SMS ובלי מייל)</span></span></label>' +
+    '<label class="check full"><input type="checkbox" class="cb" name="otp" value="1"><span>גם קוד אימות חד-פעמי <span class="hint">(בוואטסאפ או במייל · אם אין ערוץ — מאמתים לפי ת״ז)</span></span></label>',
     async (d) => {
       const rws = rows.map((r, i) => ({ ...r, on: isPdf ? true : d['on' + i] === '1', name: String(d['name' + i] || '').trim(), email: String(d['email' + i] || '').trim(), phone: String(d['phone' + i] || '').trim() }));
       const fields = {}; need.forEach((k) => { fields[k] = String(d['f_' + k] || '').trim(); });
       const note = d.noteOn === '1' ? { on: true, amount: String(d.noteAmount || '') } : null;
-      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', notes: d.notes || '', fields, note }); }
+      try { await signSendRun(c, key, { title: isPdf ? it.pdf.name : it.tpl.title + (it.tpl.category === 'agreement' ? ' — ' + defs.company : it.tpl.lender ? ' — ' + it.tpl.lender : ''), rows: rws, otp: d.otp === '1', vid: d.vid === '1', notes: d.notes || '', fields, note }); }
       catch (e) { return e.message; }
     }, '', 'שלח עכשיו');
 }
@@ -5290,7 +5291,7 @@ function signCard(c) {
   const draft = !pdfMode && isSignDraft(tpl.body), defs = signDefaults(c);
   const flds = signTplFields(tpl.body).filter((k) => !['signer_name', 'signer_label'].includes(k)), reqF = signTplRequired(tpl.body), last = S.signLast && S.signLast.client === c.id ? S.signLast : null;
   const pdfN = pdfMode === 'bundle' ? bT.reduce((m, t) => Math.max(m, t.signers), 0) : pdfMode === 'tpl' ? (ptpl ? ptpl.signers : 0) : pdfMode === 'adhoc' ? Math.max(1, pdfSignersOf(st.adhoc && st.adhoc.fields)) : 0;
-  const signers0 = st.signers || signSignerDefaults(c, pdfMode ? 'client_spouse' : tpl.signers), otp = st.otp !== undefined ? st.otp : true; /* קוד אימות כברירת מחדל — זיהוי שהמייל / הטלפון שלו (דן, 17/10) */
+  const signers0 = st.signers || signSignerDefaults(c, pdfMode ? 'client_spouse' : tpl.signers), otp = st.otp !== undefined ? st.otp : false; /* דן 07/11: "SMS לא פעיל, במייל מסובך ללקוחות" — ברירת המחדל: אימות לפי ת״ז מהתיק; קוד — בבחירה (היה ברירת מחדל מ-17/10) */
   const off = pdfMode === 'tpl' ? pdfOffOf(ptpl) : 0; /* טופס "לווה 2" — השורה של בן/בת הזוג */
   const signers = pdfMode ? Array.from({ length: pdfN }, (_, i) => ({ ...(signers0[i + off] || { name: '', email: '', phone: '' }), on: true, label: 'לווה ' + (i + 1 + off), _k: i + off })) : signers0;
   const pdfUrl = (e) => e.drive_url || (e.pdf_file_id ? '/api/files/' + e.pdf_file_id : '');
@@ -5327,7 +5328,8 @@ function signCard(c) {
     '<h3 class="sec">חותמים' + (tpl.perSigner ? ' <span class="hint">· נוסח נפרד לכל חותם</span>' : pdfMode ? ' <span class="hint">· לפי השדות בטופס</span>' : '') + '</h3>' + (pdfMode && !pdfN ? '<p class="hint">' + (pdfMode === 'adhoc' ? 'מעלים קובץ ומציבים שדות — ואז ממלאים כאן את החותמים.' : '') + '</p>' : '') + signers.map((s, i) => '<div class="row" style="gap:6px;align-items:flex-end;margin-bottom:4px">' + (pdfMode ? '<span class="sgdot" style="--sgc:' + sgc(i + 1) + ';margin-bottom:12px" title="' + esc(s.label) + '"></span>' : '<label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" data-signs="' + i + ':on"' + (s.on ? ' checked' : '') + '></label>') +
       '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + (s._k ?? i) + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + (s._k ?? i) + ':name" value="' + esc(s.name) + '"></label>' +
       '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
-    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות לפני החתימה <span class="hint">(בוואטסאפ, או במייל — החותם בוחר; מוכיח שהטלפון / המייל באמת שלו)</span></span></label>' +
+    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signVid"' + (st.vid === false ? '' : ' checked') + '> <span>אימות לפי ת״ז מהתיק <span class="hint">(הלקוח מקליד ת״ז לפני שרואה את המסמך — עובד מיד, בלי SMS ובלי מייל)</span></span></label>' +
+    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות חד-פעמי <span class="hint">(בוואטסאפ, או במייל — החותם בוחר · אם אין ערוץ — מאמתים לפי ת״ז)</span></span></label>' +
     (!pdfMode ? signNoteBox(c, st, tpl.key) : '') +
     '<label class="fl" style="margin:6px 0">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" id="signNotes" rows="2" maxlength="2000">' + esc(st.notes || '') + '</textarea></label>' +
     (pdfMode ? '<p class="hint" style="margin:0 0 4px">השם, ת״ז ושדות שסומנו "מילוי מהתיק" בטופס ימולאו מהכרטיס — הלקוח רואה, בודק וחותם.</p>' : '') +
@@ -13513,7 +13515,7 @@ document.addEventListener('click', async (e) => {
           const base = (st.signers || signSignerDefaults(c, pdfK ? 'client_spouse' : signTplOf(c, key).signers)).map((x, i) => ({ ...x, _i: i + 1 }));
           const off = pdfKeyOff(key), rows = pdfK ? Array.from({ length: N }, (_, i) => ({ ...(base[i + off] || { name: '', email: '', phone: '' }), on: true, _i: i + 1 + off })) : base;
           el.disabled = true; el.textContent = 'שולח…';
-          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
+          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, vid: ($('signVid') || { checked: true }).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
             S.signForm[c.id] = {}; return; }
           catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
         case 'signLibAdd': return signLibForm(null);
@@ -13751,10 +13753,11 @@ document.addEventListener('change', (e) => { const el = e.target && e.target.clo
   const b = $('ikApplyBtn'); if (b) b.textContent = 'החל את המסומנים (' + S.ikSug.rows.filter((q) => q.on).length + ')'; });
 document.addEventListener('input', async (e) => {
   if (e.target.dataset && e.target.dataset.ik && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') { const el = e.target; clearTimeout(ikT); ikT = setTimeout(() => ikSave(el).catch(() => {}), 900); return; }
-  if (e.target.dataset && (e.target.dataset.signf || e.target.dataset.signs || ['signTitle', 'signOtp'].includes(e.target.id)) && ['client', 'lead', 'forms'].includes(S.view.tab)) { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
+  if (e.target.dataset && (e.target.dataset.signf || e.target.dataset.signs || ['signTitle', 'signOtp', 'signVid'].includes(e.target.id)) && ['client', 'lead', 'forms'].includes(S.view.tab)) { const f = ((S.signForm = S.signForm || {})[S.view.clientId] = S.signForm[S.view.clientId] || {}); f.open = true;
     if (e.target.dataset.signs) { const c = signSubject(), [i, k] = e.target.dataset.signs.split(':'), pm = String(f.tpl || '').startsWith('pdf:') || f.tpl === 'adhoc'; f.signers = f.signers || signSignerDefaults(c, pm ? 'client_spouse' : signTplOf(c, f.tpl).signers);
       while (f.signers.length <= Number(i)) f.signers.push({ on: true, label: '', name: '', email: '', phone: '' }); const row = f.signers[Number(i)]; if (row) row[k] = k === 'on' ? e.target.checked : e.target.value; return; }
     if (e.target.id === 'signOtp') { f.otp = e.target.checked; return; }
+    if (e.target.id === 'signVid') { f.vid = e.target.checked; return; }
     if (e.target.dataset.signf) f[e.target.dataset.signf] = e.target.value; else f.title = e.target.value; return; }
   if (e.target.dataset && e.target.dataset.plannotes && S.canWrite) { const el = e.target, id = el.dataset.plannotes; clearTimeout(S._planT);
     S._planT = setTimeout(() => write('clients/' + id, { planNotes: el.value, updatedAt: stamp() }, 'update').catch(() => {}), 900); return; }

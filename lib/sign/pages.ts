@@ -54,6 +54,22 @@ function shell(title: string, body: string, extraHead = ''): string {
     `<style>${BASE_CSS}</style>${extraHead}</head><body>${body}</body></html>`
 }
 
+function idGatePage(row: SignRow, token: string): string {
+  const company = COMPANY[row.division] ?? 'הר-אל'
+  return shell('אימות זהות', `<div class="wrap"><div class="card"><div class="hint">${esc(company)}</div><h1>${esc(row.title)}</h1></div>
+  <div class="card otp" id="idg"><h2 style="margin-top:0">אימות זהות לפני הצפייה והחתימה</h2>
+    <p class="hint">כדי לוודא שהמסמך מגיע אליך — הקלד/י את מספר תעודת הזהות שלך.</p>
+    <label for="idIn">מספר תעודת זהות</label><input type="text" id="idIn" inputmode="numeric" maxlength="10" autocomplete="off" dir="ltr">
+    <div class="err" id="idErr" role="alert"></div>
+    <button type="button" class="btn primary" id="idGo" style="margin-top:10px">המשך</button>
+    <p class="hint" style="margin-top:10px">האימות נשמר בתיעוד החתימה.</p></div></div>
+<script>(function(){var API='/api/s/${encodeURIComponent(token)}',b=document.getElementById('idGo'),e=document.getElementById('idErr'),i=document.getElementById('idIn');
+function msg(m){e.textContent=m;e.style.display=m?'block':'none'}
+function go(){var v=i.value.replace(/\D/g,'');if(!v)return msg('להקליד מספר ת״ז');b.disabled=true;fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'id_verify',idNumber:v})}).then(function(r){return r.json()}).then(function(j){if(j.ok){location.reload()}else{b.disabled=false;msg(j.error||'לא אומת')}}).catch(function(){b.disabled=false;msg('אין חיבור')})}
+b.onclick=go;i.addEventListener('keydown',function(ev){if(ev.key==='Enter')go()});
+fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'open'})}).catch(function(){});})();</script>`)
+}
+
 export function messagePage(title: string, text: string, tone: 'ok' | 'bad' | 'muted' = 'muted'): string {
   return shell(title, `<div class="wrap"><div class="card" style="text-align:center"><h1>${esc(title)}</h1><p class="${tone === 'muted' ? 'hint' : ''}" style="${tone === 'bad' ? 'color:var(--bad)' : tone === 'ok' ? 'color:var(--ok)' : ''}">${esc(text)}</p><p class="hint">הר-אל</p></div></div>`)
 }
@@ -65,6 +81,8 @@ export function signPage(row: SignRow, state: SignState, token: string, opts: { 
   const needOtp = row.require_otp && otpState(row, opts.now ?? new Date()) !== 'verified'
   // וואטסאפ ראשון (דן, 21/10); אם אין אף ערוץ — הכפתור נשאר והשרת מסביר
   const otpCh = otpChannels(row, !!opts.wa).length ? otpChannels(row, !!opts.wa) : ['email' as const]
+  // אימות לפי ת״ז: עד שאומת — דף שער בלבד (בלי המסמך, בלי הפרטים ובלי הת״ז שבתיק)
+  if (state === 'open' && row.fields?.['@verifyId'] && !row.fields?.['@idOk']) return idGatePage(row, token)
   if (state === 'signed') return messagePage('המסמך נחתם', `חתמת ב-${il(row.signed_at)}. ${total > 1 ? 'כשכל החותמים יחתמו יישלח' : 'נשלח'} אליך עותק חתום${row.send_email ? ' במייל' : ''}. תודה!`, 'ok')
   if (state === 'expired') return messagePage('תוקף הקישור פג', 'נא לפנות אלינו לקבלת קישור חדש.', 'bad')
   if (state === 'cancelled') return messagePage('הקישור בוטל', 'נא לפנות אלינו אם יש שאלה.', 'bad')
@@ -194,6 +212,7 @@ export function printPage(env: EnvelopeRow, rows: SignRow[], opts: { auditOnly?:
     <tr><td>טביעת הנוסח (SHA-256)</td><td class="mono">${esc(r.doc_hash)}</td></tr>
     <tr><td>נשלח</td><td>${esc(il(r.created_at))}${r.send_email ? ' · במייל ל-' + esc(r.send_email) : ''}${r.send_phone ? ' · וואטסאפ ' + esc(r.send_phone) : ''}${r.reminders_sent ? ' · תזכורות: ' + r.reminders_sent : ''}</td></tr>
     <tr><td>נפתח לראשונה</td><td>${esc(il(r.opened_at))}</td></tr>
+    ${r.fields?.['@verifyId'] ? `<tr><td>אימות לפי ת״ז מהתיק</td><td>${esc(r.fields?.['@idOk'] ? il(r.fields['@idOk'] as string) : '—')}</td></tr>` : ''}
     ${r.require_otp ? `<tr><td>אימות קוד ${(r.fields?.['@otpVia'] ?? (r.send_email ? 'email' : 'whatsapp')) === 'whatsapp' ? 'בוואטסאפ' : 'במייל'}</td><td>${esc(il(r.otp_verified_at))}</td></tr>` : ''}
     <tr><td>נחתם</td><td>${esc(il(r.signed_at))}</td></tr>
     <tr><td>החותם</td><td>${esc(r.signer_name)} · ת"ז ${esc(r.signer_id_number)}</td></tr>

@@ -23,6 +23,7 @@ const env = existsSync('.env.local') ? Object.fromEntries(readFileSync('.env.loc
 const url = process.env.DATABASE_URL || env.DATABASE_URL
 if (!url) { console.error('DATABASE_URL לא מוגדר'); process.exit(1) }
 const sql = postgres(url, { max: 1, onnotice: () => {} })
+const gate = async (pg, id) => { if (await pg.$('#idIn')) { await pg.fill('#idIn', id); await pg.click('#idGo'); await pg.waitForSelector('#name') } } // אימות לפי ת״ז (07/11)
 const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); throw new Error(m) } console.log(`✓ ${m}`) }
 const CLIENT = 'e2e-prefill-client', LEAD = 'e2e-prefill-lead'
@@ -81,6 +82,8 @@ try {
   assert(/ימולא מהתיק: .*ת״ז 000000018/.test(drawerTxt) && /ת״ז 000000026/.test(drawerTxt), 'במגירה: לכל לווה — מה ימולא מהתיק (שם, ת״ז, מייל, סכום)')
   await page.fill('.drawer textarea[name="notes"]', 'הנחה מיוחדת: 500 ₪ משכר הטרחה\nבתוקף עד סוף החודש')
   await shot(page, 'sign-quick@1280')
+  // הבדיקה הזו: לווה 2 מזין ת״ז אחרת מהכרטיס → התרעה. אימות לפי ת״ז (ברירת המחדל מ-07/11) נבדק ב-e2e-sign-idverify
+  await page.uncheck('.drawer input[name="vid"]')
   await page.click('#dsave'); await page.waitForTimeout(2500)
 
   step('"איך זה מגיע ללקוח": קישור לכל לווה, וואטסאפ, ומצב המייל האמיתי')
@@ -179,7 +182,7 @@ try {
   assert(lenv.recipient_kind === 'lead', 'המסמך נרשם כמתעניין (לא לקוח)')
   const [ll] = await sql`select data->'log'->0->>'text' t from crm_docs where coll = 'leads' and doc_id = ${LEAD}`
   assert(/נשלח לחתימה/.test(ll.t), 'ביומן הליד: ' + ll.t)
-  const lp = await sctx.newPage(); await lp.goto(lurls[0]); await lp.waitForTimeout(800)
+  const lp = await sctx.newPage(); await lp.goto(lurls[0]); await lp.waitForTimeout(800); await gate(lp, '000000042')
   assert(await lp.inputValue('#name') === 'מתעניין בדיקה' && await lp.inputValue('#idn') === '000000042', 'בדף החותם: שם ות״ז של המתעניין ממולאים')
   assert(!pageErrs.length, 'בלי שגיאות JS בדף ה-CRM ' + pageErrs.join(' | '))
   console.log('\n✓ מילוי מהתיק, שליחה מהירה, הערות, מסירה ותיעוד — עובדים מקצה לקצה.')

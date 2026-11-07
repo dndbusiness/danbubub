@@ -19,7 +19,7 @@
  */
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { sql } from '@/lib/db'
-import {
+import { normalizeIsraeliId, idVerifyCheck, ID_MAX_TRIES,
   canResendOtp, cleanNotes, cleanPrefill, expiryFrom, groupByDocument, identityCheck, isSignDraft, maskEmail, maskPhone, MAX_SIGN_EVENTS, OTP_MAX_ATTEMPTS, OTP_TTL_MS, otpChannel, otpState,
   pdfSignerHash, renderAgreement, signEvent, signState, waTarget, withNotes,
   SIGN_CATEGORIES, validateSigners, validateSubmission, type FieldValue, type Prefill, type SignCategory, type SignerInput, type SignEvent, type SignState, type Submission,
@@ -44,7 +44,7 @@ const folderFor = (category: string) => (category === 'agreement' ? AGREEMENTS_F
 
 export interface SignRow {
   id: string; envelope_id: string | null; client_doc: string; client_name: string; division: 'finance' | 'realestate'; title: string; body_html: string; doc_hash: string
-  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[]; '@stamp'?: string; '@otpVia'?: string }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
+  fields: Record<string, FieldValue> & { '@prefill'?: Prefill; '@notes'?: string; '@events'?: SignEvent[]; '@stamp'?: string; '@otpVia'?: string; '@verifyId'?: boolean; '@idOk'?: string; '@idTries'?: number }; send_email: string | null; send_phone: string | null; status: 'sent' | 'opened' | 'signed' | 'cancelled'
   expires_at: string; opened_at: string | null; signed_at: string | null; signer_name: string | null; signer_id_number: string | null
   signature_png: string | null; signer_ip: string | null; signer_ua: string | null; pdf_path: string | null; drive_file_id: string | null; drive_url: string | null
   finalize_error: string | null; created_at: string; deleted_at: string | null
@@ -116,7 +116,11 @@ export async function createEnvelope(input: EnvelopeInput, now: Date, baseUrl?: 
   // קוד במייל — רק כשגוגל מחובר עם הרשאת שליחה; אחרת הקוד לא היה מגיע והחותם היה נתקע
   const wa = !!greenApiConfig(), mail = await mailReady(), warnings: string[] = []
   input = { ...input, signers: input.signers.map((s) => {
+    const hasId = !!normalizeIsraeliId(String((s.prefill as { idNumber?: string } | null)?.idNumber ?? ''))
+    if (s.verifyId && !hasId) { warnings.push(`${s.label}: אין ת״ז בתיק — אימות לפי ת״ז לא הופעל`); s = { ...s, verifyId: false } }
     if (!s.requireOtp || (mail && cleanEmail(s.email)) || (wa && cleanPhone(s.phone))) return s
+    // אין ערוץ לקוד — במקום לחתום בלי אימות: אימות לפי ת״ז מהתיק, כשיש
+    if (hasId) { warnings.push(`${s.label}: אין ערוץ לקוד (${cleanEmail(s.email) && !mail ? 'מיילים לא מחוברים' : 'אין מייל'}${cleanPhone(s.phone) && !wa ? ', וואטסאפ לא מוגדר' : ''}) — יאומת לפי ת״ז מהתיק`); return { ...s, requireOtp: false, verifyId: true } }
     warnings.push(`${s.label}: יחתום בלי קוד אימות (${cleanEmail(s.email) && !mail ? 'שליחת מיילים לא מחוברת — גוגל' : 'אין מייל'}${cleanPhone(s.phone) && !wa ? ', וואטסאפ לא מוגדר' : ''})`)
     return { ...s, requireOtp: false }
   }) }
@@ -201,6 +205,7 @@ function signerFields(input: EnvelopeInput, s: SignerInput, i: number, pdf: { fi
   const pre = cleanPrefill(s.prefill, allowed)
   const out: Record<string, unknown> = { ...base }
   if (pre.name || pre.idNumber || pre.values) out['@prefill'] = pre
+  if (s.verifyId && pre.idNumber) out['@verifyId'] = true
   if (notes) out['@notes'] = notes
   if (stampId) out['@stamp'] = stampId
   out['@events'] = [signEvent('sent', now, { detail: [input.sentBy ? 'ע"י ' + input.sentBy : '', cleanEmail(s.email) ? 'מייל ' + cleanEmail(s.email) : '', cleanPhone(s.phone) ? 'טלפון ' + cleanPhone(s.phone) : ''].filter(Boolean).join(' · ') || null })]
@@ -376,6 +381,25 @@ export async function sendOtp(token: string, now: Date, meta: { ip?: string | nu
   return { ok: true, to }
 }
 
+/** אימות לפי ת״ז מהתיק: עד ID_MAX_TRIES ניסיונות, כל ניסיון נרשם בתיעוד. */
+export async function verifyIdNumber(token: string, idNumber: string, now: Date, meta: { ip?: string | null; ua?: string | null } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const row = await byToken(token)
+  if (!row || signState(row, now) !== 'open') return { ok: false, error: 'הקישור לא פעיל' }
+  if (!row.fields?.['@verifyId'] || row.fields?.['@idOk']) return { ok: true }
+  const tries = Number(row.fields?.['@idTries'] ?? 0), r = idVerifyCheck(row.fields?.['@prefill']?.idNumber, idNumber, tries)
+  if (r === 'locked') return { ok: false, error: 'יותר מדי ניסיונות — נא לפנות אלינו לקישור חדש' }
+  if (r === 'no_id') return { ok: false, error: 'לא נמצאה ת״ז בתיק — נא לפנות אלינו' }
+  if (r === 'invalid') return { ok: false, error: 'מספר ת״ז לא תקין — 9 ספרות' }
+  if (r === 'mismatch') {
+    await sql`update sign_requests set fields = fields || ${sql.json({ '@idTries': tries + 1 })} where id = ${row.id} and status in ('sent', 'opened')`
+    await addEvent(row.id, signEvent('otp_failed', now, { ...meta, detail: 'ת״ז לא תואמת לתיק (' + (tries + 1) + '/' + ID_MAX_TRIES + ')' }))
+    return { ok: false, error: tries + 1 >= ID_MAX_TRIES ? 'יותר מדי ניסיונות — נא לפנות אלינו לקישור חדש' : 'הת״ז לא תואמת לרשום אצלנו — נשארו ' + (ID_MAX_TRIES - tries - 1) + ' ניסיונות' }
+  }
+  await sql`update sign_requests set fields = fields || ${sql.json({ '@idOk': now.toISOString() })} where id = ${row.id} and status in ('sent', 'opened')`
+  await addEvent(row.id, signEvent('otp_verified', now, { ...meta, detail: 'אימות לפי ת״ז — תואמת לתיק' }))
+  return { ok: true }
+}
+
 export async function verifyOtp(token: string, code: string, now: Date, meta: { ip?: string | null; ua?: string | null } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
   const row = await byToken(token)
   if (!row || signState(row, now) !== 'open') return { ok: false, error: 'הקישור לא פעיל' }
@@ -403,6 +427,7 @@ export async function submitRequest(token: string, s: Partial<Submission>, meta:
   const state = signState(row, now)
   if (state !== 'open') return { ok: false, errors: [state === 'signed' ? 'המסמך כבר נחתם' : state === 'expired' ? 'תוקף הקישור פג — בקשו קישור חדש' : 'הקישור בוטל'], state }
   if (row.require_otp && !row.otp_verified_at) return { ok: false, errors: ['נדרש קוד אימות מהמייל לפני החתימה'] }
+  if (row.fields?.['@verifyId'] && !row.fields?.['@idOk']) return { ok: false, errors: ['נדרש אימות ת״ז לפני החתימה'] }
   const errors = validateSubmission(s)
   // טופס PDF: שדות הטקסט / הסימון של החותם הזה
   let values: Record<string, string> = {}

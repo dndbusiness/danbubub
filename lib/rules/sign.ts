@@ -128,7 +128,22 @@ export const SIGN_CATEGORIES = {
 } as const
 export type SignCategory = keyof typeof SIGN_CATEGORIES
 
-export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; fields?: Record<string, FieldValue>; prefill?: unknown }
+export interface SignerInput { label: string; name?: string | null; email?: string | null; phone?: string | null; requireOtp?: boolean; verifyId?: boolean; fields?: Record<string, FieldValue>; prefill?: unknown }
+
+/**
+ * אימות לפי ת״ז מהתיק (דן 07/11: "SMS לא פעיל ובמייל מסובך ללקוחות — משהו שיעבוד במיידי").
+ * בלי ספק: החותם מקליד ת״ז, והיא חייבת להיות זהה לזו שבתיק. עד שאומת — הדף לא מציג את המסמך ולא את הפרטים.
+ * יחד עם קישור אישי שנשלח בוואטסאפ לנייד של הלקוח — מי שמחזיק את הקישור וגם יודע את הת״ז.
+ */
+export const ID_MAX_TRIES = 5
+export type IdVerifyResult = 'ok' | 'mismatch' | 'invalid' | 'locked' | 'no_id'
+export function idVerifyCheck(fileId: string | null | undefined, entered: string, tries: number): IdVerifyResult {
+  if (tries >= ID_MAX_TRIES) return 'locked'
+  const want = fileId ? normalizeIsraeliId(fileId) : null
+  if (!want) return 'no_id'
+  if (!isValidIsraeliId(entered)) return 'invalid'
+  return normalizeIsraeliId(entered) === want ? 'ok' : 'mismatch'
+}
 
 export const MAX_SIGNERS = 6
 

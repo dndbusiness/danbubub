@@ -132,6 +132,8 @@ try {
   assert(rq.length === 1 && rq[0].pre.values[adv.id] === 'הר-אל פתרונות מימון בע"מ' && rq[0].pre.values[advId.id] === '515000000', 'פרטי היועץ מההגדרות ממולאים מראש')
   const link = await page.evaluate(() => S.signLast && S.signLast.links[0] && S.signLast.links[0].url)
   const signer = await staff.newPage(); await signer.goto(link.replace(/^https?:\/\/[^/]+/, BASE)); await signer.waitForTimeout(800)
+  // אימות לפי ת״ז (ברירת המחדל מ-07/11): כשיש ת״ז בתיק — שער לפני הטופס
+  if (await signer.$('#idIn')) { await signer.fill('#idIn', String(rq[0].pre.idNumber || '')); await signer.click('#idGo'); await signer.waitForSelector('#name') }
   const advIn = signer.locator('input[data-fid="' + adv.id + '"]')
   assert(await advIn.inputValue() === 'הר-אל פתרונות מימון בע"מ' && (await advIn.getAttribute('readonly')) !== null, 'בעמוד החתימה: פרטי היועץ מוצגים לקריאה בלבד')
   if (process.env.E2E_OUT) await signer.screenshot({ path: path.join(process.env.E2E_OUT, 'sign-advisor@1280.png'), fullPage: true })
