@@ -37,7 +37,21 @@ export function parseSlngReply(text: string): { ok: boolean; description: string
   return { ok: j.Status === true || String(j.Status).toLowerCase() === 'true', description: String(j.Description ?? ''), guid: j.GeneralGUID ? String(j.GeneralGUID) : null }
 }
 
-/** שליחה אחת. הצלחה = מזהה; כל כישלון זורק — ה-retry ב-flushOutbox. */
+/** כישלון שניסיון חוזר לא יתקן (הגדרה בחשבון SLNG) — התור מסמן failed מיד, בלי "ננסה שוב" */
+export class PermanentSendError extends Error { readonly permanent = true }
+
+/** תשובת דחייה של SLNG → הסבר בעברית + האם זה קבוע. דן 07/11: "FromMobile number is not authroized" (כך במקור) */
+export function slngRejection(description: string): { message: string; permanent: boolean } {
+  const d = description || 'נדחה'
+  if (/from\s*mobile|sender/i.test(d) && /autho?r|authro/i.test(d))
+    return { permanent: true, message: 'מספר השולח (SLNG_FROM) לא מאושר בחשבון SLNG — לאשר אותו באתר SLNG, או לשים ב-SLNG_FROM שם שולח באנגלית שאושר שם. (' + d + ')' }
+  if (/user\s*name|password|login|credential|not\s+valid\s+user/i.test(d))
+    return { permanent: true, message: 'שם המשתמש או סיסמת ה-API של SLNG שגויים (SLNG_API_USER / SLNG_API_PASSWORD). (' + d + ')' }
+  if (/credit|balance|quota/i.test(d)) return { permanent: true, message: 'אין יתרת הודעות בחשבון SLNG — לטעון חבילה. (' + d + ')' }
+  return { permanent: false, message: d }
+}
+
+/** שליחה אחת. הצלחה = מזהה; כישלון זורק — ה-retry ב-flushOutbox (PermanentSendError — בלי retry). */
 export async function sendSlng(cfg: SlngConfig, p: SmsPayload, fetchImpl: typeof fetch = fetch): Promise<string> {
   const phone = ilMobile(p.phone)
   if (!phone) throw new Error('מספר נייד לא תקין')
@@ -47,7 +61,7 @@ export async function sendSlng(cfg: SlngConfig, p: SmsPayload, fetchImpl: typeof
     const text = await res.text().catch(() => '')
     if (res.status !== 200) throw new Error(`SLNG ${res.status}: ${text.slice(0, 160)}`)
     const r = parseSlngReply(text)
-    if (!r.ok) throw new Error('SLNG: ' + (r.description || 'נדחה'))
+    if (!r.ok) { const x = slngRejection(r.description); throw x.permanent ? new PermanentSendError('SLNG: ' + x.message) : new Error('SLNG: ' + x.message) }
     return 'slng:' + (r.guid || 'ok')
   }
   const fd = new FormData()

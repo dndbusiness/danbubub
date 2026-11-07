@@ -240,7 +240,7 @@ export async function sendSigningSms(signerId: string, url: string, by: string |
     values ('sms', ${phone}, ${'קישור לחתימה'}, ${'"' + row.title + '" — ' + url}, ${sql.json({ name, phone, link: url })}, ${key}) returning id`
   await flushOutbox({ ids: [ins!.id] }).catch((e) => console.error('outbox:', (e as Error).message))
   const [o] = await sql<{ status: string; last_error: string | null }[]>`select status, last_error from outbox where dedup_key = ${key}`
-  if (o?.status !== 'sent') return { ok: false, error: 'ה-SMS לא נשלח' + (o?.last_error ? ': ' + o.last_error : '') + ' — ננסה שוב אוטומטית' }
+  if (o?.status !== 'sent') return { ok: false, error: 'ה-SMS לא נשלח' + (o?.last_error ? ': ' + o.last_error : '') + (o?.status === 'failed' ? '' : ' — ננסה שוב אוטומטית') }
   await addEvent(row.id, signEvent('shared', now, { detail: 'ב-SMS ל-' + phone + (by ? ' · ע"י ' + by : '') }))
   await crmLog(row.client_doc, `"${row.title}" נשלח לחתימה ב-SMS ל-${phone} (SLNG) · ${url}`, now, {}, collOf(await kindOfRow(row))).catch(() => {})
   return { ok: true, to: phone }
