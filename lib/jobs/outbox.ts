@@ -81,7 +81,8 @@ export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetc
       out.sent++
     } catch (e) {
       const attempts = row.attempts + 1
-      const dead = attempts >= row.max_attempts
+      // הגדרה חסרה אצל הספק (שולח לא מאושר, סיסמה שגויה) — ניסיון חוזר לא יעזור
+      const dead = attempts >= row.max_attempts || (e as { permanent?: boolean }).permanent === true
       await sql`
         update outbox set attempts = ${attempts}, last_error = ${(e as Error).message}, status = ${dead ? 'failed' : 'pending'},
           next_attempt_at = now() + (${nextAttemptDelayMinutes(attempts)}::int * interval '1 minute')

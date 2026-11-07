@@ -25,10 +25,12 @@ const CLIENT = 'e2e-sms-client'
 
 // SLNG מדומה: טופס (multipart) או API (JSON, SendSmsJsonBody — דן 27/10). שני המצבים נבדקים באותן הבטחות.
 const posts = []
+let reject = null // דן 07/11: SLNG דוחה את השולח — שגיאה קבועה, בלי "ננסה שוב"
 const slng = createServer((req, res) => { const ch = []; req.on('data', (c) => ch.push(c)); req.on('end', async () => {
   if (/json/.test(req.headers['content-type'] || '')) {
     const j = JSON.parse(Buffer.concat(ch).toString('utf8')), body = String(j.MsgBody || '')
     posts.push({ path: req.url, api: true, user: j.Username, from: j.FromMobile, fn: (body.match(/^שלום (\S+),/) || [])[1], fp: (j.Mobiles || [])[0]?.Mobile, fl: (body.match(/(https?:\/\/\S+)/) || [])[1], body })
+    if (reject) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ Status: false, Description: reject })) }
     res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ Status: true, Description: 'Command received successfully', GeneralGUID: 'e2e-guid' }))
   }
   const fd = await new Request('http://x', { method: 'POST', headers: { 'content-type': req.headers['content-type'] }, body: Buffer.concat(ch) }).formData()
@@ -77,6 +79,17 @@ try {
   const r2 = await page.evaluate(async ({ id, old }) => { await fetch('/api/sign/' + id, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'link' }) })
     const r = await fetch('/api/sign/' + id, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'sms', url: old }) }); return { status: r.status, j: await r.json() } }, { id: rid.id, old: link })
   assert(r2.status === 422 && /כבר לא פעיל/.test(r2.j.error) && posts.length === 1, 'נדחה: "הקישור הזה כבר לא פעיל"')
+  if (posts[0].api) {
+    step('SLNG דוחה את השולח ("FromMobile … not authroized") — נכשל מיד, עם הסבר, בלי "ננסה שוב"')
+    reject = 'FromMobile number is not authroized to send SMS, please use SLNG web site to authroize the sms sender (number or use alphanumeric sender)'
+    const r3 = await page.evaluate(async (id) => { const l = await (await fetch('/api/sign/' + id, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'link' }) })).json()
+      const r = await fetch('/api/sign/' + id, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'sms', url: l.url }) }); return { status: r.status, j: await r.json() } }, rid.id)
+    const msg = String(r3.j.error || r3.j.message || '')
+    assert(r3.status !== 200 && /SLNG_FROM/.test(msg) && /לא מאושר/.test(msg) && !/ננסה שוב/.test(msg), 'ההודעה: "' + msg.slice(0, 90) + '…"')
+    const [o3] = await sql`select status, attempts from outbox where channel = 'sms' and dedup_key like 'sign-sms:%' order by created_at desc limit 1`
+    assert(o3.status === 'failed' && o3.attempts === 1, 'בתור היציאה: failed אחרי ניסיון אחד (לא ממשיך לנסות)')
+    reject = null
+  }
   assert(!pageErrs.length, 'אין שגיאות בדף' + (pageErrs.length ? ': ' + pageErrs.join(' | ') : ''))
   console.log('\nSMS דרך SLNG — עבר.')
 } finally {

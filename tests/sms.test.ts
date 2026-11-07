@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { firstName, ilMobile, SMS_LIMIT, smsFits, smsLength, smsText } from '@/lib/rules/sms.js'
-import { parseSlngReply, sendSlng, slngConfig, SLNG_API_URL } from '@/lib/outbox/slng.js'
+import { parseSlngReply, PermanentSendError, sendSlng, slngConfig, slngRejection, SLNG_API_URL } from '@/lib/outbox/slng.js'
 
 describe('SMS ללקוח (SLNG, דן 21/10)', () => {
   it('נייד ישראלי בלבד, בפורמט 05XXXXXXXX', () => {
@@ -69,5 +69,23 @@ describe('SLNG API (דן 27/10 — API_UserGuide §2)', () => {
     await expect(sendSlng(cfg, { name: 'א', phone: '0521234567', link: 'x' }, no)).rejects.toThrow(/account is closed/)
     const down = (async () => new Response('err', { status: 503 })) as unknown as typeof fetch
     await expect(sendSlng(cfg, { name: 'א', phone: '0521234567', link: 'x' }, down)).rejects.toThrow(/SLNG 503/)
+  })
+})
+
+describe('דחייה של SLNG שניסיון חוזר לא יתקן (דן 07/11: "FromMobile number is not authroized")', () => {
+  const api = { SLNG_API_USER: 'u@example.com', SLNG_API_PASSWORD: 'secret', SLNG_FROM: '0500000000' }
+  const reply = (d: string) => (async () => new Response(JSON.stringify({ Status: false, Description: d }), { status: 200 })) as unknown as typeof fetch
+  it('שולח לא מאושר — שגיאה קבועה עם הסבר מה לעשות', async () => {
+    const d = 'FromMobile number is not authroized to send SMS, please use SLNG web site to authroize the sms sender (number or use alphanumeric sender)'
+    expect(slngRejection(d)).toMatchObject({ permanent: true, message: expect.stringMatching(/SLNG_FROM.*לא מאושר/) })
+    const e = await sendSlng(slngConfig(api)!, { name: 'א', phone: '0521234567', link: 'x' }, reply(d)).catch((x) => x)
+    expect(e).toBeInstanceOf(PermanentSendError); expect(e.permanent).toBe(true); expect(e.message).toMatch(/לאשר אותו באתר SLNG/)
+  })
+  it('שם משתמש / סיסמה שגויים, אין יתרה — קבוע; תקלה אחרת — ניסיון חוזר', async () => {
+    expect(slngRejection('Username and/or Password are not valid')).toMatchObject({ permanent: true, message: expect.stringMatching(/סיסמת ה-API/) })
+    expect(slngRejection('Not enough credit')).toMatchObject({ permanent: true })
+    expect(slngRejection('Your account is closed, please contact SLNG support team').permanent).toBe(false)
+    const e = await sendSlng(slngConfig(api)!, { name: 'א', phone: '0521234567', link: 'x' }, reply('Temporary error')).catch((x) => x)
+    expect(e).not.toBeInstanceOf(PermanentSendError)
   })
 })
