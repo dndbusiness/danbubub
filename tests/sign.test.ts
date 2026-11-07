@@ -129,3 +129,15 @@ describe('הסכמים של דן (20/10): חתימות בגוף, עמוד חדש
     expect(withNotes('x', '@@חתימות@@ בהערה', true)).toContain('‏@@חתימות@@') // הערה לא יכולה להוסיף מקום חתימה
   })
 })
+
+describe('אימות לפי ת״ז מהתיק (דן 07/11)', () => {
+  it('idVerifyCheck: תואם / אחר / לא תקין / אין בתיק / נעול', async () => {
+    const { idVerifyCheck, ID_MAX_TRIES } = await import('../lib/rules/sign')
+    expect(idVerifyCheck('000000018', '18', 0)).toBe('ok')
+    expect(idVerifyCheck('18', '000000018', 0)).toBe('ok')
+    expect(idVerifyCheck('000000018', '000000026', 0)).toBe('mismatch')
+    expect(idVerifyCheck('000000018', '123456789', 0)).toBe('invalid')
+    expect(idVerifyCheck(null, '000000018', 0)).toBe('no_id')
+    expect(idVerifyCheck('000000018', '000000018', ID_MAX_TRIES)).toBe('locked')
+  })
+})

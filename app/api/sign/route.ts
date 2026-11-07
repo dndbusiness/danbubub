@@ -20,7 +20,7 @@ export const maxDuration = 60
 const Field = z.union([z.string().max(2000), z.number(), z.null()])
 const Signer = z.object({
   label: z.string().min(1).max(60), name: z.string().max(200).nullish(), email: z.string().max(200).nullish(), phone: z.string().max(40).nullish(),
-  requireOtp: z.boolean().optional(), fields: z.record(z.string(), Field).optional(),
+  requireOtp: z.boolean().optional(), verifyId: z.boolean().optional(), fields: z.record(z.string(), Field).optional(),
   // מה שמולא מכרטיס הלקוח (שם, ת"ז, שדות טקסט בטופס) — הצעה שהחותם רואה ויכול לתקן
   prefill: z.object({ name: z.string().max(200).nullish(), idNumber: z.string().max(20).nullish(), values: z.record(z.string(), z.string().max(400)).optional() }).optional(),
 })

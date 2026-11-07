@@ -111,6 +111,7 @@ node scripts/e2e-sign-prefill.mjs # חתימות: מילוי מהתיק → ★ 
 node scripts/e2e-sign-detect.mjs  # "שילמד את התבניות": טפסים בעברית → העלאה מרוכזת → ✨ שדות במקום (2 לווים) → שמור/דלג → שליחה לנמען ידני (לא נשמר במערכת)
 node scripts/e2e-sign-drive.mjs   # ייבוא הספרייה מתיקייה בדרייב (מדומה): תת-תיקייה = גוף → ✨ שדות → "לבדיקה" → ריצה שנייה = 0 → טופס "לווה 2" נשלח לבן הזוג
 SIGN_CURATED_EXTRA=/tmp/c.json node scripts/e2e-sign-curated.mjs  # טפסי הגופים (data/sign-forms): שדות מוכנים לפי טביעת הקובץ → "לבדיקה" יורד → לפי סוג → פרטי היועץ → לווה אחד בטופס לשניים (השרת עם אותו SIGN_CURATED_EXTRA)
+node scripts/e2e-sign-idverify.mjs # אימות לפי ת״ז מהתיק: דף שער בלבד (בלי מסמך/פרטים/ת״ז) → שגויה = "נשארו N" → נכונה → חתימה + תיעוד → 5 שגויים = נעול → קוד בלי ערוץ נופל לת״ז
 node scripts/e2e-sign-sms.mjs     # "שלח ב-SMS" (SLNG מדומה על 127.0.0.1:4599 — השרת עם SLNG_API_USER=e2e SLNG_API_PASSWORD=e2e SLNG_FROM=0500000000 SLNG_API_URL=http://127.0.0.1:4599/api, או בטופס: SLNG_FORM_URL=http://127.0.0.1:4599/form SLNG_FIELD_NAME=fn SLNG_FIELD_PHONE=fp SLNG_FIELD_LINK=fl)
 node scripts/e2e-pdfedit.mjs      # עורך PDF: טפסים ← ✏️ עורך PDF → עריכת טקסט קיים באותו גופן (עברית+אנגלית) → טקסט/✓ בשדה ריק שזוהה → מחיקת אזור → קובץ חדש: הישן נמחק מהקובץ, החדש נקרא
 node scripts/e2e-pdf-table.mjs   # טבלה בדף עו״ש: ✨ שדות ריקים = תאים ריקים (לא שורות שלמות) → לחיצה על תא → סכום על קו הבסיס של השורה, מיושר לעמודה, באותו גופן וגודל → קובץ מ-Chromium (כמה תת-קבוצות של גופן באותו שם): מספר שגדל נשאר צמוד לקצה התא

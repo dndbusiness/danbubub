@@ -22,6 +22,7 @@ const env = existsSync('.env.local') ? Object.fromEntries(readFileSync('.env.loc
 const url = process.env.DATABASE_URL || env.DATABASE_URL
 if (!url) { console.error('DATABASE_URL לא מוגדר'); process.exit(1) }
 const sql = postgres(url, { max: 1, onnotice: () => {} })
+const gate = async (pg, id) => { if (await pg.$('#idIn')) { await pg.fill('#idIn', id); await pg.click('#idGo'); await pg.waitForSelector('#name') } } // אימות לפי ת״ז (07/11)
 const step = (s) => console.log(`→ ${s}`)
 const assert = (c, m) => { if (!c) { console.error(`✗ ${m}`); throw new Error(m) } console.log(`✓ ${m}`) }
 
@@ -110,6 +111,8 @@ try {
   assert(after[0].n === before[0].n, 'לא נוצר לקוח ולא ליד')
   const sctx = await b.newContext({ viewport: { width: 390, height: 844 } }); const sp = await sctx.newPage()
   await sp.goto(links[0]); await sp.waitForTimeout(800)
+  // יש ת״ז שהוקלדה → אימות לפי ת״ז קודם (ברירת המחדל מ-07/11); לחותם בלי ת״ז — אין שער
+  assert(!!(await sp.$('#idIn')) && !(await sp.content()).includes('000000059'), 'שער אימות ת״ז — בלי הת״ז בדף'); await sp.fill('#idIn', '000000059'); await sp.click('#idGo'); await sp.waitForSelector('#name')
   assert(await sp.inputValue('#name') === 'רונית חיצונית' && await sp.inputValue('#idn') === '000000059', 'בדף החותם: השם ות"ז שהוקלדו — ממולאים')
   const sp2 = await sctx.newPage(); await sp2.goto(links[1]); await sp2.waitForTimeout(800)
   assert(await sp2.inputValue('#name') === 'Yossi Out', 'לחותם הנוסף — השם שלו')
@@ -153,7 +156,7 @@ try {
   envIds.push(be.id)
   const n0 = (await page.evaluate((ids) => ids.map((id) => pdfTplOf(id).fields.length).reduce((a, b) => a + b, 0), tplIds))
   assert(be.p === 2 && be.n === n0 && be.template_key.startsWith('pdfs:'), `מסמך אחד: 2 עמודים, ${be.n} שדות (כל השדות של שני הטפסים)`)
-  const bp = await sctx.newPage(); await bp.goto(blinks[0]); await bp.waitForTimeout(800)
+  const bp = await sctx.newPage(); await bp.goto(blinks[0]); await bp.waitForTimeout(800); await gate(bp, '000000059')
   assert(await bp.locator('.pg').count() === 2 && await bp.inputValue('#name') === 'רונית חיצונית', 'בדף החותם: שני העמודים, השם ממולא')
   await page.click('.drawer [data-signcopy="0"]'); await page.waitForTimeout(300)
   assert(/הקישור הועתק/.test(await page.locator('body').innerText()), '"העתק קישור" בחלון המסירה עובד')

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { finalizeEnvelope, markOpened, sendOtp, submitRequest, verifyOtp } from '@/lib/sign/store'
+import { verifyIdNumber, finalizeEnvelope, markOpened, sendOtp, submitRequest, verifyOtp } from '@/lib/sign/store'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -9,6 +9,7 @@ export const maxDuration = 60
  *   {action:'open'}               — הדף נפתח בדפדפן
  *   {action:'otp_send'}           — שלח קוד אימות למייל
  *   {action:'otp_verify', code}   — אימות הקוד
+ *   {action:'id_verify', idNumber} — אימות לפי ת״ז מהתיק
  *   {name, idNumber, signature, agree} — החתימה. אחרי שמירה: אם כולם חתמו — PDF → דרייב → עותקים.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -23,6 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const meta = { ip, ua: req.headers.get('user-agent') }
   if (body.action === 'open') return NextResponse.json({ ok: await markOpened(token, now, meta).catch(() => false) })
   if (body.action === 'otp_send') { const r = await sendOtp(token, now, meta, body.via ?? null); return NextResponse.json(r, { status: r.ok ? 200 : 422 }) }
+  if (body.action === 'id_verify') { const r = await verifyIdNumber(token, String(body.idNumber ?? ''), now, meta); return NextResponse.json(r, { status: r.ok ? 200 : 422 }) }
   if (body.action === 'otp_verify') { const r = await verifyOtp(token, String(body.code ?? ''), now, meta); return NextResponse.json(r, { status: r.ok ? 200 : 422 }) }
   const r = await submitRequest(token, body, meta, now)
   if (!r.ok) return NextResponse.json(r, { status: 422 })
