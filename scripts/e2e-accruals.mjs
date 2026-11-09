@@ -45,7 +45,7 @@ try {
   await add('שכר עובדת בדיקה — נובמבר', '2026-11', 11091, 'payroll', 'e2eh')
 
   step('+ חוזרת כל חודש: תוכנות 1,000 כולל מע״מ מאוקטובר (קטגוריה שאין לה תנועות)')
-  await page.click('[data-accrecur=""]'); await page.waitForSelector('#d_gross'); await page.fill('#d_category', 'E2E תוכנה'); await page.fill('#d_gross', '1000'); await page.fill('#d_from', '2026-10'); await page.click('#dsave')
+  await page.click('[data-accrecur=""]'); await page.waitForSelector('#d_gross'); await page.fill('#d_category', 'E2E תוכנה'); await page.fill('#d_gross', '1000'); await page.fill('#d_from', '2026-10'); await page.selectOption('#d_vatIncl', '1'); await page.click('#dsave')
   await page.waitForFunction(() => (S.settings.accruals?.recur || []).length > 0)
   await page.waitForTimeout(500)
   const d1 = await D(), want = 17850 + 11091 + 2 * 847.46
@@ -68,6 +68,13 @@ try {
   const d3 = await D()
   assert(close(d2.profit - d3.profit, 9000 - 11091) && !/שכר עובדת בדיקה — נובמבר/.test(d3.html.split('נוכו לפני החלוקה')[1] || ''), 'השכר בפועל (9,000) במקום ההתחייבות (11,091) — לא שניהם')
 
+  step('קמפיין: הוצאה 8,225.48 ל-238 לידים → עלות לליד מחושבת לבד')
+  await page.evaluate(() => formCampaign(null)); await page.waitForSelector('#d_leadsCount')
+  await page.fill('#d_name', 'E2E הלוואות רכב'); await page.fill('#d_spend', '8225.48'); await page.fill('#d_leadsCount', '238'); await page.click('#dsave')
+  await page.waitForFunction(() => live(S.campaigns).some((c) => c.name === 'E2E הלוואות רכב'))
+  const cp = await page.evaluate(() => { const c = live(S.campaigns).find((x) => x.name === 'E2E הלוואות רכב'); return { cpl: c.cpl, note: c.cplNote, n: c.leadsCount } })
+  assert(cp.cpl === 34.56 && cp.n === 238 && /238 לידים/.test(cp.note), `עלות לליד ${cp.cpl} ₪ (${cp.note})`)
+
   step('נייד 390px')
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => render()); await page.waitForTimeout(500)
   const ovf = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert(ovf <= 1, 'בלי גלילה לרוחב ב-390px (' + ovf + ')')
@@ -76,6 +83,7 @@ try {
 } catch (e) { console.error(e); process.exitCode = 1 } finally {
   if (saved) await page.evaluate(async ({ s, ids }) => {
     for (const t of live(S.transactions).filter((x) => ids.includes(x.id) || (x.accrualId && (S.settings.accruals?.items || []).some((a) => a.id === x.accrualId && /E2E/.test(a.label))))) await write('transactions/' + t.id, { deletedAt: stamp() }, 'update')
+    for (const c of live(S.campaigns).filter((x) => x.name === 'E2E הלוואות רכב')) await write('campaigns/' + c.id, { deletedAt: stamp() }, 'update')
     if (S.payroll.has('2026-11__e2eh')) await write('payroll/2026-11__e2eh', { deletedAt: stamp() }, 'update')
     await write('settings/main', { accruals: s.acc || { items: [], recur: [] }, payroll: s.pay || { employees: [] } }, 'update')
   }, { s: saved, ids: TX }).catch((e) => console.error('ניקוי:', e.message))

@@ -1822,6 +1822,8 @@ function attributedMonth(clientId) {
   const first = live(S.transactions).filter((t) => t.clientId === clientId && t.nature === 'income').map((t) => t.date).sort()[0];
   return first ? first.slice(0, 7) : null;
 }
+/* שכר שנמחק (soft delete) לא נספר — S.payroll מחזיק גם מסמכים מחוקים */
+const payLive = (m, key) => { const d = S.payroll.get(m + '__' + key); return !!d && !d.deletedAt; };
 function pnl(division = S.division) {
   const res = {};
   const row = (m) => (res[m] = res[m] || { month: m, income: 0, fixed: 0, direct: 0, opIncome: 0, opExpense: 0, byClient: {}, byCategory: {} });
@@ -1842,7 +1844,7 @@ function pnl(division = S.division) {
   if (division === 'finance') {
     const months = new Set([...Object.keys(res), ...live(S.payroll).map((x) => x.month)]);
     for (const m of months) {
-      const pay = r2(payEmployees().filter((e) => (e.division || 'finance') === 'finance' && S.payroll.has(m + '__' + e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
+      const pay = r2(payEmployees().filter((e) => (e.division || 'finance') === 'finance' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
       if (!pay || txs.some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m)) continue;
       const r = row(m); r.payroll = pay; r.fixed += pay;
     }
@@ -1861,7 +1863,7 @@ function pnl(division = S.division) {
         const v = r2(n(e.net ?? e.amount) * (e.frequency === 'quarterly' ? 1 / 3 : e.frequency === 'yearly' ? 1 / 12 : 1));
         r.tpl.push({ id: e.id, name: e.name, amount: v }); r.fixed += v;
       }
-      r.payroll = r2(payEmployees().filter((e) => e.division === 'realestate' && S.payroll.has(m + '__' + e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
+      r.payroll = r2(payEmployees().filter((e) => e.division === 'realestate' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
       r.fixed += r.payroll;
     }
   }
@@ -1886,7 +1888,7 @@ function accrualMonth(m, A, ctx) {
   }
   for (const c of (A.recur || [])) {
     if (c.deletedAt || c.active === false || !c.from || m < c.from || m > ctx.nowMonth || !n(c.gross)) continue;
-    const want = vatOf(c.gross, c.vatIncl !== false), have = r2((ctx.txs || []).filter((t) => exp(t) && !t.accrualId && t.category === c.category).reduce((a, t) => a + Math.abs(n(t.net)), 0)), gap = r2(want - have);
+    const want = vatOf(c.gross, c.vatIncl === true), have = r2((ctx.txs || []).filter((t) => exp(t) && !t.accrualId && t.category === c.category).reduce((a, t) => a + Math.abs(n(t.net)), 0)), gap = r2(want - have);
     if (gap > 0.5) items.push({ id: c.id + ':' + m, recur: c.id, label: c.label + (have ? ' — השלמה (נרשמו ' + fmt0.format(have) + ' מתוך ' + fmt0.format(want) + ')' : ''), kind: 'fixed', net: gap, status: 'open' });
   }
   const live1 = new Set((A.items || []).filter((x) => !x.deletedAt).map((x) => x.id));
@@ -1895,7 +1897,7 @@ function accrualMonth(m, A, ctx) {
 }
 /* ══ סוף התחייבויות — פונקציות טהורות ══ */
 const accrualCtx = () => ({ vat: n(S.settings.vatRate || 0.18), nowMonth: today().slice(0, 7), txs: live(S.transactions).filter((t) => (t.division || 'finance') === 'finance'),
-  payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp); return (!!e && S.payroll.has(m + '__' + emp) && payCalc(e, payDoc(m, emp)).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
+  payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp), doc = S.payroll.get(m + '__' + emp); return (!!e && !!doc && !doc.deletedAt && payCalc(e, doc).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
 const accrualsOf = () => S.settings.accruals || { items: [], recur: [] };
 function nissimCard() {
   /* dan_first (דן 25/09): הפסד — דן מימן אותו; רווח שאחריו מחזיר לדן קודם, ורק היתרה מתחלקת. */
@@ -9546,12 +9548,16 @@ function formCampaign(c) {
   drawer(isNew ? 'קמפיין' : 'עריכת ' + c.name, fi('name', 'שם הקמפיין *', c.name || '', 'text', 'required', true) + fi('platform', 'פלטפורמה', c.platform || '', 'text', 'list="dlPlat"') + fi('marketer', 'משווק', c.marketer || '') +
     fi('spend', 'הוצאה כוללת (₪)', c.spend || '', 'number', 'min="0" step="0.01"') + fi('startDate', 'התחלה', c.startDate || '', 'date') + fi('endDate', 'סיום', c.endDate || '', 'date') + dl('dlPlat', S.settings.platforms || []) +
     fi('leadCampaigns', 'הלידים שלו מגיעים בשם (מופרדים בפסיק)', (c.leadCampaigns || []).join(', '), 'text', 'list="dlLeadCamps"', true) + dl('dlLeadCamps', [...new Set(live(S.leads).map((l) => l.campaign).filter(Boolean))]) +
-    fi('cpl', 'עלות ממוצעת לליד (₪) — מ-Meta, למשל 30 הימים האחרונים', c.cpl || '', 'number', 'min="0" step="0.01"') + fi('cplNote', 'מאיפה הממוצע', c.cplNote || '', 'text') +
+    fi('leadsCount', 'לידים בתקופה (לפי הפלטפורמה)', c.leadsCount || '', 'number', 'min="0" step="1"') +
+    fi('cpl', 'עלות ממוצעת לליד (₪) — מחושב לבד מהוצאה ÷ לידים, או מ-Meta', c.cpl || '', 'number', 'min="0" step="0.01"') + fi('cplNote', 'מאיפה הממוצע', c.cplNote || '', 'text') +
     '<h3 class="sec full">הוצאה לפי חודש <span class="hint">— מה שמוזן כאן גובר על הממוצע. חודש ריק = לידים × עלות ממוצעת</span></h3>' +
     campMonths(c).map((mm) => fi('m_' + mm, mLabel(mm), (c.monthly || {})[mm] || '', 'number', 'min="0" step="0.01"')).join(''),
     async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; const id = isNew ? uid() : c.id;
+      /* דן 09/11: "8,225.48 ל-238 לידים — כ-34 ₪ לליד, שיעודכן בקמפיין": הוצאה + לידים → עלות לליד (גובר על ממוצע ישן) */
+      const leadsN = Math.round(n(d.leadsCount)), auto = leadsN > 0 && n(d.spend) > 0 ? r2(n(d.spend) / leadsN) : null;
+      if (auto != null && (String(d.cpl).trim() === '' || r2(d.cpl) === n(c.cpl) || r2(d.cpl) === n(c.cplAuto))) { d.cpl = auto; d.cplNote = fmt2.format(r2(d.spend)) + ' ₪ ÷ ' + leadsN + ' לידים'; }
       const monthly = { ...(c.monthly || {}) }; Object.keys(d).filter((k) => k.startsWith('m_')).forEach((k) => { const v = String(d[k]).trim(); if (v === '') delete monthly[k.slice(2)]; else monthly[k.slice(2)] = r2(v); });
-      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, division: c.division || screenDiv('mktDiv'), leadCampaigns: listOf(d.leadCampaigns), monthly, cpl: String(d.cpl).trim() === '' ? null : r2(d.cpl), cplNote: String(d.cplNote || '').trim(), ...(r2(d.cpl) !== n(c.cpl) ? { cplAt: today() } : {}), updatedAt: stamp() });
+      await write('campaigns/' + id, { ...c, id, name: d.name.trim(), platform: d.platform.trim(), marketer: d.marketer.trim(), spend: r2(d.spend), startDate: d.startDate || null, endDate: d.endDate || null, division: c.division || screenDiv('mktDiv'), leadCampaigns: listOf(d.leadCampaigns), monthly, leadsCount: leadsN || null, cplAuto: auto, cpl: String(d.cpl).trim() === '' ? null : r2(d.cpl), cplNote: String(d.cplNote || '').trim(), ...(r2(d.cpl) !== n(c.cpl) ? { cplAt: today() } : {}), updatedAt: stamp() });
       if (d.platform.trim()) await ensureInList('platforms', d.platform.trim()); toast('נשמר'); });
 }
 function formLender(l, name) {
@@ -10912,7 +10918,7 @@ function settleFixedLeft(r, m) {
   /* דן 27/10: שכר — צפי לפי העלות החודשית שבהגדרות השכר (הדס) עד שסוגרים שכר ב-30; אחרי אישור — לפי התחשיב בפועל (שעות וכו') */
   for (const e of payEmployees().filter((e) => (e.division || 'finance') === 'finance' && n(e.expectedCost) > 0)) {
     const x = payDoc(m, e.key); if (x.approved || x.paid) continue;
-    const cur = S.payroll.has(m + '__' + e.key) ? payCalc(e, x).total : 0, v = r2(Math.max(0, n(e.expectedCost) - cur));
+    const cur = payLive(m, e.key) ? payCalc(e, x).total : 0, v = r2(Math.max(0, n(e.expectedCost) - cur));
     if (v) items.push({ id: 'pay:' + e.key, kind: 'payroll', name: 'שכר ' + e.name + ' — צפי עד סגירת השכר ב-30', sub: 'צפי ' + plain(e.expectedCost) + (cur ? ' · לפי הנתונים עד עכשיו ' + plain(cur) : ''), amount: v });
   }
   /* ספקי לידים (אבינועם): לידים לחיוב × מחיר, פחות מה ששולם על החשבון — מה שעתיד לצאת עד ה-10 */
@@ -11343,7 +11349,7 @@ function accrualsCard() {
     (items.length ? '<div class="scroll"><table><thead><tr><th>חודש</th><th>מה</th><th>סוג</th><th>סכום</th><th>נטו</th><th>מצב</th><th></th></tr></thead><tbody>' + items.map((x) => { const [tone, lab] = st(x);
       return '<tr><td class="num">' + esc(mLabel(x.month)) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + esc(ACC_KIND[x.kind] || '') + '</td><td>' + money(n(x.amount)) + '<div class="hint">' + (x.vatIncl ? 'כולל מע״מ' : 'לפני מע״מ') + '</div></td><td>' + money(netOf(x)) + '</td><td><span class="pill ' + tone + '">' + lab + '</span></td><td>' +
         (w && !x.paidTxId && x.kind !== 'payroll' ? '<button class="btn small" data-accpaid="' + esc(x.id) + '">שולם</button>' : '') + (w ? '<button class="btn small ghost" data-accedit="' + esc(x.id) + '">עריכה</button><button class="btn small ghost" data-accdel="' + esc(x.id) + '" aria-label="מחיקה">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">אין התחייבויות פתוחות.</p>') +
-    (recur.length ? '<h3 class="sec">חוזרות כל חודש</h3><div class="scroll"><table><tbody>' + recur.map((c) => '<tr><td class="wide">' + esc(c.label) + '<div class="hint">קטגוריה "' + esc(c.category || '') + '" · מ' + esc(mLabel(c.from)) + ' · ' + plain(c.gross) + (c.vatIncl !== false ? ' כולל מע״מ' : ' לפני מע״מ') + ' — נוכה רק מה שלא נרשם באותו חודש</div></td><td>' + (c.active === false ? '<span class="pill muted">עצור</span>' : '<span class="pill committed">פעיל</span>') + '</td><td>' +
+    (recur.length ? '<h3 class="sec">חוזרות כל חודש</h3><div class="scroll"><table><tbody>' + recur.map((c) => '<tr><td class="wide">' + esc(c.label) + '<div class="hint">קטגוריה "' + esc(c.category || '') + '" · מ' + esc(mLabel(c.from)) + ' · ' + plain(c.gross) + (c.vatIncl === true ? ' כולל מע״מ' : ' לפני מע״מ (נטו)') + ' — נוכה רק מה שלא נרשם באותו חודש</div></td><td>' + (c.active === false ? '<span class="pill muted">עצור</span>' : '<span class="pill committed">פעיל</span>') + '</td><td>' +
       (w ? '<button class="btn small ghost" data-accrecur="' + esc(c.id) + '">עריכה</button><button class="btn small ghost" data-accrecurdel="' + esc(c.id) + '" aria-label="מחיקה">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</section>';
 }
 function accDrawer(id) {
@@ -11365,13 +11371,13 @@ function accDrawer(id) {
 function accRecurDrawer(id) {
   const A = accrualsOf(), cur = id ? (A.recur || []).find((x) => x.id === id) : null;
   drawer(cur ? 'עריכת התחייבות חוזרת' : 'התחייבות חוזרת כל חודש', '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('label', 'מה', cur ? cur.label : 'תוכנות ומערכות', 'text') + fi('category', 'קטגוריה בתנועות', cur ? cur.category : 'תוכנה ומערכות', 'text') +
-      fi('gross', 'סכום לחודש ₪', cur ? cur.gross : '', 'number', 'min="0" step="0.01"') + fs('vatIncl', 'מע״מ', [['1', 'כולל מע״מ'], ['0', 'לפני מע״מ (נטו)']], cur && cur.vatIncl === false ? '0' : '1') +
+      fi('gross', 'סכום לחודש ₪', cur ? cur.gross : '', 'number', 'min="0" step="0.01"') + fs('vatIncl', 'מע״מ', [['0', 'לפני מע״מ (נטו) — סכום קבוע'], ['1', 'כולל מע״מ']], cur && cur.vatIncl === true ? '1' : '0') +
       fi('from', 'החל מחודש', cur ? cur.from : today().slice(0, 7), 'month') + fs('active', 'מצב', [['1', 'פעיל'], ['0', 'עצור']], cur && cur.active === false ? '0' : '1') + '</div>' +
     '<p class="hint full">בכל חודש מהחודש שנבחר ועד היום — נוכה רק הפער בין הסכום לבין מה שנרשם באותו חודש בקטגוריה הזו. כשהתשלום נרשם — הפער נסגר לבד.</p>',
     async (fd) => {
       const label = String(fd.label || '').trim(), gross = r2(fd.gross), from = String(fd.from || ''), category = String(fd.category || '').trim();
       if (!label || !gross || !category || !/^\d{4}-\d{2}$/.test(from)) return 'למלא מה, קטגוריה, סכום וחודש התחלה';
-      const body = { label, category, gross, vatIncl: fd.vatIncl !== '0', from, active: fd.active !== '0' };
+      const body = { label, category, gross, vatIncl: fd.vatIncl === '1', from, active: fd.active !== '0' };
       const list = cur ? A.recur.map((x) => x.id === cur.id ? { ...x, ...body, updatedAt: stamp() } : x) : [...(A.recur || []), { id: 'r' + uid(), ...body, createdAt: stamp(), by: S.me.id }];
       await accSave({ ...A, recur: list }); toast('נשמר'); render();
     }, '', cur ? 'שמור' : 'הוסף');
