@@ -15,7 +15,7 @@ const A = {
     { id: 'pay11', month: '2026-11', label: 'שכר עובדת — נובמבר', amount: 11091, kind: 'payroll', emp: 'h' },
     { id: 'gone', month: '2026-11', label: 'נמחק', amount: 999, deletedAt: 'x' },
   ],
-  recur: [{ id: 'sw', label: 'תוכנות', category: 'תוכנה ומערכות', gross: 1000, vatIncl: true, from: '2026-08' }],
+  recur: [{ id: 'sw', label: 'תוכנות', category: 'תוכנה ומערכות', gross: 1000, vatIncl: true, from: '2026-08' }, { id: 'net', label: 'קבוע נטו', category: 'קבוע נטו', gross: 1000, from: '2026-11' }],
 }
 const base = { vat: 0.18, nowMonth: '2026-11', payEntered: () => false }
 
@@ -33,11 +33,11 @@ describe('התחייבויות שעוד לא שולמו', () => {
     expect(r.total).toBe(18697.46); expect(r.back).toBe(0)
   })
   it('נובמבר: מקדמה 16,000 + שכר 11,091 + תוכנות; נמחק — לא נספר', () => {
-    expect(accrualMonth('2026-11', A, { ...base, txs: [] }).total).toBe(27938.46)
+    expect(accrualMonth('2026-11', A, { ...base, txs: [] }).total).toBe(28938.46) // + קבוע נטו 1,000 (בלי סימון מע״מ = נטו)
   })
   it('שכר — יורד לבד כשהשכר של החודש הוזן', () => {
     const r = accrualMonth('2026-11', A, { ...base, txs: [], payEntered: (emp: string, m: string) => emp === 'h' && m === '2026-11' })
-    expect(r.items.some((i: any) => i.id === 'pay11')).toBe(false); expect(r.total).toBe(16847.46)
+    expect(r.items.some((i: any) => i.id === 'pay11')).toBe(false); expect(r.total).toBe(17847.46)
   })
   it('שולם בנובמבר: נשאר נוכה באוקטובר, והתשלום מוחזר בנובמבר — לא פעמיים', () => {
     const A2 = { ...A, items: A.items.map((x) => x.id === 'av10' ? { ...x, paidTxId: 't1' } : x) }
