@@ -54,3 +54,26 @@ describe('נציג חדש — רכיבים לפי ההסכם', () => {
     expect(c.rows.at(-1)).toMatchObject({ sum: 600 }); expect(c.total).toBe(6600)
   })
 })
+
+describe('עלות מעביד בפועל ובדיקת כפילויות (דן 09/11)', () => {
+  const G = new Function(helpers + html.slice(a, b) + '; return { payEmployerSplit, dupExpensePairs, payCalc };')() as any
+  it('2,200 על ספטמבר (9,000) ואוקטובר (11,000) → 11% ופיזור מדויק', () => {
+    const R = G.payEmployerSplit(2200, [{ month: '2026-09', gross: 9000 }, { month: '2026-10', gross: 11000 }])
+    expect(R.pct).toBe(11); expect(R.alloc.map((x: any) => x.amount)).toEqual([990, 1210])
+    const R2 = G.payEmployerSplit(1000, [{ month: 'a', gross: 1 }, { month: 'b', gross: 1 }, { month: 'c', gross: 1 }])
+    expect(R2.alloc.reduce((s: number, x: any) => s + x.amount, 0)).toBe(1000)
+    expect(G.payEmployerSplit(100, [])).toBe(null)
+  })
+  it('employerAmt בחודש גובר על האחוז; 0 = בלי עלות מעביד בחודש', () => {
+    const e = { components: [{ id: 'c', type: 'fixed', amount: 9000 }], employerPct: 20 }
+    expect(G.payCalc(e, { employerAmt: 990 }).total).toBe(9990)
+    expect(G.payCalc(e, { employerAmt: 0 }).total).toBe(9000)
+    expect(G.payCalc(e, {}).total).toBe(10800)
+  })
+  it('אותו סכום ואותו ספק תוך 10 ימים = כפילות; ספק אחר / מעל 10 ימים / "לא כפילות" — לא', () => {
+    const t = (id: string, date: string, net: number, cp: string, x: object = {}) => ({ id, nature: 'expense', date, net: -net, counterparty: cp, ...x })
+    const P = G.dupExpensePairs([t('1', '2026-10-22', 3768, 'פייסבוק הלוואות רכב'), t('2', '2026-10-25', 3768, 'פייסבוק הלוואות-רכב'), t('3', '2026-10-22', 3768, 'ספק אחר'), t('4', '2026-11-20', 3768, 'פייסבוק הלוואות רכב')])
+    expect(P.map((p: any) => p.map((x: any) => x.id))).toEqual([['1', '2']])
+    expect(G.dupExpensePairs([t('1', '2026-10-22', 100, 'X', { notDup: ['2'] }), t('2', '2026-10-23', 100, 'X')])).toEqual([])
+  })
+})
