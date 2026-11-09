@@ -72,6 +72,31 @@ try {
   // 800 + 2400 + 1000 = 4200 → השלמה 1800 → 6000
   assert((await total('נציג Test-לוי')).replace(/,/g, '') === '6000' && /השלמה לרצפה/.test(await card('נציג Test-לוי').locator('tbody').innerText()), 'מתחת לרצפה: שורת "השלמה לרצפה" → 6,000')
 
+  step('עלות מעביד בפועל עד היום: 1,080 → אחוז מחושב ופיזור על החודש')
+  await card('נציג Test-לוי').locator('summary:has-text("עלות מעביד בפועל")').click()
+  await card('נציג Test-לוי').locator('input[id^="empact_"]').fill('1080'); await card('נציג Test-לוי').locator('[data-empfix]').click(); await page.waitForSelector('#dsave')
+  const prev = await page.locator('.drawer').innerText()
+  assert(/18%/.test(prev) && /1,080/.test(prev), 'תצוגה מקדימה לפני שמירה: 1,080 על ברוטו 6,000 = 18%')
+  await page.click('#dsave'); await page.waitForTimeout(800)
+  const E = await page.evaluate(() => { const e = (S.settings.payroll?.employees || []).find((k) => k.name === 'נציג Test-לוי'), x = payDoc(S.f.payMonth || payMonthDefault(), e.key); return { pct: e.employerPct, amt: x.employerAmt, total: payCalc(e, x).total } })
+  assert(E.pct === 18 && E.amt === 1080 && E.total === 7080, 'נשמר: 18% לחודשים הבאים, ובחודש הזה עלות מעביד 1,080 → סה״כ 7,080')
+
+  step('בדיקת כפילויות: הוצאת קמפיין רכב פעמיים + עלות מעביד גם כהוצאה')
+  const M = await page.evaluate(() => S.f.payMonth || payMonthDefault())
+  await page.evaluate(async (m) => { const t = (id, date, net, cp, cat) => write('transactions/' + id, { id, nature: 'expense', division: 'finance', date, net: -net, gross: -net * 1.18, counterparty: cp, category: cat, deductible: true, source: 'e2e', createdAt: stamp(), updatedAt: stamp() })
+    await t('e2edup1', m + '-20', 3768, 'פייסבוק הלוואות רכב E2E', 'שיווק'); await t('e2edup2', m + '-22', 3768, 'פייסבוק הלוואות רכב E2E', 'שיווק'); await t('e2edup3', m + '-25', 1080, 'ביטוח לאומי מעסיק E2E', 'מיסים') }, M)
+  await page.waitForFunction(() => S.transactions.has('e2edup3')); await page.evaluate(() => render()); await page.waitForTimeout(400)
+  const F = await page.evaluate(() => dupFindings().map((f) => f.kind + ':' + (f.b ? f.b.id : f.a.id)))
+  assert(F.includes('tx:e2edup2') && F.includes('emp:e2edup3'), 'נמצאו: "פייסבוק הלוואות רכב" נרשם פעמיים · עלות מעביד גם במסך השכר וגם כהוצאה')
+  assert(await page.locator('#dupcard').count() === 1, 'במסך השכר: כרטיס "בדיקת כפילויות"')
+  await page.evaluate(() => { S.f.money = 'settle'; go('money') }); await page.waitForSelector('[data-dupdel="e2edup2"]')
+  await page.click('[data-dupdel="e2edup2"]'); await page.waitForFunction(() => !!S.transactions.get('e2edup2').deletedAt)
+  const empKey = await page.evaluate(() => (S.settings.payroll?.employees || []).find((k) => k.name === 'נציג Test-לוי').key)
+  await page.click(`[data-empzero="${M}|${empKey}"]`); await page.waitForTimeout(600)
+  const F2 = await page.evaluate(() => dupFindings().map((f) => f.kind + ':' + (f.b ? f.b.id : f.a.id)))
+  assert(!F2.includes('tx:e2edup2') && !F2.includes('emp:e2edup3'), '"מחק את השנייה" ו"השאר רק את ההוצאה" — הכפילויות נעלמו')
+  await page.evaluate(() => { S.f.books = 'payroll'; go('books') }); await page.waitForSelector('.grid3')
+
   step('הסרה מהשכר והחזרה')
   await card('נציגה Two').locator('[data-payemp]').click(); await page.waitForSelector('[data-payremove]'); await page.click('[data-payremove]')
   await page.waitForFunction(() => (S.settings.payroll?.employees || []).find((e) => e.name === 'נציגה Two').active === false)
@@ -89,6 +114,7 @@ try {
   assert(!errs.length, 'בלי שגיאות בדף' + (errs.length ? ': ' + errs.join(' | ') : ''))
   console.log('\nשכר ב-CRM — הכל עבר')
 } catch (e) { console.error(e); process.exitCode = 1 } finally {
+  await page.evaluate(async () => { for (const id of ['e2edup1', 'e2edup2', 'e2edup3']) if (S.transactions.has(id)) await write('transactions/' + id, { deletedAt: stamp() }, 'update') }).catch(() => {})
   if (before) await page.evaluate(async (emps) => { const m = S.f.payMonth || payMonthDefault(); for (const e of (S.settings.payroll?.employees || []).filter((x) => !emps.some((y) => y.key === x.key))) { const id = m + '__' + e.key; if (S.payroll.has(id)) await write('payroll/' + id, { deletedAt: stamp() }, 'update') }
     await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update') }, before).catch((e) => console.error('ניקוי:', e.message))
   await b.close()
