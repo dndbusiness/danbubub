@@ -1870,19 +1870,47 @@ function pnl(division = S.division) {
     distributable: r2(r.income - r.fixed - r.direct), operational: r2(r.opIncome + r.opExpense),
   }));
 }
+/* ══ התחייבויות שעוד לא שולמו (דן 09/11) ══
+   "חסר אבינועם 17,850 על 10 · מקדמה 16,000 על 11 · תוכנות 1,000 כולל מע״מ לכל חודש · שכר הדס 11,091" — נוכים לפני החלוקה עם ניסים
+   בחודש שאליו הם שייכים, גם לפני שיצא הכסף.
+   · חד-פעמי (items): כשמשלמים — "שולם" רושם תנועה עם accrualId; התנועה לא נוכית שוב (מוחזרת ב-back בחודש שלה).
+   · שכר (kind payroll + emp): יורד לבד כשהשכר של אותו חודש הוזן במסך השכר (או נרשמה תנועת "שכר").
+   · חוזר (recur): לכל חודש מ-from ועד החודש הנוכחי — רק הפער בין הסכום לבין מה שנרשם באותה קטגוריה. */
+function accrualMonth(m, A, ctx) {
+  const vatOf = (v, incl) => r2(incl ? n(v) / (1 + n(ctx.vat)) : n(v)), items = [];
+  const exp = (t) => t.nature === 'expense' && !t.clientId && t.deductible && String(t.date).slice(0, 7) === m;
+  for (const x of (A.items || [])) {
+    if (x.deletedAt || x.month !== m || !n(x.amount)) continue;
+    if (x.kind === 'payroll' && x.emp && ctx.payEntered(x.emp, m)) continue;
+    items.push({ id: x.id, label: x.label, kind: x.kind || 'fixed', net: vatOf(x.amount, x.vatIncl), status: x.paidTxId ? 'paid' : 'open' });
+  }
+  for (const c of (A.recur || [])) {
+    if (c.deletedAt || c.active === false || !c.from || m < c.from || m > ctx.nowMonth || !n(c.gross)) continue;
+    const want = vatOf(c.gross, c.vatIncl !== false), have = r2((ctx.txs || []).filter((t) => exp(t) && !t.accrualId && t.category === c.category).reduce((a, t) => a + Math.abs(n(t.net)), 0)), gap = r2(want - have);
+    if (gap > 0.5) items.push({ id: c.id + ':' + m, recur: c.id, label: c.label + (have ? ' — השלמה (נרשמו ' + fmt0.format(have) + ' מתוך ' + fmt0.format(want) + ')' : ''), kind: 'fixed', net: gap, status: 'open' });
+  }
+  const live1 = new Set((A.items || []).filter((x) => !x.deletedAt).map((x) => x.id));
+  const back = r2((ctx.txs || []).filter((t) => t.nature === 'expense' && t.accrualId && live1.has(t.accrualId) && String(t.date).slice(0, 7) === m && t.deductible !== false).reduce((a, t) => a + Math.abs(n(t.net)), 0));
+  return { items, total: r2(items.reduce((a, i) => a + i.net, 0)), back };
+}
+/* ══ סוף התחייבויות — פונקציות טהורות ══ */
+const accrualCtx = () => ({ vat: n(S.settings.vatRate || 0.18), nowMonth: today().slice(0, 7), txs: live(S.transactions).filter((t) => (t.division || 'finance') === 'finance'),
+  payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp); return (!!e && S.payroll.has(m + '__' + emp) && payCalc(e, payDoc(m, emp)).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
+const accrualsOf = () => S.settings.accruals || { items: [], recur: [] };
 function nissimCard() {
   /* dan_first (דן 25/09): הפסד — דן מימן אותו; רווח שאחריו מחזיר לדן קודם, ורק היתרה מתחלקת. */
   /* שריון (הכנה לחודש הבא, אם מחליטים): יורד לפני החלוקה ומשתחרר בחודש שאחריו. */
-  let bal = 0, pool = 0, prevRes = 0; const p = n(S.settings.nissimPct || 0.5), mode = S.settings.lossSharing || 'shared', res = S.settings.finReserve || {};
+  let bal = 0, pool = 0, prevRes = 0; const p = n(S.settings.nissimPct || 0.5), mode = S.settings.lossSharing || 'shared', res = S.settings.finReserve || {}, A = accrualsOf(), ctx = accrualCtx();
   return pnl('finance').map((r) => {
     const reserve = r2(n(res[r.month])), released = prevRes; prevRes = reserve;
-    const base = r2(r.distributable + released - reserve);
+    const acc = accrualMonth(r.month, A, ctx), profitAcc = r2(r.distributable - acc.total + acc.back);
+    const base = r2(profitAcc + released - reserve);
     const loss = base < 0; let share, recovered = 0;
     if (mode === 'dan_first') { if (loss) { pool = r2(pool - base); share = 0; } else { recovered = Math.min(pool, base); pool = r2(pool - recovered); share = r2((base - recovered) * p); } }
     else share = loss && mode === 'harel_absorbs' ? 0 : r2(base * p);
     const adv = r2(live(S.transactions).filter((t) => t.nature === 'advance' && String(t.date).slice(0, 7) === r.month).reduce((a, t) => a + Math.abs(n(t.gross || t.net)), 0));
     const opening = bal; bal = r2(opening + adv - share);
-    return { ...r, share, recovered: r2(recovered), pool, reserve, released, splitBase: base, harel: r2(base - share), adv, opening, closing: bal, transfer: Math.max(0, -bal) };
+    return { ...r, accrued: acc.total, accBack: acc.back, accItems: acc.items, profitAcc, share, recovered: r2(recovered), pool, reserve, released, splitBase: base, harel: r2(base - share), adv, opening, closing: bal, transfer: Math.max(0, -bal) };
   });
 }
 
@@ -10961,7 +10989,7 @@ function vSettle() {
     : e.kind === 'ads' ? '<button class="btn small" data-act="settleAdd" data-kind="adsGo" data-m="' + m + '">לקמפיינים</button>'
     : '<button class="btn small" data-act="settleAdd" data-kind="fixedPay" data-exp="' + esc(e.id) + '" data-m="' + m + '">שולם — רשום</button>';
   const tplRows = drill === 'fixed' || drill === 'owe' ? settleFixedLeft(r, m).items.map((e) => '<tr><td class="num"><span class="pill expected">צפוי</span></td><td class="wide">' + esc(e.name) + '<div class="hint">' + esc(e.sub || 'הוצאה קבועה — עוד לא נרשם תשלום החודש') + '</div></td><td>' + money(-e.amount, { cents: true, tone: 'expected' }) + '<div>' + tplBtn(e) + '</div></td></tr>').join('') : '';
-  return whoGotCard() + stmtCard() + '<div class="row"><div class="seg" role="group" aria-label="חודש">' + card.map((x) => '<button data-sm="' + x.month + '" aria-pressed="' + (x.month === m) + '">' + mLabel(x.month) + '</button>').join('') + '</div>' +
+  return whoGotCard() + stmtCard() + accrualsCard() + '<div class="row"><div class="seg" role="group" aria-label="חודש">' + card.map((x) => '<button data-sm="' + x.month + '" aria-pressed="' + (x.month === m) + '">' + mLabel(x.month) + '</button>').join('') + '</div>' +
       '<span class="pill ' + (R.status === 'final' ? 'actual' : 'expected') + '">' + (R.status === 'final' ? 'סופי' : 'טיוטה') + '</span><span class="grow"></span>' +
       (w && D.unconfirmed.length ? '<button class="btn primary" data-act="confirmMonth">אשר את כל תקבולי החודש (' + D.unconfirmed.length + ')</button>' : '') +
       (w ? '<button class="btn primary" data-act="nissimEntry">+ רישום מול ניסים</button>' : '') + '<button class="btn" data-act="settleXlsx">דוח לאקסל</button><button class="btn" data-act="settleMail">שלח לי במייל</button></div>' +
@@ -11228,13 +11256,14 @@ function stmtData(period) {
   const pending = live(S.planned).filter((p) => p.kind === 'advance').sort(by);
   const S_ = (arr) => r2(arr.reduce((a, t) => a + Math.abs(n(t.net)), 0)), sum = (k) => r2(rows.reduce((a, r) => a + n(r[k]), 0));
   const inc = sum('income'), fx = S_(fixed), mk = S_(mkt), dr = sum('direct'), pay = sum('payroll');
-  const profit = sum('distributable'), recovered = sum('recovered'), share = sum('share'), advs = sum('adv');
+  const accNet = r2(sum('accrued') - sum('accBack')), accItems = rows.flatMap((r) => (r.accItems || []).map((i) => ({ ...i, month: r.month }))), accBack = sum('accBack');
+  const profit = sum('profitAcc'), recovered = sum('recovered'), share = sum('share'), advs = sum('adv');
   const last = rows[rows.length - 1], opening = prev ? prev.closing : 0, poolStart = prev ? n(prev.pool) : 0;
   const pendingSum = r2(pending.reduce((a, p) => a + n(p.amount), 0));
-  const lossMonths = rows.filter((r) => r.distributable < 0), forSplit = D_forSplit(rows);
+  const lossMonths = rows.filter((r) => r.profitAcc < 0), forSplit = D_forSplit(rows);
   const unconfirmed = income.filter((t) => !isConfirmed(t)).length;
   const qEnd = months[months.length - 1], payBy = addMonth(qEnd + '-10');
-  return { period, months, rows, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: partnersOf('finance'),
+  return { period, months, rows, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, accNet, accItems, accBack, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: partnersOf('finance'),
     pct: Math.round(n(S.settings.nissimPct || 0.5) * 100), mode: S.settings.lossSharing || 'shared', unconfirmed, final: !unconfirmed && addMonth(qEnd + '-01') <= today(), payBy };
 }
 function stmtHtml(D, forPdf) {
@@ -11250,6 +11279,7 @@ function stmtHtml(D, forPdf) {
     tr(['כספים שנכנסו (תקבולים מלקוחות, נטו)', m(D.inc)]),
     tr(['פחות: הוצאות קבועות', m(-D.fx)]), tr(['פחות: שיווק', m(-D.mk)]), tr(['פחות: הוצאות ישירות על לקוחות', m(-D.dr)]),
     ...(D.pay ? [tr(['פחות: שכר הדס (לפי מסך השכר)', m(-D.pay)])] : []),
+    ...(D.accItems.length || D.accBack ? [tr(['פחות: התחייבויות שעוד לא שולמו (נוכות בחודש שאליו הן שייכות)', m(-D.accNet)])] : []),
     tr(['רווח התקופה', m(D.profit)], true),
     ...(D.released ? [tr(['ועוד: שוחרר השריון מהחודש הקודם', m(D.released)])] : []),
     ...(D.reserveEnd ? [tr(['פחות: הכנה לחודש הבא (שריון)', m(-D.reserveEnd)])] : []),
@@ -11267,14 +11297,16 @@ function stmtHtml(D, forPdf) {
       '<div><div style="font-size:20px;font-weight:700">מצב חשבון — ניסים</div><div style="font-size:13px;color:#475467">הר-אל פתרונות מימון · ' + esc(qLabel(D.period)) + '</div></div>' +
       '<div style="text-align:left;font-size:12px;color:#475467">הופק ' + dLabel(today()) + '<br><b style="color:' + (D.final ? '#067647' : '#B54708') + '">' + (D.final ? 'סופי' : 'טיוטה') + '</b></div></div>' +
     '<p style="font-size:13px;margin:12px 0;padding:10px 12px;background:' + (D.closing > 0 ? '#FFFAEB' : '#ECFDF3') + ';border-radius:8px"><b>' + esc(status) + '</b></p>' +
-    h('סיכום') + tbl(['שורה', 'סכום'], summary) + (D.lossMonths.length ? '<p style="font-size:12px;color:#475467;margin:-6px 0 8px">הפסד ב' + D.lossMonths.map((r) => hMonth(r.month) + ' (' + plain(-r.distributable) + ')').join(', ') + (D.mode === 'dan_first' ? ' — מומן ע״י דן והוחזר לו מהרווח שאחריו, לפני החלוקה.' : '.') + '</p>' : '') +
+    h('סיכום') + tbl(['שורה', 'סכום'], summary) + (D.lossMonths.length ? '<p style="font-size:12px;color:#475467;margin:-6px 0 8px">הפסד ב' + D.lossMonths.map((r) => hMonth(r.month) + ' (' + plain(-r.profitAcc) + ')').join(', ') + (D.mode === 'dan_first' ? ' — מומן ע״י דן והוחזר לו מהרווח שאחריו, לפני החלוקה.' : '.') + '</p>' : '') +
     h('כספים שנכנסו') + tbl(['תאריך', 'לקוח', 'נטו', 'כולל מע״מ', 'אושר'], [...D.income.map((t) => tr([dLabel(t.date), who(t), m(n(t.net)), m(n(t.gross)), isConfirmed(t) ? '✓' : 'ממתין'])), tr(['', 'סה״כ', m(D.inc), '', ''], true)]) +
     h('הוצאות קבועות') + tbl(['תאריך', 'ספק', 'קטגוריה', 'נטו'], [...D.fixed.map((t) => tr([dLabel(t.date), who(t), esc(t.category || ''), m(Math.abs(n(t.net)))])), tr(['', 'סה״כ', '', m(D.fx)], true)]) +
     h('שיווק') + tbl(['תאריך', 'ספק', 'קטגוריה', 'נטו'], [...D.mkt.map((t) => tr([dLabel(t.date), who(t), esc(t.category || ''), m(Math.abs(n(t.net)))])), tr(['', 'סה״כ', '', m(D.mk)], true)]) +
     h('הוצאות ישירות על לקוחות') + tbl(['תאריך', 'לקוח', 'תיאור', 'נטו'], [...D.direct.map((t) => tr([dLabel(t.date), who(t), esc(t.description || t.category || ''), m(Math.abs(n(t.net)))])), tr(['', 'סה״כ', '', m(D.dr)], true)]) +
+    (D.accItems.length ? h('התחייבויות שעוד לא שולמו — נוכו לפני החלוקה') + tbl(['חודש', 'מה', 'נטו', 'מצב'], [...D.accItems.map((i) => tr([hMonth(i.month), esc(i.label), m(i.net), i.status === 'paid' ? 'שולם — התשלום לא נוכה שוב' : 'פתוח'])), tr(['', 'סה״כ', m(r2(D.accItems.reduce((a, i) => a + i.net, 0))), ''], true)]) +
+      (D.accBack ? '<p style="font-size:12px;color:#475467;margin:-6px 0 8px">תשלומים של התחייבויות שכבר נוכו בחודש שלהן (' + plain(D.accBack) + ') — לא נוכו פעם שנייה.</p>' : '') : '') +
     h('מקדמות לניסים') + tbl(['תאריך', 'תיאור', 'סכום'], [...D.adv.map((t) => tr([dLabel(t.date), esc(t.description || t.counterparty || ''), m(Math.abs(n(t.gross || t.net)))])), tr(['', 'סה״כ', m(D.advs)], true),
       ...D.pending.map((p) => tr([dLabel(p.date), esc(p.label) + ' — עוד לא חויב', m(n(p.amount))]))]) +
-    h('לפי חודש') + tbl(['חודש', 'נכנס', 'נוכה', 'רווח', 'חלקו', 'מקדמות', 'יתרה'], D.rows.map((r) => tr([hMonth(r.month), m(r.income), m(-(r.fixed + r.direct)), m(r.distributable), m(r.share), m(r.adv), m(r.closing)]))) +
+    h('לפי חודש') + tbl(['חודש', 'נכנס', 'נוכה', 'רווח', 'חלקו', 'מקדמות', 'יתרה'], D.rows.map((r) => tr([hMonth(r.month), m(r.income), m(-r2(r.fixed + r.direct + n(r.accrued) - n(r.accBack))), m(r.profitAcc ?? r.distributable), m(r.share), m(r.adv), m(r.closing)]))) +
     (D.notDed.length ? h('לא נוכו מהרווח (מסומנות "לא מוכרת")') + tbl(['תאריך', 'ספק', 'קטגוריה', 'נטו'], D.notDed.map((t) => tr([dLabel(t.date), who(t), esc(t.category || ''), m(Math.abs(n(t.net)))]))) : '') +
     '<p style="font-size:11px;color:#667085;margin-top:14px">הכנסות נספרות לפי יום הכניסה לבנק; הוצאות ישירות לפי חודש התשלום. ' + (D.mode === 'dan_first' ? 'הפסד מומן ע״י דן ומוחזר לו מהרווחים הבאים לפני החלוקה. ' : '') + 'החשבון רבעוני — ניסים מקבל את חלקו אחרי ניכוי ההוצאות והמקדמות. ' + (D.unconfirmed ? D.unconfirmed + ' תקבולים עוד לא אושרו.' : '') + '</p></div>';
 }
@@ -11293,6 +11325,68 @@ async function stmtMail(period) {
   let att = []; try { toast('מכין PDF…'); att = [{ filename: stmtName(D), mimeType: 'application/pdf', content: bytesB64(await stmtPdfBytes(D)) }]; } catch (e) {}
   const r = await sendMail({ to: [mailOf(S.me.id) || mailOf(ownerFallback())], subject: '[הר-אל] מצב חשבון ניסים — ' + qLabel(period) + (D.final ? '' : ' (טיוטה)'), html: stmtHtml(D, false), kind: 'statement', ref: period, attachments: att });
   toast(r.ok ? 'נשלח' + (att.length ? ' עם PDF' : '') : 'לא נשלח: ' + r.why);
+}
+
+/* ניהול ההתחייבויות שעוד לא שולמו — רק דן. אותו מנגנון שמזין את מצב החשבון (כלל 20) */
+const ACC_KIND = { marketing: 'שיווק', fixed: 'קבועה', payroll: 'שכר' };
+async function accSave(A) { await write('settings/main', { accruals: { items: A.items || [], recur: A.recur || [] } }, 'update'); }
+function accrualsCard() {
+  if (!S.isOwner) return '';
+  const A = accrualsOf(), w = S.canWrite, card = nissimCard(), ctx = accrualCtx();
+  const items = (A.items || []).filter((x) => !x.deletedAt).sort((a, b) => String(a.month).localeCompare(b.month)), recur = (A.recur || []).filter((x) => !x.deletedAt);
+  const netOf = (x) => r2(x.vatIncl ? n(x.amount) / (1 + ctx.vat) : n(x.amount));
+  const st = (x) => x.paidTxId ? ['actual', 'שולם'] : x.kind === 'payroll' && x.emp && ctx.payEntered(x.emp, x.month) ? ['muted', 'הוחלף בשכר שהוזן'] : ['open', 'פתוח'];
+  const open = card.reduce((a, r) => a + n(r.accrued), 0);
+  return '<section class="card"><header><h2>התחייבויות שעוד לא שולמו</h2><span class="pill ' + (open ? 'expected' : 'muted') + '">' + plain(r2(open)) + ' נוכים</span><span class="grow"></span>' +
+      (w ? '<button class="btn small" data-accadd="">+ התחייבות</button><button class="btn small ghost" data-accrecur="">+ חוזרת כל חודש</button>' : '') + '</header>' +
+    '<p class="hint" style="margin:-4px 0 8px">נוכות מהרווח לחלוקה בחודש שאליו הן שייכות, גם לפני שיצא הכסף. "שולם" רושם את התשלום כתנועה — והוא לא נוכה פעם שנייה. שכר יורד לבד כשמזינים את השכר של אותו חודש.</p>' +
+    (items.length ? '<div class="scroll"><table><thead><tr><th>חודש</th><th>מה</th><th>סוג</th><th>סכום</th><th>נטו</th><th>מצב</th><th></th></tr></thead><tbody>' + items.map((x) => { const [tone, lab] = st(x);
+      return '<tr><td class="num">' + esc(mLabel(x.month)) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + esc(ACC_KIND[x.kind] || '') + '</td><td>' + money(n(x.amount)) + '<div class="hint">' + (x.vatIncl ? 'כולל מע״מ' : 'לפני מע״מ') + '</div></td><td>' + money(netOf(x)) + '</td><td><span class="pill ' + tone + '">' + lab + '</span></td><td>' +
+        (w && !x.paidTxId && x.kind !== 'payroll' ? '<button class="btn small" data-accpaid="' + esc(x.id) + '">שולם</button>' : '') + (w ? '<button class="btn small ghost" data-accedit="' + esc(x.id) + '">עריכה</button><button class="btn small ghost" data-accdel="' + esc(x.id) + '" aria-label="מחיקה">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">אין התחייבויות פתוחות.</p>') +
+    (recur.length ? '<h3 class="sec">חוזרות כל חודש</h3><div class="scroll"><table><tbody>' + recur.map((c) => '<tr><td class="wide">' + esc(c.label) + '<div class="hint">קטגוריה "' + esc(c.category || '') + '" · מ' + esc(mLabel(c.from)) + ' · ' + plain(c.gross) + (c.vatIncl !== false ? ' כולל מע״מ' : ' לפני מע״מ') + ' — נוכה רק מה שלא נרשם באותו חודש</div></td><td>' + (c.active === false ? '<span class="pill muted">עצור</span>' : '<span class="pill committed">פעיל</span>') + '</td><td>' +
+      (w ? '<button class="btn small ghost" data-accrecur="' + esc(c.id) + '">עריכה</button><button class="btn small ghost" data-accrecurdel="' + esc(c.id) + '" aria-label="מחיקה">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</section>';
+}
+function accDrawer(id) {
+  const A = accrualsOf(), cur = id ? (A.items || []).find((x) => x.id === id) : null, emps = payEmployees().filter((e) => (e.division || 'finance') === 'finance');
+  drawer(cur ? 'עריכת התחייבות' : 'התחייבות שעוד לא שולמה', '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('label', 'מה', cur ? cur.label : '', 'text', 'placeholder="למשל: אבינועם — חשבון אוקטובר"') +
+      fi('month', 'שייך לחודש', cur ? cur.month : today().slice(0, 7), 'month') + fi('amount', 'סכום ₪', cur ? cur.amount : '', 'number', 'min="0" step="0.01"') + '</div>' +
+    '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fs('vatIncl', 'מע״מ', [['0', 'לפני מע״מ (נטו)'], ['1', 'כולל מע״מ']], cur && cur.vatIncl ? '1' : '0') + fs('kind', 'סוג', Object.entries(ACC_KIND), cur ? cur.kind : 'marketing') +
+      fs('emp', 'עובד (לשכר)', [['', '—'], ...emps.map((e) => [e.key, e.name])], cur && cur.emp ? cur.emp : '') + '</div>' +
+    '<p class="hint full">שכר: יורד לבד כשמזינים את השכר של אותו חודש במסך השכר. שיווק / קבועה: "שולם" כשמשלמים — נרשמת תנועה, והיא לא נוכית שוב.</p>',
+    async (fd) => {
+      const label = String(fd.label || '').trim(), amount = r2(fd.amount), month = String(fd.month || '');
+      if (!label || !amount || !/^\d{4}-\d{2}$/.test(month)) return 'למלא מה, חודש וסכום';
+      if (fd.kind === 'payroll' && !fd.emp) return 'לשכר — לבחור עובד';
+      const body = { label, month, amount, vatIncl: fd.vatIncl === '1', kind: fd.kind || 'marketing', emp: fd.kind === 'payroll' ? fd.emp : null };
+      const list = cur ? A.items.map((x) => x.id === cur.id ? { ...x, ...body, updatedAt: stamp() } : x) : [...(A.items || []), { id: 'a' + uid(), ...body, createdAt: stamp(), by: S.me.id }];
+      await accSave({ ...A, items: list }); toast('נשמר — נוכה במצב החשבון של ' + mLabel(month)); render();
+    }, '', cur ? 'שמור' : 'הוסף');
+}
+function accRecurDrawer(id) {
+  const A = accrualsOf(), cur = id ? (A.recur || []).find((x) => x.id === id) : null;
+  drawer(cur ? 'עריכת התחייבות חוזרת' : 'התחייבות חוזרת כל חודש', '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('label', 'מה', cur ? cur.label : 'תוכנות ומערכות', 'text') + fi('category', 'קטגוריה בתנועות', cur ? cur.category : 'תוכנה ומערכות', 'text') +
+      fi('gross', 'סכום לחודש ₪', cur ? cur.gross : '', 'number', 'min="0" step="0.01"') + fs('vatIncl', 'מע״מ', [['1', 'כולל מע״מ'], ['0', 'לפני מע״מ (נטו)']], cur && cur.vatIncl === false ? '0' : '1') +
+      fi('from', 'החל מחודש', cur ? cur.from : today().slice(0, 7), 'month') + fs('active', 'מצב', [['1', 'פעיל'], ['0', 'עצור']], cur && cur.active === false ? '0' : '1') + '</div>' +
+    '<p class="hint full">בכל חודש מהחודש שנבחר ועד היום — נוכה רק הפער בין הסכום לבין מה שנרשם באותו חודש בקטגוריה הזו. כשהתשלום נרשם — הפער נסגר לבד.</p>',
+    async (fd) => {
+      const label = String(fd.label || '').trim(), gross = r2(fd.gross), from = String(fd.from || ''), category = String(fd.category || '').trim();
+      if (!label || !gross || !category || !/^\d{4}-\d{2}$/.test(from)) return 'למלא מה, קטגוריה, סכום וחודש התחלה';
+      const body = { label, category, gross, vatIncl: fd.vatIncl !== '0', from, active: fd.active !== '0' };
+      const list = cur ? A.recur.map((x) => x.id === cur.id ? { ...x, ...body, updatedAt: stamp() } : x) : [...(A.recur || []), { id: 'r' + uid(), ...body, createdAt: stamp(), by: S.me.id }];
+      await accSave({ ...A, recur: list }); toast('נשמר'); render();
+    }, '', cur ? 'שמור' : 'הוסף');
+}
+function accPaidDrawer(id) {
+  const A = accrualsOf(), x = (A.items || []).find((k) => k.id === id); if (!x) return;
+  const net = r2(x.vatIncl ? n(x.amount) / (1 + n(S.settings.vatRate || 0.18)) : n(x.amount));
+  drawer('שולם — ' + x.label, '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('date', 'תאריך התשלום', today(), 'date') + fi('net', 'סכום נטו ₪', net, 'number', 'min="0" step="0.01"') + fi('category', 'קטגוריה', x.kind === 'marketing' ? 'שיווק' : '', 'text') + '</div>' +
+    '<p class="hint full">נרשמת הוצאה (נטו + מע״מ) מקושרת להתחייבות — היא מופיעה בתנועות ובבדיקת העו״ש, אבל לא נוכית שוב מהרווח של ' + esc(mLabel(x.month)) + '.</p>',
+    async (fd) => {
+      const v = r2(fd.net); if (!v || !fd.date) return 'למלא תאריך וסכום';
+      const tid = uid();
+      await write('transactions/' + tid, withVat({ id: tid, nature: 'expense', division: 'finance', date: fd.date, net: -v, vatMode: 'excl', vatRate: S.settings.vatRate, counterparty: x.label, category: String(fd.category || '').trim() || null, deductible: true, review: 'ok', accrualId: x.id, description: 'תשלום התחייבות של ' + mLabel(x.month), source: 'crm', createdAt: stamp(), updatedAt: stamp(), by: S.me.id }));
+      await accSave({ ...A, items: A.items.map((k) => k.id === x.id ? { ...k, paidTxId: tid, paidAt: stamp() } : k) }); toast('נרשם כתשלום — לא נוכה פעמיים'); render();
+    }, '', 'רשום תשלום');
 }
 function stmtPeriods() { const ms = nissimCard().map((r) => r.month); return ['all', ...[...new Set(ms.map(qOf))].sort().reverse(), ...[...ms].reverse()]; }
 function stmtCard() {
@@ -12891,6 +12985,12 @@ document.addEventListener('click', async (e) => {
     if (d.code) return codeLogin(d.code);
     if (d.leadback != null) return leadBackGo();
     if (d.cbopen) { S.leadBack = null; return go('lead', d.cbopen); }
+    if (d.accadd != null && el.matches('[data-accadd]')) return accDrawer(null);
+    if (d.accedit) return accDrawer(d.accedit);
+    if (d.accpaid) return accPaidDrawer(d.accpaid);
+    if (d.accrecur != null && el.matches('[data-accrecur]')) return accRecurDrawer(d.accrecur || null);
+    if (d.accdel) { const A = accrualsOf(), x = (A.items || []).find((k) => k.id === d.accdel); if (!x || !confirm('למחוק את "' + x.label + '"?' + (x.paidTxId ? ' (התשלום שנרשם יישאר בתנועות וינוכה כרגיל)' : ''))) return; await accSave({ ...A, items: A.items.map((k) => k.id === x.id ? { ...k, deletedAt: stamp() } : k) }); toast('נמחק'); return render(); }
+    if (d.accrecurdel) { const A = accrualsOf(), x = (A.recur || []).find((k) => k.id === d.accrecurdel); if (!x || !confirm('למחוק את "' + x.label + '"?')) return; await accSave({ ...A, recur: A.recur.map((k) => k.id === x.id ? { ...k, deletedAt: stamp() } : k) }); toast('נמחק'); return render(); }
     if (d.payemp != null && el.matches('[data-payemp]')) return payEmpDrawer(d.payemp || null);
     if (d.payback) { await payEmpSave(payAllEmployees().map((e) => e.key === d.payback ? { ...e, active: true, removedAt: null, removedReason: null } : e)); toast('הוחזר/ה לשכר'); return render(); }
     if (d.callset) { if (d.cpclose != null) callPopClose(); return callDrawer(d.callset); }
