@@ -3114,11 +3114,225 @@ function clientTools(c, w) {
     plan() && { k: 'plan', t: 'תוכנית לקרן', body: plan },
     ai() && { k: 'ai', t: 'ניתוחי Claude', body: ai },
     inst() && { k: 'inst', t: 'פעימות שכ״ט', body: inst },
+    fin && { k: 'submit', t: '📋 הגשה לגוף', body: () => submitCard(c) },
     { k: 'mail', t: 'מיילים וקבצים', body: () => mailCard(c) },
   ].filter(Boolean), sel = T.find((x0) => x0.k === cur);
   return '<section class="card ctools"><div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><b style="margin-inline-end:6px">ניתוחים וכלים</b>' +
     T.map((x0) => '<button type="button" class="chip' + (x0.k === cur ? ' on' : '') + '" aria-pressed="' + (x0.k === cur) + '" data-ctool="' + esc(c.id) + '|' + x0.k + '">' + x0.t + (x0.n ? ' <span class="hint">' + x0.n + '</span>' : '') + '</button>').join('') +
     '<span class="hint grow" style="text-align:end">' + (sel ? 'לחיצה נוספת סוגרת' : 'בוחרים — והכלי נפתח כאן') + '</span></div></section>' + (sel ? sel.body() : '');
+}
+/* ══ סדר הגשה לכל גוף (דן 09/11: "שהמערכת תדע לעבוד לפי תהליך ההגשה של כל גוף — פלט שאפשר להעתיק ולהדביק לפי הסדר") ══
+   לכל גוף: השלבים והשדות בדיוק בסדר של טופס ההגשה שלו (מצילומי המסך של דן), וכל שדה מקבל ערך מהכרטיס ומ"הכר את הלקוח".
+   s = מקור הערך · o = האפשרויות בטופס (הערך מותאם לאחת מהן) · m = מיפוי מפתח → אפשרות · t: upload (מסמך) / manual (להזין בטופס)
+   per: true — השלב חוזר לכל לווה. אין כאן מסך הזנה מקביל (כלל 13): רק פלט להעתקה. */
+/** ותק בשנים → טווח (מזרחי-טפחות) */
+const subSenBand = (y) => y == null || y === '' ? '' : Number(y) < 1 ? 'עד שנה' : Number(y) <= 3 ? 'שנה עד 3 שנים' : 'מעל 3 שנים';
+const subDate = (d) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(d || ''); };
+/** "הרצל 12 דירה 4, רמת גן 5250000" → רחוב, מס׳ בית, דירה, עיר, מיקוד */
+function subAddr(a) {
+  const s = String(a || '').trim(); if (!s) return {};
+  const parts = s.split(/\s*,\s*/), first = parts[0] || '', rest = parts.slice(1).join(' ').trim();
+  const zip = (s.match(/\b(\d{5}|\d{7})\b/) || [])[1] || '';
+  const apt = (first.match(/(?:דירה|ד׳|ד')\s*(\d+)/) || [])[1] || '';
+  const fm = first.replace(/(?:דירה|ד׳|ד')\s*\d+/, '').trim().match(/^(.*?)\s+(\d+[א-ת]?)(?:\s*\/\s*\d+)?$/);
+  const street = fm ? fm[1].trim() : rest ? first.trim() : '', house = fm ? fm[2] : '';
+  const city = rest ? rest.replace(/\b\d{5,7}\b/, '').trim() : fm ? '' : first.trim();
+  return { street, house, apt, city, zip };
+}
+/** ערך לאחת מהאפשרויות בטופס: זהה → מכיל / מוכל → בלי התאמה (מוצג כמו שהוא, עם סימון) */
+function subPick(v, opts) {
+  if (v == null || v === '' || !opts || !opts.length) return { v, ok: true };
+  const s = String(v).trim(), n0 = (t) => String(t).replace(/["'׳״\s]/g, '');
+  const hit = opts.find((o) => o === s) || opts.find((o) => n0(o) === n0(s)) || opts.find((o) => n0(o).includes(n0(s)) || n0(s).includes(n0(o)));
+  return hit ? { v: hit, ok: true } : { v: s, ok: false };
+}
+/** ערך שדה לפי המקור: D = נתוני התיק (buildSubData), bi = מספר הלווה בשלב שחוזר לכל לווה */
+function subValue(f, D, bi = 0) {
+  if (f.t === 'upload' || f.t === 'manual' || !f.s) return { v: '', kind: f.t || 'manual' };
+  const [grp, key] = f.s.split('.'), src = grp === 'b' ? (D.b[bi] || {}) : (D[grp] || {});
+  let v = src[key];
+  if (v === true) v = 'כן'; else if (v === false) v = 'לא';
+  if (f.m && v != null && Object.prototype.hasOwnProperty.call(f.m, v)) v = f.m[v];
+  if (v == null || v === '') return { v: '', kind: 'missing' };
+  const p = subPick(v, f.o);
+  return { v: p.v, kind: p.ok ? 'ok' : 'check' };
+}
+/* ══ סוף סדר הגשה — פונקציות טהורות ══ */
+const YN = ['כן', 'לא'];
+const SUB_EMP_FRISBEE = { salaried: 'שכיר', self: 'עצמאי', company: 'בעל חברה', pension: 'פנסיונר', unemployed: 'מובטל', allowance: 'אחר', nonprofit: 'אחר' };
+const SUBMIT_FLOWS = [
+  { key: 'ogen', name: 'עוגן', alias: /עוגן/, kind: 'business', note: 'אשף באתר עוגן · "קחו אותי לשלב הבא" בסוף כל שלב · בעלים ראשי אחד (לפחות 20%)',
+    steps: [
+      { t: 'כמה פרטים אישיים של הבעלים הראשי בעסק', f: [{ l: 'שם פרטי', s: 'b.first', r: 1, h: 'בעברית, בלי תווים מיוחדים' }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'טלפון נייד', s: 'b.phone', r: 1, h: '10 ספרות בלי מקף' }, { l: 'אימייל', s: 'b.email', r: 1 },
+        { l: 'השירות המבוקש', s: 'fixed.ogenService', o: ['אשראי (הלוואה או מסגרת אשראי חוץ בנקאית)'] }] },
+      { t: 'כמה פרטים על העסק הלווה המבקש', f: [{ l: 'שם העסק', s: 'biz.name', r: 1 }, { l: 'תעודת זהות של בעל העסק', s: 'b.id', r: 1 }, { l: 'סוג התאגדות', s: 'biz.entity', r: 1 }, { l: 'מחזור שנתי אחרון של העסק', s: 'biz.turnover', r: 1, h: 'בטופס — טווח מרשימה' },
+        { l: 'ותק העסק/שנות קיום העסק', s: 'biz.years', r: 1, h: 'בטופס — טווח מרשימה' }, { l: 'ענף', t: 'manual', r: 1, o: ['בינוי', 'חקלאות', 'מסחר', 'שירותים', 'תיירות', 'תעשיה'] }, { l: 'תת ענף', t: 'manual', r: 1 },
+        { l: 'תעודת הזהות הינה של בעלים בעסק המחזיק ב-20% לפחות', t: 'manual', h: 'הצהרה — לסמן' }] },
+      { t: 'מהו סוג האשראי המבוקש?', f: [{ l: 'סוג האשראי', t: 'manual', r: 1, o: ['מסגרת אשראי', 'הלוואה'] }] },
+      { t: 'סכום האשראי המבוקש', f: [{ l: 'סכום האשראי המבוקש', s: 'biz.amount', r: 1, h: '20,000–300,000' },
+        { l: 'מטרת האשראי', s: 'biz.purpose', r: 1, o: ['גישור', 'הון חוזר', 'הוצאות שוטפות', 'הקמת עסק', 'הרחבת עסק', 'השקעה במלאי', 'מיחזור הלוואות קיימות', 'פערי תזרים', 'רכישת ציוד'],
+          m: { working: 'הון חוזר', invest: 'הרחבת עסק', startup: 'הקמת עסק', combined: 'הרחבת עסק', refinance: 'מיחזור הלוואות קיימות' } }] },
+      { t: 'מסמכים להעלאה', f: ['צילום ת״ז כולל ספח', 'ESNA ל-3 שנים אחרונות', 'דוח כספי מבוקר ל-3 שנים אחרונות', 'חשבון בנק אישי — דוח ריכוז הלוואות', 'חשבון בנק אישי — דפי עו״ש 3 חודשים אחרונים', 'חשבון בנק עסקי — דוח ריכוז הלוואות',
+        'חשבון בנק עסקי — דוח ריכוז יתרות', 'מאזן בוחן מעודכן ליום הבקשה', 'נסח עיון מעודכן — רשות התאגידים', 'תעודת התאגדות / עוסק / שותפות', 'הצעות מחיר ציוד (לא חובה)', 'תכנית עסקית'].map((l) => ({ l, t: 'upload' })) },
+    ] },
+  { key: 'credit360', name: 'Credit 360 (קרדיטו)', alias: /קרדיט|credit/i, kind: 'mortgage', note: '5 שלבים: פרטי ההלוואה · פרטי לווים (כל לווה בנפרד) · הצהרות · נכס ופיננסים · מסמכים. "שמירה כטיוטה" ל-10 ימים',
+    steps: [
+      { t: 'פרטי ההלוואה', f: [{ l: 'באיזה סוג עסקה מדובר', t: 'manual', r: 1, h: 'מטרת / סוג העסקה (למשל משכנתא הפוכה)' }, { l: 'האם מדובר במשכנתא שנייה (משכנתא נוספת על הקיים)', s: 'prop.hasMortgage', r: 1, o: YN },
+        { l: 'מסלול ריבית', t: 'manual', r: 1 }, { l: 'מסלול פרעון', t: 'manual', r: 1 }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופה מבוקשת בשנים', s: 'req.years', r: 1 },
+        { l: 'החזר רצוי חודשי', s: 'req.payment' }, { l: 'נשמח לשמוע קצת עליכם ועל העסקה המבוקשת', s: 'req.story', r: 1, h: 'עד 2,000 תווים' }] },
+      { t: 'פרטי לווים', per: true, f: [{ l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'מספר ת.ז.', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת.ז.', t: 'manual', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', t: 'manual', r: 1 },
+        { l: 'האם תושב חוץ?', s: 'fixed.no', r: 1, o: YN }, { l: 'עיר', s: 'b.city', r: 1 }, { l: 'רחוב', s: 'b.street', r: 1 }, { l: 'מספר', s: 'b.house', r: 1 }, { l: 'מיקוד', s: 'b.zip' }, { l: 'מספר סלולרי', s: 'b.phone', r: 1 }, { l: 'כתובת מייל', s: 'b.email', r: 1 },
+        { l: 'מצב משפחתי', t: 'manual', r: 1 }, { l: 'השכלה', t: 'manual', r: 1 }, { l: 'מספר ילדים עד גיל 21', t: 'manual', r: 1 }, { l: 'מצב תעסוקתי', s: 'b.empLabel', r: 1 }, { l: 'שם מקום העבודה', t: 'manual' }, { l: 'תפקיד בעבודה', t: 'manual' },
+        { l: 'הכנסה משכר עבודה נטו', s: 'b.income' }, { l: 'וותק בעבודה בשנים', s: 'b.seniority' }, { l: 'הכנסות נוספות של הלווה באם קיימות', s: 'b.extraIncome' }, { l: 'האם קיים לווה שני?', s: 'b.hasNext', r: 1, o: YN }] },
+      { t: 'הצהרות על הלווים', f: [{ l: 'חזרה הוראת תשלום משכנתא ב-3 השנים האחרונות?', s: 'credit.mortReturns', r: 1, o: YN }, { l: 'חזרו המחאות ו/או הוראות קבע ב-3 השנים האחרונות?', s: 'credit.checks', r: 1, o: YN },
+        { l: 'נפתח תיק הוצאה לפועל ב-3 השנים האחרונות?', s: 'credit.execution', r: 1, o: YN }, { l: 'מוכרז כיום / בעבר כלקוח מוגבל?', s: 'credit.restricted', r: 1, o: YN },
+        { l: 'אינו תושב / אזרח ישראל לצורכי מס?', s: 'fixed.no', r: 1, o: YN }, { l: 'תושב מדינה אחרת לצורכי מס?', s: 'fixed.no', r: 1, o: YN }, { l: 'תושב או בעל זיקה לארה״ב?', s: 'fixed.no', r: 1, o: YN, h: 'לוודא עם הלקוח' },
+        { l: 'איש ציבור / קרוב של איש ציבור?', s: 'fixed.no', r: 1, o: YN, h: 'לוודא עם הלקוח' }, { l: 'ערב עבור צד ג׳?', t: 'manual', r: 1, o: YN }, { l: 'נשמח לשמוע עוד על הנסיבות לבקשה', s: 'req.redFlags' }] },
+      { t: 'פרטי הנכס והתחייבויות', f: [{ l: 'האם כתובת הנכס זהה לכתובת המגורים של לווה ראשון?', s: 'prop.isHome', r: 1, o: YN }, { l: 'סוג הנכס', s: 'prop.typeLabel', r: 1 }, { l: 'שווי הנכס מוערך', s: 'prop.value', r: 1 },
+        { l: 'האם קיימת שמאות עדכנית לנכס (עד שנתיים)', s: 'prop.appraisal', r: 1, o: YN }, { l: 'גוש', s: 'prop.gush' }, { l: 'חלקה', s: 'prop.helka' }, { l: 'תת חלקה', s: 'prop.subHelka' },
+        { l: 'האם הנכס ממושכן?', s: 'prop.hasMortgage', r: 1, o: YN }, { l: 'סך יתרות של הלוואות שאינן משכנתא — למשק הבית', s: 'obl.balOther' }, { l: 'סך תשלומים בחודש — הלוואות והוצאות קבועות, לא כולל משכנתא', s: 'obl.payOther' },
+        { l: 'בבעלות הלווים נכסים נוספים', t: 'manual', o: YN }] },
+      { t: 'צירוף מסמכים נלווים', f: ['טופס ייפוי כוח מלא וחתום (של הגוף)', 'צילום ת.ז — לכל לווה', 'צילום גב ת.ז', 'צילום ספח ת.ז', 'אישור הכנסה', 'דפי חשבון', 'טופס הסכמה למשיכת נתוני אשראי (אופציונלי)'].map((l) => ({ l, t: 'upload' })) },
+    ] },
+  { key: 'frisbee', name: 'פריסבי', alias: /פריסבי|frisbee/i, kind: 'mortgage', note: '5 שלבים: פרטים כלליים · ישויות מעורבות (כל שותף בנפרד, "הוסף שותף") · בטוחה · מסמכים · סיכום. "שמור והמשך" בכל שלב',
+    steps: [
+      { t: '1. פרטים כלליים', f: [{ l: 'מטרת אשראי', s: 'req.purpose', r: 1, o: ['רכישת דירה יד ראשונה', 'רכישת דירה יד שנייה', 'בנייה עצמית', 'מימון מטרות צרכניות', 'מימון עסקי', 'סיוע לבני משפחה', 'פירעון התחייבויות', 'מיחזור לאיחוד חובות', 'רכישה לדיור (דירה יחידה)', 'רכישה להשקעה', 'רכישה לשיפור דיור', 'שיפוצים', 'שיפוצים הרחבה ובנייה עצמית של נכסים', 'אחר'],
+          m: { renovation: 'שיפוצים', any: 'מימון מטרות צרכניות', refinance: 'מיחזור לאיחוד חובות', consolidation: 'מיחזור לאיחוד חובות', purchase: 'רכישת דירה יד שנייה', bridge: 'אחר', business: 'מימון עסקי', developer: 'אחר' } },
+        { l: 'סכום מבוקש', s: 'req.amount', r: 1 }] },
+      { t: '1. פרטים כלליים — תמהיל', f: [{ l: 'מוצר', t: 'manual', r: 1, h: 'למשל פריים / בולט / קבועה צמודה' }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.years', r: 1 }, { l: 'תקופת הגרייס', t: 'manual' }] },
+      { t: '2. ישויות מעורבות', per: true, f: [{ l: 'סוג ממשכן', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', t: 'manual', r: 1, o: ['זכר', 'נקבה'] },
+        { l: 'מספר זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקה', t: 'manual', r: 1 }, { l: 'טלפון סלולרי', s: 'b.phone', r: 1 }, { l: 'מייל', s: 'b.email', r: 1 },
+        { l: 'עיר', s: 'b.city', r: 1 }, { l: 'רחוב', s: 'b.street', r: 1 }, { l: 'מס. בית', s: 'b.house' }, { l: 'דירה', s: 'b.apt' }, { l: 'מיקוד', s: 'b.zip' }, { l: 'זיהיתי את הלקוח פנים אל פנים', t: 'manual', r: 1, h: 'לסמן' },
+        { l: 'מסמך מזהה (ת״ז, ספח, גב)', t: 'upload' }, { l: 'שלח טופס הסכמות ללקוח', t: 'manual', h: 'כפתור בטופס — הלקוח מאשר בעצמו' },
+        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר נפשות בבית', t: 'manual' }, { l: 'מספר ילדים מתחת לגיל 18', t: 'manual' }, { l: 'השכלה', t: 'manual' },
+        { l: 'סוג העסקה', s: 'b.emp', o: ['שכיר', 'בעל חברה', 'עצמאי', 'בעל שליטה', 'אחר', 'פנסיונר', 'אברך', 'מובטל', 'שכיר בעל שליטה', 'עוסק מורשה', 'עוסק פטור', 'סטודנט', 'חל״ת', 'חל״ד'], m: SUB_EMP_FRISBEE },
+        { l: 'סקטור', t: 'manual' }, { l: 'ותק', s: 'b.seniority' }, { l: 'שם מעסיק', t: 'manual' }, { l: 'הכנסה — סכום (חודשי)', s: 'b.income' },
+        { l: 'חשבון לחיוב — בנק / סניף / חשבון', t: 'manual' },
+        { l: 'האם הנך הבעלים של הנכס שבכוונתך לשעבד?', s: 'fixed.yes', o: YN, h: 'לוודא' }, { l: 'גוף פיננסי סירב לתת שירות (הלבנת הון / טרור)?', s: 'fixed.no', o: YN }, { l: 'קשור לאיש ציבור?', s: 'fixed.no', o: YN, h: 'לוודא' },
+        { l: 'תושב חוץ?', s: 'fixed.no', o: YN }, { l: 'קיים נהנה בהלוואה שאינו הלווה?', s: 'fixed.no', o: YN }, { l: 'פעילות פיננסית בחו״ל?', s: 'fixed.no', o: YN, h: 'לוודא' }, { l: 'מחזיק במספר חברות בשרשור אחזקות?', s: 'fixed.no', o: YN }] },
+      { t: '3. בטוחה — פרטי בטוחה', f: [{ l: 'סוג נכס', s: 'prop.typeLabel', r: 1 }, { l: 'סוג רישום', t: 'manual', r: 1, h: 'טאבו / רמ״י / חברה משכנת…' }, { l: 'שימוש בנכס', s: 'fixed.residential', r: 1, o: ['מגורים'] }, { l: 'שווי מוערך', s: 'prop.value', r: 1 },
+        { l: 'דרגת שיעבוד', s: 'prop.lienRank', r: 1 }] },
+      { t: '3. בטוחה — כתובת הנכס', f: [{ l: 'עיר', s: 'prop.city', r: 1 }, { l: 'רחוב', s: 'prop.street', r: 1 }, { l: 'מס. בית', s: 'prop.house', r: 1 }, { l: 'דירה', s: 'prop.apt' }, { l: 'גוש', s: 'prop.gush' }, { l: 'חלקה', s: 'prop.helka' }, { l: 'תת חלקה', s: 'prop.subHelka' },
+        { l: 'נחתם חוזה רכישה', t: 'manual' }] },
+    ] },
+  /* ── מ-WISE (צילומי המסך של דן): "לקוח ראשי" חוזר לכל לווה — WISE פותח לשונית לכל מבקש ── */
+  { key: 'mizrahi', name: 'מזרחי-טפחות', alias: /מזרחי|טפחות/, kind: 'mortgage', note: 'ב-WISE: פרטי בקשה → תכנון משכנתא → לקוח ראשי. "התחל הגשה בטפחות" רק כשכל שדות החובה תקינים; OTP והשליחה הסופית באתר הבנק',
+    steps: [
+      { t: '1. פרטי בקשה — הבקשה והעסקה', f: [{ l: 'מספר מבקשי המשכנתא', s: 'req.nBorrowers', r: 1, o: ['1', '2', '3', '4'] },
+        { l: 'סוג הבקשה', s: 'req.purpose', r: 1, o: ['משכנתא חדשה', 'מחזור משכנתא'], m: { refinance: 'מחזור משכנתא', renovation: 'משכנתא חדשה', any: 'משכנתא חדשה', consolidation: 'משכנתא חדשה', purchase: 'משכנתא חדשה', bridge: 'משכנתא חדשה', business: 'משכנתא חדשה', developer: 'משכנתא חדשה' } },
+        { l: 'ת״ז יועץ המשכנתאות', s: 'adv.id', r: 1, h: 'של היועץ, לא של הלקוח' },
+        { l: 'מטרת המשכנתא', s: 'req.purpose', r: 1, o: ['קניית דירה יד שניה', 'קניית דירה מקבלן', 'דירה במחיר למשתכן', 'שיפוצים', 'קניית מגרש', 'בניה עצמית', 'הרחבה', 'הלוואה לכל מטרה'],
+          m: { renovation: 'שיפוצים', any: 'הלוואה לכל מטרה', consolidation: 'הלוואה לכל מטרה', refinance: 'הלוואה לכל מטרה', purchase: 'קניית דירה יד שניה', business: 'הלוואה לכל מטרה' } },
+        { l: 'האם זו הדירה היחידה של המבקשים?', s: 'prop.isHome', o: ['כן, דירה יחידה', 'יקנו וימכרו את הדירה הנוספת', 'לא, יש להם דירה נוספת'], m: { 'כן': 'כן, דירה יחידה', 'לא': 'לא, יש להם דירה נוספת' } },
+        { l: 'האם קיימת תעודת זכאות?', t: 'manual', r: 1, o: YN }] },
+      { t: '1. פרטי בקשה — הנכס המשועבד', f: [{ l: 'יישוב הנכס', s: 'prop.city', r: 1 }, { l: 'שווי הנכס', s: 'prop.value', r: 1 }, { l: 'האם קיים שעבוד על הנכס?', s: 'prop.hasMortgage', r: 1, o: YN },
+        { l: 'האם נחתם חוזה רכישה?', t: 'manual', r: 1, o: YN }, { l: 'מועד העברת תשלום המשכנתא', t: 'manual', r: 1, h: 'למשל "בחודש הקרוב"' }] },
+      { t: '2. תכנון משכנתא', f: [{ l: 'סכום המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.yearsLabel', r: 1 }, { l: 'מקור ההון העצמי', t: 'manual', r: 1, h: 'למשל "חיסכון או פיקדון"' },
+        { l: 'החזר חודשי מתאים', s: 'req.payment', r: 1 }, { l: 'בחירת תמהיל', t: 'manual', r: 1, o: ['התמהיל שהבנק מציע', 'אני רוצה לבחור תמהיל'] }] },
+      { t: '3. לקוח — פרטים אישיים', per: true, f: [{ l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 },
+        { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דוא״ל', s: 'b.email', r: 1 }, { l: 'מצב משפחתי', t: 'manual', r: 1 }, { l: 'מספר ילדים', t: 'manual', r: 1 }, { l: 'מקום מגורים נוכחי', t: 'manual', r: 1, h: 'בבעלות / בשכירות / אצל ההורים' },
+        { l: 'האם משולמים מזונות?', t: 'manual', r: 1, o: YN }] },
+      { t: '3. לקוח — תעסוקה והכנסות', per: true, f: [{ l: 'מצב תעסוקתי', s: 'b.emp', r: 1, o: ['שכיר', 'עצמאי', 'לא עובד', 'גם עצמאי וגם שכיר'], m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר', unemployed: 'לא עובד' } },
+        { l: 'מקצוע', t: 'manual', r: 1 }, { l: 'השכלה', t: 'manual', r: 1 }, { l: 'ותק אצל המעסיק', s: 'b.senBand', r: 1, o: ['עד שנה', 'שנה עד 3 שנים', 'מעל 3 שנים'] }, { l: 'הכנסה חודשית נטו', s: 'b.income', r: 1 },
+        { l: 'שם החברה המעסיקה', t: 'manual', r: 1 }, { l: 'סיווג הארגון', t: 'manual', r: 1, h: 'למשל "חברה פרטית"' }, { l: 'מקום העבודה (יישוב)', t: 'manual', r: 1 }, { l: 'האם יש הכנסות נוספות?', s: 'b.hasExtra', o: YN }] },
+      { t: '3. לקוח — התחייבויות משק הבית', f: [{ l: 'יתרת תשלום בגין שעבוד', s: 'obl.balMort', r: 1, h: 'רק כשיש שעבוד על הנכס' }, { l: 'החזר חודשי בגין שעבוד', s: 'obl.payMort', r: 1 }, { l: 'שנים שנותרו לשעבוד', t: 'manual', r: 1 },
+        { l: 'האם קיימות התחייבויות חודשיות?', s: 'obl.hasOther', r: 1, o: YN }] },
+    ] },
+  { key: 'mimun', name: 'מימון ישיר', alias: /מימון ישיר/, kind: 'mortgage', note: 'ב-WISE: פרטי הבקשה → לקוח ראשי → מסמכים נדרשים. ההגשה מתוך WISE ("הגשת הבקשה")',
+    steps: [
+      { t: '1. פרטי הבקשה', f: [{ l: 'מספר מבקשי המשכנתא', s: 'req.nBorrowers', o: ['1', '2', '3', '4'] }, { l: 'גובה המשכנתא המבוקשת', s: 'req.amount', r: 1 },
+        { l: 'מה סוג העסקה?', s: 'req.purpose', o: ['רכישת נכס ראשון', 'רכישת נכס להשקעה', 'משכנתא לכל מטרה'], m: { purchase: 'רכישת נכס ראשון', renovation: 'משכנתא לכל מטרה', any: 'משכנתא לכל מטרה', consolidation: 'משכנתא לכל מטרה', refinance: 'משכנתא לכל מטרה', business: 'משכנתא לכל מטרה', bridge: 'משכנתא לכל מטרה' } },
+        { l: 'מה מטרת המשכנתא?', s: 'req.purposeLabel', h: 'בחירה מרובה — למשל "סגירת חוב"' }, { l: 'מהו סוג הנכס?', s: 'prop.typeLabel' },
+        { l: 'מה סוג השעבוד?', s: 'prop.lienRank', m: { 'ראשונה': 'שעבוד דרגה ראשונה', 'שנייה': 'שעבוד דרגה שנייה' } }, { l: 'שווי נכס הצהרתי', s: 'prop.value' }] },
+      { t: '1. פרטי הבקשה — הנכס המוצע לשעבוד', f: [{ l: 'איפה הנכס נמצא?', s: 'prop.city' }, { l: 'רחוב', s: 'prop.street' }, { l: 'מספר בית / תא דואר', s: 'prop.house' },
+        { l: 'מקום רישום הנכס', t: 'manual', h: 'טאבו / רמ״י / חברה משכנת' }, { l: 'האם יש חברה משכנת?', t: 'manual', o: YN }, { l: 'שם החברה המשכנת', t: 'manual', h: 'רק אם כן' },
+        { l: 'שווי הנכס לפי חוזה', t: 'manual' }, { l: 'שווי הנכס לפי שמאות', s: 'prop.appraisedValue' }] },
+      { t: '2. לקוח — זיהוי, פרטי קשר וכתובת', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', t: 'manual', o: ['זכר', 'נקבה'] },
+        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
+        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
+        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית / תא דואר', s: 'b.house' }, { l: 'מספר דירות בבעלות', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
+      { t: '2. לקוח — מקום העבודה והכנסה', per: true, f: [{ l: 'סטטוס תעסוקתי', s: 'b.emp', m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר בעל שליטה', pension: 'פנסיונר', unemployed: 'לא עובד' } },
+        { l: 'מקום העבודה', t: 'manual' }, { l: 'תפקיד', t: 'manual' }, { l: 'תאריך התחלת עבודה', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
+      { t: '2. לקוח — הכנסות נוספות', per: true, f: [{ l: 'סוג ההכנסה', t: 'manual', h: 'מזונות / שכירות / קצבה…' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'קבועה או זמנית?', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
+      { t: '2. לקוח — החשבון שממנו ייגבו התשלומים', per: true, f: [{ l: 'בנק', t: 'manual' }, { l: 'סניף', t: 'manual' }, { l: 'מספר חשבון', t: 'manual' }] },
+      { t: '2. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההתחייבות', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההתחייבות', s: 'obl.balOther' }] },
+      { t: '3. מסמכים נדרשים', f: [{ l: 'כתב הסמכה ליועץ (לווים 1 ו-2)', t: 'upload', r: 1, h: 'אפשר להחתים דיגיטלית מ-WISE' }, { l: 'כתב ויתור סודיות — לכל לווה', t: 'upload', r: 1 },
+        { l: 'כתב הסמכה לדוח מלא (נתוני אשראי) — לכל לווה', t: 'upload', r: 1 }, { l: 'ת״ז + ספח — לכל לווה', t: 'upload', r: 1 }] },
+    ] },
+  { key: 'pama', name: 'פמה משכנתאות', alias: /פמה|פ\.מ\.ה/, kind: 'mortgage', note: 'ב-WISE: פרטי הבקשה → פרטי העסקה → לקוח ראשי → מסמכים נדרשים. ההגשה מתוך WISE ("הגשת הבקשה")',
+    steps: [
+      { t: '1. פרטי הבקשה', f: [{ l: 'מספר מבקשי המשכנתא', s: 'req.nBorrowers', o: ['1', '2', '3', '4'] },
+        { l: 'מהי מטרת הבקשה?', s: 'req.purpose', o: ['רכישת נכס', 'מחזור משכנתא', 'הלוואת גישור', 'משכנתא לכל מטרה'], m: { purchase: 'רכישת נכס', refinance: 'מחזור משכנתא', bridge: 'הלוואת גישור', renovation: 'משכנתא לכל מטרה', any: 'משכנתא לכל מטרה', consolidation: 'משכנתא לכל מטרה', business: 'משכנתא לכל מטרה' } },
+        { l: 'מה סוג העסקה?', t: 'manual', h: 'למשל "יד שניה"' }, { l: 'מהו סוג הנכס?', s: 'prop.typeLabel' },
+        { l: 'מה סוג השעבוד?', s: 'prop.lienRank', m: { 'ראשונה': 'שעבוד דרגה ראשונה', 'שנייה': 'שעבוד דרגה שנייה' } }, { l: 'פרטים על העסקה המבוקשת', s: 'req.story', h: 'טקסט חופשי' }] },
+      { t: '2. פרטי העסקה — הנכס המוצע לשעבוד', f: [{ l: 'האם זו הדירה היחידה של המבקשים?', s: 'prop.isHome', o: YN }, { l: 'איפה הנכס נמצא?', s: 'prop.city' }, { l: 'רחוב', s: 'prop.street' },
+        { l: 'מספר בית או ת.ד', s: 'prop.house' }, { l: 'מקום רישום הנכס', t: 'manual', h: 'למשל "טאבו עם פרצלציה"' }, { l: 'האם יש חברה משכנת?', t: 'manual', o: YN }, { l: 'שווי נכס הצהרתי', s: 'prop.value' }] },
+      { t: '2. פרטי העסקה — המשכנתא המבוקשת', f: [{ l: 'גובה המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'פריסה בחודשים', s: 'req.months' }, { l: 'מסלול', t: 'manual', o: ['פריים', 'קבועה', 'קל״צ'] },
+        { l: 'שיטת החזר', t: 'manual', o: ['שפיצר', 'בלון חלקי', 'בלון מלא'] }, { l: 'מקור פרעון', t: 'manual' }] },
+      { t: '3. לקוח — פרטים אישיים', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', t: 'manual', o: ['זכר', 'נקבה'] },
+        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
+        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
+        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית או ת.ד', s: 'b.house' }, { l: 'מספר דירות בבעלות', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
+      { t: '3. לקוח — תעסוקה', per: true, f: [{ l: 'סטטוס תעסוקתי', s: 'b.emp', m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר בעל שליטה', pension: 'פנסיונר', unemployed: 'לא עובד' } },
+        { l: 'מקום העבודה', t: 'manual' }, { l: 'תפקיד', t: 'manual' }, { l: 'תאריך התחלת עבודה', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
+      { t: '3. לקוח — הכנסות נוספות', per: true, f: [{ l: 'מהו סוג ההכנסה?', t: 'manual' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'הכנסה קבועה או זמנית?', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
+      { t: '3. לקוח — חשבון בנק', per: true, f: [{ l: 'בנק', t: 'manual' }, { l: 'סניף', t: 'manual' }, { l: 'מספר חשבון', t: 'manual', r: 1 }] },
+      { t: '3. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההוצאה/התחייבות', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההוצאה (התחייבות)', s: 'obl.balOther' }] },
+      { t: '4. מסמכים נדרשים', f: [{ l: 'כתב הסמכה ליועץ (לווים 1/2)', t: 'upload', r: 1, h: 'אפשר להחתים דיגיטלית מ-WISE' }, { l: 'ת״ז + ספח — לכל לווה', t: 'upload', r: 1 }] },
+    ] },
+];
+/* ══ סוף רשימת הגופים ══ */
+/** נתוני התיק לטפסים: הכרטיס + "הכר את הלקוח" (לווים, בקשה, נכס, התחייבויות, אשראי, עסק) + פרטי היועץ */
+function buildSubData(c) {
+  const x = intakeDoc(c.id) || {}, B = x.borrowers || [], R = x.request || {}, P = x.property || {}, K = x.credit || {}, Z = x.biz || {}, G = x.goals || {};
+  const homeAddr = (x.contact || {}).address || c.address || '';
+  const nB = Math.max(1, (c.spouseName || (B[1] || {}).name) ? 2 : 1) + (c.moreBorrowers || []).length;
+  const b = Array.from({ length: nB }, (_, i) => { const p = signPerson(c, i + 1), bi = B[i] || {}, nm = String(p.name || bi.name || '').trim().split(/\s+/), A = subAddr(i === 0 || !bi.address ? homeAddr : bi.address);
+    return { first: nm[0] || '', last: nm.slice(1).join(' '), full: nm.join(' '), id: p.idNumber || bi.idNumber || '', phone: String(p.phone || bi.phone || '').replace(/\D/g, ''), email: p.email || bi.email || '',
+      birth: subDate(i === 0 ? c.birthDate : i === 1 ? c.spouseBirthDate : ''), ...A, emp: bi.emp || '', empLabel: IK.emp[bi.emp] || '', income: n(bi.income) || '', seniority: n(bi.seniority) || '',
+      extraIncome: i === 0 ? (r2(n(x.rentIncome) + n(x.pensionIncome) + n(x.allowanceIncome) + n(x.otherIncome)) || '') : '', hasNext: i < nB - 1,
+      senBand: subSenBand(bi.seniority), hasExtra: i === 0 ? r2(n(x.rentIncome) + n(x.pensionIncome) + n(x.allowanceIncome) + n(x.otherIncome)) > 0 : '' }; });
+  const PA = subAddr(P.address || (P.isHome === 'yes' ? homeAddr : '')), hasMort = n(x.balMortgage) > 0, adv = advisorDefaults(c.division || 'finance');
+  return { b,
+    req: { amount: n(R.amount) || n(Z.amount) || n((x.car || {}).amount) || n(c.baseAmount) || '', years: n(R.years) || '', purpose: R.purpose || '', purposeLabel: IK.purpose[R.purpose] || '', nBorrowers: String(nB), months: n(R.years) ? n(R.years) * 12 : '', yearsLabel: n(R.years) ? n(R.years) + ' שנים' : '', payment: n(G.payment) || '', story: x.story || '', redFlags: x.redFlags || '' },
+    prop: { typeLabel: IK.prop[P.type] || '', value: n(P.value) || '', ...PA, isHome: P.isHome === 'yes' ? true : P.isHome === 'no' ? false : '', hasMortgage: x.balMortgage != null ? hasMort : '', appraisal: P.source ? P.source === 'appraisal' : '',
+      appraisedValue: P.source === 'appraisal' ? (n(P.value) || '') : '', gush: P.gush || '', helka: P.helka || '', subHelka: P.subHelka || '', lienRank: x.balMortgage != null ? (hasMort ? 'שנייה' : 'ראשונה') : '' },
+    obl: { balOther: (r2(n(x.balLoans) + n(x.balNonbank) + n(x.balOverdraft)) || ''), payOther: (r2(n(x.oblLoans) + n(x.oblNonbank)) || ''), balMort: n(x.balMortgage) || '', payMort: n(x.oblMortgage) || '',
+      hasOther: x.oblLoans != null || x.oblNonbank != null ? r2(n(x.oblLoans) + n(x.oblNonbank)) > 0 : '' },
+    credit: { mortReturns: K.mortReturns != null && K.mortReturns !== '' ? n(K.mortReturns) > 0 : '', checks: K.checks ?? '', execution: K.execution ?? '', restricted: K.restricted ?? '' },
+    biz: { name: Z.name || '', entity: BIZ_ENTITY[Z.entity] || '', turnover: n(Z.turnover) || '', years: n(Z.years) || '', amount: n(Z.amount) || '', purpose: Z.purpose || '' },
+    adv: { id: adv.advisor_id, name: adv.advisor_name, phone: adv.advisor_phone, email: adv.advisor_email, license: adv.advisor_license },
+    fixed: { no: false, yes: true, ogenService: 'אשראי (הלוואה או מסגרת אשראי חוץ בנקאית)', frisbeeRole: 'לווה ממשכן', residential: 'מגורים' } };
+}
+const subFlowFor = (c) => { const pick = (S.f.subLender || {})[c.id]; if (pick) return SUBMIT_FLOWS.find((f) => f.key === pick);
+  const banks = [...(c.submissions || []).map((s) => s.bank), ...(c.lendersApproved || []), ...String(c.lenders || '').split(',')].filter(Boolean).join(' ');
+  return SUBMIT_FLOWS.find((f) => f.alias.test(banks)) || SUBMIT_FLOWS[0]; };
+/** השורות לפי סדר ההגשה — כל שלב "per" פעם לכל לווה */
+function subRows(F, D) {
+  const out = [];
+  F.steps.forEach((st, si) => { const reps = st.per ? D.b.length : 1;
+    for (let bi = 0; bi < reps; bi++) { const title = st.t + (st.per && reps > 1 ? ' — לווה ' + (bi + 1) + (D.b[bi].full ? ' (' + D.b[bi].full + ')' : '') : '');
+      out.push({ step: title, rows: st.f.map((f) => ({ f, ...subValue(f, D, bi) })) }); } });
+  return out;
+}
+const subShow = (v) => typeof v === 'number' ? v.toLocaleString('he-IL') : String(v);
+function submitCard(c) {
+  const F = subFlowFor(c), D = buildSubData(c), steps = subRows(F, D), vals = (S._subVals = []), all = steps.flatMap((s) => s.rows);
+  const cnt = (k) => all.filter((r) => r.kind === k).length, miss = all.filter((r) => r.kind === 'missing' && r.f.r).length;
+  const nextI = Math.min(n((S.f.subNext || {})[c.id + F.key]), Math.max(0, all.filter((r) => r.kind === 'ok' || r.kind === 'check').length - 1));
+  let k = 0;
+  const row = (r) => { const req = r.f.r ? ' <span style="color:var(--open)">*</span>' : '';
+    if (r.kind === 'ok' || r.kind === 'check') { const i = vals.push({ l: r.f.l, v: String(r.v) }) - 1, cur = i === nextI;
+      return '<tr' + (cur ? ' style="outline:2px solid var(--committed);outline-offset:-2px"' : '') + '><td class="num hint" style="width:28px">' + (++k) + '</td><td class="wide">' + esc(r.f.l) + req + (r.f.h ? '<div class="hint">' + esc(r.f.h) + '</div>' : '') + '</td><td><button class="btn small" data-subcp="' + i + '" title="לחיצה מעתיקה">' + esc(subShow(r.v).slice(0, 80)) + (subShow(r.v).length > 80 ? '…' : '') + ' ⧉</button>' +
+        (r.kind === 'check' ? '<div class="hint" style="color:var(--expected)">לא תואם בדיוק לאפשרויות בטופס — לבחור ידנית</div>' : '') + '</td></tr>'; }
+    const tag = r.kind === 'upload' ? '<span class="pill committed">📎 לצרף</span>' : r.kind === 'missing' ? '<span class="pill ' + (r.f.r ? 'open' : 'muted') + '">חסר בתיק</span>' : '<span class="pill muted">להזין בטופס</span>';
+    return '<tr><td class="num hint" style="width:28px">' + (++k) + '</td><td class="wide">' + esc(r.f.l) + req + (r.f.h ? '<div class="hint">' + esc(r.f.h) + '</div>' : '') + (r.f.o && r.kind !== 'upload' ? '<div class="hint">אפשרויות: ' + esc(r.f.o.slice(0, 8).join(' · ')) + (r.f.o.length > 8 ? '…' : '') + '</div>' : '') + '</td><td>' + tag + '</td></tr>'; };
+  return '<section class="card" id="subcard"><header><h2>📋 הגשה לגוף — לפי הסדר של הטופס</h2><span class="grow"></span><button class="btn small primary" data-subnext="' + esc(c.id + '|' + F.key) + '">העתק הבא' + (vals.length || all.some((r) => r.kind === 'ok') ? '' : '') + '</button><button class="btn small" data-suball="1">העתק הכל</button></header>' +
+    '<div class="seg" role="group" aria-label="גוף" style="flex-wrap:wrap;margin-bottom:8px">' + SUBMIT_FLOWS.map((f) => '<button data-subl="' + esc(c.id + '|' + f.key) + '" aria-pressed="' + (f.key === F.key) + '">' + esc(f.name) + '</button>').join('') + '</div>' +
+    '<p class="hint" style="margin:0 0 8px">' + esc(F.note || '') + ' · לחיצה על ערך מעתיקה אותו. "העתק הבא" מעתיק לפי הסדר — מדביקים בטופס ולוחצים שוב.</p>' +
+    '<div class="row" style="gap:6px;margin-bottom:8px"><span class="pill actual">' + (cnt('ok') + cnt('check')) + ' מוכנים להעתקה</span>' + (miss ? '<span class="pill open">' + miss + ' חובה וחסרים בתיק</span>' : '') + '<span class="pill muted">' + cnt('manual') + ' להזין בטופס</span>' + (cnt('upload') ? '<span class="pill committed">' + cnt('upload') + ' מסמכים</span>' : '') + '</div>' +
+    steps.map((s, si) => '<h3 class="sec">' + esc(s.step) + ' <button class="xlink" data-substep="' + si + '">העתק את השלב</button></h3><div class="scroll"><table><tbody>' + s.rows.map(row).join('') + '</tbody></table></div>').join('') +
+    (miss ? '<p class="hint" style="margin-top:8px">חסר בתיק — להשלים ב"הכר את הלקוח" או בכרטיס, והערך יופיע כאן.</p>' : '') + '</section>';
 }
 /* כרטיס לקוח — "ניתוחי Claude": כל מה ש-Claude ניתח על התיק חוזר לכאן — ניתוח התיק, דוחות אשראי, ומה שעוד בתור */
 function aiCard(c) {
@@ -13071,6 +13285,14 @@ document.addEventListener('click', async (e) => {
     if (d.accrecurdel) { const A = accrualsOf(), x = (A.recur || []).find((k) => k.id === d.accrecurdel); if (!x || !confirm('למחוק את "' + x.label + '"?')) return; await accSave({ ...A, recur: A.recur.map((k) => k.id === x.id ? { ...k, deletedAt: stamp() } : k) }); toast('נמחק'); return render(); }
     if (d.payemp != null && el.matches('[data-payemp]')) return payEmpDrawer(d.payemp || null);
     if (d.payback) { await payEmpSave(payAllEmployees().map((e) => e.key === d.payback ? { ...e, active: true, removedAt: null, removedReason: null } : e)); toast('הוחזר/ה לשכר'); return render(); }
+    if (d.subl) { const [cid, key] = d.subl.split('|'); S.f.subLender = { ...(S.f.subLender || {}), [cid]: key }; return render(); }
+    if (d.subcp != null && el.matches('[data-subcp]')) { const v = (S._subVals || [])[Number(d.subcp)]; if (v) return copyText(v.v, 'הועתק: ' + v.l); return; }
+    if (d.subnext) { const V = S._subVals || []; if (!V.length) return toast('אין ערכים להעתקה — להשלים את התיק'); const m0 = S.f.subNext = S.f.subNext || {}, i = Math.min(n(m0[d.subnext.replace('|', '')]), V.length - 1);
+      await copyText(V[i].v, (i + 1) + '/' + V.length + ' הועתק: ' + V[i].l); m0[d.subnext.replace('|', '')] = i + 1 >= V.length ? 0 : i + 1; return render(); }
+    if (d.substep != null && el.matches('[data-substep]')) { const c0 = S.clients.get(S.view.clientId); if (!c0) return; const st = subRows(subFlowFor(c0), buildSubData(c0))[Number(d.substep)]; if (!st) return;
+      return copyText(st.rows.filter((r) => r.kind === 'ok' || r.kind === 'check').map((r) => r.f.l + ': ' + r.v).join('\n'), 'השלב הועתק'); }
+    if (d.suball != null && el.matches('[data-suball]')) { const c0 = S.clients.get(S.view.clientId); if (!c0) return; const F = subFlowFor(c0);
+      return copyText(F.name + '\n' + subRows(F, buildSubData(c0)).map((st) => '— ' + st.step + ' —\n' + st.rows.map((r) => r.f.l + ': ' + (r.kind === 'ok' || r.kind === 'check' ? r.v : r.kind === 'upload' ? '[לצרף]' : r.kind === 'missing' ? '[חסר]' : '[להזין]')).join('\n')).join('\n\n'), 'הכל הועתק'); }
     if (d.callset) { if (d.cpclose != null) callPopClose(); return callDrawer(d.callset); }
     if (d.callcancel) return callCancel(d.callcancel);
     if (d.calldone) return callDone(d.calldone);
