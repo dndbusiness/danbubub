@@ -65,6 +65,47 @@ try {
   assert(await page.locator('[data-subl$="|pama"]').count() === 1 && await page.locator('[data-subl$="|mimun"]').count() === 1, 'גם פמה ומימון ישיר ברשימה')
   await shot(page, 'submit-mizrahi')
 
+  step('✎ הזנה ועריכה — נשמר פעם אחת ומשמש את כל הגופים')
+  await page.click('[data-subl$="|frisbee"]'); await page.waitForSelector('[data-subed="bx.gender#0"]')
+  await page.click('[data-subed="bx.gender#0"]'); await page.fill('#dform input[name="v0"]', 'נקבה'); await page.click('#dsave')
+  await page.waitForFunction(() => /✎ הוזן/.test(document.getElementById('subcard').textContent))
+  await page.click('[data-subl$="|mimun"]'); await page.waitForFunction(() => /סוג הקשר בעסקה/.test(document.getElementById('subcard').textContent))
+  assert(await page.evaluate(() => [...document.querySelectorAll('#subcard tr')].some((tr) => /^\s*\d+\s*מין/.test(tr.textContent) && /נקבה/.test(tr.textContent))), 'מגדר שהוזן בפריסבי מופיע ב"מין" של מימון ישיר')
+  await page.click('[data-subed="b.income#0"]'); await page.fill('#dform input[name="v0"]', '15200'); await page.click('#dsave')
+  await page.waitForFunction(() => [...document.querySelectorAll('#subcard tr')].some((tr) => /משכורת חודשית נטו/.test(tr.textContent) && /15200/.test(tr.textContent) && /✎ הוזן/.test(tr.textContent)))
+  assert(true, 'עריכת שדה שבא מהתיק (נטו 14,000 → 15,200) — מסומן "✎ הוזן"')
+  await page.click('[data-act="subEditAll"]'); const nAll = await page.locator('#dform input[name^="v"]').count()
+  await page.fill('#dform input[name="v0"]', ''); await page.click('#layer [data-close]')
+  assert(nAll >= 10, '"✎ הזן את החסרים" — כל השדות שחסרים בגוף בטופס אחד (' + nAll + ')')
+
+  step('✨ מילוי מהמסמכים (Claude מדומה) → הצעה → מאשרים חלק → נשמר')
+  await page.evaluate((id) => {
+    S.docRes = { ...(S.docRes || {}), [id]: { files: [{ id: 'f1', title: 'ת״ז Avi.pdf', mimeType: 'application/pdf', cat: 'private' }, { id: 'f2', title: 'תלוש שכר 10-2026.pdf', mimeType: 'application/pdf', cat: 'income' }, { id: 'f3', title: 'הסכם שכירות.pdf', mimeType: 'application/pdf' }] } }
+    window.docBlob = async () => new Blob(['x'], { type: 'application/pdf' })
+    window.askDoc = async (b, prompt, st, label) => /ת״ז/.test(label) ? { person: { name: 'Avi Levi', id: '000000026' }, gender: 'זכר', idIssue: '05/05/2015', birth: '' }
+      : { person: { name: 'דנה כהן-לוי', id: '000000018' }, employer: 'Acme בע״מ', role: 'מנהלת חשבונות', workStart: '01/06/2019', netIncome: '15200' }
+    render()
+  }, CID)
+  await page.click('[data-act="subScan"]'); await page.waitForSelector('#subscan')
+  await page.evaluate(() => document.getElementById('subscan').scrollIntoView()); await shot(page, 'submit-scan')
+  const sc = await page.textContent('#subscan')
+  assert(/זכר/.test(sc) && /05\/05\/2015/.test(sc) && /Acme/.test(sc) && /נקראו 2 מסמכים/.test(sc), 'נקראו רק ת״ז ותלוש (לא ההסכם); הוצעו מגדר + הנפקה ללווה 2, מעסיק לדנה')
+  assert(!/15200|15,200/.test(sc), 'נטו שכבר שווה לתיק — לא מוצע שוב')
+  await page.locator('#subscan [data-subsug]').nth(3).uncheck(); await page.click('[data-act="subScanOk"]'); await page.waitForFunction(() => !document.getElementById('subscan'))
+  const sv = await page.evaluate((id) => S.intakes.get(id).subVals, CID)
+  assert(sv['bx.gender#1'] === 'זכר' && sv['bx.employer#0'] === 'Acme בע״מ' && sv['bx.gender#0'] === 'נקבה' && !sv['bx.role#0'] && Object.keys(sv).length === 6, 'אושרו 4 מתוך 5 (התפקיד לא סומן — לא נשמר) → נשמרו, עם מה שהוזן קודם')
+
+  step('📎 המסמכים של הגוף מול התיק · ✍️ הטפסים של הגוף לחתימה')
+  await page.click('[data-subl$="|pama"]'); await page.waitForFunction(() => /מסמכים לפמה/.test(document.getElementById('subcard').textContent))
+  assert(/✓ בתיק:\s*ת״ז Avi\.pdf/.test(await page.textContent('#subcard')), 'פמה: "ת״ז + ספח" → ✓ בתיק')
+  await page.click('[data-act="subDocsSel"]'); assert(await page.evaluate(() => S.docSel.size === 1 && S.docSel.has('f1')), 'סמן לשליחה → הקובץ מסומן במסמכי הלקוח')
+  await page.evaluate(() => { S.pdfTpls = { templates: [{ id: 'tA', name: 'כתב הסמכה — פריסבי', folder: 'פריסבי מימון', signers: 2, fields: [], pages: 1, page_sizes: [[595, 842]] }, { id: 'tB', name: 'ויתור סודיות — פריסבי', folder: 'פריסבי מימון', signers: 2, fields: [], pages: 1, page_sizes: [[595, 842]] }, { id: 'tC', name: 'טופס של בנק אחר', folder: 'בנק לאומי', signers: 1, fields: [], pages: 1, page_sizes: [[595, 842]] }], top: [] }; render() })
+  await page.click('[data-subl$="|frisbee"]'); await page.waitForSelector('#subsign')
+  await page.evaluate(() => document.getElementById('subsign').scrollIntoView({ block: 'center' })); await shot(page, 'submit-sign')
+  const sg = await page.textContent('#subsign')
+  assert(/כתב הסמכה — פריסבי/.test(sg) && /ויתור סודיות — פריסבי/.test(sg) && !/בנק אחר/.test(sg), 'פריסבי: רק הטפסים מתיקיית פריסבי בספרייה')
+  await page.click('#subsign [data-subsign^="pdfs:"]'); assert(await page.evaluate((id) => S.signForm[id].tpl === 'pdfs:tA,tB', CID), '"שלח את כל הטפסים בקישור אחד" → נפתח בשליחה לחתימה עם שני הטפסים')
+
   step('נייד 390px')
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => render()); await page.waitForTimeout(500); await page.evaluate(() => document.getElementById('subcard').scrollIntoView()); await shot(page, 'submit-390')
   const ovf = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert(ovf <= 1, 'בלי גלילה לרוחב ב-390px (' + ovf + ')')
