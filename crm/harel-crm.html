@@ -3147,15 +3147,62 @@ function subPick(v, opts) {
   return hit ? { v: hit, ok: true } : { v: s, ok: false };
 }
 /** ערך שדה לפי המקור: D = נתוני התיק (buildSubData), bi = מספר הלווה בשלב שחוזר לכל לווה */
-function subValue(f, D, bi = 0) {
-  if (f.t === 'upload' || f.t === 'manual' || !f.s) return { v: '', kind: f.t || 'manual' };
-  const [grp, key] = f.s.split('.'), src = grp === 'b' ? (D.b[bi] || {}) : (D[grp] || {});
-  let v = src[key];
-  if (v === true) v = 'כן'; else if (v === false) v = 'לא';
-  if (f.m && v != null && Object.prototype.hasOwnProperty.call(f.m, v)) v = f.m[v];
-  if (v == null || v === '') return { v: '', kind: 'missing' };
+/** מפתח השמירה של שדה (דן 11/11: "איפה מזינים" + "עריכת שדות"): ערך גולמי (בלי תרגום לאפשרויות של גוף) נשמר פעם אחת ומשמש את כל הגופים;
+    שדה עם תרגום / קבוע / בלי מקור — לפי הגוף והשדה. שדות של לווה — לכל לווה בנפרד (#מספר) */
+function subKey(f, fk, bi = 0) {
+  const g = f.s ? f.s.split('.')[0] : '', shared = !!f.s && !f.m && g !== 'fixed';
+  return (shared ? f.s : 'm:' + fk + ':' + f.l) + (!shared || g === 'b' || g === 'bx' ? '#' + bi : '');
+}
+/** ערך שדה לפי המקור: D = נתוני התיק (buildSubData), bi = מספר הלווה, fk = הגוף. ערך שהוזן / נערך (D.ov) גובר על התיק */
+function subValue(f, D, bi = 0, fk = '') {
+  if (f.t === 'upload') return { v: '', kind: 'upload' };
+  const key = subKey(f, fk, bi), ov = D.ov && D.ov[key];
+  let v, ed = false;
+  if (ov != null && String(ov).trim() !== '') { v = String(ov).trim(); ed = true; }
+  else if (!f.s) return { v: '', kind: 'manual', key };
+  else {
+    const [grp, k] = f.s.split('.'), src = grp === 'b' ? (D.b[bi] || {}) : grp === 'bx' ? ((D.bx || [])[bi] || {}) : (D[grp] || {});
+    v = src[k];
+    if (v === true) v = 'כן'; else if (v === false) v = 'לא';
+    if (f.m && v != null && Object.prototype.hasOwnProperty.call(f.m, v)) v = f.m[v];
+    if (v == null || v === '') return { v: '', kind: f.t === 'manual' ? 'manual' : 'missing', key };
+  }
   const p = subPick(v, f.o);
-  return { v: p.v, kind: p.ok ? 'ok' : 'check' };
+  return { v: p.v, kind: p.ok ? 'ok' : 'check', key, ed };
+}
+/** הערך הנוכחי לפי מפתח (לפני הצעה מסריקה) */
+function subCur(key, D) {
+  const ov = D.ov && D.ov[key]; if (ov != null && String(ov).trim() !== '') return String(ov);
+  const m = String(key).match(/^(\w+)\.(\w+)(?:#(\d+))?$/); if (!m) return '';
+  const src = m[1] === 'b' ? (D.b || [])[n0i(m[3])] : m[1] === 'bx' ? (D.bx || [])[n0i(m[3])] : D[m[1]];
+  const v = src && src[m[2]]; return v == null ? '' : String(v);
+}
+const n0i = (x) => Number(x) || 0;
+/** סריקת מסמך (Claude — הצעה בלבד, הנחיה 17) → הצעות לשדות ההגשה. r = התשובה, title = שם הקובץ */
+const SUB_SCAN_MAP = [['gender', 'bx.gender', 'מגדר'], ['idIssue', 'bx.idIssue', 'תאריך הנפקת ת״ז'], ['birth', 'b.birth', 'תאריך לידה'], ['city', 'b.city', 'עיר מגורים'], ['street', 'b.street', 'רחוב'], ['house', 'b.house', 'מס׳ בית'],
+  ['marital', 'bx.marital', 'מצב משפחתי'], ['employer', 'bx.employer', 'מעסיק'], ['role', 'bx.role', 'תפקיד'], ['workStart', 'bx.workStart', 'תאריך התחלת עבודה'], ['netIncome', 'b.income', 'הכנסה נטו'],
+  ['bankName', 'bx.bankName', 'בנק'], ['bankBranch', 'bx.bankBranch', 'סניף'], ['bankAcct', 'bx.bankAcct', 'מספר חשבון'],
+  ['gush', 'prop.gush', 'גוש'], ['helka', 'prop.helka', 'חלקה'], ['subHelka', 'prop.subHelka', 'תת חלקה'], ['registration', 'x.registration', 'מקום רישום הנכס']];
+function subScanProposals(r, D, title) {
+  if (!r || typeof r !== 'object') return [];
+  const P = r.person || {}, pid = String(P.id || '').replace(/\D/g, ''), toks = String(P.name || '').split(/\s+/).filter((t) => t.length > 1);
+  let bi = (D.b || []).findIndex((b) => pid && String(b.id || '').replace(/\D/g, '').replace(/^0+/, '') === pid.replace(/^0+/, ''));
+  if (bi < 0) bi = (D.b || []).findIndex((b) => toks.length && toks.some((t) => String(b.full || '').includes(t)) && toks.filter((t) => String(b.full || '').includes(t)).length >= Math.min(2, toks.length));
+  if (bi < 0) bi = 0;
+  const who = (D.b || [])[bi] && D.b[bi].full ? ' — ' + D.b[bi].full : '';
+  return SUB_SCAN_MAP.map(([k, src, l]) => {
+    let v = r[k]; if (v == null || String(v).trim() === '' || v === 0) return null; v = String(v).trim();
+    const key = /^bx?\./.test(src) ? src + '#' + bi : src, cur = subCur(key, D);
+    if (cur.replace(/[\s,]/g, '') === v.replace(/[\s,₪]/g, '')) return null;
+    return { key, l: l + (/^bx?\./.test(src) ? who : ''), cur, v, src: String(title || '') };
+  }).filter(Boolean);
+}
+/** מסמך נדרש בטופס → קבצים בתיק לפי השם */
+const SUB_DOC_RX = [[/ת״ז|תעודת זהות|ספח|מסמך מזהה/, /ת\.?ז|ת["״]ז|תעודת זהות|ספח|\bid\b|דרכון/i], [/ויתור סודיות/, /ויתור סודיות|סודיות/], [/דוח מלא|נתוני אשראי/, /BDI|נתוני אשראי|דוח מלא|דו["״]?ח אשראי/i],
+  [/הסמכה ליועץ|כתב הסמכה/, /הסמכ|ייפוי כוח|יפוי כח/], [/תלוש/, /תלוש|משכורת/], [/עו״ש|עובר ושב|דפי חשבון/, /עו["״]?ש|עובר ושב|דפי? חשבון|תדפיס/], [/שמאות/, /שמא/], [/נסח|טאבו/, /נסח|טאבו/]];
+function subDocMatch(label, files) {
+  const hit = SUB_DOC_RX.filter(([re]) => re.test(label)); if (!hit.length) return [];
+  return (files || []).filter((f) => !f.folderLink && hit.some(([, fre]) => fre.test(String(f.title || ''))));
 }
 /* ══ סוף סדר הגשה — פונקציות טהורות ══ */
 const YN = ['כן', 'לא'];
@@ -3166,9 +3213,9 @@ const SUBMIT_FLOWS = [
       { t: 'כמה פרטים אישיים של הבעלים הראשי בעסק', f: [{ l: 'שם פרטי', s: 'b.first', r: 1, h: 'בעברית, בלי תווים מיוחדים' }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'טלפון נייד', s: 'b.phone', r: 1, h: '10 ספרות בלי מקף' }, { l: 'אימייל', s: 'b.email', r: 1 },
         { l: 'השירות המבוקש', s: 'fixed.ogenService', o: ['אשראי (הלוואה או מסגרת אשראי חוץ בנקאית)'] }] },
       { t: 'כמה פרטים על העסק הלווה המבקש', f: [{ l: 'שם העסק', s: 'biz.name', r: 1 }, { l: 'תעודת זהות של בעל העסק', s: 'b.id', r: 1 }, { l: 'סוג התאגדות', s: 'biz.entity', r: 1 }, { l: 'מחזור שנתי אחרון של העסק', s: 'biz.turnover', r: 1, h: 'בטופס — טווח מרשימה' },
-        { l: 'ותק העסק/שנות קיום העסק', s: 'biz.years', r: 1, h: 'בטופס — טווח מרשימה' }, { l: 'ענף', t: 'manual', r: 1, o: ['בינוי', 'חקלאות', 'מסחר', 'שירותים', 'תיירות', 'תעשיה'] }, { l: 'תת ענף', t: 'manual', r: 1 },
+        { l: 'ותק העסק/שנות קיום העסק', s: 'biz.years', r: 1, h: 'בטופס — טווח מרשימה' }, { l: 'ענף', s: 'x.bizBranch', t: 'manual', r: 1, o: ['בינוי', 'חקלאות', 'מסחר', 'שירותים', 'תיירות', 'תעשיה'] }, { l: 'תת ענף', s: 'x.bizSub', t: 'manual', r: 1 },
         { l: 'תעודת הזהות הינה של בעלים בעסק המחזיק ב-20% לפחות', t: 'manual', h: 'הצהרה — לסמן' }] },
-      { t: 'מהו סוג האשראי המבוקש?', f: [{ l: 'סוג האשראי', t: 'manual', r: 1, o: ['מסגרת אשראי', 'הלוואה'] }] },
+      { t: 'מהו סוג האשראי המבוקש?', f: [{ l: 'סוג האשראי', s: 'x.creditType', t: 'manual', r: 1, o: ['מסגרת אשראי', 'הלוואה'] }] },
       { t: 'סכום האשראי המבוקש', f: [{ l: 'סכום האשראי המבוקש', s: 'biz.amount', r: 1, h: '20,000–300,000' },
         { l: 'מטרת האשראי', s: 'biz.purpose', r: 1, o: ['גישור', 'הון חוזר', 'הוצאות שוטפות', 'הקמת עסק', 'הרחבת עסק', 'השקעה במלאי', 'מיחזור הלוואות קיימות', 'פערי תזרים', 'רכישת ציוד'],
           m: { working: 'הון חוזר', invest: 'הרחבת עסק', startup: 'הקמת עסק', combined: 'הרחבת עסק', refinance: 'מיחזור הלוואות קיימות' } }] },
@@ -3177,21 +3224,21 @@ const SUBMIT_FLOWS = [
     ] },
   { key: 'credit360', name: 'Credit 360 (קרדיטו)', alias: /קרדיט|credit/i, kind: 'mortgage', note: '5 שלבים: פרטי ההלוואה · פרטי לווים (כל לווה בנפרד) · הצהרות · נכס ופיננסים · מסמכים. "שמירה כטיוטה" ל-10 ימים',
     steps: [
-      { t: 'פרטי ההלוואה', f: [{ l: 'באיזה סוג עסקה מדובר', t: 'manual', r: 1, h: 'מטרת / סוג העסקה (למשל משכנתא הפוכה)' }, { l: 'האם מדובר במשכנתא שנייה (משכנתא נוספת על הקיים)', s: 'prop.hasMortgage', r: 1, o: YN },
-        { l: 'מסלול ריבית', t: 'manual', r: 1 }, { l: 'מסלול פרעון', t: 'manual', r: 1 }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופה מבוקשת בשנים', s: 'req.years', r: 1 },
+      { t: 'פרטי ההלוואה', f: [{ l: 'באיזה סוג עסקה מדובר', s: 'x.dealType', t: 'manual', r: 1, h: 'מטרת / סוג העסקה (למשל משכנתא הפוכה)' }, { l: 'האם מדובר במשכנתא שנייה (משכנתא נוספת על הקיים)', s: 'prop.hasMortgage', r: 1, o: YN },
+        { l: 'מסלול ריבית', s: 'x.track', t: 'manual', r: 1 }, { l: 'מסלול פרעון', s: 'x.method', t: 'manual', r: 1 }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופה מבוקשת בשנים', s: 'req.years', r: 1 },
         { l: 'החזר רצוי חודשי', s: 'req.payment' }, { l: 'נשמח לשמוע קצת עליכם ועל העסקה המבוקשת', s: 'req.story', r: 1, h: 'עד 2,000 תווים' }] },
-      { t: 'פרטי לווים', per: true, f: [{ l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'מספר ת.ז.', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת.ז.', t: 'manual', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', t: 'manual', r: 1 },
+      { t: 'פרטי לווים', per: true, f: [{ l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'מספר ת.ז.', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת.ז.', s: 'bx.idIssue', t: 'manual', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', s: 'bx.gender', t: 'manual', r: 1 },
         { l: 'האם תושב חוץ?', s: 'fixed.no', r: 1, o: YN }, { l: 'עיר', s: 'b.city', r: 1 }, { l: 'רחוב', s: 'b.street', r: 1 }, { l: 'מספר', s: 'b.house', r: 1 }, { l: 'מיקוד', s: 'b.zip' }, { l: 'מספר סלולרי', s: 'b.phone', r: 1 }, { l: 'כתובת מייל', s: 'b.email', r: 1 },
-        { l: 'מצב משפחתי', t: 'manual', r: 1 }, { l: 'השכלה', t: 'manual', r: 1 }, { l: 'מספר ילדים עד גיל 21', t: 'manual', r: 1 }, { l: 'מצב תעסוקתי', s: 'b.empLabel', r: 1 }, { l: 'שם מקום העבודה', t: 'manual' }, { l: 'תפקיד בעבודה', t: 'manual' },
+        { l: 'מצב משפחתי', s: 'bx.marital', t: 'manual', r: 1 }, { l: 'השכלה', s: 'bx.education', t: 'manual', r: 1 }, { l: 'מספר ילדים עד גיל 21', s: 'bx.kids21', t: 'manual', r: 1 }, { l: 'מצב תעסוקתי', s: 'b.empLabel', r: 1 }, { l: 'שם מקום העבודה', s: 'bx.employer', t: 'manual' }, { l: 'תפקיד בעבודה', s: 'bx.role', t: 'manual' },
         { l: 'הכנסה משכר עבודה נטו', s: 'b.income' }, { l: 'וותק בעבודה בשנים', s: 'b.seniority' }, { l: 'הכנסות נוספות של הלווה באם קיימות', s: 'b.extraIncome' }, { l: 'האם קיים לווה שני?', s: 'b.hasNext', r: 1, o: YN }] },
       { t: 'הצהרות על הלווים', f: [{ l: 'חזרה הוראת תשלום משכנתא ב-3 השנים האחרונות?', s: 'credit.mortReturns', r: 1, o: YN }, { l: 'חזרו המחאות ו/או הוראות קבע ב-3 השנים האחרונות?', s: 'credit.checks', r: 1, o: YN },
         { l: 'נפתח תיק הוצאה לפועל ב-3 השנים האחרונות?', s: 'credit.execution', r: 1, o: YN }, { l: 'מוכרז כיום / בעבר כלקוח מוגבל?', s: 'credit.restricted', r: 1, o: YN },
         { l: 'אינו תושב / אזרח ישראל לצורכי מס?', s: 'fixed.no', r: 1, o: YN }, { l: 'תושב מדינה אחרת לצורכי מס?', s: 'fixed.no', r: 1, o: YN }, { l: 'תושב או בעל זיקה לארה״ב?', s: 'fixed.no', r: 1, o: YN, h: 'לוודא עם הלקוח' },
-        { l: 'איש ציבור / קרוב של איש ציבור?', s: 'fixed.no', r: 1, o: YN, h: 'לוודא עם הלקוח' }, { l: 'ערב עבור צד ג׳?', t: 'manual', r: 1, o: YN }, { l: 'נשמח לשמוע עוד על הנסיבות לבקשה', s: 'req.redFlags' }] },
+        { l: 'איש ציבור / קרוב של איש ציבור?', s: 'fixed.no', r: 1, o: YN, h: 'לוודא עם הלקוח' }, { l: 'ערב עבור צד ג׳?', s: 'x.guarantor', t: 'manual', r: 1, o: YN }, { l: 'נשמח לשמוע עוד על הנסיבות לבקשה', s: 'req.redFlags' }] },
       { t: 'פרטי הנכס והתחייבויות', f: [{ l: 'האם כתובת הנכס זהה לכתובת המגורים של לווה ראשון?', s: 'prop.isHome', r: 1, o: YN }, { l: 'סוג הנכס', s: 'prop.typeLabel', r: 1 }, { l: 'שווי הנכס מוערך', s: 'prop.value', r: 1 },
         { l: 'האם קיימת שמאות עדכנית לנכס (עד שנתיים)', s: 'prop.appraisal', r: 1, o: YN }, { l: 'גוש', s: 'prop.gush' }, { l: 'חלקה', s: 'prop.helka' }, { l: 'תת חלקה', s: 'prop.subHelka' },
         { l: 'האם הנכס ממושכן?', s: 'prop.hasMortgage', r: 1, o: YN }, { l: 'סך יתרות של הלוואות שאינן משכנתא — למשק הבית', s: 'obl.balOther' }, { l: 'סך תשלומים בחודש — הלוואות והוצאות קבועות, לא כולל משכנתא', s: 'obl.payOther' },
-        { l: 'בבעלות הלווים נכסים נוספים', t: 'manual', o: YN }] },
+        { l: 'בבעלות הלווים נכסים נוספים', s: 'x.moreProps', t: 'manual', o: YN }] },
       { t: 'צירוף מסמכים נלווים', f: ['טופס ייפוי כוח מלא וחתום (של הגוף)', 'צילום ת.ז — לכל לווה', 'צילום גב ת.ז', 'צילום ספח ת.ז', 'אישור הכנסה', 'דפי חשבון', 'טופס הסכמה למשיכת נתוני אשראי (אופציונלי)'].map((l) => ({ l, t: 'upload' })) },
     ] },
   { key: 'frisbee', name: 'פריסבי', alias: /פריסבי|frisbee/i, kind: 'mortgage', note: '5 שלבים: פרטים כלליים · ישויות מעורבות (כל שותף בנפרד, "הוסף שותף") · בטוחה · מסמכים · סיכום. "שמור והמשך" בכל שלב',
@@ -3199,21 +3246,21 @@ const SUBMIT_FLOWS = [
       { t: '1. פרטים כלליים', f: [{ l: 'מטרת אשראי', s: 'req.purpose', r: 1, o: ['רכישת דירה יד ראשונה', 'רכישת דירה יד שנייה', 'בנייה עצמית', 'מימון מטרות צרכניות', 'מימון עסקי', 'סיוע לבני משפחה', 'פירעון התחייבויות', 'מיחזור לאיחוד חובות', 'רכישה לדיור (דירה יחידה)', 'רכישה להשקעה', 'רכישה לשיפור דיור', 'שיפוצים', 'שיפוצים הרחבה ובנייה עצמית של נכסים', 'אחר'],
           m: { renovation: 'שיפוצים', any: 'מימון מטרות צרכניות', refinance: 'מיחזור לאיחוד חובות', consolidation: 'מיחזור לאיחוד חובות', purchase: 'רכישת דירה יד שנייה', bridge: 'אחר', business: 'מימון עסקי', developer: 'אחר' } },
         { l: 'סכום מבוקש', s: 'req.amount', r: 1 }] },
-      { t: '1. פרטים כלליים — תמהיל', f: [{ l: 'מוצר', t: 'manual', r: 1, h: 'למשל פריים / בולט / קבועה צמודה' }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.years', r: 1 }, { l: 'תקופת הגרייס', t: 'manual' }] },
-      { t: '2. ישויות מעורבות', per: true, f: [{ l: 'סוג ממשכן', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', t: 'manual', r: 1, o: ['זכר', 'נקבה'] },
-        { l: 'מספר זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקה', t: 'manual', r: 1 }, { l: 'טלפון סלולרי', s: 'b.phone', r: 1 }, { l: 'מייל', s: 'b.email', r: 1 },
+      { t: '1. פרטים כלליים — תמהיל', f: [{ l: 'מוצר', s: 'x.product', t: 'manual', r: 1, h: 'למשל פריים / בולט / קבועה צמודה' }, { l: 'סכום מבוקש', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.years', r: 1 }, { l: 'תקופת הגרייס', s: 'x.grace', t: 'manual' }] },
+      { t: '2. ישויות מעורבות', per: true, f: [{ l: 'סוג ממשכן', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 }, { l: 'מגדר', s: 'bx.gender', t: 'manual', r: 1, o: ['זכר', 'נקבה'] },
+        { l: 'מספר זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקה', s: 'bx.idIssue', t: 'manual', r: 1 }, { l: 'טלפון סלולרי', s: 'b.phone', r: 1 }, { l: 'מייל', s: 'b.email', r: 1 },
         { l: 'עיר', s: 'b.city', r: 1 }, { l: 'רחוב', s: 'b.street', r: 1 }, { l: 'מס. בית', s: 'b.house' }, { l: 'דירה', s: 'b.apt' }, { l: 'מיקוד', s: 'b.zip' }, { l: 'זיהיתי את הלקוח פנים אל פנים', t: 'manual', r: 1, h: 'לסמן' },
         { l: 'מסמך מזהה (ת״ז, ספח, גב)', t: 'upload' }, { l: 'שלח טופס הסכמות ללקוח', t: 'manual', h: 'כפתור בטופס — הלקוח מאשר בעצמו' },
-        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר נפשות בבית', t: 'manual' }, { l: 'מספר ילדים מתחת לגיל 18', t: 'manual' }, { l: 'השכלה', t: 'manual' },
+        { l: 'מצב משפחתי', s: 'bx.marital', t: 'manual' }, { l: 'מספר נפשות בבית', s: 'bx.household', t: 'manual' }, { l: 'מספר ילדים מתחת לגיל 18', s: 'bx.kids', t: 'manual' }, { l: 'השכלה', s: 'bx.education', t: 'manual' },
         { l: 'סוג העסקה', s: 'b.emp', o: ['שכיר', 'בעל חברה', 'עצמאי', 'בעל שליטה', 'אחר', 'פנסיונר', 'אברך', 'מובטל', 'שכיר בעל שליטה', 'עוסק מורשה', 'עוסק פטור', 'סטודנט', 'חל״ת', 'חל״ד'], m: SUB_EMP_FRISBEE },
-        { l: 'סקטור', t: 'manual' }, { l: 'ותק', s: 'b.seniority' }, { l: 'שם מעסיק', t: 'manual' }, { l: 'הכנסה — סכום (חודשי)', s: 'b.income' },
-        { l: 'חשבון לחיוב — בנק / סניף / חשבון', t: 'manual' },
+        { l: 'סקטור', s: 'bx.sector', t: 'manual' }, { l: 'ותק', s: 'b.seniority' }, { l: 'שם מעסיק', s: 'bx.employer', t: 'manual' }, { l: 'הכנסה — סכום (חודשי)', s: 'b.income' },
+        { l: 'חשבון לחיוב — בנק', s: 'bx.bankName', t: 'manual' }, { l: 'חשבון לחיוב — סניף', s: 'bx.bankBranch', t: 'manual' }, { l: 'חשבון לחיוב — מספר חשבון', s: 'bx.bankAcct', t: 'manual' },
         { l: 'האם הנך הבעלים של הנכס שבכוונתך לשעבד?', s: 'fixed.yes', o: YN, h: 'לוודא' }, { l: 'גוף פיננסי סירב לתת שירות (הלבנת הון / טרור)?', s: 'fixed.no', o: YN }, { l: 'קשור לאיש ציבור?', s: 'fixed.no', o: YN, h: 'לוודא' },
         { l: 'תושב חוץ?', s: 'fixed.no', o: YN }, { l: 'קיים נהנה בהלוואה שאינו הלווה?', s: 'fixed.no', o: YN }, { l: 'פעילות פיננסית בחו״ל?', s: 'fixed.no', o: YN, h: 'לוודא' }, { l: 'מחזיק במספר חברות בשרשור אחזקות?', s: 'fixed.no', o: YN }] },
-      { t: '3. בטוחה — פרטי בטוחה', f: [{ l: 'סוג נכס', s: 'prop.typeLabel', r: 1 }, { l: 'סוג רישום', t: 'manual', r: 1, h: 'טאבו / רמ״י / חברה משכנת…' }, { l: 'שימוש בנכס', s: 'fixed.residential', r: 1, o: ['מגורים'] }, { l: 'שווי מוערך', s: 'prop.value', r: 1 },
+      { t: '3. בטוחה — פרטי בטוחה', f: [{ l: 'סוג נכס', s: 'prop.typeLabel', r: 1 }, { l: 'סוג רישום', s: 'x.registration', t: 'manual', r: 1, h: 'טאבו / רמ״י / חברה משכנת…' }, { l: 'שימוש בנכס', s: 'fixed.residential', r: 1, o: ['מגורים'] }, { l: 'שווי מוערך', s: 'prop.value', r: 1 },
         { l: 'דרגת שיעבוד', s: 'prop.lienRank', r: 1 }] },
       { t: '3. בטוחה — כתובת הנכס', f: [{ l: 'עיר', s: 'prop.city', r: 1 }, { l: 'רחוב', s: 'prop.street', r: 1 }, { l: 'מס. בית', s: 'prop.house', r: 1 }, { l: 'דירה', s: 'prop.apt' }, { l: 'גוש', s: 'prop.gush' }, { l: 'חלקה', s: 'prop.helka' }, { l: 'תת חלקה', s: 'prop.subHelka' },
-        { l: 'נחתם חוזה רכישה', t: 'manual' }] },
+        { l: 'נחתם חוזה רכישה', s: 'x.contractSigned', t: 'manual' }] },
     ] },
   /* ── מ-WISE (צילומי המסך של דן): "לקוח ראשי" חוזר לכל לווה — WISE פותח לשונית לכל מבקש ── */
   { key: 'mizrahi', name: 'מזרחי-טפחות', alias: /מזרחי|טפחות/, kind: 'mortgage', note: 'ב-WISE: פרטי בקשה → תכנון משכנתא → לקוח ראשי. "התחל הגשה בטפחות" רק כשכל שדות החובה תקינים; OTP והשליחה הסופית באתר הבנק',
@@ -3224,18 +3271,18 @@ const SUBMIT_FLOWS = [
         { l: 'מטרת המשכנתא', s: 'req.purpose', r: 1, o: ['קניית דירה יד שניה', 'קניית דירה מקבלן', 'דירה במחיר למשתכן', 'שיפוצים', 'קניית מגרש', 'בניה עצמית', 'הרחבה', 'הלוואה לכל מטרה'],
           m: { renovation: 'שיפוצים', any: 'הלוואה לכל מטרה', consolidation: 'הלוואה לכל מטרה', refinance: 'הלוואה לכל מטרה', purchase: 'קניית דירה יד שניה', business: 'הלוואה לכל מטרה' } },
         { l: 'האם זו הדירה היחידה של המבקשים?', s: 'prop.isHome', o: ['כן, דירה יחידה', 'יקנו וימכרו את הדירה הנוספת', 'לא, יש להם דירה נוספת'], m: { 'כן': 'כן, דירה יחידה', 'לא': 'לא, יש להם דירה נוספת' } },
-        { l: 'האם קיימת תעודת זכאות?', t: 'manual', r: 1, o: YN }] },
+        { l: 'האם קיימת תעודת זכאות?', s: 'x.eligibility', t: 'manual', r: 1, o: YN }] },
       { t: '1. פרטי בקשה — הנכס המשועבד', f: [{ l: 'יישוב הנכס', s: 'prop.city', r: 1 }, { l: 'שווי הנכס', s: 'prop.value', r: 1 }, { l: 'האם קיים שעבוד על הנכס?', s: 'prop.hasMortgage', r: 1, o: YN },
-        { l: 'האם נחתם חוזה רכישה?', t: 'manual', r: 1, o: YN }, { l: 'מועד העברת תשלום המשכנתא', t: 'manual', r: 1, h: 'למשל "בחודש הקרוב"' }] },
-      { t: '2. תכנון משכנתא', f: [{ l: 'סכום המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.yearsLabel', r: 1 }, { l: 'מקור ההון העצמי', t: 'manual', r: 1, h: 'למשל "חיסכון או פיקדון"' },
-        { l: 'החזר חודשי מתאים', s: 'req.payment', r: 1 }, { l: 'בחירת תמהיל', t: 'manual', r: 1, o: ['התמהיל שהבנק מציע', 'אני רוצה לבחור תמהיל'] }] },
+        { l: 'האם נחתם חוזה רכישה?', s: 'x.contractSigned', t: 'manual', r: 1, o: YN }, { l: 'מועד העברת תשלום המשכנתא', s: 'x.fundTiming', t: 'manual', r: 1, h: 'למשל "בחודש הקרוב"' }] },
+      { t: '2. תכנון משכנתא', f: [{ l: 'סכום המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'תקופת ההלוואה', s: 'req.yearsLabel', r: 1 }, { l: 'מקור ההון העצמי', s: 'x.equitySource', t: 'manual', r: 1, h: 'למשל "חיסכון או פיקדון"' },
+        { l: 'החזר חודשי מתאים', s: 'req.payment', r: 1 }, { l: 'בחירת תמהיל', s: 'x.mixChoice', t: 'manual', r: 1, o: ['התמהיל שהבנק מציע', 'אני רוצה לבחור תמהיל'] }] },
       { t: '3. לקוח — פרטים אישיים', per: true, f: [{ l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך לידה', s: 'b.birth', r: 1 },
-        { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דוא״ל', s: 'b.email', r: 1 }, { l: 'מצב משפחתי', t: 'manual', r: 1 }, { l: 'מספר ילדים', t: 'manual', r: 1 }, { l: 'מקום מגורים נוכחי', t: 'manual', r: 1, h: 'בבעלות / בשכירות / אצל ההורים' },
-        { l: 'האם משולמים מזונות?', t: 'manual', r: 1, o: YN }] },
+        { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דוא״ל', s: 'b.email', r: 1 }, { l: 'מצב משפחתי', s: 'bx.marital', t: 'manual', r: 1 }, { l: 'מספר ילדים', s: 'bx.kids', t: 'manual', r: 1 }, { l: 'מקום מגורים נוכחי', s: 'bx.residence', t: 'manual', r: 1, h: 'בבעלות / בשכירות / אצל ההורים' },
+        { l: 'האם משולמים מזונות?', s: 'bx.alimony', t: 'manual', r: 1, o: YN }] },
       { t: '3. לקוח — תעסוקה והכנסות', per: true, f: [{ l: 'מצב תעסוקתי', s: 'b.emp', r: 1, o: ['שכיר', 'עצמאי', 'לא עובד', 'גם עצמאי וגם שכיר'], m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר', unemployed: 'לא עובד' } },
-        { l: 'מקצוע', t: 'manual', r: 1 }, { l: 'השכלה', t: 'manual', r: 1 }, { l: 'ותק אצל המעסיק', s: 'b.senBand', r: 1, o: ['עד שנה', 'שנה עד 3 שנים', 'מעל 3 שנים'] }, { l: 'הכנסה חודשית נטו', s: 'b.income', r: 1 },
-        { l: 'שם החברה המעסיקה', t: 'manual', r: 1 }, { l: 'סיווג הארגון', t: 'manual', r: 1, h: 'למשל "חברה פרטית"' }, { l: 'מקום העבודה (יישוב)', t: 'manual', r: 1 }, { l: 'האם יש הכנסות נוספות?', s: 'b.hasExtra', o: YN }] },
-      { t: '3. לקוח — התחייבויות משק הבית', f: [{ l: 'יתרת תשלום בגין שעבוד', s: 'obl.balMort', r: 1, h: 'רק כשיש שעבוד על הנכס' }, { l: 'החזר חודשי בגין שעבוד', s: 'obl.payMort', r: 1 }, { l: 'שנים שנותרו לשעבוד', t: 'manual', r: 1 },
+        { l: 'מקצוע', s: 'bx.profession', t: 'manual', r: 1 }, { l: 'השכלה', s: 'bx.education', t: 'manual', r: 1 }, { l: 'ותק אצל המעסיק', s: 'b.senBand', r: 1, o: ['עד שנה', 'שנה עד 3 שנים', 'מעל 3 שנים'] }, { l: 'הכנסה חודשית נטו', s: 'b.income', r: 1 },
+        { l: 'שם החברה המעסיקה', s: 'bx.employer', t: 'manual', r: 1 }, { l: 'סיווג הארגון', s: 'bx.orgType', t: 'manual', r: 1, h: 'למשל "חברה פרטית"' }, { l: 'מקום העבודה (יישוב)', s: 'bx.workCity', t: 'manual', r: 1 }, { l: 'האם יש הכנסות נוספות?', s: 'b.hasExtra', o: YN }] },
+      { t: '3. לקוח — התחייבויות משק הבית', f: [{ l: 'יתרת תשלום בגין שעבוד', s: 'obl.balMort', r: 1, h: 'רק כשיש שעבוד על הנכס' }, { l: 'החזר חודשי בגין שעבוד', s: 'obl.payMort', r: 1 }, { l: 'שנים שנותרו לשעבוד', s: 'x.mortYearsLeft', t: 'manual', r: 1 },
         { l: 'האם קיימות התחייבויות חודשיות?', s: 'obl.hasOther', r: 1, o: YN }] },
     ] },
   { key: 'mimun', name: 'מימון ישיר', alias: /מימון ישיר/, kind: 'mortgage', note: 'ב-WISE: פרטי הבקשה → לקוח ראשי → מסמכים נדרשים. ההגשה מתוך WISE ("הגשת הבקשה")',
@@ -3245,17 +3292,17 @@ const SUBMIT_FLOWS = [
         { l: 'מה מטרת המשכנתא?', s: 'req.purposeLabel', h: 'בחירה מרובה — למשל "סגירת חוב"' }, { l: 'מהו סוג הנכס?', s: 'prop.typeLabel' },
         { l: 'מה סוג השעבוד?', s: 'prop.lienRank', m: { 'ראשונה': 'שעבוד דרגה ראשונה', 'שנייה': 'שעבוד דרגה שנייה' } }, { l: 'שווי נכס הצהרתי', s: 'prop.value' }] },
       { t: '1. פרטי הבקשה — הנכס המוצע לשעבוד', f: [{ l: 'איפה הנכס נמצא?', s: 'prop.city' }, { l: 'רחוב', s: 'prop.street' }, { l: 'מספר בית / תא דואר', s: 'prop.house' },
-        { l: 'מקום רישום הנכס', t: 'manual', h: 'טאבו / רמ״י / חברה משכנת' }, { l: 'האם יש חברה משכנת?', t: 'manual', o: YN }, { l: 'שם החברה המשכנת', t: 'manual', h: 'רק אם כן' },
-        { l: 'שווי הנכס לפי חוזה', t: 'manual' }, { l: 'שווי הנכס לפי שמאות', s: 'prop.appraisedValue' }] },
-      { t: '2. לקוח — זיהוי, פרטי קשר וכתובת', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', t: 'manual', o: ['זכר', 'נקבה'] },
-        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
-        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
-        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית / תא דואר', s: 'b.house' }, { l: 'מספר דירות בבעלות', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
+        { l: 'מקום רישום הנכס', s: 'x.registration', t: 'manual', h: 'טאבו / רמ״י / חברה משכנת' }, { l: 'האם יש חברה משכנת?', s: 'x.housingCo', t: 'manual', o: YN }, { l: 'שם החברה המשכנת', s: 'x.housingCoName', t: 'manual', h: 'רק אם כן' },
+        { l: 'שווי הנכס לפי חוזה', s: 'x.contractValue', t: 'manual' }, { l: 'שווי הנכס לפי שמאות', s: 'prop.appraisedValue' }] },
+      { t: '2. לקוח — זיהוי, פרטי קשר וכתובת', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', s: 'bx.gender', t: 'manual', o: ['זכר', 'נקבה'] },
+        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', s: 'bx.idIssue', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
+        { l: 'מצב משפחתי', s: 'bx.marital', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', s: 'bx.kids', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
+        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית / תא דואר', s: 'b.house' }, { l: 'מספר דירות בבעלות', s: 'bx.ownedApts', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
       { t: '2. לקוח — מקום העבודה והכנסה', per: true, f: [{ l: 'סטטוס תעסוקתי', s: 'b.emp', m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר בעל שליטה', pension: 'פנסיונר', unemployed: 'לא עובד' } },
-        { l: 'מקום העבודה', t: 'manual' }, { l: 'תפקיד', t: 'manual' }, { l: 'תאריך התחלת עבודה', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
-      { t: '2. לקוח — הכנסות נוספות', per: true, f: [{ l: 'סוג ההכנסה', t: 'manual', h: 'מזונות / שכירות / קצבה…' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'קבועה או זמנית?', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
-      { t: '2. לקוח — החשבון שממנו ייגבו התשלומים', per: true, f: [{ l: 'בנק', t: 'manual' }, { l: 'סניף', t: 'manual' }, { l: 'מספר חשבון', t: 'manual' }] },
-      { t: '2. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההתחייבות', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההתחייבות', s: 'obl.balOther' }] },
+        { l: 'מקום העבודה', s: 'bx.employer', t: 'manual' }, { l: 'תפקיד', s: 'bx.role', t: 'manual' }, { l: 'תאריך התחלת עבודה', s: 'bx.workStart', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
+      { t: '2. לקוח — הכנסות נוספות', per: true, f: [{ l: 'סוג ההכנסה', s: 'bx.extraType', t: 'manual', h: 'מזונות / שכירות / קצבה…' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'קבועה או זמנית?', s: 'bx.extraFixed', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
+      { t: '2. לקוח — החשבון שממנו ייגבו התשלומים', per: true, f: [{ l: 'בנק', s: 'bx.bankName', t: 'manual' }, { l: 'סניף', s: 'bx.bankBranch', t: 'manual' }, { l: 'מספר חשבון', s: 'bx.bankAcct', t: 'manual' }] },
+      { t: '2. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההתחייבות', s: 'x.oblType', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההתחייבות', s: 'obl.balOther' }] },
       { t: '3. מסמכים נדרשים', f: [{ l: 'כתב הסמכה ליועץ (לווים 1 ו-2)', t: 'upload', r: 1, h: 'אפשר להחתים דיגיטלית מ-WISE' }, { l: 'כתב ויתור סודיות — לכל לווה', t: 'upload', r: 1 },
         { l: 'כתב הסמכה לדוח מלא (נתוני אשראי) — לכל לווה', t: 'upload', r: 1 }, { l: 'ת״ז + ספח — לכל לווה', t: 'upload', r: 1 }] },
     ] },
@@ -3263,21 +3310,21 @@ const SUBMIT_FLOWS = [
     steps: [
       { t: '1. פרטי הבקשה', f: [{ l: 'מספר מבקשי המשכנתא', s: 'req.nBorrowers', o: ['1', '2', '3', '4'] },
         { l: 'מהי מטרת הבקשה?', s: 'req.purpose', o: ['רכישת נכס', 'מחזור משכנתא', 'הלוואת גישור', 'משכנתא לכל מטרה'], m: { purchase: 'רכישת נכס', refinance: 'מחזור משכנתא', bridge: 'הלוואת גישור', renovation: 'משכנתא לכל מטרה', any: 'משכנתא לכל מטרה', consolidation: 'משכנתא לכל מטרה', business: 'משכנתא לכל מטרה' } },
-        { l: 'מה סוג העסקה?', t: 'manual', h: 'למשל "יד שניה"' }, { l: 'מהו סוג הנכס?', s: 'prop.typeLabel' },
+        { l: 'מה סוג העסקה?', s: 'x.dealType', t: 'manual', h: 'למשל "יד שניה"' }, { l: 'מהו סוג הנכס?', s: 'prop.typeLabel' },
         { l: 'מה סוג השעבוד?', s: 'prop.lienRank', m: { 'ראשונה': 'שעבוד דרגה ראשונה', 'שנייה': 'שעבוד דרגה שנייה' } }, { l: 'פרטים על העסקה המבוקשת', s: 'req.story', h: 'טקסט חופשי' }] },
       { t: '2. פרטי העסקה — הנכס המוצע לשעבוד', f: [{ l: 'האם זו הדירה היחידה של המבקשים?', s: 'prop.isHome', o: YN }, { l: 'איפה הנכס נמצא?', s: 'prop.city' }, { l: 'רחוב', s: 'prop.street' },
-        { l: 'מספר בית או ת.ד', s: 'prop.house' }, { l: 'מקום רישום הנכס', t: 'manual', h: 'למשל "טאבו עם פרצלציה"' }, { l: 'האם יש חברה משכנת?', t: 'manual', o: YN }, { l: 'שווי נכס הצהרתי', s: 'prop.value' }] },
-      { t: '2. פרטי העסקה — המשכנתא המבוקשת', f: [{ l: 'גובה המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'פריסה בחודשים', s: 'req.months' }, { l: 'מסלול', t: 'manual', o: ['פריים', 'קבועה', 'קל״צ'] },
-        { l: 'שיטת החזר', t: 'manual', o: ['שפיצר', 'בלון חלקי', 'בלון מלא'] }, { l: 'מקור פרעון', t: 'manual' }] },
-      { t: '3. לקוח — פרטים אישיים', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', t: 'manual', o: ['זכר', 'נקבה'] },
-        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
-        { l: 'מצב משפחתי', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
-        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית או ת.ד', s: 'b.house' }, { l: 'מספר דירות בבעלות', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
+        { l: 'מספר בית או ת.ד', s: 'prop.house' }, { l: 'מקום רישום הנכס', s: 'x.registration', t: 'manual', h: 'למשל "טאבו עם פרצלציה"' }, { l: 'האם יש חברה משכנת?', s: 'x.housingCo', t: 'manual', o: YN }, { l: 'שווי נכס הצהרתי', s: 'prop.value' }] },
+      { t: '2. פרטי העסקה — המשכנתא המבוקשת', f: [{ l: 'גובה המשכנתא המבוקשת', s: 'req.amount', r: 1 }, { l: 'פריסה בחודשים', s: 'req.months' }, { l: 'מסלול', s: 'x.track', t: 'manual', o: ['פריים', 'קבועה', 'קל״צ'] },
+        { l: 'שיטת החזר', s: 'x.method', t: 'manual', o: ['שפיצר', 'בלון חלקי', 'בלון מלא'] }, { l: 'מקור פרעון', s: 'x.repaySource', t: 'manual' }] },
+      { t: '3. לקוח — פרטים אישיים', per: true, f: [{ l: 'סוג הקשר בעסקה', s: 'fixed.frisbeeRole', o: ['לווה ממשכן'] }, { l: 'מין', s: 'bx.gender', t: 'manual', o: ['זכר', 'נקבה'] },
+        { l: 'שם פרטי', s: 'b.first', r: 1 }, { l: 'שם משפחה', s: 'b.last', r: 1 }, { l: 'תעודת זהות', s: 'b.id', r: 1 }, { l: 'תאריך הנפקת ת״ז', s: 'bx.idIssue', t: 'manual' }, { l: 'תאריך לידה', s: 'b.birth' },
+        { l: 'מצב משפחתי', s: 'bx.marital', t: 'manual' }, { l: 'מספר ילדים (עד גיל 18)', s: 'bx.kids', t: 'manual' }, { l: 'טלפון נייד', s: 'b.phone', r: 1 }, { l: 'דואר אלקטרוני', s: 'b.email' },
+        { l: 'עיר מגורים', s: 'b.city' }, { l: 'רחוב מגורים', s: 'b.street' }, { l: 'מספר בית או ת.ד', s: 'b.house' }, { l: 'מספר דירות בבעלות', s: 'bx.ownedApts', t: 'manual' }, { l: 'זיהיתי את הלווה מול ת״ז', t: 'manual', h: 'לסמן' }] },
       { t: '3. לקוח — תעסוקה', per: true, f: [{ l: 'סטטוס תעסוקתי', s: 'b.emp', m: { salaried: 'שכיר', self: 'עצמאי', company: 'שכיר בעל שליטה', pension: 'פנסיונר', unemployed: 'לא עובד' } },
-        { l: 'מקום העבודה', t: 'manual' }, { l: 'תפקיד', t: 'manual' }, { l: 'תאריך התחלת עבודה', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
-      { t: '3. לקוח — הכנסות נוספות', per: true, f: [{ l: 'מהו סוג ההכנסה?', t: 'manual' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'הכנסה קבועה או זמנית?', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
-      { t: '3. לקוח — חשבון בנק', per: true, f: [{ l: 'בנק', t: 'manual' }, { l: 'סניף', t: 'manual' }, { l: 'מספר חשבון', t: 'manual', r: 1 }] },
-      { t: '3. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההוצאה/התחייבות', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההוצאה (התחייבות)', s: 'obl.balOther' }] },
+        { l: 'מקום העבודה', s: 'bx.employer', t: 'manual' }, { l: 'תפקיד', s: 'bx.role', t: 'manual' }, { l: 'תאריך התחלת עבודה', s: 'bx.workStart', t: 'manual' }, { l: 'משכורת חודשית נטו', s: 'b.income' }] },
+      { t: '3. לקוח — הכנסות נוספות', per: true, f: [{ l: 'מהו סוג ההכנסה?', s: 'bx.extraType', t: 'manual' }, { l: 'סכום ההכנסה', s: 'b.extraIncome' }, { l: 'הכנסה קבועה או זמנית?', s: 'bx.extraFixed', t: 'manual', o: ['הכנסה קבועה', 'הכנסה זמנית'] }] },
+      { t: '3. לקוח — חשבון בנק', per: true, f: [{ l: 'בנק', s: 'bx.bankName', t: 'manual' }, { l: 'סניף', s: 'bx.bankBranch', t: 'manual' }, { l: 'מספר חשבון', s: 'bx.bankAcct', t: 'manual', r: 1 }] },
+      { t: '3. לקוח — הוצאות קבועות', f: [{ l: 'סוג ההוצאה/התחייבות', s: 'x.oblType', t: 'manual', h: 'למשל "הלוואות"' }, { l: 'החזר חודשי', s: 'obl.payOther' }, { l: 'סכום ההוצאה (התחייבות)', s: 'obl.balOther' }] },
       { t: '4. מסמכים נדרשים', f: [{ l: 'כתב הסמכה ליועץ (לווים 1/2)', t: 'upload', r: 1, h: 'אפשר להחתים דיגיטלית מ-WISE' }, { l: 'ת״ז + ספח — לכל לווה', t: 'upload', r: 1 }] },
     ] },
 ];
@@ -3293,7 +3340,7 @@ function buildSubData(c) {
       extraIncome: i === 0 ? (r2(n(x.rentIncome) + n(x.pensionIncome) + n(x.allowanceIncome) + n(x.otherIncome)) || '') : '', hasNext: i < nB - 1,
       senBand: subSenBand(bi.seniority), hasExtra: i === 0 ? r2(n(x.rentIncome) + n(x.pensionIncome) + n(x.allowanceIncome) + n(x.otherIncome)) > 0 : '' }; });
   const PA = subAddr(P.address || (P.isHome === 'yes' ? homeAddr : '')), hasMort = n(x.balMortgage) > 0, adv = advisorDefaults(c.division || 'finance');
-  return { b,
+  return { b, ov: x.subVals || {},
     req: { amount: n(R.amount) || n(Z.amount) || n((x.car || {}).amount) || n(c.baseAmount) || '', years: n(R.years) || '', purpose: R.purpose || '', purposeLabel: IK.purpose[R.purpose] || '', nBorrowers: String(nB), months: n(R.years) ? n(R.years) * 12 : '', yearsLabel: n(R.years) ? n(R.years) + ' שנים' : '', payment: n(G.payment) || '', story: x.story || '', redFlags: x.redFlags || '' },
     prop: { typeLabel: IK.prop[P.type] || '', value: n(P.value) || '', ...PA, isHome: P.isHome === 'yes' ? true : P.isHome === 'no' ? false : '', hasMortgage: x.balMortgage != null ? hasMort : '', appraisal: P.source ? P.source === 'appraisal' : '',
       appraisedValue: P.source === 'appraisal' ? (n(P.value) || '') : '', gush: P.gush || '', helka: P.helka || '', subHelka: P.subHelka || '', lienRank: x.balMortgage != null ? (hasMort ? 'שנייה' : 'ראשונה') : '' },
@@ -3312,27 +3359,106 @@ function subRows(F, D) {
   const out = [];
   F.steps.forEach((st, si) => { const reps = st.per ? D.b.length : 1;
     for (let bi = 0; bi < reps; bi++) { const title = st.t + (st.per && reps > 1 ? ' — לווה ' + (bi + 1) + (D.b[bi].full ? ' (' + D.b[bi].full + ')' : '') : '');
-      out.push({ step: title, rows: st.f.map((f) => ({ f, ...subValue(f, D, bi) })) }); } });
+      out.push({ step: title, per: !!st.per, bi, rows: st.f.map((f) => ({ f, ...subValue(f, D, bi, F.key) })) }); } });
   return out;
 }
 const subShow = (v) => typeof v === 'number' ? v.toLocaleString('he-IL') : String(v);
 function submitCard(c) {
-  const F = subFlowFor(c), D = buildSubData(c), steps = subRows(F, D), vals = (S._subVals = []), all = steps.flatMap((s) => s.rows);
-  const cnt = (k) => all.filter((r) => r.kind === k).length, miss = all.filter((r) => r.kind === 'missing' && r.f.r).length;
+  const F = subFlowFor(c), D = buildSubData(c), steps = subRows(F, D), vals = (S._subVals = []), all = steps.flatMap((s) => s.rows), w = S.canWrite;
+  const FM = (S._subFields = {}), cnt = (k) => all.filter((r) => r.kind === k).length, miss = all.filter((r) => r.kind === 'missing' && r.f.r).length;
   const nextI = Math.min(n((S.f.subNext || {})[c.id + F.key]), Math.max(0, all.filter((r) => r.kind === 'ok' || r.kind === 'check').length - 1));
-  let k = 0;
-  const row = (r) => { const req = r.f.r ? ' <span style="color:var(--open)">*</span>' : '';
+  const ds = (S.docRes || {})[c.id], files = ds && ds.files; if (!ds && S.mcp && typeof hasDocs === 'function' && hasDocs(c)) setTimeout(() => docsLoad(c), 60);
+  if (!S.pdfTpls && window.__harelServer) setTimeout(() => pdfTplLoad(), 40);
+  const docHits = []; let k = 0;
+  const edBtn = (r, txt) => w && r.key ? '<button class="xlink" data-subed="' + esc(r.key) + '" title="עריכה — נשמר בתיק לכל הגופים">' + txt + '</button>' : '';
+  const row = (r, st) => { const req = r.f.r ? ' <span style="color:var(--open)">*</span>' : '';
+    if (r.key) FM[r.key] = { l: r.f.l + (st.per && D.b.length > 1 ? ' — לווה ' + (st.bi + 1) : ''), o: r.f.o, h: r.f.h, v: r.kind === 'ok' || r.kind === 'check' ? String(r.v) : '', ed: r.ed, kind: r.kind, r: r.f.r };
+    const lab = '<td class="wide">' + esc(r.f.l) + req + (r.ed ? ' <span class="pill committed" title="הוזן / נערך בהגשה — גובר על התיק">✎ הוזן</span>' : '') + (r.f.h ? '<div class="hint">' + esc(r.f.h) + '</div>' : '');
     if (r.kind === 'ok' || r.kind === 'check') { const i = vals.push({ l: r.f.l, v: String(r.v) }) - 1, cur = i === nextI;
-      return '<tr' + (cur ? ' style="outline:2px solid var(--committed);outline-offset:-2px"' : '') + '><td class="num hint" style="width:28px">' + (++k) + '</td><td class="wide">' + esc(r.f.l) + req + (r.f.h ? '<div class="hint">' + esc(r.f.h) + '</div>' : '') + '</td><td><button class="btn small" data-subcp="' + i + '" title="לחיצה מעתיקה">' + esc(subShow(r.v).slice(0, 80)) + (subShow(r.v).length > 80 ? '…' : '') + ' ⧉</button>' +
+      return '<tr' + (cur ? ' style="outline:2px solid var(--committed);outline-offset:-2px"' : '') + '><td class="num hint" style="width:28px">' + (++k) + '</td>' + lab + '</td><td><button class="btn small" data-subcp="' + i + '" title="לחיצה מעתיקה">' + esc(subShow(r.v).slice(0, 80)) + (subShow(r.v).length > 80 ? '…' : '') + ' ⧉</button> ' + edBtn(r, '✎') +
         (r.kind === 'check' ? '<div class="hint" style="color:var(--expected)">לא תואם בדיוק לאפשרויות בטופס — לבחור ידנית</div>' : '') + '</td></tr>'; }
-    const tag = r.kind === 'upload' ? '<span class="pill committed">📎 לצרף</span>' : r.kind === 'missing' ? '<span class="pill ' + (r.f.r ? 'open' : 'muted') + '">חסר בתיק</span>' : '<span class="pill muted">להזין בטופס</span>';
-    return '<tr><td class="num hint" style="width:28px">' + (++k) + '</td><td class="wide">' + esc(r.f.l) + req + (r.f.h ? '<div class="hint">' + esc(r.f.h) + '</div>' : '') + (r.f.o && r.kind !== 'upload' ? '<div class="hint">אפשרויות: ' + esc(r.f.o.slice(0, 8).join(' · ')) + (r.f.o.length > 8 ? '…' : '') + '</div>' : '') + '</td><td>' + tag + '</td></tr>'; };
-  return '<section class="card" id="subcard"><header><h2>📋 הגשה לגוף — לפי הסדר של הטופס</h2><span class="grow"></span><button class="btn small primary" data-subnext="' + esc(c.id + '|' + F.key) + '">העתק הבא' + (vals.length || all.some((r) => r.kind === 'ok') ? '' : '') + '</button><button class="btn small" data-suball="1">העתק הכל</button></header>' +
+    let tag;
+    if (r.kind === 'upload') { const m = files ? subDocMatch(r.f.l, files) : []; m.forEach((f) => docHits.push(f));
+      tag = '<span class="pill committed">📎 לצרף</span>' + (files ? (m.length ? '<div class="hint" style="color:var(--actual)">✓ בתיק: ' + m.slice(0, 2).map((f) => '<bdi>' + esc(f.title) + '</bdi>').join(' · ') + (m.length > 2 ? ' ועוד ' + (m.length - 2) : '') + '</div>' : '<div class="hint" style="color:var(--open)">לא נמצא בתיק</div>') : ''); }
+    else tag = (r.kind === 'missing' ? '<span class="pill ' + (r.f.r ? 'open' : 'muted') + '">חסר בתיק</span>' : '<span class="pill muted">להזין</span>') + ' ' + edBtn(r, '✎ הזן');
+    return '<tr><td class="num hint" style="width:28px">' + (++k) + '</td>' + lab + (r.f.o && r.kind !== 'upload' ? '<div class="hint">אפשרויות: ' + esc(r.f.o.slice(0, 8).join(' · ')) + (r.f.o.length > 8 ? '…' : '') + '</div>' : '') + '</td><td>' + tag + '</td></tr>'; };
+  const body = steps.map((s, si) => '<h3 class="sec">' + esc(s.step) + ' <button class="xlink" data-substep="' + si + '">העתק את השלב</button></h3><div class="scroll"><table><tbody>' + s.rows.map((r) => row(r, s)).join('') + '</tbody></table></div>').join('');
+  const toFill = all.filter((r) => (r.kind === 'manual' || r.kind === 'missing') && r.key).length;
+  return '<section class="card" id="subcard"><header><h2>📋 הגשה לגוף — לפי הסדר של הטופס</h2><span class="grow"></span><button class="btn small primary" data-subnext="' + esc(c.id + '|' + F.key) + '">העתק הבא</button><button class="btn small" data-suball="1">העתק הכל</button></header>' +
     '<div class="seg" role="group" aria-label="גוף" style="flex-wrap:wrap;margin-bottom:8px">' + SUBMIT_FLOWS.map((f) => '<button data-subl="' + esc(c.id + '|' + f.key) + '" aria-pressed="' + (f.key === F.key) + '">' + esc(f.name) + '</button>').join('') + '</div>' +
-    '<p class="hint" style="margin:0 0 8px">' + esc(F.note || '') + ' · לחיצה על ערך מעתיקה אותו. "העתק הבא" מעתיק לפי הסדר — מדביקים בטופס ולוחצים שוב.</p>' +
-    '<div class="row" style="gap:6px;margin-bottom:8px"><span class="pill actual">' + (cnt('ok') + cnt('check')) + ' מוכנים להעתקה</span>' + (miss ? '<span class="pill open">' + miss + ' חובה וחסרים בתיק</span>' : '') + '<span class="pill muted">' + cnt('manual') + ' להזין בטופס</span>' + (cnt('upload') ? '<span class="pill committed">' + cnt('upload') + ' מסמכים</span>' : '') + '</div>' +
-    steps.map((s, si) => '<h3 class="sec">' + esc(s.step) + ' <button class="xlink" data-substep="' + si + '">העתק את השלב</button></h3><div class="scroll"><table><tbody>' + s.rows.map(row).join('') + '</tbody></table></div>').join('') +
-    (miss ? '<p class="hint" style="margin-top:8px">חסר בתיק — להשלים ב"הכר את הלקוח" או בכרטיס, והערך יופיע כאן.</p>' : '') + '</section>';
+    '<p class="hint" style="margin:0 0 8px">' + esc(F.note || '') + ' · לחיצה על ערך מעתיקה אותו. "העתק הבא" מעתיק לפי הסדר — מדביקים בטופס ולוחצים שוב. ✎ — הזנה או עריכה; נשמר בתיק ומשמש את כל הגופים.</p>' +
+    '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><span class="pill actual">' + (cnt('ok') + cnt('check')) + ' מוכנים להעתקה</span>' + (miss ? '<span class="pill open">' + miss + ' חובה וחסרים בתיק</span>' : '') + '<span class="pill muted">' + cnt('manual') + ' להזין</span>' + (cnt('upload') ? '<span class="pill committed">' + cnt('upload') + ' מסמכים</span>' : '') +
+      '<span class="grow"></span>' + (w && toFill ? '<button class="btn small" data-act="subEditAll">✎ הזן את החסרים (' + toFill + ')</button>' : '') + (w ? '<button class="btn small" data-act="subScan" title="Claude קורא ת״ז, תלושים, דפי עו״ש ונסח מהתיק ומציע ערכים — נשמר רק מה שתאשר">✨ מילוי מהמסמכים</button>' : '') + '</div>' +
+    subScanPanel(c) + body + subDocsBox(c, F, files, docHits) + subSignBox(c, F) +
+    (miss ? '<p class="hint" style="margin-top:8px">חסר בתיק — ✎ להזין כאן, או להשלים ב"הכר את הלקוח" / בכרטיס, והערך יופיע כאן.</p>' : '') + '</section>';
+}
+/* ── הזנה / עריכה של שדות ההגשה: intakes/<id>.subVals (מפתח לפי subKey). ריק = חוזר לערך מהתיק ── */
+async function subSaveVals(c, patch, note) {
+  const x0 = intakeDoc(c.id), cur = { ...(x0.subVals || {}) };
+  Object.entries(patch).forEach(([k, v]) => { const t = String(v == null ? '' : v).trim(); if (t) cur[k] = t.slice(0, 300); else delete cur[k]; });
+  await write('intakes/' + c.id, { ...JSON.parse(JSON.stringify(x0)), id: c.id, clientId: c.id, subVals: cur, updatedAt: stamp() });
+  if (note) await logClient(c.id, note).catch(() => {});
+}
+function subEditDrawer(c, keys) {
+  const FM = S._subFields || {}, ks = keys.filter((k0) => FM[k0]); if (!ks.length) return toast('אין שדות להזנה');
+  const dl = (o, i) => o && o.length ? '<datalist id="subdl' + i + '">' + o.map((x0) => '<option value="' + esc(x0) + '">').join('') + '</datalist>' : '';
+  drawer(ks.length === 1 ? 'עריכת שדה — ' + FM[ks[0]].l : 'הזנת פרטים להגשה (' + ks.length + ')',
+    '<p class="full hint" style="margin-top:0">נשמר בתיק של ' + esc(c.name || '') + ' ומשמש את כל הגופים. שדה ריק — חוזר לערך מהתיק.</p>' +
+    ks.map((k0, i) => { const f = FM[k0]; return '<label class="fl full">' + esc(f.l) + (f.r ? ' <span style="color:var(--open)">*</span>' : '') + (f.h ? ' <span class="hint">· ' + esc(f.h) + '</span>' : '') +
+      '<input class="f" name="v' + i + '" value="' + esc(f.v || '') + '"' + (f.o && f.o.length ? ' list="subdl' + i + '" placeholder="' + esc(f.o.slice(0, 4).join(' / ')) + '"' : '') + ' maxlength="300"></label>' + dl(f.o, i); }).join(''),
+    async (d) => { const patch = {}; ks.forEach((k0, i) => { const v = String(d['v' + i] || '').trim(), f = FM[k0]; if (v !== String(f.ed ? f.v : f.kind === 'ok' || f.kind === 'check' ? f.v : '')) patch[k0] = v; });
+      if (!Object.keys(patch).length) return; await subSaveVals(c, patch); toast('נשמר — ' + Object.keys(patch).length + ' שדות'); render(); });
+}
+/* ── ✨ מילוי מהמסמכים: Claude קורא ת״ז / תלוש / עו״ש / נסח → הצעה בלבד (הנחיה 17) → מאשרים מה שנכון ── */
+const SUB_SCAN_PROMPT = 'זה מסמך מתיק של לקוח שמבקש משכנתא / הלוואה בישראל (ת״ז, ספח, תלוש שכר, דף עו״ש, אישור ניהול חשבון, נסח טאבו וכו׳). חלץ רק מה שכתוב במסמך — בלי לנחש. שדה שלא מופיע: מחרוזת ריקה. תאריכים DD/MM/YYYY. החזר JSON בלבד:\n' +
+  '{"doc": "id|payslip|bank|property|other", "person": {"name": "שם מלא של בעל המסמך", "id": "מספר ת״ז"}, "gender": "זכר/נקבה", "birth": "", "idIssue": "תאריך הנפקת ת״ז", "city": "", "street": "", "house": "", "marital": "",' +
+  ' "employer": "שם המעסיק", "role": "תפקיד", "workStart": "תאריך תחילת עבודה", "netIncome": "שכר נטו (מספר)", "bankName": "שם הבנק", "bankBranch": "מספר סניף", "bankAcct": "מספר חשבון", "gush": "", "helka": "", "subHelka": "", "registration": "טאבו / רמ״י / חברה משכנת"}';
+async function subScan(c) {
+  if (S._subScanBusy) return toast('הסריקה כבר רצה');
+  let st = (S.docRes || {})[c.id];
+  if (!st || !st.files) { if (!S.mcp) return toast('מסמכי הלקוח (דרייב) לא זמינים בתצוגה הזו'); await docsLoad(c); st = (S.docRes || {})[c.id]; }
+  const files = ((st && st.files) || []).filter((f) => !f.folderLink && /pdf|image/.test(f.mimeType || '')), selIds = S.docSel || new Set();
+  const rx = /ת\.?ז|ת["״]ז|תעודת זהות|ספח|תלוש|משכורת|עו["״]?ש|עובר ושב|דפי? חשבון|תדפיס|ניהול חשבון|נסח|טאבו/i;
+  const list = (files.some((f) => selIds.has(f.id)) ? files.filter((f) => selIds.has(f.id)) : files.filter((f) => rx.test(f.title || ''))).slice(0, 8);
+  if (!list.length) return toast('לא נמצאו בתיק ת״ז, תלושים, דפי עו״ש או נסח — אפשר לסמן מסמכים ב"מסמכי לקוח" ולנסות שוב', 7000);
+  S._subScanBusy = true; const D = buildSubData(c), items = [], errs = [];
+  const set = (t) => { S.subScan = { cid: c.id, text: t }; render(); };
+  try {
+    for (const [i, f] of list.entries()) {
+      set('קורא מסמך ' + (i + 1) + ' מתוך ' + list.length + ': ' + f.title + (window.__crmAiQueue ? ' (בתור ל-Claude — כמה דקות לכל מסמך)' : ''));
+      try { const r = await askDoc(await docBlob(f), SUB_SCAN_PROMPT, null, 'מילוי הגשה — ' + c.name + ' — ' + f.title); subScanProposals(r, D, f.title).forEach((p) => { if (!items.some((q) => q.key === p.key && q.v === p.v)) items.push(p); }); }
+      catch (e) { errs.push(f.title); if (e && ['unavailable', 'not_granted', 'resource_exhausted'].includes(e.code)) { toast(e.code === 'unavailable' ? 'Claude לא מחובר כרגע — אי אפשר לקרוא מסמכים' : e.code === 'resource_exhausted' ? 'תקרת Claude להיום נגמרה' : 'לא אושרה גישה ל-Claude', 8000); break; } }
+    }
+    S.subScan = { cid: c.id, items, errs, read: list.length - errs.length }; render();
+  } finally { S._subScanBusy = false; }
+}
+function subScanPanel(c) {
+  const R = S.subScan; if (!R || R.cid !== c.id) return '';
+  if (!R.items) return '<div class="notice" style="display:block;margin-bottom:8px">✨ ' + esc(R.text || '') + '</div>';
+  return '<div class="notice warn" id="subscan" style="display:block;margin-bottom:8px"><b>✨ הצעה מהמסמכים — לא נשמר עד שתאשר</b> <span class="hint">· נקראו ' + R.read + ' מסמכים' + (R.errs.length ? ' · לא נקראו: ' + esc(R.errs.join(', ')) : '') + '</span>' +
+    (R.items.length ? '<div class="scroll" style="margin-top:6px"><table><tbody>' + R.items.map((p, i) => '<tr><td style="width:28px"><input type="checkbox" class="cb" data-subsug="' + i + '" checked aria-label="לאשר"></td><td class="wide">' + esc(p.l) + '<div class="hint">מתוך <bdi>' + esc(p.src) + '</bdi></div></td><td><b><bdi>' + esc(p.v) + '</bdi></b>' + (p.cur ? '<div class="hint">היום בתיק: <bdi>' + esc(p.cur) + '</bdi></div>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="hint" style="margin:6px 0 0">לא נמצא במסמכים שום ערך חדש.</p>') +
+    '<div class="row" style="margin-top:6px">' + (R.items.length ? '<button class="btn small primary" data-act="subScanOk">אשר את המסומנים</button>' : '') + '<button class="btn small ghost" data-act="subScanNo">' + (R.items.length ? 'בטל' : 'סגור') + '</button></div></div>';
+}
+/* ── 📎 המסמכים שהגוף מבקש מול מה שיש בתיק → סימון לשליחה ("שליחה לקרן" במסמכי הלקוח) ── */
+function subDocsBox(c, F, files, hits) {
+  const ups = F.steps.flatMap((st) => st.f).filter((f) => f.t === 'upload'); if (!ups.length) return '';
+  const ids = [...new Set(hits.map((f) => f.id))];
+  return '<div class="ppanel" style="margin-top:10px"><b>📎 מסמכים ל' + esc(F.name) + '</b> <span class="hint">· ' + ups.length + ' בטופס' + (files ? ' · ' + ids.length + ' קבצים תואמים בתיק' : S.mcp ? ' · טוען את מסמכי הלקוח…' : '') + '</span>' +
+    (ids.length ? '<div class="row" style="margin-top:6px"><button class="btn small" data-act="subDocsSel">סמן את ' + ids.length + ' הקבצים לשליחה ↓</button><span class="hint grow">מסומנים ב"מסמכי לקוח" — משם "שליחה לקרן / גוף מימון"</span></div>' : '') + '</div>';
+}
+/* ── ✍️ הטפסים של הגוף לחתימה דיגיטלית: טפסי PDF מתיקיית הגוף בספרייה + נוסחים שהגוף שלהם תואם ── */
+function subSignItems(c, F) {
+  const div = c.division || 'finance', T = (S.pdfTpls && S.pdfTpls.templates) || [], lib = typeof signLibrary === 'function' ? signLibrary(div) : [];
+  return [...T.filter((t) => !t.deletedAt && (!t.division || t.division === div) && F.alias.test(String(t.folder || ''))).map((t) => ({ key: 'pdf:' + t.id, label: t.name, pdf: t.id })),
+    ...lib.filter((t) => t.lender && F.alias.test(String(t.lender)) && !isSignDraft(t.body)).map((t) => ({ key: t.key, label: t.title }))];
+}
+function subSignBox(c, F) {
+  if (!window.__harelServer) return '';
+  if (!S.pdfTpls) return '<div class="ppanel" style="margin-top:10px"><b>✍️ טפסים לחתימה — ' + esc(F.name) + '</b> <span class="hint">· טוען את הספרייה…</span></div>';
+  const it = subSignItems(c, F), pdfs = it.filter((x) => x.pdf), w = S.canWrite || S.canTask;
+  return '<div class="ppanel" style="margin-top:10px" id="subsign"><b>✍️ טפסים לחתימה — ' + esc(F.name) + '</b> <span class="hint">· ' + (it.length ? it.length + ' בספרייה · ממולאים מהתיק, הלקוח חותם בטלפון' : 'אין עדיין טפסים של הגוף בספרייה — מעלים ב"טפסים" לתיקייה של הגוף') + '</span>' +
+    (it.length ? '<div style="margin-top:6px">' + it.map((x) => '<div class="row" style="align-items:center;gap:6px;margin-top:4px"><span class="grow"><bdi>' + esc(x.label) + '</bdi></span>' + (w ? '<button class="btn small" data-subsign="' + esc(x.key) + '">שלח לחתימה</button>' : '') + '</div>').join('') +
+      (w && pdfs.length > 1 ? '<div class="row" style="margin-top:8px"><button class="btn small primary" data-subsign="' + esc('pdfs:' + pdfs.map((x) => x.pdf).join(',')) + '">שלח את כל ' + pdfs.length + ' הטפסים בקישור אחד</button></div>' : '') + '</div>' : '') + '</div>';
 }
 /* כרטיס לקוח — "ניתוחי Claude": כל מה ש-Claude ניתח על התיק חוזר לכאן — ניתוח התיק, דוחות אשראי, ומה שעוד בתור */
 function aiCard(c) {
@@ -13285,6 +13411,9 @@ document.addEventListener('click', async (e) => {
     if (d.accrecurdel) { const A = accrualsOf(), x = (A.recur || []).find((k) => k.id === d.accrecurdel); if (!x || !confirm('למחוק את "' + x.label + '"?')) return; await accSave({ ...A, recur: A.recur.map((k) => k.id === x.id ? { ...k, deletedAt: stamp() } : k) }); toast('נמחק'); return render(); }
     if (d.payemp != null && el.matches('[data-payemp]')) return payEmpDrawer(d.payemp || null);
     if (d.payback) { await payEmpSave(payAllEmployees().map((e) => e.key === d.payback ? { ...e, active: true, removedAt: null, removedReason: null } : e)); toast('הוחזר/ה לשכר'); return render(); }
+    if (d.subed && el.matches('[data-subed]')) { const c0 = S.clients.get(S.view.clientId); return c0 ? subEditDrawer(c0, [d.subed]) : null; }
+    if (d.subsign && el.matches('[data-subsign]')) { const c0 = S.clients.get(S.view.clientId); if (!c0) return; const f = ((S.signForm = S.signForm || {})[c0.id] = S.signForm[c0.id] || {}); f.open = true; f.tpl = d.subsign; render();
+      return setTimeout(() => { const el2 = $('signcard'); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60); }
     if (d.subl) { const [cid, key] = d.subl.split('|'); S.f.subLender = { ...(S.f.subLender || {}), [cid]: key }; return render(); }
     if (d.subcp != null && el.matches('[data-subcp]')) { const v = (S._subVals || [])[Number(d.subcp)]; if (v) return copyText(v.v, 'הועתק: ' + v.l); return; }
     if (d.subnext) { const V = S._subVals || []; if (!V.length) return toast('אין ערכים להעתקה — להשלים את התיק'); const m0 = S.f.subNext = S.f.subNext || {}, i = Math.min(n(m0[d.subnext.replace('|', '')]), V.length - 1);
@@ -13849,6 +13978,17 @@ document.addEventListener('click', async (e) => {
             async (x) => { const name = String(x.name || '').trim(); if (!name) return 'חסר שם';
               await write('settings/main', { savedViews: [...(S.settings.savedViews || []), { id: uid(), name: name.slice(0, 60), div: S.division, f: f0, home: !!x.home, by: S.me.id, at: stamp() }] }, 'update'); toast('התצוגה נשמרה'); }, '', 'שמור'); }
         case 'laneAhead': S.f.laneAhead = !S.f.laneAhead; return render();
+        case 'subEditAll': { const c0 = S.clients.get(S.view.clientId); if (!c0) return; const FM = S._subFields || {}; return subEditDrawer(c0, Object.keys(FM).filter((k0) => FM[k0].kind === 'manual' || FM[k0].kind === 'missing')); }
+        case 'subScan': { const c0 = S.clients.get(S.view.clientId); return c0 ? subScan(c0) : null; }
+        case 'subScanNo': S.subScan = null; return render();
+        case 'subScanOk': { const c0 = S.clients.get(S.view.clientId), R = S.subScan; if (!c0 || !R || !R.items) return; const patch = {};
+          document.querySelectorAll('[data-subsug]').forEach((cb) => { const p0 = R.items[Number(cb.dataset.subsug)]; if (cb.checked && p0) patch[p0.key] = p0.v; });
+          if (!Object.keys(patch).length) return toast('לא סומן כלום');
+          await subSaveVals(c0, patch, 'הגשה לגוף: ' + Object.keys(patch).length + ' שדות מולאו מסריקת מסמכים (הצעת Claude — אושרה ידנית)'); S.subScan = null; toast('נשמר — ' + Object.keys(patch).length + ' שדות'); return render(); }
+        case 'subDocsSel': { const c0 = S.clients.get(S.view.clientId); if (!c0) return; const F = subFlowFor(c0), files = ((S.docRes || {})[c0.id] || {}).files || [];
+          const ids = [...new Set(F.steps.flatMap((st) => st.f).filter((f) => f.t === 'upload').flatMap((f) => subDocMatch(f.l, files)).map((f) => f.id))];
+          S.docSel = new Set(ids); toast(ids.length + ' קבצים סומנו — "שליחה לקרן / גוף מימון" במסמכי הלקוח'); render();
+          return setTimeout(() => { const el2 = document.querySelector('.card.docs'); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60); }
         case 'signPick': { const sc = signSubject(); if (!sc) return; return pdfPicker(sc, (ids) => { const f = ((S.signForm = S.signForm || {})[sc.id] = S.signForm[sc.id] || {}); f.open = true; f.tpl = ids.length > 1 ? 'pdfs:' + ids.join(',') : 'pdf:' + ids[0];
             const ts = ids.map(pdfTplOf).filter(Boolean); f.title = ts.map((t) => t.name).join(' + '); render(); }); }
         case 'extNew': return extSubjForm();
