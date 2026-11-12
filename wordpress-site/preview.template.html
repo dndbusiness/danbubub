@@ -1,0 +1,331 @@
+<title>D&amp;D Finance</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;900&family=Assistant:wght@400;600;700&display=swap">
+<style>
+/* Layout: a one-page advisory site in banded sections — petrol ink bands open and close, paper bands carry the reading. Single light look, same as the live WordPress site. */
+:root {
+  --ink: #0e3b43;
+  --ink-deep: #0a2c32;
+  --paper: #f6f7f4;
+  --panel: #e4ecea;
+  --amber: #e0a03a;
+  --text: #14272b;
+  --muted: #5b6f72;
+  --on-ink: #ffffff;
+  --on-ink-muted: #b9c9cb;
+  --line: #cfdcda;
+  --fill-bg: #fff3c4;
+  --fill-fg: #6b4a00;
+  --white: #ffffff;
+  --font-display: "Frank Ruhl Libre", "David", "Times New Roman", serif;
+  --font-body: "Assistant", "Arial Hebrew", Arial, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--text); font-family: var(--font-body); font-size: 17px; line-height: 1.6; direction: rtl; }
+a { color: inherit; }
+.wrap { max-width: 1080px; margin-inline: auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.wrap.narrow { max-width: 760px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h2 { font-size: clamp(28px, 4vw, 36px); font-weight: 700; }
+h3 { font-size: 21px; font-weight: 700; }
+p { margin: 0; }
+.fill { background: var(--fill-bg); color: var(--fill-fg); padding: 0 4px; border-radius: 3px; font-weight: 600; }
+
+/* install bar — outside the site mock */
+.kit { background: var(--text); color: var(--on-ink); font-size: 14px; }
+.kit .wrap { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding-block: 10px; }
+.kit strong { font-weight: 700; }
+.kit .sp { flex: 1 1 auto; min-width: 0; }
+.kit button { font: inherit; font-weight: 600; border: 1px solid var(--on-ink-muted); background: transparent; color: var(--on-ink); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.kit button:hover, .kit button:focus-visible { background: var(--amber); color: var(--text); border-color: var(--amber); outline: none; }
+.kit .note { color: var(--on-ink-muted); }
+.copybox { background: var(--text); }
+.copybox .wrap { padding-block: 0 14px; display: grid; gap: 8px; color: var(--on-ink-muted); font-size: 14px; }
+.copybox textarea { width: 100%; height: 160px; direction: ltr; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; border-radius: 6px; border: 1px solid var(--muted); background: var(--ink-deep); color: var(--on-ink); padding: 8px; }
+
+/* site header */
+.top { background: var(--ink); color: var(--on-ink); border-bottom: 1px solid rgba(255,255,255,.08); }
+.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 14px; }
+.logo { font-family: var(--font-display); font-weight: 900; font-size: 22px; letter-spacing: .5px; white-space: nowrap; }
+.logo span { color: var(--amber); }
+.top nav { display: flex; gap: 22px; flex: 1; font-weight: 600; font-size: 16px; }
+.top nav a { text-decoration: none; color: var(--on-ink-muted); }
+.top nav a:hover, .top nav a:focus-visible { color: var(--on-ink); }
+.btn { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-weight: 700; text-decoration: none; border-radius: 999px; padding: 12px 24px; border: 2px solid transparent; cursor: pointer; }
+.btn.amber { background: var(--amber); color: var(--text); }
+.btn.amber:hover { filter: brightness(1.06); }
+.btn.ghost { border-color: var(--on-ink); color: var(--on-ink); }
+.btn.sm { padding: 8px 18px; font-size: 15px; }
+.btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+
+/* hero */
+.hero { background: var(--ink); color: var(--on-ink); }
+.hero .wrap { display: grid; grid-template-columns: 1.4fr 1fr; gap: 48px; align-items: center; padding-block: 72px 80px; }
+.hero .grid > * { min-width: 0; }
+.eyebrow { color: var(--amber); font-weight: 700; font-size: 15px; letter-spacing: .3px; }
+.hero h1 { font-size: clamp(34px, 5.2vw, 52px); font-weight: 900; margin-block: 12px 18px; }
+.hero h1 em { font-style: normal; color: var(--amber); }
+.hero .lede { font-size: 19px; color: var(--on-ink-muted); max-width: 34em; }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+/* mix card: the one signature element */
+.mix { background: var(--white); color: var(--text); border-radius: 14px; padding: 24px; box-shadow: 0 24px 48px -24px rgba(0,0,0,.45); }
+.mix .cap { font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.bar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; margin-block: 16px 18px; gap: 2px; }
+.bar i { display: block; height: 100%; transform-origin: right; animation: grow .9s cubic-bezier(.2,.7,.2,1) both; }
+.bar i:nth-child(2) { animation-delay: .12s; }
+.bar i:nth-child(3) { animation-delay: .24s; }
+@keyframes grow { from { transform: scaleX(.2); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) { .bar i { animation: none; } }
+.c1 { background: var(--ink); }
+.c2 { background: var(--amber); }
+.c3 { background: #7fa7a4; }
+.tracks { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.tracks li { display: grid; grid-template-columns: 12px 3.2em 1fr; gap: 10px; align-items: baseline; font-size: 15px; }
+.tracks li b { font-variant-numeric: tabular-nums; font-size: 17px; }
+.tracks .dot { width: 12px; height: 12px; border-radius: 3px; align-self: center; }
+.mix .foot { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+
+/* sections */
+.band { padding-block: 72px; }
+.band.paper { background: var(--paper); }
+.band.white { background: var(--white); }
+.band.panel { background: var(--panel); }
+.band .head { display: grid; gap: 8px; margin-bottom: 36px; }
+.band .head p { color: var(--muted); max-width: 40em; }
+
+.services { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.services article { background: var(--white); padding: 28px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.services h3 { color: var(--ink); }
+
+.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 0; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 56px 1fr; gap: 16px; padding-block: 18px; border-top: 1px solid var(--line); }
+.steps li:last-child { border-bottom: 1px solid var(--line); }
+.steps li::before { content: counter(s); font-family: var(--font-display); font-weight: 900; font-size: 34px; line-height: 1; color: var(--amber); }
+.steps b { display: block; font-size: 19px; }
+.steps span { color: var(--muted); }
+
+.rules { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.rules div { display: grid; gap: 6px; align-content: start; border-top: 3px solid var(--ink); padding-top: 14px; min-width: 0; }
+.rules strong { font-family: var(--font-display); font-weight: 900; font-size: 44px; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rules p { font-size: 16px; }
+
+.faq details { border-bottom: 1px solid var(--line); }
+.faq details:first-of-type { border-top: 1px solid var(--line); }
+.faq summary { cursor: pointer; padding-block: 18px; font-weight: 700; font-size: 18px; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--font-display); font-size: 24px; line-height: 1; color: var(--amber); }
+.faq details[open] summary::after { content: "−"; }
+.faq summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.faq details p { padding-bottom: 18px; color: var(--muted); }
+
+.contact { background: var(--ink); color: var(--on-ink); }
+.contact .wrap { display: grid; grid-template-columns: 1fr 1.4fr; gap: 48px; padding-block: 72px; }
+.contact .wrap > * { min-width: 0; }
+.contact .info { display: grid; gap: 14px; align-content: start; }
+.contact .info p { color: var(--on-ink-muted); }
+.contact dl { margin: 8px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 18px; }
+.contact dt { color: var(--on-ink-muted); }
+.contact dd { margin: 0; font-weight: 700; }
+form { background: var(--white); color: var(--text); border-radius: 14px; padding: 24px; display: grid; gap: 14px; }
+form label { display: grid; gap: 4px; font-weight: 600; font-size: 15px; }
+form input, form select, form textarea { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--text); width: 100%; }
+form input:focus, form select:focus, form textarea:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+form textarea { min-height: 84px; resize: vertical; }
+form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+form .btn { justify-self: start; }
+form .msg { font-size: 14px; color: var(--muted); }
+
+.legal { background: var(--ink-deep); color: var(--on-ink-muted); font-size: 14px; }
+.legal .wrap { padding-block: 28px; display: grid; gap: 8px; }
+
+@media (max-width: 820px) {
+  .top nav { display: none; }
+  .top .wrap { justify-content: space-between; }
+  .hero .wrap, .contact .wrap { grid-template-columns: 1fr; gap: 36px; padding-block: 48px 56px; }
+  .services { grid-template-columns: 1fr; }
+  .rules { grid-template-columns: repeat(2, 1fr); }
+  .band { padding-block: 52px; }
+}
+@media (max-width: 440px) {
+  .rules { grid-template-columns: 1fr; }
+  form .row { grid-template-columns: 1fr; }
+  .steps li { grid-template-columns: 40px 1fr; }
+}
+</style>
+
+<div class="kit" role="region" aria-label="ערכת התקנה">
+  <div class="wrap">
+    <strong>תצוגה מקדימה</strong>
+    <span class="note sp">מה שמסומן <span class="fill">בצהוב</span> צריך להשלים לפני העלייה לאוויר.</span>
+    <button type="button" data-copy="code-home" id="copy-home">העתק קוד עמוד הבית</button>
+    <button type="button" data-copy="code-a11y" id="copy-a11y">העתק קוד הצהרת נגישות</button>
+  </div>
+</div>
+<div class="copybox" id="copybox" hidden>
+  <div class="wrap">
+    <span id="copymsg"></span>
+    <textarea id="copyarea" readonly aria-label="קוד להדבקה"></textarea>
+  </div>
+</div>
+
+<header class="top">
+  <div class="wrap">
+    <div class="logo">D<span>&amp;</span>D Finance</div>
+    <nav aria-label="ניווט ראשי">
+      <a href="#services">שירותים</a>
+      <a href="#process">איך זה עובד</a>
+      <a href="#faq">שאלות</a>
+      <a href="#contact">צור קשר</a>
+    </nav>
+    <a class="btn amber sm" href="#contact">בדיקה ללא עלות</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap grid">
+      <div>
+        <p class="eyebrow">יועצי משכנתאות ואשראי · D&amp;D Finance</p>
+        <h1>משכנתא שבנויה בשבילך, <em>והחזר חודשי שאפשר לחיות איתו</em></h1>
+        <p class="lede">בונים לך תמהיל, מגישים לכמה בנקים במקביל, מנהלים את המשא ומתן על הריביות ונשארים איתך עד שהכסף בחשבון. משכנתא לרכישה, מחזור משכנתא, איחוד הלוואות ומימון לעסקים.</p>
+        <div class="ctas">
+          <a class="btn amber" href="#contact">לבדיקת זכאות ללא עלות</a>
+          <a class="btn ghost" href="https://wa.me/972XXXXXXXXX" target="_blank" rel="noopener">כתבו לנו בוואטסאפ</a>
+        </div>
+      </div>
+      <aside class="mix" aria-label="תמהיל משכנתא לדוגמה">
+        <div class="cap"><span>תמהיל משכנתא</span><span>לדוגמה בלבד</span></div>
+        <div class="bar" aria-hidden="true"><i class="c1" style="flex:34"></i><i class="c2" style="flex:33"></i><i class="c3" style="flex:33"></i></div>
+        <ul class="tracks">
+          <li><span class="dot c1"></span><b>34%</b><span>קבועה לא צמודה: החזר ידוע מראש</span></li>
+          <li><span class="dot c2"></span><b>33%</b><span>פריים: גמישות ופירעון מוקדם בלי קנס</span></li>
+          <li><span class="dot c3"></span><b>33%</b><span>משתנה כל 5 שנים: ריבית התחלתית נמוכה יותר</span></li>
+        </ul>
+        <p class="foot">כל תמהיל נבנה לפי ההכנסה, הגיל והתוכניות שלכם. אין תמהיל אחד שמתאים לכולם.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="band paper" id="services">
+    <div class="wrap">
+      <div class="head"><h2>במה אנחנו מלווים</h2></div>
+      <div class="services">
+        <article><h3>משכנתא לרכישת דירה</h3><p>דירה ראשונה, משפרי דיור או דירה להשקעה. בודקים כמה אפשר לקבל, בונים תמהיל ומשיגים אישור עקרוני לפני שחותמים מול המוכר.</p></article>
+        <article><h3>מחזור משכנתא</h3><p>בודקים את המשכנתא הקיימת מול הריביות של היום, כולל עמלת הפירעון המוקדם, ומחזרים רק כשהחיסכון גדול מהעלות.</p></article>
+        <article><h3>איחוד הלוואות</h3><p>כמה הלוואות, כרטיסי אשראי ומינוס הופכים להלוואה אחת עם החזר חודשי אחד ונמוך יותר. עם נכס או בלי נכס.</p></article>
+        <article><h3>מימון לעסקים</h3><p>אשראי להון חוזר, הלוואות בערבות מדינה ומימון להשקעות. מכינים את התיק ומציגים אותו לבנק בשפה שהבנק מבין.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band white" id="process">
+    <div class="wrap">
+      <div class="head"><h2>איך זה עובד</h2></div>
+      <ol class="steps">
+        <li><div><b>שיחת היכרות</b><span>20 דקות בטלפון: מה המטרה, מה המצב היום ומה חשוב לכם.</span></div></li>
+        <li><div><b>מיפוי מלא</b><span>תלושים, עו"ש, הלוואות קיימות ונתוני אשראי. רואים את התמונה כמו שהבנק יראה אותה.</span></div></li>
+        <li><div><b>תמהיל והגשה</b><span>בונים תמהיל ומגישים לכמה בנקים במקביל, על אותו תמהיל, כדי שההצעות יהיו ברות השוואה.</span></div></li>
+        <li><div><b>משא ומתן</b><span>משתמשים בהצעה הטובה כדי לשפר את האחרות, ומציגים לכם את ההשוואה לפני שבוחרים.</span></div></li>
+        <li><div><b>ליווי עד הכסף</b><span>שמאות, ביטוחים, מסמכים ורישום. אנחנו מתאמים מול הבנק עד שהכסף מועבר.</span></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band panel" id="rules">
+    <div class="wrap">
+      <div class="head"><h2>מה הבנק בודק לפני שהוא מאשר</h2><p>אלה הגבולות שקובע בנק ישראל למשכנתאות (הוראה 329). הבנקים רשאים להחמיר מעבר להם.</p></div>
+      <div class="rules">
+        <div><strong>75%</strong><p>מימון מקסימלי לדירה יחידה. 70% למשפרי דיור, 50% לדירה להשקעה.</p></div>
+        <div><strong>50%</strong><p>ההחזר החודשי לא יעלה על חצי מההכנסה הפנויה של משק הבית.</p></div>
+        <div><strong>⅓</strong><p>לפחות שליש מהמשכנתא חייב להיות בריבית קבועה.</p></div>
+        <div><strong>30 שנה</strong><p>התקופה הארוכה ביותר שמותר לפרוס עליה משכנתא.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band white faq" id="faq">
+    <div class="wrap narrow">
+      <div class="head"><h2>שאלות שחוזרות על עצמן</h2></div>
+      <details id="q1"><summary>למה לא ללכת ישר לבנק?</summary><p>אפשר. היתרון שלנו הוא שאנחנו מגישים לכמה בנקים במקביל על אותו תמהיל, משווים את ההצעות אחת מול השנייה ומנהלים את המשא ומתן בשבילכם.</p></details>
+      <details id="q2"><summary>כמה עולה הליווי?</summary><p>שיחת ההיכרות והבדיקה הראשונית ללא עלות. <span class="fill">[להשלים: מבנה שכר הטרחה, למשל סכום קבוע או אחוז מהמשכנתא, ומתי משלמים]</span></p></details>
+      <details id="q3"><summary>הבדיקה משפיעה על דירוג האשראי שלי?</summary><p>שיחת ההיכרות והמיפוי לא כוללים פנייה לבנק. הבנק בודק את נתוני האשראי שלכם רק כשמגישים אליו בקשה, ובהסכמתכם. אנחנו מגישים רק כשהתיק מוכן, כדי לא לפזר בקשות מיותרות.</p></details>
+      <details id="q4"><summary>אפשר לאחד הלוואות בלי דירה?</summary><p>כן, דרך הלוואה מבנק או מגוף חוץ בנקאי. בדרך כלל הריבית גבוהה יותר מהלוואה עם שעבוד דירה. נבדוק את שתי האפשרויות ונציג לכם את העלות הכוללת של כל אחת.</p></details>
+      <details id="q5"><summary>כמה זמן לוקח התהליך?</summary><p>אישור עקרוני מגיע בדרך כלל תוך ימים עד שבועיים. כל התהליך עד העברת הכסף נמשך בדרך כלל כמה שבועות, תלוי בשמאות ובמסמכים.</p></details>
+    </div>
+  </section>
+
+  <section class="contact" id="contact">
+    <div class="wrap">
+      <div class="info">
+        <h2>נבדוק יחד מה אפשר להשיג</h2>
+        <p>השאירו פרטים ונחזור אליכם תוך יום עסקים. או דברו איתנו ישירות:</p>
+        <dl>
+          <dt>טלפון</dt><dd><span class="fill">[להשלים]</span></dd>
+          <dt>וואטסאפ</dt><dd><span class="fill">[להשלים]</span></dd>
+          <dt>מייל</dt><dd><span class="fill">[להשלים]</span></dd>
+        </dl>
+      </div>
+      <form id="lead" novalidate>
+        <div class="row">
+          <label for="f-name">שם מלא<input id="f-name" name="name" autocomplete="name" value="ישראל ישראלי"></label>
+          <label for="f-phone">טלפון<input id="f-phone" name="phone" type="tel" autocomplete="tel" dir="ltr" value="050-0000000"></label>
+        </div>
+        <label for="f-topic">במה אפשר לעזור?
+          <select id="f-topic" name="topic">
+            <option>משכנתא לרכישת דירה</option>
+            <option selected>מחזור משכנתא</option>
+            <option>איחוד הלוואות</option>
+            <option>מימון לעסק</option>
+          </select>
+        </label>
+        <label for="f-note">כמה מילים על המצב (לא חובה)<textarea id="f-note" name="note"></textarea></label>
+        <button class="btn amber" type="submit">שלחו לי שיחה חוזרת</button>
+        <p class="msg" id="f-msg" role="status">הטופס בתצוגה הזו ממולא בפרטים לדוגמה. באתר האמיתי הפניות יגיעו למייל שלכם בוורדפרס.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="legal">
+  <div class="wrap">
+    <p>D&amp;D Finance אינה בנק ואינה גוף מלווה. המידע באתר כללי ואינו מהווה ייעוץ אישי. אישור משכנתא או הלוואה כפוף לשיקול דעת הגוף המממן. אי עמידה בפירעון ההלוואה עלולה לגרור חיוב בריבית פיגורים והליכי הוצאה לפועל.</p>
+    <p>מספר רישיון: <span class="fill">[להשלים]</span> · הצהרת נגישות בעמוד נפרד</p>
+  </div>
+</footer>
+
+<script type="text/plain" id="code-home">{{HOME}}</script>
+<script type="text/plain" id="code-a11y">{{A11Y}}</script>
+<script>
+(function () {
+  var box = document.getElementById('copybox');
+  var area = document.getElementById('copyarea');
+  var msg = document.getElementById('copymsg');
+  function showManual(text, label) {
+    area.value = text;
+    msg.textContent = label + ': ההעתקה האוטומטית חסומה כאן. הקוד מסומן, העתיקו עם Ctrl+C.';
+    box.hidden = false;
+    area.focus();
+    area.select();
+  }
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = document.getElementById(btn.dataset.copy).textContent.trim();
+      var label = btn.textContent;
+      var orig = btn.textContent;
+      try {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = 'הועתק ✓';
+          setTimeout(function () { btn.textContent = orig; }, 1800);
+        }, function () { showManual(text, label); });
+      } catch (e) { showManual(text, label); }
+    });
+  });
+  document.getElementById('lead').addEventListener('submit', function (e) {
+    e.preventDefault();
+    document.getElementById('f-msg').textContent = 'זו תצוגה מקדימה, אז שום דבר לא נשלח. באתר האמיתי הפנייה תגיע למייל שלכם.';
+  });
+})();
+</script>
