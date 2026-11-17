@@ -1897,13 +1897,17 @@ function accrualMonth(m, A, ctx) {
 }
 /* ══ סוף התחייבויות — פונקציות טהורות ══ */
 const accrualCtx = () => ({ vat: n(S.settings.vatRate || 0.18), nowMonth: today().slice(0, 7), txs: live(S.transactions).filter((t) => (t.division || 'finance') === 'finance'),
-  payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp), doc = S.payroll.get(m + '__' + emp); return (!!e && !!doc && !doc.deletedAt && payCalc(e, doc).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
+  payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp), doc = S.payroll.get(m + '__' + emp); return (S.settings.nissimPayScreen === true && !!e && !!doc && !doc.deletedAt && payCalc(e, doc).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
 const accrualsOf = () => S.settings.accruals || { items: [], recur: [] };
 function nissimCard() {
   /* dan_first (דן 25/09): הפסד — דן מימן אותו; רווח שאחריו מחזיר לדן קודם, ורק היתרה מתחלקת. */
   /* שריון (הכנה לחודש הבא, אם מחליטים): יורד לפני החלוקה ומשתחרר בחודש שאחריו. */
   let bal = 0, pool = 0, prevRes = 0; const p = n(S.settings.nissimPct || 0.5), mode = S.settings.lossSharing || 'shared', res = S.settings.finReserve || {}, A = accrualsOf(), ctx = accrualCtx();
-  return pnl('finance').map((r) => {
+  /* דן 17/11: "שכר הדס (לפי מסך השכר) — נתון לא מובן, להסיר מהחשבון": שכר מחושב ממסך השכר לא נוכה מהחשבון עם ניסים כברירת מחדל.
+     שכר נוכה כשהוא משולם (תנועה בקטגוריה "שכר") או כהתחייבות שדן הזין. nissimPayScreen = true מחזיר את הניכוי מהמסך. */
+  const payScreen = S.settings.nissimPayScreen === true;
+  return pnl('finance').map((r0) => {
+    const r = payScreen || !n(r0.payroll) ? r0 : { ...r0, fixed: r2(r0.fixed - n(r0.payroll)), distributable: r2(r0.distributable + n(r0.payroll)), payroll: 0, payrollOff: r0.payroll };
     const reserve = r2(n(res[r.month])), released = prevRes; prevRes = reserve;
     const acc = accrualMonth(r.month, A, ctx), profitAcc = r2(r.distributable - acc.total + acc.back);
     const base = r2(profitAcc + released - reserve);
@@ -11681,11 +11685,12 @@ function accrualsCard() {
   const A = accrualsOf(), w = S.canWrite, card = nissimCard(), ctx = accrualCtx();
   const items = (A.items || []).filter((x) => !x.deletedAt).sort((a, b) => String(a.month).localeCompare(b.month)), recur = (A.recur || []).filter((x) => !x.deletedAt);
   const netOf = (x) => r2(x.vatIncl ? n(x.amount) / (1 + ctx.vat) : n(x.amount));
-  const st = (x) => x.paidTxId ? ['actual', 'שולם'] : x.kind === 'payroll' && x.emp && ctx.payEntered(x.emp, x.month) ? ['muted', 'הוחלף בשכר שהוזן'] : ['open', 'פתוח'];
+  const ps = S.settings.nissimPayScreen === true, st = (x) => x.paidTxId ? ['actual', 'שולם'] : x.kind === 'payroll' && x.emp && ctx.payEntered(x.emp, x.month) ? ['muted', ps ? 'הוחלף בשכר שהוזן' : 'הוחלף בתשלום שכר'] : ['open', 'פתוח'];
   const open = card.reduce((a, r) => a + n(r.accrued), 0);
   return '<section class="card"><header><h2>התחייבויות שעוד לא שולמו</h2><span class="pill ' + (open ? 'expected' : 'muted') + '">' + plain(r2(open)) + ' נוכים</span><span class="grow"></span>' +
       (w ? '<button class="btn small" data-accadd="">+ התחייבות</button><button class="btn small ghost" data-accrecur="">+ חוזרת כל חודש</button>' : '') + '</header>' +
-    '<p class="hint" style="margin:-4px 0 8px">נוכות מהרווח לחלוקה בחודש שאליו הן שייכות, גם לפני שיצא הכסף. "שולם" רושם את התשלום כתנועה — והוא לא נוכה פעם שנייה. שכר יורד לבד כשמזינים את השכר של אותו חודש.</p>' +
+    '<p class="hint" style="margin:-4px 0 8px">נוכות מהרווח לחלוקה בחודש שאליו הן שייכות, גם לפני שיצא הכסף. "שולם" רושם את התשלום כתנועה, או מקשר תשלום שכבר רשום — והוא לא נוכה פעם שנייה. שכר יורד לבד כשנרשם תשלום שכר באותו חודש' + (ps ? ' או כשמזינים אותו במסך השכר' : '') + '.</p>' +
+    (w ? '<label class="check" style="border:0;margin:-2px 0 8px"><input type="checkbox" class="cb" data-nispayscreen="1"' + (ps ? ' checked' : '') + '><span>לנכות גם שכר מחושב ממסך השכר <span class="hint">(כבוי: שכר נוכה רק כשהוא משולם או כהתחייבות כאן)</span></span></label>' : '') +
     (items.length ? '<div class="scroll"><table><thead><tr><th>חודש</th><th>מה</th><th>סוג</th><th>סכום</th><th>נטו</th><th>מצב</th><th></th></tr></thead><tbody>' + items.map((x) => { const [tone, lab] = st(x);
       return '<tr><td class="num">' + esc(mLabel(x.month)) + '</td><td class="wide">' + esc(x.label) + '</td><td>' + esc(ACC_KIND[x.kind] || '') + '</td><td>' + money(n(x.amount)) + '<div class="hint">' + (x.vatIncl ? 'כולל מע״מ' : 'לפני מע״מ') + '</div></td><td>' + money(netOf(x)) + '</td><td><span class="pill ' + tone + '">' + lab + '</span></td><td>' +
         (w && !x.paidTxId && x.kind !== 'payroll' ? '<button class="btn small" data-accpaid="' + esc(x.id) + '">שולם</button>' : '') + (w ? '<button class="btn small ghost" data-accedit="' + esc(x.id) + '">עריכה</button><button class="btn small ghost" data-accdel="' + esc(x.id) + '" aria-label="מחיקה">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">אין התחייבויות פתוחות.</p>') +
@@ -11725,9 +11730,18 @@ function accRecurDrawer(id) {
 function accPaidDrawer(id) {
   const A = accrualsOf(), x = (A.items || []).find((k) => k.id === id); if (!x) return;
   const net = r2(x.vatIncl ? n(x.amount) / (1 + n(S.settings.vatRate || 0.18)) : n(x.amount));
-  drawer('שולם — ' + x.label, '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('date', 'תאריך התשלום', today(), 'date') + fi('net', 'סכום נטו ₪', net, 'number', 'min="0" step="0.01"') + fi('category', 'קטגוריה', x.kind === 'marketing' ? 'שיווק' : '', 'text') + '</div>' +
-    '<p class="hint full">נרשמת הוצאה (נטו + מע״מ) מקושרת להתחייבות — היא מופיעה בתנועות ובבדיקת העו״ש, אבל לא נוכית שוב מהרווח של ' + esc(mLabel(x.month)) + '.</p>',
+  /* דן 17/11 ("4,570 של הרכב — לשנות לשולם"): כשהתשלום כבר רשום בתנועות — מקשרים אותו, בלי הוצאה כפולה */
+  const mi = (m) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7));
+  const cands = live(S.transactions).filter((t) => t.nature === 'expense' && !t.clientId && !t.accrualId && (t.division || 'finance') === 'finance' && Math.abs(mi(String(t.date).slice(0, 7)) - mi(x.month)) <= 3)
+    .map((t) => ({ t, d: Math.abs(Math.abs(n(t.net)) - net) / Math.max(1, net) })).filter((c) => c.d <= 0.25 || Math.abs(Math.abs(n(c.t.gross)) - n(x.amount)) < 1).sort((a, b) => a.d - b.d).slice(0, 12).map((c) => c.t);
+  drawer('שולם — ' + x.label, (cands.length ? fs('link', 'התשלום כבר רשום בתנועות?', [['', '— לא, לרשום תשלום חדש —'], ...cands.map((t) => [t.id, dLabel(t.date) + ' · ' + (t.counterparty || t.description || t.category || 'הוצאה') + ' · ' + fmt0.format(Math.abs(n(t.net))) + ' נטו'])], '', true) +
+      '<p class="hint full" style="margin-top:-4px">קישור: התנועה הקיימת מסומנת כתשלום של ההתחייבות — לא נרשמת הוצאה נוספת.</p>' : '') +
+    '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fi('date', 'תאריך התשלום', today(), 'date') + fi('net', 'סכום נטו ₪', net, 'number', 'min="0" step="0.01"') + fi('category', 'קטגוריה', x.kind === 'marketing' ? 'שיווק' : '', 'text') + '</div>' +
+    '<p class="hint full">תשלום חדש: נרשמת הוצאה (נטו + מע״מ) מקושרת להתחייבות — היא מופיעה בתנועות ובבדיקת העו״ש, אבל לא נוכית שוב מהרווח של ' + esc(mLabel(x.month)) + '.</p>',
     async (fd) => {
+      if (fd.link) { const t = S.transactions.get(fd.link); if (!t || t.deletedAt) return 'התנועה לא נמצאה';
+        await write('transactions/' + t.id, { accrualId: x.id, updatedAt: stamp() }, 'update');
+        await accSave({ ...A, items: A.items.map((k) => k.id === x.id ? { ...k, paidTxId: t.id, paidAt: stamp() } : k) }); toast('סומן כשולם — מקושר לתנועה הקיימת, בלי הוצאה נוספת'); render(); return; }
       const v = r2(fd.net); if (!v || !fd.date) return 'למלא תאריך וסכום';
       const tid = uid();
       await write('transactions/' + tid, withVat({ id: tid, nature: 'expense', division: 'finance', date: fd.date, net: -v, vatMode: 'excl', vatRate: S.settings.vatRate, counterparty: x.label, category: String(fd.category || '').trim() || null, deductible: true, review: 'ok', accrualId: x.id, description: 'תשלום התחייבות של ' + mLabel(x.month), source: 'crm', createdAt: stamp(), updatedAt: stamp(), by: S.me.id }));
@@ -14156,6 +14170,7 @@ document.addEventListener('change', async (e) => {
       await write('settings/main', { backupEmails: list }, 'update'); return toast('המיילים לגיבוי נשמרו'); }
     if (el.dataset.reserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { reReserve: { ...(S.settings.reReserve || {}), [el.dataset.reserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) : 'השריון בוטל'); }
     if (el.id === 'fStmt') { S.f.stmtPeriod = el.value; return render(); }
+    if (el.dataset.nispayscreen) { await write('settings/main', { nissimPayScreen: !!el.checked }, 'update'); toast(el.checked ? 'שכר ממסך השכר נוכה מהחשבון עם ניסים' : 'שכר ממסך השכר לא נוכה — רק תשלומי שכר והתחייבויות'); return render(); }
     if (el.dataset.finreserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [el.dataset.finreserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) + ' לחודש הבא' : 'השריון בוטל'); }
     if (el.dataset.empexp) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empexp ? { ...e, expectedCost: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('הצפי החודשי נשמר'); }
     if (el.dataset.empct) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empct ? { ...e, employerPct: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('עלות מעביד נשמרה'); }
