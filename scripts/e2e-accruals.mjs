@@ -1,7 +1,7 @@
 /**
  * התחייבויות שעוד לא שולמו (דן 09/11): כספים ← התחשבנות → "+ התחייבות" (ספק לידים לאוקטובר, שכר לנובמבר) ו"+ חוזרת כל חודש"
  * (תוכנות 1,000 כולל מע״מ) → מצב החשבון עם ניסים: שורת "פחות: התחייבויות שעוד לא שולמו" + פירוט → "שולם" רושם תנועה והרווח לא משתנה
- * (לא פעמיים) → הזנת השכר של נובמבר → התחייבות השכר יורדת לבד. נתונים סינתטיים; הכל חוזר למצב הקודם בסוף.
+ * (לא פעמיים) → שכר ממסך השכר לא נוכה (דן 17/11) אלא אם מסמנים → "שולם" שמקשר תשלום שכבר רשום (רכב 4,570). נתונים סינתטיים; הכל חוזר למצב הקודם בסוף.
  */
 import { chromium } from 'playwright'
 import { readFileSync, existsSync, mkdirSync } from 'node:fs'
@@ -21,17 +21,19 @@ const p0 = Buffer.from(JSON.stringify({ k: 'dan', r: 'owner', d: ['finance', 're
 await ctx.addCookies([{ name: 'harel_crm_user', value: encodeURIComponent(p0 + '.' + createHmac('sha256', 'harel-crm-user-v1:' + (env.SECRETS_KEY || env.APP_PASSWORD || '')).update(p0).digest('base64url')), url: BASE }])
 const page = await ctx.newPage(), errs = []; page.on('pageerror', (e) => errs.push(e.message)); page.on('dialog', (d) => d.accept())
 await page.addInitScript(() => { sessionStorage.setItem('harel-unlock', String(Date.now() + 36e5)); sessionStorage.setItem('harel-user', JSON.stringify({ resp: 'dan', label: 'דן' })) })
-let saved = null; const TX = ['e2eacc-in10', 'e2eacc-in11', 'e2eacc-ex11']
+let saved = null; const TX = ['e2eacc-in10', 'e2eacc-in11', 'e2eacc-ex11', 'e2eacc-car11']
 const D = () => page.evaluate(() => { const x = stmtData('all'); return x && { accNet: x.accNet, profit: x.profit, share: x.share, n: x.accItems.length, html: stmtHtml(x, false) } })
 try {
   await page.goto(BASE + '/crm?key=' + encodeURIComponent(env.APP_PASSWORD || '')); await page.waitForFunction('typeof S !== "undefined" && S.ready', null, { timeout: 60000 })
   await page.waitForTimeout(2000); await page.evaluate(() => { const l = document.getElementById('layer'); if (l) l.innerHTML = ''; document.getElementById('callpop')?.remove() })
-  saved = await page.evaluate(() => JSON.parse(JSON.stringify({ acc: S.settings.accruals || null, pay: S.settings.payroll || null })))
+  saved = await page.evaluate(() => JSON.parse(JSON.stringify({ acc: S.settings.accruals || null, pay: S.settings.payroll || null, nps: S.settings.nissimPayScreen === true })))
+  await page.evaluate(() => write('settings/main', { nissimPayScreen: false }, 'update'))
   await page.evaluate(async (ids) => {
     const t = (id, x) => write('transactions/' + id, { id, division: 'finance', deductible: true, review: 'ok', source: 'e2e', createdAt: stamp(), updatedAt: stamp(), ...x })
     await t(ids[0], { nature: 'income', clientId: 'e2e-acc-client', date: '2026-10-15', net: 60000, gross: 70800, counterparty: 'לקוח בדיקה' })
     await t(ids[1], { nature: 'income', clientId: 'e2e-acc-client', date: '2026-11-03', net: 40000, gross: 47200, counterparty: 'לקוח בדיקה' })
     await t(ids[2], { nature: 'expense', date: '2026-11-04', net: -500, gross: -590, category: 'משרד', counterparty: 'ספק בדיקה' })
+    await t(ids[3], { nature: 'expense', date: '2026-11-08', net: -4570, gross: -5392.6, category: 'שיווק', counterparty: 'קמפיין רכב E2E' })
     await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: [...((S.settings.payroll || {}).employees || []), { key: 'e2eh', name: 'עובדת בדיקה', division: 'finance', active: true, components: [{ id: 'c1', type: 'rate', label: 'שעות', unit: 'hours', rate: 50 }] }] } }, 'update')
   }, TX)
   await page.waitForFunction(() => S.transactions.has('e2eacc-ex11') && (S.settings.payroll?.employees || []).some((e) => e.key === 'e2eh'))
@@ -62,11 +64,27 @@ try {
   assert(tx.net === -17850 && tx.date === '2026-11-05', 'תנועה נרשמה: −17,850 נטו ב-05/11, מקושרת להתחייבות')
   assert(close(d2.profit, d1.profit) && close(d2.share, d1.share), `הרווח לחלוקה לא השתנה (${d2.profit.toFixed(2)}) — לא נוכה פעמיים`)
 
-  step('הזנת שכר נובמבר (180 שעות × 50) → התחייבות השכר יורדת לבד')
+  step('דן 17/11: שכר שהוזן במסך השכר (180 שעות × 50) לא נוכה מהחשבון עם ניסים — רק ההתחייבות שהוזנה')
   await page.evaluate(async () => { await write('payroll/2026-11__e2eh', { id: '2026-11__e2eh', month: '2026-11', emp: 'e2eh', q: { hours: 180 }, approved: false, updatedAt: stamp() }) })
   await page.waitForFunction(() => S.payroll.has('2026-11__e2eh')); await page.waitForTimeout(400)
   const d3 = await D()
-  assert(close(d2.profit - d3.profit, 9000 - 11091) && !/שכר עובדת בדיקה — נובמבר/.test(d3.html.split('נוכו לפני החלוקה')[1] || ''), 'השכר בפועל (9,000) במקום ההתחייבות (11,091) — לא שניהם')
+  assert(close(d3.profit, d2.profit) && !/לפי מסך השכר/.test(d3.html) && /שכר עובדת בדיקה — נובמבר/.test(d3.html), 'אין שורת "שכר (לפי מסך השכר)"; התחייבות השכר (11,091) נשארת — הרווח לא השתנה')
+  await page.click('[data-nispayscreen]'); await page.waitForFunction(() => S.settings.nissimPayScreen === true); await page.waitForTimeout(400)
+  const d3b = await D()
+  assert(close(d2.profit - d3b.profit, 9000 - 11091) && /לפי מסך השכר/.test(d3b.html), 'מסמנים "לנכות גם שכר ממסך השכר" → השכר המחושב (9,000) במקום ההתחייבות — לא שניהם')
+  await page.click('[data-nispayscreen]'); await page.waitForFunction(() => S.settings.nissimPayScreen === false); await page.waitForTimeout(300)
+
+  step('"שולם" על התחייבות שהתשלום שלה כבר רשום (קמפיין רכב 4,570) → קישור, בלי הוצאה כפולה')
+  await add('קמפיין רכב E2E — נובמבר', '2026-11', 4570, 'marketing'); await page.waitForTimeout(300)
+  const d4 = await D(), nTx = await page.evaluate(() => live(S.transactions).length)
+  const cid = await page.evaluate(() => S.settings.accruals.items.find((x) => x.label === 'קמפיין רכב E2E — נובמבר').id)
+  await page.click(`[data-accpaid="${cid}"]`); await page.waitForSelector('#d_link'); await page.selectOption('#d_link', 'e2eacc-car11'); await page.click('#dsave')
+  await page.waitForFunction((id) => S.settings.accruals.items.find((x) => x.id === id).paidTxId === 'e2eacc-car11' && S.transactions.get('e2eacc-car11').accrualId === id, cid); await page.waitForTimeout(400)
+  const d5 = await D()
+  assert(await page.evaluate(() => live(S.transactions).length) === nTx, 'לא נרשמה תנועה חדשה — התנועה הקיימת קושרה')
+  assert(close(d5.profit, d4.profit + 4570), `ההוצאה הקיימת (4,570) כבר בהוצאות — ההתחייבות לא נוכית עליה שוב (רווח ${d4.profit.toFixed(0)} → ${d5.profit.toFixed(0)})`)
+  const rowTxt = await page.evaluate(() => [...document.querySelectorAll('[data-accedit]')].map((b) => b.closest('tr')).find((tr) => tr && tr.textContent.includes('קמפיין רכב E2E'))?.textContent || '')
+  assert(/שולם/.test(rowTxt), 'בטבלת ההתחייבויות: "שולם" (' + rowTxt.replace(/\s+/g, ' ').slice(0, 80) + ')')
 
   step('קמפיין: הוצאה 8,225.48 ל-238 לידים → עלות לליד מחושבת לבד')
   await page.evaluate(() => formCampaign(null)); await page.waitForSelector('#d_leadsCount')
@@ -85,7 +103,7 @@ try {
     for (const t of live(S.transactions).filter((x) => ids.includes(x.id) || (x.accrualId && (S.settings.accruals?.items || []).some((a) => a.id === x.accrualId && /E2E/.test(a.label))))) await write('transactions/' + t.id, { deletedAt: stamp() }, 'update')
     for (const c of live(S.campaigns).filter((x) => x.name === 'E2E הלוואות רכב')) await write('campaigns/' + c.id, { deletedAt: stamp() }, 'update')
     if (S.payroll.has('2026-11__e2eh')) await write('payroll/2026-11__e2eh', { deletedAt: stamp() }, 'update')
-    await write('settings/main', { accruals: s.acc || { items: [], recur: [] }, payroll: s.pay || { employees: [] } }, 'update')
+    await write('settings/main', { accruals: s.acc || { items: [], recur: [] }, payroll: s.pay || { employees: [] }, nissimPayScreen: s.nps }, 'update')
   }, { s: saved, ids: TX }).catch((e) => console.error('ניקוי:', e.message))
   await b.close()
 }
