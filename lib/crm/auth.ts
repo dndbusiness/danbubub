@@ -14,6 +14,20 @@ import { envSecret, secretEq } from '@/lib/secret'
 import { githubOidc } from '@/lib/gh-oidc'
 import type { CrmDoc } from '@/lib/crm/docs.js'
 import { SERVER_ONLY, SERVER_WRITE } from '@/lib/crm/ai-queue'
+import { GATE_COOKIE, gateToken, sameToken } from '@/lib/gate'
+
+/** עבר את שער המשרד (עוגיית השער). בלי APP_PASSWORD (פיתוח מקומי) — כן. דף ה-CRM והכניסה פתוחים בלי השער (middleware.ts) */
+export async function gatePassed(req: Request): Promise<boolean> {
+  const pw = process.env.APP_PASSWORD
+  if (!pw) return true
+  const raw = req.headers.get('cookie') ?? '', m = raw.split(/;\s*/).find((c) => c.startsWith(GATE_COOKIE + '='))
+  return sameToken(m ? decodeURIComponent(m.slice(GATE_COOKIE.length + 1)) : '', await gateToken(pw))
+}
+/** עוגיית השער (30 יום) — נקבעת עם הכניסה האישית, כדי שכל שאר המערכת תיפתח אחריה */
+export async function gateCookie(secure: boolean): Promise<string | null> {
+  const pw = process.env.APP_PASSWORD
+  return pw ? `${GATE_COOKIE}=${await gateToken(pw)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${60 * 60 * 24 * 30}` : null
+}
 
 export const USER_COOKIE = 'harel_crm_user'
 export const SESSION_DAYS = 14
@@ -266,5 +280,6 @@ export async function effectiveSession(req: Request): Promise<CrmSession | null>
   const e = Date.now() + 60e3, owner: CrmSession = { k: 'dan', r: 'owner', d: DIVS, l: 'דן', e }
   if (secretEq(req.headers.get('x-crm-keeper'), envSecret('JOBS_SECRET'))) return owner
   if (req.headers.has('x-gh-oidc') && (await githubOidc(req)).ok) return owner /* השומר מ-GitHub Actions, בלי סוד */
-  return lockConfigured(await crmSettings()) ? null : owner
+  /* מערכת בלי סיסמת נעילה: מי שעבר את שער המשרד הוא הבעלים — רק מאחורי השער (הדף והכניסה פתוחים בלי השער) */
+  return lockConfigured(await crmSettings()) || !(await gatePassed(req)) ? null : owner
 }

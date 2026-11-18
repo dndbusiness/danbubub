@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { sessionCookie, throttle } from '@/lib/crm/auth'
+import { gateCookie, sessionCookie, throttle } from '@/lib/crm/auth'
 import { ensureMember } from '@/lib/crm/store'
 import { sendLoginCode, verifyLoginCode } from '@/lib/crm/login-code'
 
@@ -27,7 +27,9 @@ export async function POST(req: Request) {
     if (!r.ok) return NextResponse.json({ code: 'unauthenticated', message: r.error }, { status: 401 })
     await ensureMember(r.session).catch(() => {})
     const res = NextResponse.json({ key: r.session.k, role: r.session.r, divs: r.session.d, label: r.session.l })
-    res.headers.append('set-cookie', sessionCookie(r.session, new URL(req.url).protocol === 'https:'))
+    const secure = new URL(req.url).protocol === 'https:', gc = await gateCookie(secure)
+    res.headers.append('set-cookie', sessionCookie(r.session, secure))
+    if (gc) res.headers.append('set-cookie', gc)
     return res
   } catch (e) {
     return NextResponse.json({ code: 'unavailable', message: 'השרת לא זמין כרגע — נסו שוב בעוד רגע (' + (e as Error).message + ')' }, { status: 503 })
