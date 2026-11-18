@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { crmSettings, lockConfigured, sessionCookie, throttle, verifyLogin } from '@/lib/crm/auth'
+import { crmSettings, gateCookie, lockConfigured, sessionCookie, throttle, verifyLogin } from '@/lib/crm/auth'
 import { ensureMember } from '@/lib/crm/store'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,9 @@ export async function POST(req: Request) {
   /* עובד בלי חבר צוות — נוצר עכשיו, כדי שיופיע בשמו (S.me) ולא כדן. כשל כאן לא חוסם כניסה. */
   await ensureMember(s).catch(() => {})
   const res = NextResponse.json({ key: s.k, role: s.r, divs: s.d, label: s.l })
-  res.headers.append('set-cookie', sessionCookie(s, new URL(req.url).protocol === 'https:'))
+  const secure = new URL(req.url).protocol === 'https:', gc = await gateCookie(secure)
+  res.headers.append('set-cookie', sessionCookie(s, secure))
+  if (gc) res.headers.append('set-cookie', gc) /* הכניסה הרגילה פותחת גם את שער המשרד — בלי מסך "קוד גישה" */
   return res
 }
 
