@@ -12769,7 +12769,10 @@ async function ikExtract(cid) {
   const x = intakeDoc(cid), F = IK_FIELDS(), idx = Object.fromEntries(F.map((f, i) => [f[0], i]));
   S.ikSug = { cid, busy: true, rows: [], ask: [] }; render();
   try {
-    const r = await sample.json(ikPrompt(F, x, txt), { modelTier: 'default', cache: false, ...aiSrv({ label: 'מילוי שדות מהשיחה' }) }), rows = [];
+    /* דן 19/11 ("למה לא עובד"): תשובה שנקטעה או JSON שבור — ניסיון שני אוטומטי עם יותר מקום לתשובה */
+    const ask = (tier) => sample.json(ikPrompt(F, x, txt), { modelTier: tier, cache: false, ...aiSrv({ label: 'מילוי שדות מהשיחה' }) });
+    let r; try { r = await ask('default'); } catch (e) { if (!e || !['invalid_json', 'upstream_error'].includes(e.code)) throw e; r = await ask('complex'); }
+    const rows = [];
     for (const it of (r && Array.isArray(r.fields) ? r.fields : [])) {
       const i = idx[it && it.path]; if (i == null || rows.some((q) => q.path === it.path)) continue;
       const f = F[i], val = ikCoerce(f, it.value), cur = ikGet(x, f[0]); if (val === undefined || cur === val || (val === false && !cur)) continue;
@@ -12778,7 +12781,11 @@ async function ikExtract(cid) {
     }
     rows.sort((a, b) => a.i - b.i);
     S.ikSug = { cid, rows, ask: (r && Array.isArray(r.ask) ? r.ask : []).map((q) => String(q).trim()).filter(Boolean).slice(0, 6), at: stamp() };
-  } catch (e) { S.ikSug = { cid, rows: [], ask: [], err: ({ not_granted: 'לא אושר שימוש ב-Claude', rate_limited: 'יותר מדי בקשות — נסה בעוד רגע', sampling_disabled: 'Claude לא זמין לחשבון' }[e && e.code]) || 'Claude לא הצליח לפרק את המלל — נסה שוב' }; }
+  } catch (e) { const c = e && e.code, why = String((e && e.message) || '').slice(0, 160);
+    S.ikSug = { cid, rows: [], ask: [], err: ({ not_granted: 'Claude לא מחובר לשרת (' + why + ')', rate_limited: 'יותר מדי בקשות — נסה בעוד רגע', sampling_disabled: 'Claude לא זמין לחשבון',
+      resource_exhausted: 'תקרת השימוש היומית ב-Claude נגמרה' + (why ? ' — ' + why : '') + '. הניצול בכרטיס "Claude API — ניצול"; את התקרה מעלים ב-Vercel (AI_DAILY_ILS), או מנסים מחר',
+      invalid_json: 'Claude החזיר תשובה לא שלמה גם בניסיון השני — נסה שוב, או קצר את המלל', upstream_error: 'החיבור ל-Claude נקטע' + (why ? ' (' + why + ')' : '') + ' — נסה שוב',
+      refused: 'Claude סירב לבקשה' }[c]) || ('Claude לא הצליח לפרק את המלל' + (why ? ': ' + why : '') + ' — נסה שוב') }; }
   render();
 }
 async function ikApply(cid) {

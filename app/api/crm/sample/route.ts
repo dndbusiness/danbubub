@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     const rv = await reserve(analysis ? 'intake_analysis' : 'sample')
     if (rv.ok) { mode = 'api'; rsv = rv.r }
     else if (qAlive) mode = 'queue'
-    else return NextResponse.json({ code: 'resource_exhausted', message: rv.message }, { status: 429 })
+    else { console.warn('crm/sample resource_exhausted'); return NextResponse.json({ code: 'resource_exhausted', message: rv.message }, { status: 429 }) }
   } else if (qAlive) mode = 'queue'
   if (!mode) return NextResponse.json({ code: 'not_granted', message: 'Claude לא מחובר לשרת' }, { status: 503 })
 
@@ -115,11 +115,13 @@ export async function POST(req: Request) {
         ms.on('text', (d) => { text += d; send({ d }) })
         const msg = await ms.finalMessage()
         cost = costIls(msg.model, [msg.usage as UsageLike])
+        if (msg.stop_reason !== 'end_turn') console.warn('crm/sample', tier, 'stop_reason=' + msg.stop_reason, 'out=' + text.length) /* בלי תוכן — רק למה נעצר */
         if (msg.stop_reason === 'refusal') send({ error: { code: 'refused', message: 'Claude סירב לבקשה', text } })
         else send({ done: true, text, truncated: msg.stop_reason === 'max_tokens' })
       } catch (e) {
         const err = e as { status?: number; message?: string; name?: string }
         const code = req.signal.aborted || err.name === 'APIUserAbortError' ? 'cancelled' : err.status === 429 ? 'rate_limited' : 'upstream_error'
+        console.error('crm/sample', tier, code, err.status ?? '', String(err.message ?? e).slice(0, 300)) /* בלי תוכן הבקשה */
         try { send({ error: { code, message: err.message ?? String(e), text } }) } catch { /* הלקוח כבר ניתק */ }
       } finally {
         /* בלי usage (נקטע באמצע) — נספר מלא, כדי לא לעבור את התקרה; נכשל לפני טקסט — 0 */
