@@ -4260,7 +4260,7 @@ const srcChannel = (s) => s.channel || ((s.marketer || 'אבינועם') === 'א
 const leadChannel = (l) => l.channel || (!l.marketer || l.marketer === 'אבינועם' ? (l.source === 'sheet' ? 'אבינועם' : l.marketer || l.platform || 'ידני') : (l.marketer + ' ' + (l.ctype || '')).trim());
 const leadType = (l) => { if (l.ctype) return l.ctype; if (l.source === 'sheet' && (!l.marketer || l.marketer === 'אבינועם')) return 'נכסים'; const t = [l.campaign, l.ad, l.platform].join(' '); return /רכב/.test(t) ? 'רכב' : /עסק/.test(t) ? 'עסקים' : /נכס|משכנתא|דירה/.test(t) ? 'נכסים' : ''; };
 const srcOfLead = (l) => leadSources().find((s) => l.srcKey ? srcKey(s) === l.srcKey : (s.label || 'טבלת לידים') === l.sheet);
-const leadCostOf = (l) => l.source === 'sheet' ? n((srcOfLead(l) || {}).costPerLead) : 0;
+const leadCostOf = (l) => l.source === 'sheet' ? leadPriceOf(l) : 0; /* דן 20/11: המחיר לפי חודש הליד (leadTerms) */
 const FORM_STATUS = { 'לא מתאים לבדיקה': 'ineligible', 'נבדק לא עבר': 'ineligible', 'לא זכאי': 'ineligible', 'לא רלוונטי': 'lost', 'בטיפול': 'contacted', 'עבר לבדיקה': 'checking', 'בבדיקה': 'checking', 'אין מענה': 'noanswer', 'פולו אפ': 'followup', 'חושב על זה': 'thinking', 'קיבל אישור גביה תקינה': 'won', 'קיבל אישור': 'won', 'אין רכב': 'ineligible', 'אין עסק': 'ineligible', 'לא מעוניין': 'lost', 'לא מעוניינת': 'lost', 'חתם': 'won', 'ליד כפול': 'duplicate', 'מספר לא תקין': 'invalid' };
 const OLD_UNTOUCHED_DAYS = 120;
 const xlsxDate = (c) => { if (!c || typeof c.v !== 'number' || c.v < 30000 || c.v > 80000) return null; const d = XLSX.SSF.parse_date_code(c.v), p2 = (k) => String(k).padStart(2, '0'); return d ? d.y + '-' + p2(d.m) + '-' + p2(d.d) + 'T' + p2(d.H) + ':' + p2(d.M) + ':00' : null; };
@@ -4412,7 +4412,7 @@ function leadSheetCard() {
     (!S.mcp ? '<div class="notice warn"><b>אין חיבור לגוגל דרייב בתצוגה הזו</b><span>הגדרות ← "חבר את גוגל" (עם הרשאת דרייב).</span></div>' : '');
   return '<section class="card"><header><h2>לידים מהטבלאות — הר-אל פתרונות</h2><span class="hint">' + runs + '</span><span class="grow"></span>' + (S.isOwner ? '<button class="btn small primary" data-act="leadSync">סנכרן עכשיו</button>' + srcs.map(lsUpload).join('') : '') + '</header>' + why +
     '<div class="grid4">' + kpi('לידים', '<span class="num">' + tot.leads + '</span>', tot.credit + ' לזיכוי · ' + tot.billable + ' לחיוב', null) +
-      kpi('שילמתי על לידים', money(tot.spend, { tone: 'open' }), tot.billable + ' × ' + plain(n((srcs[0] || {}).costPerLead || 150)) + ' · ' + tot.credit + ' לזיכוי לא נספרים', null) +
+      kpi('שילמתי על לידים', money(tot.spend, { tone: 'open' }), tot.billable + ' לידים · מחיר היום ' + plain(leadCost()) + ' · ' + tot.credit + ' לזיכוי לא נספרים', null) +
       kpi('יחס המרה', '<span class="num">' + conv + '%</span>', tot.won + ' חתמו מתוך ' + tot.conv + ' · עלות ללקוח ' + (tot.won ? plain(Math.round(tot.spend / tot.won)) : '—'), null) +
       kpi('עסקאות מהלידים', money(tot.fee, { tone: 'committed' }), 'שכ״ט · היקף הלוואות ' + (tot.base ? plain(tot.base) : '—') + ' · ' + tot.follow + ' מתעניינים · ' + tot.noans + ' אין מענה · ' + tot.fresh + ' חדשים', null) + '</div>' +
     '<div class="scroll"><table><thead><tr><th>מקור · מודעה</th><th>לידים</th><th>לזיכוי</th><th>עלות</th><th>חדש</th><th>אין מענה</th><th>מתעניינים</th><th>לא רלוונטי</th><th>חתמו</th><th>המרה</th><th>שכ״ט</th></tr></thead><tbody>' +
@@ -7790,7 +7790,7 @@ const CREDIT_TONE = { pending: 'open', requested: 'expected', approved: 'actual'
 const creditOf = (l) => l.creditState || 'pending';
 const canApproveCredit = () => S.isOwner || S.isPartner;
 const paidSrc = () => leadSources().find((s) => n(s.costPerLead) > 0) || {};
-const leadCost = () => n(paidSrc().costPerLead || 150);
+const leadCost = () => { const s0 = paidSrc(); return termsPrice(leadTermsOf(supOfSrc(s0)), today().slice(0, 7), n(s0.costPerLead || 150)); };
 const leadMarketer = () => paidSrc().marketer || 'אבינועם';
 const creditable = (l) => isCredit(l) && leadCostOf(l) > 0;
 async function creditSet(ids, state) {
@@ -8953,38 +8953,103 @@ const divSeg = (key, cur) => S.division === 'all' && DIVS.filter(canSeeDiv).leng
 const billCat = (l) => leadDiv(l) === 'realestate' ? 'נדל״ן' : (LEAD_TYPES.includes(leadType(l)) ? leadType(l) : 'אחר');
 const billMonthOf = (l) => String(dayOf(l.createdAt) || '').slice(0, 7);
 const billDueOf = (m) => addMonth(m + '-01').slice(0, 7) + '-10'; /* דן 27/10: אבינועם נסגר ב-30, משולם עד ה-10 (היה 15) */
+/* ══ חבילות לידים — פונקציות טהורות (דן 20/11: "אבינועם — המחיר השתנה ל-160 מתחילת החודש · החשבון 50% בתחילת חבילה, 50% בסוף חבילה ·
+   הזיכוי לא בכסף אלא בלידים חלופיים") ══
+   · תנאים לפי חודש (settings.leadTerms[ספק] = [{from:'YYYY-MM', price}]): המחיר של ליד = התנאי האחרון שה-from שלו ≤ חודש הליד; חודשים קודמים — המחיר הישן.
+   · חבילה (settings.leadPackages): N לידים × מחיר. הלידים של הספק נכנסים לחבילות לפי התאריך, הראשונה שעוד לא התמלאה קודם.
+     ליד לזיכוי לא נספר ב-N — הספק משלים במקומו ליד חלופי (בלי כסף). החבילה נגמרת כשנכנסו N לידים טובים.
+   · כסף: N × מחיר. 50% בתחילת החבילה (מקדמה), 50% בסוף החבילה. תשלום נרשם על החבילה (leadBills עם pkgId). */
+function termsPrice(terms, month, base) {
+  let price = Number(base) || 0, from = '';
+  for (const t of (terms || [])) if (t && t.from && t.from <= month && t.from >= from && Number(t.price) > 0) { price = Number(t.price); from = t.from; }
+  return price;
+}
+/** leads: [{id, at:'YYYY-MM-DD', credit}] של ספק אחד בחברה אחת; pkgs: החבילות שלו. מחזיר מצב לכל חבילה + הלידים שלפני החבילה הראשונה */
+function pkgAssign(pkgs, leads) {
+  const P = (pkgs || []).filter((x) => x && !x.deletedAt && x.start && Number(x.leads) > 0).slice().sort((a, b) => String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id)))
+    .map((x) => ({ id: x.id, start: x.start, n: Number(x.leads), in: [], credit: [], good: [], doneAt: null }));
+  const before = [], extra = [];
+  for (const l of (leads || []).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)) || String(a.id).localeCompare(String(b.id)))) {
+    if (!P.length || String(l.at) < P[0].start) { before.push(l.id); continue; }
+    const k = P.find((x) => x.start <= String(l.at) && x.good.length < x.n);
+    if (!k) { extra.push(l.id); continue; }
+    k.in.push(l.id); if (l.credit) k.credit.push(l.id); else { k.good.push(l.id); if (k.good.length === k.n) k.doneAt = String(l.at); }
+  }
+  return { pkgs: P.map((x) => ({ ...x, remaining: Math.max(0, x.n - x.good.length), done: !!x.doneAt })), before, extra };
+}
+/** הכסף של חבילה: מקדמה = חצי בתחילה, יתרה = חצי בסוף. paid = מה ששולם על החבילה (הולך קודם למקדמה) */
+function pkgMoney(pkg, st, paid) {
+  const amount = Math.round(Number(pkg.leads) * Number(pkg.price) * 100) / 100, adv = Math.round(amount * 50) / 100, fin = Math.round((amount - adv) * 100) / 100, p = Number(paid) || 0;
+  const advLeft = Math.max(0, Math.round((adv - p) * 100) / 100), finLeft = Math.max(0, Math.round((fin - Math.max(0, p - adv)) * 100) / 100);
+  const dueNow = Math.round((advLeft + (st && st.done ? finLeft : 0)) * 100) / 100;
+  return { amount, adv, fin, advLeft, finLeft, advDue: pkg.start, finDue: st && st.doneAt ? st.doneAt : null, dueNow, over: Math.max(0, Math.round((p - amount) * 100) / 100) };
+}
+/* ══ סוף חבילות לידים — פונקציות טהורות ══ */
+const supOfSrc = (src) => (src && src.marketer) || 'אבינועם';
+const leadTermsOf = (sup) => ((S.settings.leadTerms || {})[sup]) || [];
+const leadPkgsOf = (sup, div) => (S.settings.leadPackages || []).filter((x) => !x.deletedAt && x.supplier === sup && (x.division || 'finance') === div);
+/** המחיר של ליד מסוים — לפי החודש שלו (מחיר שהשתנה לא משנה חודשים קודמים) */
+const leadPriceOf = (l) => { const src = l.source === 'sheet' ? srcOfLead(l) : null; if (!src) return 0; const base = n(src.costPerLead); return base || leadTermsOf(supOfSrc(src)).length ? termsPrice(leadTermsOf(supOfSrc(src)), billMonthOf(l), base) : 0; };
 function leadBill(month, div) {
-  const sup = {}, mk = (name) => (sup[name] = sup[name] || { name, cats: {}, in: 0, credit: 0, billable: 0, charge: 0, ids: [] });
-  for (const l of live(S.leads)) {
-    if (billMonthOf(l) !== month || leadDiv(l) !== div) continue;
-    const src = l.source === 'sheet' ? srcOfLead(l) : null, price = n(src && src.costPerLead); if (!price) continue;
-    const S1 = mk(src.marketer || 'אבינועם'), cat = billCat(l), r = (S1.cats[cat] = S1.cats[cat] || { cat, price, in: 0, credit: 0, billable: 0, charge: 0, ids: { in: [], credit: [], billable: [] } });
-    const cr = isCredit(l) && creditOf(l) !== 'rejected';
+  const sup = {}, mk = (name) => (sup[name] = sup[name] || { name, cats: {}, in: 0, credit: 0, billable: 0, charge: 0, ids: [], pkgs: [], pkgDue: [] });
+  const isCr = (l) => isCredit(l) && creditOf(l) !== 'rejected';
+  /* חבילות (דן 20/11): הלידים של ספק עם חבילות נכנסים לחבילות לפי התאריך — לא מחויבים לפי ליד בחודש */
+  const sheetL = live(S.leads).filter((l) => l.source === 'sheet' && leadDiv(l) === div && srcOfLead(l)), inPkg = new Map(), extraIds = {};
+  const pkgSups = [...new Set((S.settings.leadPackages || []).filter((x) => !x.deletedAt && (x.division || 'finance') === div).map((x) => x.supplier))];
+  for (const name of pkgSups) {
+    const P = leadPkgsOf(name, div), A = pkgAssign(P, sheetL.filter((l) => supOfSrc(srcOfLead(l)) === name).map((l) => ({ id: l.id, at: dayOf(l.createdAt), credit: isCr(l) })));
+    A.pkgs.forEach((st) => { const pk = P.find((x) => x.id === st.id); st.in.forEach((id) => inPkg.set(id, pk)); });
+    extraIds[name] = A.extra; A.extra.forEach((id) => inPkg.set(id, null));
+    const pays = live(S.leadBills).filter((p) => p.pkgId && p.supplier === name && (p.division || 'finance') === div);
+    for (const st of A.pkgs) {
+      const pk = P.find((x) => x.id === st.id), endM = st.doneAt ? st.doneAt.slice(0, 7) : '9999-12';
+      const pp = pays.filter((p) => p.pkgId === pk.id).sort((x, y) => String(x.date).localeCompare(String(y.date))), paid = r2(pp.reduce((x, p) => x + n(p.amount), 0)), M = pkgMoney(pk, st, paid);
+      if (pk.start.slice(0, 7) <= month && endM >= month) { const S1 = mk(name); S1.pkgs.push({ pk, st, M, pays: pp, paid });
+        if (M.advLeft > 0) S1.pkgDue.push({ date: pk.start, amount: M.advLeft, label: 'מקדמה 50% · חבילה מ-' + dLabel(pk.start) });
+        if (M.finLeft > 0) S1.pkgDue.push({ date: st.doneAt || null, amount: M.finLeft, label: 'יתרה 50% · ' + (st.doneAt ? 'החבילה הסתיימה ' + dLabel(st.doneAt) : 'בסוף החבילה (נשארו ' + st.remaining + ' לידים)') }); }
+    }
+    if (A.extra.some((id) => billMonthOf(S.leads.get(id)) === month)) mk(name).extra = A.extra.filter((id) => billMonthOf(S.leads.get(id)) === month);
+  }
+  for (const l of sheetL) {
+    if (billMonthOf(l) !== month) continue;
+    const price = leadPriceOf(l); if (!price) continue;
+    const S1 = mk(supOfSrc(srcOfLead(l))), cat = billCat(l), pk = inPkg.get(l.id);
+    if (inPkg.has(l.id)) { /* בחבילה: העלות החודשית (לדוחות) = לידים טובים × מחיר החבילה; התשלום — לפי החבילה */ if (pk && !isCr(l)) S1.pkgCost = r2(n(S1.pkgCost) + n(pk.price)); continue; }
+    const r = (S1.cats[cat] = S1.cats[cat] || { cat, price, in: 0, credit: 0, billable: 0, charge: 0, ids: { in: [], credit: [], billable: [] } });
+    const cr = isCr(l);
     r.in++; r.ids.in.push(l.id); if (cr) { r.credit++; r.ids.credit.push(l.id); } else { r.billable++; r.charge = r2(r.charge + price); r.ids.billable.push(l.id); }
   }
-  const pays = live(S.leadBills).filter((p) => p.month === month && (p.division || 'finance') === div);
+  const pays = live(S.leadBills).filter((p) => !p.pkgId && p.month === month && (p.division || 'finance') === div);
   pays.forEach((p) => mk(p.supplier));
   Object.values(sup).forEach((S1) => { const cs = Object.values(S1.cats); ['in', 'credit', 'billable'].forEach((k) => { S1[k] = cs.reduce((a, r) => a + r[k], 0); }); S1.charge = r2(cs.reduce((a, r) => a + r.charge, 0));
-    S1.pays = pays.filter((p) => p.supplier === S1.name).sort((a, b) => String(a.date).localeCompare(String(b.date))); S1.paid = r2(S1.pays.reduce((a, p) => a + n(p.amount), 0)); S1.due = r2(S1.charge - S1.paid); });
+    S1.pays = pays.filter((p) => p.supplier === S1.name).sort((a, b) => String(a.date).localeCompare(String(b.date))); S1.paid = r2(S1.pays.reduce((a, p) => a + n(p.amount), 0)); S1.due = r2(S1.charge - S1.paid);
+    S1.cost = r2(S1.charge + n(S1.pkgCost)); /* עלות הלידים של החודש — לפי ליד + חבילות */ });
   const ads = {}; live(S.campaigns).filter((c) => (c.division || 'finance') === div).forEach((c) => { const v = n((c.monthly || {})[month]); if (!v) return;
     const L1 = live(S.leads).find((l) => [c.name, ...(c.leadCampaigns || [])].includes(l.campaign)), cat = L1 ? billCat(L1) : div === 'realestate' ? 'נדל״ן' : 'אחר';
     (ads[cat] = ads[cat] || { cat, amount: 0, camps: [] }).amount = r2(ads[cat].amount + v); ads[cat].camps.push(c.name); });
-  return { sup: Object.values(sup).sort((a, b) => b.charge - a.charge), ads: Object.values(ads), due: billDueOf(month) };
+  return { sup: Object.values(sup).sort((a, b) => b.cost - a.cost), ads: Object.values(ads), due: billDueOf(month) };
 }
 function vLeadBill(div) {
   if (!(S.isOwner && S.can('money'))) return '<p class="empty">חשבון הלידים — לבעלים בלבד.</p>';
   const t0 = today(), cur = t0.slice(0, 7), months = Array.from({ length: 6 }, (_, i) => addMonths(cur + '-01', -i).slice(0, 7)), m = S.f.billM && months.includes(S.f.billM) ? S.f.billM : cur;
   const B = leadBill(m, div), C = convMonth(m, m === cur ? t0 : null), ids = (S._billIds = {}), drill = (key, title, list) => { ids[key] = { title, list }; return '<button class="xlink num" data-billdrill="' + esc(key) + '">' + list.length + '</button>'; };
   const sel = '<div class="seg" role="group" aria-label="חודש">' + months.slice().reverse().map((x) => '<button data-billm="' + x + '" aria-pressed="' + (x === m) + '">' + esc(mLabel(x)) + '</button>').join('') + '</div>';
-  const supCards = B.sup.map((S1) => { const st = S1.due > 0 ? ['open', 'לתשלום ' + plain(S1.due) + ' עד ' + dLabel(B.due)] : S1.due < 0 ? ['actual', 'יתרת זכות ' + plain(-S1.due)] : ['actual', S1.charge ? 'שולם במלואו' : '—'];
+  const supCards = B.sup.map((S1) => { const pkNow = r2(S1.pkgs.reduce((a, x) => a + x.M.dueNow, 0)), due0 = r2(Math.max(0, S1.due) + pkNow);
+    const st = due0 > 0 ? ['open', 'לתשלום עכשיו ' + plain(due0) + (S1.due > 0 ? ' (לפי ליד עד ' + dLabel(B.due) + ')' : '')] : S1.due < 0 ? ['actual', 'יתרת זכות ' + plain(-S1.due)] : ['actual', S1.charge || S1.pkgs.length ? 'אין כרגע לתשלום' : '—'];
+    const w = S.canWrite, hasCats = Object.keys(S1.cats).length || S1.pays.length;
     return '<section class="card"><header><h2>' + esc(S1.name) + '</h2><span class="pill ' + st[0] + '">' + st[1] + '</span>' + (m === cur ? '<span class="hint">החודש עוד לא נסגר — נכון להיום</span>' : '') + '<span class="grow"></span>' +
-      (S.canWrite ? '<button class="btn small" data-billpay="' + esc(S1.name) + '">+ תשלום על החשבון</button>' : '') + '</header>' +
+      (w ? '<button class="btn small ghost" data-leadprice="' + esc(S1.name) + '" title="מחיר לליד מחודש מסוים — חודשים קודמים נשארים במחיר הישן">מחיר לליד: ' + plain(termsPrice(leadTermsOf(S1.name), m, 0) || n((paidSrc() || {}).costPerLead)) + '</button><button class="btn small" data-pkgnew="' + esc(S1.name) + '">+ חבילה</button>' : '') +
+      (w && hasCats ? '<button class="btn small" data-billpay="' + esc(S1.name) + '">+ תשלום על החשבון</button>' : '') + '</header>' +
+      S1.pkgs.map((x) => pkgCard(S1.name, x, drill)).join('') +
+      (S1.extra && S1.extra.length ? '<p class="hint" style="color:var(--open);margin:6px 0">' + drill(S1.name + '|extra', S1.name + ' · מעבר לחבילות', S1.extra) + ' לידים נכנסו אחרי שכל החבילות התמלאו — לפתוח חבילה חדשה (+ חבילה), והם ייכנסו אליה.</p>' : '') +
+      (!hasCats ? '' : (S1.pkgs.length ? '<h3 class="sec">לפי ליד (לפני החבילה)</h3>' : '') +
       '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>לזיכוי</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
         Object.values(S1.cats).sort((a, b) => b.charge - a.charge).map((r) => '<tr><td class="wide">' + esc(r.cat) + '</td><td>' + drill(S1.name + '|' + r.cat + '|in', S1.name + ' · ' + r.cat + ' · נכנסו', r.ids.in) + '</td><td>' + drill(S1.name + '|' + r.cat + '|cr', S1.name + ' · ' + r.cat + ' · לזיכוי', r.ids.credit) + '</td><td>' + drill(S1.name + '|' + r.cat + '|b', S1.name + ' · ' + r.cat + ' · לחיוב', r.ids.billable) + '</td><td>' + plain(r.price) + '</td><td><b>' + money(r.charge) + '</b></td></tr>').join('') +
         '<tr class="tot"><td>סה״כ חיוב ' + esc(mLabel(m)) + '</td><td class="num">' + S1.in + '</td><td class="num">' + S1.credit + '</td><td class="num">' + S1.billable + '</td><td></td><td><b>' + money(S1.charge) + '</b></td></tr>' +
         S1.pays.map((p) => '<tr><td colspan="5" class="wide">שולם על החשבון · ' + dLabel(p.date) + (p.note ? ' · ' + esc(p.note) : '') + (S.canWrite ? ' <button class="xlink" data-billpaydel="' + esc(p.id) + '" aria-label="מחק תשלום">מחק</button>' : '') + '</td><td>' + money(-n(p.amount), { tone: 'actual' }) + '</td></tr>').join('') +
         '<tr class="tot"><td colspan="5">' + (S1.due >= 0 ? 'נשאר לשלם (עד ' + dLabel(B.due) + ')' : 'יתרת זכות — שולם יותר מהחיוב') + '</td><td><b>' + money(Math.abs(S1.due), { tone: S1.due > 0 ? 'open' : 'actual' }) + '</b></td></tr>' +
-      '</tbody></table></div></section>'; }).join('');
+      '</tbody></table></div>') + '</section>'; }).join('');
+  const noSup = !B.sup.length && S.canWrite ? '<div class="row" style="gap:6px;margin-bottom:10px"><button class="btn small ghost" data-leadprice="' + esc(leadMarketer()) + '">מחיר לליד — ' + esc(leadMarketer()) + '</button><button class="btn small" data-pkgnew="' + esc(leadMarketer()) + '">+ חבילה — ' + esc(leadMarketer()) + '</button></div>' : '';
   const ads = B.ads.length ? '<section class="card"><header><h2>פרסום ששולם ישירות (קמפיינים)</h2></header><div class="scroll"><table><thead><tr><th>קטגוריה</th><th>קמפיינים</th><th>הוצאה ' + esc(mLabel(m)) + '</th></tr></thead><tbody>' +
     B.ads.map((a) => '<tr><td>' + esc(a.cat) + '</td><td class="wide">' + a.camps.map(esc).join(' · ') + '</td><td>' + money(a.amount) + '</td></tr>').join('') + '</tbody></table></div><p class="hint" style="margin:6px 0 0">מהשדה "הוצאה לפי חודש" בשיווק ← קמפיינים.</p></section>' : '';
   const cats = Object.values(C).filter((g) => g.tot.in).sort((a, b) => b.tot.in - a.tot.in), cost = (t) => r2(B.sup.reduce((a, S1) => a + n((S1.cats[t] || {}).charge), 0) + n((B.ads.find((x) => x.cat === t) || {}).amount));
@@ -8993,14 +9058,62 @@ function vLeadBill(div) {
       return '<tr><td class="wide">' + esc(g.t) + '</td><td>' + k('in') + '</td><td>' + k('credit') + '</td><td>' + k('handled') + '</td><td>' + k('check') + '</td><td><b>' + k('closed') + '</b></td><td><b>' + (T.handled ? Math.round(T.closed / T.handled * 1000) / 10 + '%' : '—') + '</b></td><td>' + (cc ? money(cc) : '—') + '</td><td>' + (cc && T.closed ? plain(Math.round(cc / T.closed)) : '—') + '</td></tr>'; }).join('') +
     '</tbody></table></div>' : '<p class="empty">אין לידים בחודש הזה.</p>') + '<p class="hint" style="margin:6px 0 0">לפי התאריך של הליד בטבלה. טופלו = מי שדיברו איתו; לזיכוי ועוד לא טופלו לא נספרים ביחס.</p></section>';
   return '<div class="row" style="align-items:center;margin-bottom:8px"><h2 class="grow" style="margin:0">חשבון לידים · ' + esc(L.division[div]) + '</h2>' + sel + '</div>' +
-    '<p class="hint" style="margin:0 0 10px">חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לזיכוי לא מחויב. תשלום לספק — עד ה-10 בחודש שאחרי (' + dLabel(B.due) + ').</p>' +
-    (supCards || '<p class="empty">אין לידים בתשלום לליד בחודש הזה' + (live(S.leadBills).length ? '' : ' (מחיר לליד מוגדר בהגדרות ← טבלאות לידים)') + '.</p>') + ads + conv;
+    '<p class="hint" style="margin:0 0 10px">חודש = מה-1 עד סוף החודש, לפי התאריך של הליד בטבלה (לא מתי הועלה). לפי ליד: לזיכוי לא מחויב, תשלום עד ה-10 בחודש שאחרי (' + dLabel(B.due) + '). בחבילה: 50% בתחילתה, 50% בסופה, ולזיכוי מוחלף בליד חלופי — לא בכסף.</p>' +
+    noSup + (supCards || '<p class="empty">אין לידים בתשלום לליד בחודש הזה' + (live(S.leadBills).length ? '' : ' (מחיר לליד מוגדר בהגדרות ← טבלאות לידים)') + '.</p>') + ads + conv;
 }
-function billPayForm(supplier, div) {
-  const m = S.f.billM || today().slice(0, 7);
-  drawer('תשלום על החשבון — ' + supplier, fi('amount', 'סכום ששולם (₪)', '', 'number', 'min="0" step="1"') + fi('date', 'תאריך התשלום', today(), 'date') + fi('month', 'על חשבון החודש', m, 'month') + fi('note', 'הערה', '', 'text'), async (d) => {
+/* כרטיס חבילה: לידים טובים מתוך N · לזיכוי = חלופיים (לא כסף) · מקדמה 50% בתחילה · יתרה 50% בסוף — כל מספר נפתח לרשימה */
+function pkgCard(sup, x, drill) {
+  const { pk, st, M, pays } = x, w = S.canWrite, key = sup + '|pkg|' + pk.id;
+  const row = (l, v) => '<tr><td class="wide">' + l + '</td><td>' + v + '</td></tr>';
+  return '<div class="ppanel" style="margin:8px 0" data-pkg="' + esc(pk.id) + '"><div class="row" style="align-items:center;gap:6px;flex-wrap:wrap"><b>חבילה מ-' + dLabel(pk.start) + '</b><span class="hint">' + pk.leads + ' לידים × ' + plain(pk.price) + ' = ' + plain(M.amount) + (pk.note ? ' · ' + esc(pk.note) : '') + '</span>' +
+      '<span class="pill ' + (st.done ? 'actual' : 'committed') + '">' + (st.done ? 'הסתיימה ' + dLabel(st.doneAt) : 'פעילה · נשארו ' + st.remaining) + '</span><span class="grow"></span>' +
+      (w ? '<button class="btn small" data-pkgpay="' + esc(pk.id) + '">+ תשלום</button><button class="btn small ghost" data-pkgedit="' + esc(pk.id) + '">עריכה</button><button class="btn small ghost" data-pkgdel="' + esc(pk.id) + '" aria-label="מחיקת החבילה">✕</button>' : '') + '</div>' +
+    '<div class="scroll"><table><tbody>' +
+      row('לידים טובים בחבילה', drill(key + '|good', sup + ' · חבילה מ-' + dLabel(pk.start) + ' · טובים', st.good) + ' מתוך ' + st.n) +
+      row('לזיכוי — מוחלפים בלידים חלופיים, לא בכסף', drill(key + '|credit', sup + ' · חבילה מ-' + dLabel(pk.start) + ' · לזיכוי', st.credit) + (st.credit.length && !st.done ? ' <span class="hint">· לא נספרים ב-' + st.n + ' — הספק משלים במקומם</span>' : '')) +
+      row('מקדמה 50% — בתחילת החבילה (' + dLabel(pk.start) + ')', M.advLeft ? money(M.advLeft, { tone: 'open' }) + ' לתשלום' : '✓ ' + money(M.adv, { tone: 'actual' })) +
+      row('יתרה 50% — בסוף החבילה' + (st.doneAt ? ' (' + dLabel(st.doneAt) + ')' : ''), M.finLeft ? money(M.finLeft, { tone: st.done ? 'open' : 'committed' }) + (st.done ? ' לתשלום' : ' <span class="hint">כשהחבילה תסתיים</span>') : '✓ ' + money(M.fin, { tone: 'actual' })) +
+      pays.map((p) => row('שולם · ' + dLabel(p.date) + (p.note ? ' · ' + esc(p.note) : '') + (w ? ' <button class="xlink" data-billpaydel="' + esc(p.id) + '" aria-label="מחק תשלום">מחק</button>' : ''), money(-n(p.amount), { tone: 'actual' }))).join('') +
+      (M.over ? row('שולם יותר מהחבילה', money(M.over, { tone: 'actual' })) : '') +
+    '</tbody></table></div></div>';
+}
+const pkgList = () => (S.settings.leadPackages || []);
+function pkgForm(supplier, div, id) {
+  const cur = id ? pkgList().find((x) => x.id === id) : null, m0 = today().slice(0, 7);
+  drawer(cur ? 'עריכת חבילה — ' + cur.supplier : 'חבילת לידים חדשה — ' + supplier,
+    fi('start', 'תחילת החבילה', cur ? cur.start : m0 + '-01', 'date') + fi('leads', 'כמה לידים בחבילה', cur ? cur.leads : '', 'number', 'min="1" step="1" inputmode="numeric"') +
+    fi('price', 'מחיר לליד (₪)', cur ? cur.price : termsPrice(leadTermsOf(supplier), m0, n((paidSrc() || {}).costPerLead)), 'number', 'min="0" step="0.01"') + fi('note', 'הערה', cur ? cur.note || '' : '', 'text') +
+    '<p class="full hint">50% מהחבילה בתחילתה, 50% בסוף (כשנכנסו כל הלידים הטובים). ליד לזיכוי לא נספר — הספק משלים במקומו ליד חלופי, בלי כסף. הלידים נכנסים לחבילה לפי התאריך שלהם מתחילת החבילה.</p>',
+    async (d) => {
+      const leads = Math.round(n(d.leads)), price = r2(d.price), start = String(d.start || '');
+      if (!(leads > 0) || !(price > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return 'למלא תחילה, כמה לידים ומחיר';
+      const body = { start, leads, price, note: String(d.note || '').trim() };
+      const list = cur ? pkgList().map((x) => x.id === cur.id ? { ...x, ...body, updatedAt: stamp() } : x) : [...pkgList(), { id: 'p' + uid(), supplier, division: div, ...body, createdAt: stamp(), by: S.me.id }];
+      await write('settings/main', { leadPackages: list }, 'update'); toast('החבילה נשמרה — ' + leads + ' × ' + plain(price) + ' = ' + plain(r2(leads * price)) + ' · מקדמה ' + plain(r2(leads * price / 2))); render();
+    }, '', cur ? 'שמור' : 'הוסף חבילה');
+}
+function leadPriceForm(supplier) {
+  const T = leadTermsOf(supplier).slice().sort((a, b) => String(a.from).localeCompare(String(b.from))), base = n((paidSrc() || {}).costPerLead);
+  drawer('מחיר לליד — ' + supplier, '<p class="full hint" style="margin-top:0">המחיר חל על לידים מהחודש שנבחר והלאה. חודשים קודמים נשארים במחיר שהיה' + (base ? ' (בסיס: ' + plain(base) + ')' : '') + '.</p>' +
+    (T.length ? '<div class="full scroll"><table><tbody>' + T.map((t) => '<tr><td class="wide">מ-' + esc(mLabel(t.from)) + '</td><td>' + plain(t.price) + '</td><td><button type="button" class="xlink" data-leadpricedel="' + esc(supplier + '|' + t.from) + '">מחק</button></td></tr>').join('') + '</tbody></table></div>' : '') +
+    fi('from', 'החל מחודש', today().slice(0, 7), 'month') + fi('price', 'מחיר לליד (₪)', '', 'number', 'min="0" step="0.01"'),
+    async (d) => {
+      const price = r2(d.price), from = String(d.from || ''); if (!(price > 0) || !/^\d{4}-\d{2}$/.test(from)) return 'למלא חודש ומחיר';
+      const all = { ...(S.settings.leadTerms || {}) }; all[supplier] = [...leadTermsOf(supplier).filter((t) => t.from !== from), { from, price, at: stamp(), by: S.me.id }];
+      await write('settings/main', { leadTerms: all }, 'update'); toast('מ-' + mLabel(from) + ': ' + plain(price) + ' לליד'); render();
+    }, '', 'שמור');
+  /* מחיקת מחיר מתוך המגירה — הלחיצות בתוך המגירה לא מגיעות למטפל הכללי */
+  document.querySelectorAll('#layer [data-leadpricedel]').forEach((b) => b.addEventListener('click', async () => {
+    const [sup, from] = b.dataset.leadpricedel.split('|'); if (!confirm('למחוק את המחיר מ-' + mLabel(from) + '?')) return;
+    const all = { ...(S.settings.leadTerms || {}) }; all[sup] = leadTermsOf(sup).filter((t) => t.from !== from);
+    await write('settings/main', { leadTerms: all }, 'update'); $('layer').innerHTML = ''; toast('נמחק'); render(); }));
+}
+function billPayForm(supplier, div, pkgId) {
+  const m = S.f.billM || today().slice(0, 7), pk = pkgId ? pkgList().find((x) => x.id === pkgId) : null;
+  const pkS = pk ? leadBill(m, div).sup.flatMap((x) => x.pkgs).find((x) => x.pk.id === pk.id) : null, sugg = pkS ? (pkS.M.advLeft || pkS.M.finLeft || '') : '';
+  drawer((pk ? 'תשלום על חבילה מ-' + dLabel(pk.start) + ' — ' : 'תשלום על החשבון — ') + supplier, fi('amount', 'סכום ששולם (₪)', sugg, 'number', 'min="0" step="1"') + fi('date', 'תאריך התשלום', today(), 'date') + (pk ? '' : fi('month', 'על חשבון החודש', m, 'month')) + fi('note', 'הערה', pk && pkS && pkS.M.advLeft ? 'מקדמה 50%' : pk ? 'יתרה 50%' : '', 'text'), async (d) => {
     const amount = r2(d.amount); if (!(amount > 0)) return 'צריך סכום';
-    const id = uid(); await write('leadBills/' + id, { id, supplier, division: div, month: d.month || m, amount, date: d.date || today(), note: (d.note || '').trim(), createdAt: stamp(), by: S.me.id });
+    const id = uid(); await write('leadBills/' + id, { id, supplier, division: div, month: pk ? pk.start.slice(0, 7) : d.month || m, amount, date: d.date || today(), note: (d.note || '').trim(), ...(pk ? { pkgId: pk.id } : {}), createdAt: stamp(), by: S.me.id });
     toast('נרשם תשלום של ' + plain(amount) + ' ל' + supplier);
   }, '', 'שמור');
 }
@@ -10809,7 +10922,8 @@ function forecastItems(days = 120) {
   });
   /* חשבון לידים: היתרה לספק ב-15 בחודש שאחרי (החודש הנוכחי — נכון להיום) */
   if (S.isOwner) DIVS.filter((dv) => inDiv({ division: dv })).forEach((dv) => [addMonths(t0.slice(0, 7) + '-01', -1).slice(0, 7), t0.slice(0, 7)].forEach((m) => leadBill(m, dv).sup.forEach((s1) => {
-    if (s1.due > 0) items.push({ date: billDueOf(m) < t0 ? t0 : billDueOf(m), amount: -s1.due, label: 'לידים — ' + s1.name + ' · ' + mLabel(m) + (m === t0.slice(0, 7) ? ' (נכון להיום)' : ''), sure: m !== t0.slice(0, 7) }); })));
+    if (s1.due > 0) items.push({ date: billDueOf(m) < t0 ? t0 : billDueOf(m), amount: -s1.due, label: 'לידים — ' + s1.name + ' · ' + mLabel(m) + (m === t0.slice(0, 7) ? ' (נכון להיום)' : ''), sure: m !== t0.slice(0, 7) });
+    if (m === t0.slice(0, 7)) (s1.pkgDue || []).forEach((x) => items.push({ date: !x.date || x.date < t0 ? t0 : x.date, amount: -x.amount, label: 'לידים — ' + s1.name + ' · ' + x.label, sure: !!x.date })); })));
   const card = nissimCard(), last = card[card.length - 1];
   if (last && last.transfer > 0 && S.division !== 'realestate') items.push({ date: addMonth(last.month + '-10'), amount: -last.transfer, label: 'העברה לניסים', sure: true });
   return { items: all.filter((i) => i.date && i.date <= end).sort((a, b) => String(a.date).localeCompare(b.date)), undated: undated0, low: low.filter((i) => i.amount > 0), t0, end };
@@ -11268,8 +11382,8 @@ function settleFixedLeft(r, m) {
   /* ספקי לידים (אבינועם): לידים לחיוב × מחיר, פחות מה ששולם על החשבון — מה שעתיד לצאת עד ה-10 */
   const LB = leadBill(m, 'finance');
   /* מה שכבר ירד כהוצאה (תנועה עם שם הספק) כבר בתוך הקבועות — נוסף רק ההפרש, כדי שמקדמה שנרשמה רק בחשבון הלידים לא תיעלם מהעלויות */
-  for (const S1 of LB.sup) { const inTx = r2(-txs.filter((t) => [t.counterparty, t.description].join(' ').includes(S1.name)).reduce((a, t) => a + n(t.net), 0)), v = r2(S1.charge - inTx);
-    if (v > 0) items.push({ id: 'leads:' + S1.name, kind: 'leads', sup: S1.name, name: S1.name + ' — ' + (S1.due > 0 ? 'עתיד לצאת ' + plain(S1.due) + ' עד ' + dLabel(billDueOf(m)) : 'שולם על החשבון'), sub: S1.billable + ' לידים לחיוב = ' + plain(S1.charge) + (S1.paid ? ' · שולמה מקדמה ' + plain(S1.paid) : '') + (inTx ? ' · בהוצאות כבר ' + plain(inTx) : ''), amount: v }); }
+  for (const S1 of LB.sup) { const inTx = r2(-txs.filter((t) => [t.counterparty, t.description].join(' ').includes(S1.name)).reduce((a, t) => a + n(t.net), 0)), v = r2(S1.cost - inTx);
+    if (v > 0) items.push({ id: 'leads:' + S1.name, kind: 'leads', sup: S1.name, name: S1.name + ' — ' + (S1.due > 0 ? 'עתיד לצאת ' + plain(S1.due) + ' עד ' + dLabel(billDueOf(m)) : 'שולם על החשבון'), sub: (S1.billable ? S1.billable + ' לידים לחיוב = ' + plain(S1.charge) : '') + (S1.pkgCost ? (S1.billable ? ' · ' : '') + 'בחבילה: ' + plain(S1.pkgCost) : '') + (S1.paid ? ' · שולמה מקדמה ' + plain(S1.paid) : '') + (inTx ? ' · בהוצאות כבר ' + plain(inTx) : ''), amount: v }); }
   /* פייסבוק: מה שנמשך ממנהל המודעות / הוזן בדיווח השבועי, פחות מה שכבר ירד כהוצאה */
   const ads = r2(LB.ads.reduce((a, x) => a + n(x.amount), 0)), fbPaid = r2(-txs.filter((t) => /פייסבוק|facebook|meta/i.test([t.counterparty, t.category, t.description].join(' '))).reduce((a, t) => a + n(t.net), 0));
   if (ads - fbPaid > 0) items.push({ id: 'ads', kind: 'ads', name: 'פייסבוק — לפי ' + (S.metaOn ? 'מנהל המודעות' : 'הדיווח השבועי'), sub: 'הוצאה בקמפיינים ' + plain(ads) + (fbPaid ? ' · כבר ירד ' + plain(fbPaid) : ''), amount: r2(ads - fbPaid) });
@@ -13527,6 +13641,12 @@ document.addEventListener('click', async (e) => {
     if (d.convdrill) return convDrill(d.convdrill);
     if (d.billm) { S.f.billM = d.billm; return render(); }
     if (d.billpay) return billPayForm(d.billpay, screenDiv('mktDiv'));
+    if (d.pkgnew) return pkgForm(d.pkgnew, screenDiv('mktDiv'));
+    if (d.pkgedit) return pkgForm(null, screenDiv('mktDiv'), d.pkgedit);
+    if (d.pkgpay) { const pk = pkgList().find((x) => x.id === d.pkgpay); return pk ? billPayForm(pk.supplier, pk.division || 'finance', pk.id) : null; }
+    if (d.pkgdel) { const pk = pkgList().find((x) => x.id === d.pkgdel); if (!pk || !S.canWrite || !confirm('למחוק את החבילה מ-' + dLabel(pk.start) + '? הלידים שלה יחזרו לחיוב לפי ליד.')) return;
+      await write('settings/main', { leadPackages: pkgList().map((x) => x.id === pk.id ? { ...x, deletedAt: stamp(), deletedBy: S.me.id } : x) }, 'update'); toast('החבילה נמחקה'); return render(); }
+    if (d.leadprice) return leadPriceForm(d.leadprice);
     if (d.billpaydel) { if (!S.canWrite || !confirm('למחוק את רישום התשלום?')) return; await write('leadBills/' + d.billpaydel, { deletedAt: stamp(), deletedBy: S.me.id }, 'update'); return toast('נמחק — מסומן, לא נמחק פיזית'); }
     if (d.billdrill) { const x = (S._billIds || {})[d.billdrill]; if (!x) return; $('layer').innerHTML = '<div class="scrim" id="gsScrim"><div class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(x.title) + '"><header><h2 class="grow">' + esc(x.title) + ' <span class="hint">' + x.list.length + '</span></h2><button type="button" class="btn small ghost" data-gsclose aria-label="סגור">✕</button></header><div class="gsres">' + (x.list.length ? x.list.map((id) => S.leads.get(id)).filter(Boolean).map((l) => dashRowHtml('lead', l)).join('') : '<p class="empty">אין</p>') + '</div></div></div>'; return; }
     if (d.dash !== undefined) { S.f.dash = d.dash || null; S.f.dashEdit = false; const x = dashCur(); if (x) S.f.dashRange = x.range || 'month'; return render(); }
