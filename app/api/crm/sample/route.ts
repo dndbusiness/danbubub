@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { effectiveSession } from '@/lib/crm/auth'
-import { llmAvailable } from '@/lib/intake/llm'
+import { keyRejected, llmAvailable, markKeyRejected } from '@/lib/intake/llm'
 import { enqueue, fail, jobOf, queueAlive, validApply, JOB_TIMEOUT_MS } from '@/lib/crm/ai-queue'
 import { costIls, reserve, settle, type Reservation, type UsageLike } from '@/lib/ai/budget'
 
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     else if (qAlive) mode = 'queue'
     else { console.warn('crm/sample resource_exhausted'); return NextResponse.json({ code: 'resource_exhausted', message: rv.message }, { status: 429 }) }
   } else if (qAlive) mode = 'queue'
-  if (!mode) return NextResponse.json({ code: 'not_granted', message: 'Claude לא מחובר לשרת' }, { status: 503 })
+  if (!mode) return NextResponse.json({ code: 'not_granted', message: keyRejected() ? 'מפתח Claude בשרת (ANTHROPIC_API_KEY ב-Vercel) נדחה — לא תקין או בוטל. צריך מפתח חדש מ-console.anthropic.com, להחליף ב-Vercel ולעשות Redeploy' : 'Claude לא מחובר לשרת' }, { status: 503 })
 
   if (mode === 'queue') {
     const job = await enqueue(session, {
@@ -120,9 +120,13 @@ export async function POST(req: Request) {
         else send({ done: true, text, truncated: msg.stop_reason === 'max_tokens' })
       } catch (e) {
         const err = e as { status?: number; message?: string; name?: string }
-        const code = req.signal.aborted || err.name === 'APIUserAbortError' ? 'cancelled' : err.status === 429 ? 'rate_limited' : 'upstream_error'
+        const code = req.signal.aborted || err.name === 'APIUserAbortError' ? 'cancelled' : err.status === 429 ? 'rate_limited' : err.status === 401 || err.status === 403 ? 'not_granted' : 'upstream_error'
         console.error('crm/sample', tier, code, err.status ?? '', String(err.message ?? e).slice(0, 300)) /* בלי תוכן הבקשה */
-        try { send({ error: { code, message: err.message ?? String(e), text } }) } catch { /* הלקוח כבר ניתק */ }
+        /* דן 22/11: 401 invalid x-api-key — המפתח בשרת בוטל. הודעה ברורה במקום JSON גולמי; הבקשות הבאות עוברות לתור (אם פעיל) */
+        if (err.status === 401) markKeyRejected()
+        const message = err.status === 401 ? 'מפתח Claude בשרת (ANTHROPIC_API_KEY ב-Vercel) לא תקין או בוטל — צריך מפתח חדש מ-console.anthropic.com, להחליף ב-Vercel ולעשות Redeploy' + (qAlive ? '. עד אז נסו שוב — הבקשה תעבור לתור על המנוי' : '')
+          : err.message ?? String(e)
+        try { send({ error: { code, message, text } }) } catch { /* הלקוח כבר ניתק */ }
       } finally {
         /* בלי usage (נקטע באמצע) — נספר מלא, כדי לא לעבור את התקרה; נכשל לפני טקסט — 0 */
         if (rsv) await settle(rsv, cost ?? (text ? rsv.maxIls : 0)).catch(() => null)
