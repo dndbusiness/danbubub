@@ -3128,6 +3128,68 @@ function vClient(id) {
       '</div>' +
     '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + callsCard('clientId', c.id) + signCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
+/* ══ מוכנות להגשה — פונקציה טהורה (דן 22/11: "מוכנות להגשה להוסיף", כמו ב-WISE) ══
+   inp = {poa:[{label,ok}], data:[{label,ok}], pti (0..1|null), ltv (0..1|null), ltvMax, regs:[{label,ok}], docs:[{label,ok}]}
+   הגשה דיגיטלית = כתב הסמכה + נתונים + יחס החזר + אחוז מימון + רגולציה · הגשה עם מסמכים = הכל + המסמכים */
+function readyCalc(inp) {
+  const pct = (d, t) => (t ? Math.round(d / t * 100) : 0);
+  const cat = (key, label, items) => { const done = items.filter((i) => i.ok === true).length, warn = items.filter((i) => i.ok === 'warn').length; return { key, label, items, done, tot: items.length, missing: items.length - done - warn, warn, pct: pct(done + warn * 0.5, items.length) }; };
+  const ptiItem = inp.pti == null ? { label: 'חסרים הכנסות או החזר חודשי', ok: false } : inp.pti <= 0.4 ? { label: 'יחס החזר ' + Math.round(inp.pti * 100) + '% — תקין', ok: true } : inp.pti <= 0.5 ? { label: 'יחס החזר ' + Math.round(inp.pti * 100) + '% — בין 40% ל-50% (משקל סיכון גבוה)', ok: 'warn' } : { label: 'יחס החזר ' + Math.round(inp.pti * 100) + '% — מעל 50%', ok: false };
+  const ltvItem = inp.ltv == null ? { label: 'חסרים שווי נכס או סכום', ok: false } : inp.ltv <= inp.ltvMax ? { label: 'אחוז מימון ' + Math.round(inp.ltv * 100) + '% — עד ' + Math.round(inp.ltvMax * 100) + '%', ok: true } : { label: 'אחוז מימון ' + Math.round(inp.ltv * 100) + '% — מעל ' + Math.round(inp.ltvMax * 100) + '%', ok: false };
+  const dig = [cat('poa', 'כתב הסמכה — 4 הבנקים הגדולים', inp.poa || []), cat('data', 'נתוני הבקשה', inp.data || []), cat('pti', 'יחס החזר (הוראה 329)', [ptiItem]), cat('ltv', 'אחוז מימון', [ltvItem]), cat('reg', 'עמידה ברגולציה', inp.regs || [])];
+  const full = [...dig, cat('docs', 'מסמכים', inp.docs && inp.docs.length ? inp.docs : [{ label: 'עוד אין רשימת מסמכים לתיק', ok: false }])];
+  const sum = (L0) => { const t = L0.reduce((a, c) => a + c.tot, 0), d = L0.reduce((a, c) => a + c.done + c.warn * 0.5, 0); return t ? Math.round(d / t * 100) : 0; };
+  const T = dig.reduce((a, c) => a + c.tot, 0), next = dig.filter((c) => c.missing > 0).sort((a, b) => b.missing - a.missing || a.tot - b.tot)[0] || null;
+  return { digital: { cats: dig, pct: sum(dig) }, full: { cats: full, pct: sum(full) }, next: next ? { key: next.key, label: next.label, gain: Math.round(next.missing / T * 100) } : null };
+}
+/* ══ סוף מוכנות להגשה ══ */
+const BIG4 = [['לאומי', /לאומי|leumi/i], ['הפועלים', /פועלים|hapoalim|poalim/i], ['דיסקונט', /דיסקונט|discount/i], ['מזרחי טפחות', /מזרחי|טפחות|mizrahi|tefahot/i]];
+function readyInput(c) {
+  const x0 = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)) || {}, x = x0.kind ? x0 : { ...x0, kind: intakeKind(x0, c.id) }, C = intakeCalc(x), R = x.request || {}, B = (x.borrowers || [])[0] || {}, cr = x.credit || {};
+  const env = Array.isArray((S.signRes || {})[c.id]) ? S.signRes[c.id] : [];
+  const poa = BIG4.map(([b, rx]) => ({ label: 'כתב הסמכה — ' + b, bank: b, ok: !!((c.poa || {})[b] || env.some((e) => e.state === 'completed' && rx.test((e.lender || '') + ' ' + (e.title || '')) && (e.category === 'poa' || /הסמכה|ייפוי|הרשאה|מסמיכ/.test(e.title || '')))) }));
+  const has = (v) => v != null && String(v).trim() !== '' && !(typeof v === 'number' && !v);
+  const data = [{ label: 'סכום מבוקש', ok: has(C.amount) }, { label: 'תקופה (שנים)', ok: has(R.years) || x.kind === 'car' }, { label: 'מטרת ההלוואה', ok: has(R.purpose) || x.kind !== 'mortgage' }, { label: 'שווי הנכס', ok: has(C.value) },
+    { label: 'לווה ראשי — שם ות״ז', ok: has(B.name || c.name) && has(B.idNumber || c.idNumber) }, { label: 'הכנסות', ok: C.inc > 0 }];
+  const ltvMax = ['any', 'business', 'developer', 'consolidation'].includes(R.purpose) ? 0.5 : x.kind === 'car' ? 1 : 0.75;
+  const bd = B.birth || B.birthDate || '', age = bd ? ageOf(String(bd).split('/').length === 3 ? String(bd).split('/').reverse().join('-') : bd) : null, endAge = age != null ? age + n(C.years) : null;
+  const regs = [{ label: 'תקופה עד 30 שנה' + (C.years ? ' (' + C.years + ')' : ''), ok: !C.years ? false : C.years <= 30 }, { label: endAge == null ? 'גיל בסוף ההלוואה — חסר תאריך לידה' : 'גיל בסוף ההלוואה ' + endAge + (endAge <= 85 ? '' : ' — מעל 85'), ok: endAge != null && endAge <= 85 },
+    { label: cr.restricted || cr.bankruptcy ? 'חשבון מוגבל / הליך חדלות פירעון' : 'אין הגבלה או חדלות פירעון', ok: !(cr.restricted || cr.bankruptcy) }];
+  const docs = (c.checklist || []).map((i) => ({ label: i.label, ok: i.status === 'done' }));
+  return { poa, data, pti: C.pti, ltv: C.ltv, ltvMax, regs, docs };
+}
+function readyCard(c) {
+  if ((c.division || 'finance') === 'realestate') return ''; if (window.__harelServer && (S.signRes || {})[c.id] === undefined) { S.signRes = S.signRes || {}; S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
+  const Rd = readyCalc(readyInput(c)), mode = (S.f.readyMode || {})[c.id] === 'full' ? 'full' : 'digital', M = Rd[mode], w = S.canTask;
+  const ring = (p, big) => { const r = big ? 46 : 16, L0 = 2 * Math.PI * r, sz = big ? 108 : 40; return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" aria-hidden="true"><circle cx="' + sz / 2 + '" cy="' + sz / 2 + '" r="' + r + '" fill="none" stroke="var(--border)" stroke-width="' + (big ? 8 : 4) + '"/><circle cx="' + sz / 2 + '" cy="' + sz / 2 + '" r="' + r + '" fill="none" stroke="var(--' + (p >= 80 ? 'actual' : p >= 40 ? 'committed' : 'open') + ')" stroke-width="' + (big ? 8 : 4) + '" stroke-dasharray="' + (L0 * p / 100).toFixed(1) + ' ' + L0.toFixed(1) + '" transform="rotate(-90 ' + sz / 2 + ' ' + sz / 2 + ')" stroke-linecap="round"/><text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-size="' + (big ? 24 : 11) + '" font-weight="700" fill="var(--text)">' + p + '%</text></svg>'; };
+  const icon = (k) => k.missing ? '<span class="pill open">✗</span>' : k.warn ? '<span class="pill expected">!</span>' : '<span class="pill actual">✓</span>';
+  const row = (k) => '<details class="rcat"' + ((S.f.readyOpen || {})[c.id + k.key] ? ' open' : '') + ' data-readyopen="' + esc(c.id + k.key) + '"><summary class="row" style="gap:8px;align-items:center;cursor:pointer;padding:8px 0">' + icon(k) + '<b class="grow">' + esc(k.label) + '</b><span class="hint">' + (k.missing ? k.missing + ' חסרים' : k.warn ? k.warn + ' לטיפול' : 'הושלם') + '</span><span class="cbt" style="width:90px" aria-hidden="true"><i style="width:' + k.pct + '%"></i></span><span class="num hint" style="width:36px">' + k.pct + '%</span></summary>' +
+    '<div style="padding:0 6px 8px">' + k.items.map((i, ix) => '<div class="row" style="gap:6px;align-items:center">' + (k.key === 'poa' && w ? '<input type="checkbox" class="cb" data-readypoa="' + esc(c.id + '|' + i.bank) + '"' + (i.ok ? ' checked' : '') + ' aria-label="' + esc(i.label) + '">' : (i.ok === true ? '✓' : i.ok === 'warn' ? '!' : '✗')) + '<span' + (i.ok === true ? ' class="hint"' : '') + '>' + esc(i.label) + '</span></div>').join('') +
+      (k.key === 'poa' ? '<p class="hint" style="margin:4px 0 0">מסומן לבד כשנחתם כתב הסמכה של הבנק במערכת; חתום במקום אחר — מסמנים כאן.</p>' : k.key === 'data' || k.key === 'reg' || k.key === 'pti' || k.key === 'ltv' ? '<button class="btn small ghost" data-intake="' + esc(c.id) + '" style="margin-top:4px">הכר את הלקוח ↗</button>' : '') + '</div></details>';
+  const nx = Rd.next;
+  return '<section class="card" id="readyCard"><header><h2>מוכנות התיק להגשה לבנקים</h2></header>' +
+    '<div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:8px">' + [['digital', 'הגשה דיגיטלית', 'כתב הסמכה ונתונים — בלי מסמכים'], ['full', 'הגשה עם מסמכים', 'הכל + המסמכים']].map(([k, t, sub]) => '<button class="card" style="display:flex;gap:8px;align-items:center;padding:8px 12px;text-align:start;border:2px solid var(--' + (mode === k ? 'committed' : 'border') + ')" data-readymode="' + esc(c.id + '|' + k) + '">' + ring(Rd[k].pct) + '<span><b>' + t + '</b><br><small class="hint">' + sub + '</small></span></button>').join('') + '</div>' +
+    '<div class="row" style="gap:16px;align-items:flex-start;flex-wrap:wrap"><div class="grow" style="min-width:260px">' + M.cats.map(row).join('') + '</div>' +
+      '<div style="width:200px;text-align:center">' + ring(M.pct, true) + '<p class="hint" style="margin:4px 0">מוכן ל' + (mode === 'full' ? 'הגשה עם מסמכים' : 'הגשה דיגיטלית') + '</p>' + (M.pct < 100 ? '<p><b>עוד ' + (100 - M.pct) + '% עד תיק מוכן</b></p>' : '<p class="pill actual">התיק מוכן</p>') +
+        (nx && mode === 'digital' ? '<div class="notice info" style="display:block;text-align:start"><span class="hint">הצעד הבא</span><br><b>' + esc(nx.label) + '</b><br><span class="t-actual">+' + nx.gain + '% למדד המוכנות</span></div>' : '') + '</div></div></section>';
+}
+document.addEventListener('toggle', (e) => { const d = e.target; if (d && d.dataset && d.dataset.readyopen) S.f.readyOpen = { ...(S.f.readyOpen || {}), [d.dataset.readyopen]: d.open }; }, true);
+/* "ההגשות שלי לבנקים" — תמונת מצב ללקוח (דן 22/11, כמו ב-WISE) — להדפסה / PDF */
+function mySubsHtml(c) {
+  const S2 = (c.submissions || []).filter((x) => x && x.bank), g = (x) => subGroupOf(x.status), ap = S2.filter((x) => ['approved', 'executed'].includes(g(x))), pend = S2.filter((x) => g(x) === 'submitted'), dec = S2.filter((x) => g(x) === 'declined');
+  const rate = ap.length + dec.length ? Math.round(ap.length / (ap.length + dec.length) * 100) + '%' : '—', banks = new Set(S2.map((x) => x.bank)).size, days = (d) => d ? Math.max(0, Math.round((Date.parse(today()) - Date.parse(d)) / 864e5)) : null;
+  const box = (v, t, col) => '<div style="flex:1;min-width:90px;border:1px solid #E4E7EC;border-radius:12px;padding:10px;text-align:center;background:' + col + '"><div style="font-size:22px;font-weight:700">' + v + '</div><div style="font-size:12px;color:#475467">' + t + '</div></div>';
+  const head = pend.length && !ap.length ? 'ממתינים לתשובות הבנקים' : ap.length ? 'יש אישור — ממשיכים לביצוע' : dec.length && !pend.length ? 'כל הבקשות נענו' : 'בהכנה';
+  return '<div dir="rtl" style="width:720px;padding:22px;font-family:Arial,sans-serif;color:#101828;background:#fff"><div style="font-size:12px;color:#475467">תמונת מצב עדכנית · ' + dLabel(today()) + '</div><h2 style="margin:2px 0 12px">ההגשות שלי לבנקים — ' + esc(c.name) + '</h2>' +
+    '<div style="border:1px solid #F5D08A;background:#FFF8EB;border-radius:12px;padding:12px;margin-bottom:12px"><b>' + head + '</b><div style="font-size:13px;color:#475467">' + (pend.length ? pend.length + ' בקשות בבדיקה' + (pend.some((x) => x.submittedAt) ? ' · הוותיקה ביותר ' + Math.max(...pend.map((x) => days(x.submittedAt) || 0)) + ' ימים' : '') : '') + '</div></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' + box(S2.length, 'הגשות', '#F5F7FA') + box(banks, 'גופים', '#F5F7FA') + box(ap.length, 'אושרו', '#ECFDF3') + box(pend.length, 'ממתינים', '#FFF8EB') + box(dec.length, 'נדחו', '#FEF3F2') + box(rate, 'שיעור אישור', '#EEF4FF') + '</div>' +
+    [['אושרו', ap], ['ממתינים לתשובה', pend], ['נדחו', dec]].filter(([, L0]) => L0.length).map(([t, L0]) => '<h3 style="font-size:15px;margin:12px 0 6px">' + t + ' (' + L0.length + ')</h3>' + L0.map((x) => '<div data-pk="1" style="border:1px solid #E4E7EC;border-radius:10px;padding:10px;margin-bottom:6px"><b>' + esc(x.bank) + '</b> <span style="font-size:12px;color:#475467">· ' + esc(SUBST[x.status] || '') + '</span>' +
+      '<div style="font-size:12px;color:#475467">' + [x.submittedAt ? 'הוגש ' + dLabel(x.submittedAt) : '', g(x) === 'submitted' && x.submittedAt ? 'ממתין ' + days(x.submittedAt) + ' ימים' : '', x.amount ? 'סכום ' + plain(x.amount) : '', x.rate ? 'ריבית ' + x.rate + '%' : ''].filter(Boolean).join(' · ') + '</div></div>').join('')).join('') +
+    (S2.length ? '' : '<p>עוד לא הוגש לאף גוף.</p>') + '<p style="font-size:11px;color:#98A2B3;margin-top:14px">הר-אל פתרונות מימון</p></div>';
+}
+async function mySubsPdf(c) { const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(mySubsHtml(c)); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'ההגשות-שלי-' + c.name + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); } }
 /* דן, 21/10: "ניתוחים — בלחיצה ייפתחו אפשרויות כמו שמאות, דוח אשראי… מה שלא חייב — תפריט נפתח, כי כרטיס הלקוח עמוס".
    שורת כפתורים אחת; לחיצה פותחת את הכלי מתחתיה (ולחיצה נוספת סוגרת). כלי שאין בו כלום ללקוח הזה — לא מוצג. */
 function clientTools(c, w) {
@@ -3136,6 +3198,8 @@ function clientTools(c, w) {
   const plan = lazy(() => planCard(c)), ai = lazy(() => aiCard(c)), inst = lazy(() => S.isOwner ? instCard(c, w) : '');
   const T = [
     fin && { k: 'val', t: 'הערכת שווי', body: () => '<section class="card"><header><h2>הערכת שווי</h2></header><p class="hint" style="margin-top:0">עסקאות באזור, מודעות ומחירי יזמים → חישוב, טווח ודוח — נפתח במסך רחב. כל שורה מאושרת לפני שנכנסת לחישוב.</p><button class="btn primary" data-act="valOpen">פתח הערכת שווי</button></section>' },
+    fin && { k: 'ready', t: 'מוכנות להגשה', body: () => readyCard(c) },
+    fin && { k: 'mysubs', t: 'ההגשות שלי לבנקים', body: () => '<section class="card"><header><h2>ההגשות שלי לבנקים</h2><span class="hint">תמונת מצב ללקוח</span><span class="grow"></span><button class="btn small primary" data-mysubspdf="' + esc(c.id) + '">📥 הדפסת דוח</button></header><div style="overflow:auto">' + mySubsHtml(c) + '</div></section>' },
     fin && { k: 'appr', t: 'סקר שמאים', body: () => apprSurveyCard(c, S.canTask) },
     fin && { k: 'credit', t: 'דוח אשראי', n: repsOf(x).length, body: () => repCard(x, S.canTask) },
     fin && { k: 'osh', t: 'עו״ש לאקסל', body: () => oshCard(c.id, S.canTask) },
@@ -3545,6 +3609,7 @@ function taskCard(t, t0) {
       (!c && t.leadId && S.leads.has(t.leadId) ? '<a class="chip" href="#" data-leadopen="' + esc(t.leadId) + '">ליד: ' + esc(S.leads.get(t.leadId).name || '') + ' ↗</a>' : '') +
       (t.due ? '<span class="pill ' + (late ? 'open' : t.due === t0 ? 'committed' : 'muted') + '">' + (late ? 'באיחור · ' : '') + dLabel(t.due) + (t.time ? ' ' + esc(t.time) : '') + '</span>' : '<span class="hint">בלי תאריך</span>') +
       (late && carried(t) > 0 ? '<span class="chip age">נגרר ' + carried(t) + ' ימים</span>' : '') + tmrBtn(t) + '<span class="grow"></span>' +
+      (w && t.status !== 'done' && t.etaAsk && c ? '<button class="btn small primary" data-etaask="' + esc(c.id) + '">📅 ענה: מתי נסגר</button>' : '') +
       (w && t.status !== 'done' ? '<button class="btn small ghost" data-taskmorrow="' + esc(t.id) + '">למחר</button>' : '') + (w ? '<button class="btn small ghost" data-edittask="' + esc(t.id) + '">עריכה</button>' : '') + '</div></article>';
 }
 function vTasks() {
@@ -3718,10 +3783,22 @@ function vFixed() {
   const total = exps.filter((e) => e.active !== false).reduce((a, e) => a + monthly(e), 0);
   return '<section class="card"><header><h2>הוצאות קבועות</h2><span class="pill muted">' + money(total) + ' לחודש</span><span class="grow"></span>' + (S.canWrite ? '<button class="btn small primary" data-act="newExpense">+ הוצאה קבועה</button>' : '') + '</header>' +
     '<p class="hint" style="margin:-4px 0 10px">התבנית החודשית: שכירות, תוכנות, ביטוחים. נכנסת לתזרים לפי היום בחודש. ' + (canSeeDiv('finance') ? 'במימון, נכנסת לרווח לחלוקה רק באישור ניסים (§3.2).' : '') + '</p>' +
-    (exps.length ? '<div class="scroll"><table><tbody>' + exps.map((e) => '<tr><td class="wide">' + esc(e.name) + '<div class="hint">' + (L.freq[e.frequency] || 'חודשי') + (e.day ? ' · ב-' + e.day + ' לחודש' : '') + ' · ' + L.division[e.division || 'finance'] + '</div></td>' +
+    (exps.length ? '<div class="scroll"><table><tbody>' + exps.map((e) => '<tr><td class="wide">' + esc(e.name) + '<div class="hint">' + (L.freq[e.frequency] || 'חודשי') + (e.payBy === 'card' ? ' · 💳 באשראי — יורד ב-' + cardDayOf() + ' לחודש' : e.day ? ' · ב-' + e.day + ' לחודש' : '') + ' · ' + L.division[e.division || 'finance'] + '</div></td>' +
       '<td>' + money(-Math.abs(n(e.amount))) + '</td><td>' + (e.division !== 'realestate' ? '<span class="pill ' + (e.approved ? 'actual' : 'expected') + '">' + (e.approved ? 'אושר ע״י ניסים' : 'ממתין לאישור ניסים') + '</span>' : '') + '</td>' +
       '<td>' + (S.canWrite ? '<button class="btn small ghost" data-editexp="' + esc(e.id) + '">עריכה</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
-      : '<p class="empty">התבנית ריקה. בלי הוצאות קבועות התזרים לא יודע מה יוצא בחודש הבא.</p>') + '</section>';
+      : '<p class="empty">התבנית ריקה. בלי הוצאות קבועות התזרים לא יודע מה יוצא בחודש הבא.</p>') + '</section>' + payDaysCard();
+}
+/* ימי תשלום: אשראי, שכר, ספקים (דן 22/11) */
+function payDaysCard() {
+  if (!S.isOwner) return ''; const w = S.canWrite, SP = supplierList(), cb = S.settings.cardBalance || {}, pd = (S.settings.payroll && S.settings.payroll.payDay) || 10, D = ['', '1', '10', '15', '30'];
+  return '<section class="card" id="payDays"><header><h2>ימי תשלום</h2></header>' +
+    '<div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap"><label class="fl">💳 יום חיוב האשראי<input class="f num" type="number" min="1" max="31" style="width:80px" data-payday="card" value="' + esc(cardDayOf()) + '"' + (w ? '' : ' disabled') + '></label>' +
+      '<label class="fl">👥 שכר יורד ב-<input class="f num" type="number" min="1" max="31" style="width:80px" data-payday="salary" value="' + esc(pd) + '"' + (w ? '' : ' disabled') + '></label>' +
+      '<label class="fl">💳 מצב אשראי לחיוב הבא ₪<input class="f num" type="number" min="0" step="1" style="width:130px" data-payday="cardBal" value="' + esc(cb.amount ?? '') + '"' + (w ? '' : ' disabled') + '></label><span class="hint">' + (cb.date ? 'עודכן ' + dLabel(cb.date) + ' · יורד ב-' + dLabel(nextCardDay(today(), cardDayOf())) + ' במקום הקבועות שבאשראי' : 'כמו יתרת הבנק — מעדכנים מהאפליקציה של הכרטיס') + '</span></div>' +
+    '<h3 class="sec">ספקים</h3><p class="hint" style="margin:-4px 0 6px">ספק עם יום קבוע — מה שעוד לא שולם לו (התחייבויות, חשבון לידים) נכנס למפת החודש ביום הזה בחודש שאחרי. בלי יום קבוע — לא נכנס ליום מסוים.</p>' +
+    (SP.length ? '<div class="scroll"><table><tbody>' + SP.map((x) => '<tr><td class="wide"><b>' + esc(x.name) + '</b></td><td><select class="f small" data-supday="' + esc(x.id) + '"' + (w ? '' : ' disabled') + ' aria-label="יום תשלום">' + D.map((d) => '<option value="' + d + '"' + (String(x.day || '') === d ? ' selected' : '') + '>' + (d ? 'ב-' + d + ' לחודש' : 'בלי יום קבוע') + '</option>').join('') + '</select></td>' +
+      '<td><select class="f small" data-supby="' + esc(x.id) + '"' + (w ? '' : ' disabled') + ' aria-label="איך משולם"><option value="bank"' + (x.by !== 'card' ? ' selected' : '') + '>מהבנק</option><option value="card"' + (x.by === 'card' ? ' selected' : '') + '>באשראי</option></select></td><td>' + (w ? '<button class="btn small ghost" data-supdel="' + esc(x.id) + '" aria-label="הסר">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">עוד אין ספקים.</p>') +
+    (w ? '<div class="row" style="margin-top:6px;gap:6px;align-items:flex-end"><label class="fl grow">ספק<input class="f" id="supName" placeholder="שם כמו שמופיע בהתחייבות / בחשבון (למשל: אבינועם)"></label><label class="fl">יום<select class="f" id="supDay">' + D.map((d) => '<option value="' + d + '">' + (d ? 'ב-' + d : 'בלי יום קבוע') + '</option>').join('') + '</select></label><button class="btn small primary" data-act="supAdd">+ ספק</button></div>' : '') + '</section>';
 }
 
 /* ═════════════ הוצאות: קבועות ומשתנות, וניתוח דפי בנק ואשראי (דן, 15/10) ═════════════
@@ -4208,6 +4285,27 @@ function balanceChart(m, D) {
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="נכנס פחות יצא, מצטבר לאורך החודש — ' + plain(last.v) + ' בסוף החודש">' + s + '</svg>' +
     '<p class="hint" style="margin:2px 0 0">קו מלא = בפועל עד היום · מקווקו = צפי (בלי "לא לבנות על זה") · מעבר עם העכבר על יום מראה את הסכום</p>';
 }
+/* צפי סגירה (דן 22/11): אחרי התוכנית — שאילתה לדן; מה שענה (תאריך + סביר / בטוח) נכנס לצפי. כאן: מה מחכה לתשובה, ומה צפוי להיסגר בחודש */
+function etaWaiting() { const ids = new Set(live(S.tasks).filter((t) => t.etaAsk && t.status !== 'done' && t.clientId).map((t) => t.clientId)); return live(S.clients).filter(inDiv).filter((c) => ids.has(c.id)); }
+function etaCard(m) {
+  if (!S.isOwner) return ''; const W = etaWaiting(), M = live(S.clients).filter(inDiv).filter((c) => c.closeEta && monthOf(c.expectedPayDate) === m && clientMoney(c).open > 0);
+  if (!W.length && !M.length) return '';
+  const amt = (c) => n(c.expectedPayAmount) || r2(clientMoney(c).open * (c.vatExempt ? 1 : 1 + VATR()));
+  return '<section class="card" id="etaCard"><header><h2>צפי סגירת עסקאות</h2>' + (W.length ? '<span class="pill open">' + W.length + ' מחכים לתשובה שלך</span>' : '') + '</header>' +
+    (W.length ? '<div class="scroll"><table><tbody>' + W.map((c) => '<tr><td class="wide"><button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button><div class="hint">התוכנית הסתיימה · ' + plain(amt(c)) + ' כולל מע״מ — לא נספר עד שתענה</div></td><td>' + (S.canWrite ? '<button class="btn small primary" data-etaask="' + esc(c.id) + '">📅 מתי נסגר?</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') +
+    (M.length ? '<h3 class="sec">צפוי להיסגר ב' + mLabel(m) + '</h3><div class="scroll"><table><tbody>' + M.sort((a, b) => String(a.expectedPayDate).localeCompare(b.expectedPayDate)).map((c) => '<tr><td class="num">' + dLabel(c.expectedPayDate) + '</td><td class="wide"><button class="xlink" data-client="' + esc(c.id) + '">' + esc(c.name) + '</button></td><td><span class="pill ' + (c.payConf === 'sure' ? 'committed' : c.payConf === 'likely' ? 'expected' : 'muted') + '">' + esc(PAY_CONF[c.payConf] || '—') + '</span></td><td>' + money(amt(c), { tone: c.payConf === 'sure' ? 'committed' : 'expected' }) + '</td><td>' + (S.canWrite ? '<button class="btn small ghost" data-etaask="' + esc(c.id) + '">שנה</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') +
+    '<p class="hint" style="margin:6px 0 0">בטוח = נספר בצפי ובכמה צריך לנקות את השוטף. סביר = מופיע בכחול בימים, לא נספר כבטוח. לא לבנות על זה = לא נספר בכלל.</p></section>';
+}
+function etaForm(cid) {
+  const c = S.clients.get(cid); if (!c) return; const o = r2(clientMoney(c).open * (c.vatExempt ? 1 : 1 + VATR()));
+  drawer('מתי תיסגר העסקה — ' + c.name, '<p class="full hint" style="margin-top:0">התאריך המשוער שהכסף ייכנס, וכמה אתה בטוח. נכנס למפת החודש ולצפי.' + (o ? ' יתרת שכ״ט פתוחה: ' + plain(o) + ' כולל מע״מ.' : '') + '</p>' +
+    fi('date', 'תאריך משוער', c.expectedPayDate || '', 'date', 'required') + fs('conf', 'כמה בטוח', [['likely', 'סביר'], ['sure', 'בטוח'], ['low', 'לא לבנות על זה']], c.payConf || 'likely') +
+    fi('amount', 'סכום לבנק (ריק = יתרת שכ״ט + מע״מ)', c.expectedPayAmount ?? '', 'number', 'min="0" step="500" placeholder="' + esc(o ? fmt0.format(o) : '') + '"'),
+    async (d) => { if (!d.date) return 'צריך תאריך';
+      await write('clients/' + c.id, { expectedPayDate: d.date, payConf: d.conf, expectedPayAmount: d.amount === '' ? null : r2(d.amount), closeEta: { at: stamp(), by: S.me.id, date: d.date, conf: d.conf }, updatedAt: stamp() }, 'update', { journal: true });
+      for (const t of live(S.tasks).filter((t) => t.etaAsk && t.clientId === c.id && t.status !== 'done')) await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id }, 'update').catch(() => {});
+      await logClient(c.id, 'צפי סגירה: ' + dLabel(d.date) + ' · ' + PAY_CONF[d.conf]).catch(() => {}); toast('נכנס לצפי: ' + dLabel(d.date) + ' · ' + PAY_CONF[d.conf]); }, '', 'שמור');
+}
 function vMonthMap() {
   const t0 = today(), m = S.f.mapMonth || t0.slice(0, 7), D = dayFlows(m), days = monthDays(m), s = (a) => r2((a || []).reduce((q, i) => q + i.amount, 0));
   const dow0 = new Date(m + '-01T12:00:00Z').getUTCDay();
@@ -4226,6 +4324,7 @@ function vMonthMap() {
       kpi('בטוח שייכנס עד אז', money(C.come, { tone: 'committed' }), C.ins.length + ' כניסות בטוחות', null) +
       kpi('יתרה בבנק', C.bal == null ? '—' : money(C.bal), C.ob ? 'עודכן ' + dLabel(C.ob.date) + ' · מבדיקת עו״ש' : 'עדכן בהנהלת חשבונות ← בדיקת עו״ש', null) +
       kpi(C.gap == null ? 'פער' : C.gap >= 0 ? 'נשאר אחרי הכל' : 'חסר כדי לנקות', C.gap == null ? '—' : money(C.gap, { tone: C.gap >= 0 ? 'actual' : 'open' }), 'יתרה + בטוח שייכנס − מה שצריך לשלם', null, C.gap != null && C.gap < 0 ? 'open' : '') + '</div>' +
+      (S.canWrite ? '<div class="row" style="gap:8px;align-items:flex-end;margin-top:8px;flex-wrap:wrap"><label class="fl">💳 מצב אשראי לחיוב הבא ₪<input class="f num" type="number" min="0" step="1" style="width:130px" data-payday="cardBal" value="' + esc((S.settings.cardBalance || {}).amount ?? '') + '"></label><span class="hint">יורד ב-' + dLabel(nextCardDay(t0, cardDayOf())) + (S.settings.cardBalance ? ' · עודכן ' + dLabel(S.settings.cardBalance.date) : '') + ' · קבועות באשראי — ב-' + cardDayOf() + ' לחודש · שכר — ב-' + ((S.settings.payroll && S.settings.payroll.payDay) || 10) + ' · ימי ספקים: הוצאות קבועות ← ימי תשלום</span></div>' : '') +
       (C.outs.length ? '<details style="margin-top:6px"><summary class="hint">מה צריך לשלם (' + C.outs.length + ')</summary><div class="scroll"><table><tbody>' + C.outs.map((i) => '<tr><td class="num">' + dLabel(i.date) + '</td><td class="wide">' + esc(i.label) + '</td><td>' + money(i.amount) + '</td></tr>').join('') + '</tbody></table></div></details>' : '') + '</section>' : '';
   const K = cohorts(m), me = K.rows[K.rows.length - 1], gotM = r2(live(S.transactions).filter((t) => t.nature === 'income' && monthOf(t.date) === m && inDiv(t)).reduce((a, t) => a + n(t.net), 0));
   const fromThis = r2(me.byM[m] || 0), fromPrev = r2(K.rows.slice(0, -1).reduce((a, r) => a + (r.byM[m] || 0), 0)), other = r2(gotM - fromThis - fromPrev);
@@ -4242,7 +4341,7 @@ function vMonthMap() {
     '<p style="margin:8px 0 0"><b>מקדם גביה</b> <span class="hint">(ממוצע משוקלל של ' + K.rows.filter((r) => r.fee).length + ' חודשים)</span>: ' + ['בחודש החתימה', 'בחודש שאחרי', 'אחרי חודשיים', 'אחרי שלושה'].map((l, k) => l + ' ' + (K.coef[k] == null ? '—' : Math.round(K.coef[k] * 100) + '%')).join(' · ') + '</p>' +
     '<p class="hint" style="margin:4px 0 0">' + (K.coef.slice(1).some((c) => c != null) ? 'לפי המקדם, מהחתימות שכבר יש — צפוי להיכנס ב-' + mLabel(K.nextM) + ' בערך ' + plain(K.est) + '. ' : 'עוד אין מספיק חודשים סגורים כדי לחשב מקדם לחודש שאחרי החתימה — זה יתמלא לבד עם כל חודש שנסגר. ') + 'הערכה בלבד: נשענת על ' + live(S.clients).filter((c) => c.signDate).length + ' לקוחות עם תאריך חתימה; לקוח בלי תאריך חתימה נספר לפי יום הפתיחה.</p></section>';
   return '<div class="row mnav"><button class="btn small ghost" data-mapm="-1" aria-label="חודש קודם">›</button><h2 class="num">' + mLabel(m) + '</h2><button class="btn small ghost" data-mapm="1" aria-label="חודש הבא">‹</button>' + (m !== t0.slice(0, 7) ? '<button class="btn small ghost" data-mapm="0">היום</button>' : '') + '</div>' +
-    clearCard +
+    clearCard + etaCard(m) +
     '<section class="card mcal"><header><span class="grow"><h2>כל יום בחודש</h2><small class="hint">לחיצה על יום פותחת את השורות שמרכיבות אותו</small></span><span class="hint num">נכנס ' + plain(r2(tot('in') + tot('fin'))) + ' · יצא ' + plain(r2(tot('out') + tot('fout'))) + ' · נחתם ' + plain(tot('signed')) + '</span></header>' + grid + '</section>' +
     '<section class="card"><header><h2>מצטבר בחודש — נכנס פחות יצא</h2></header>' + balanceChart(m, D) + '</section>' +
     cohortCard;
@@ -8157,7 +8256,7 @@ async function procSave(c, patch, text) {
 /* משימת שלב — אחת לכל תיק ושלב, לא כפולה */
 async function procTask(c, key, title, resp, opt = {}) {
   const pk = c.id + ':' + key; if (live(S.tasks).some((t) => t.procKey === pk && t.status !== 'done')) return false;
-  const id = uid(); await write('tasks/' + id, { id, title: title + ' — ' + c.name, resp, assigneeId: userOfResp(resp) || null, due: opt.due || today(), priority: opt.priority || 'normal', status: 'open', clientId: c.id, notes: opt.notes || '', repeatDays: opt.repeatDays || null, procKey: pk, createdAt: stamp(), createdBy: S.me.id });
+  const id = uid(); await write('tasks/' + id, { id, title: title + ' — ' + c.name, resp, assigneeId: userOfResp(resp) || null, due: opt.due || today(), priority: opt.priority || 'normal', status: 'open', clientId: c.id, notes: opt.notes || '', repeatDays: opt.repeatDays || null, procKey: pk, ...(opt.extra || {}), createdAt: stamp(), createdBy: S.me.id });
   return true;
 }
 const missingDocs = (c) => (c.checklist || []).filter((i) => i.status !== 'done').map((i) => i.label);
@@ -8186,6 +8285,8 @@ async function procAdvance(c, to, opt = {}) {
   for (const t of live(S.tasks).filter((t) => closeKeys.includes(t.procKey) && t.status !== 'done')) await write('tasks/' + t.id, { status: 'done', doneAt: stamp(), doneBy: S.me.id, repeatDays: null }, 'update').catch(() => {});
   await logClient(c.id, 'שלב: ' + (st.find((s) => s[0] === cur) || [])[1] + ' ← ' + step[1] + (opt.note ? ' · ' + opt.note : '')).catch(() => {});
   await procEnter({ ...c, proc: { ...(c.proc || {}), step: nx } }, nx, opt);
+  /* דן 22/11: "לאחר ביצוע התוכנית תעלה שאילתה ואני אגיב לתאריך משוער — סביר / בטוח". עד שדן עונה — הכסף לא נספר בצפי */
+  if (['analysis', 'plan'].includes(cur) && !c.closeEta) await procTask(c, 'closeEta', 'צפי סגירה: מתי תיסגר העסקה? (תאריך + סביר / בטוח)', 'dan', { priority: 'high', extra: { etaAsk: true }, notes: 'התוכנית הסתיימה. התשובה נכנסת למפת החודש ולצפי — עד אז הכסף של התיק לא נספר.' });
   S.f.procView = null; toast('עבר לשלב: ' + step[1]);
 }
 /* ── תצוגה ── */
@@ -8257,6 +8358,44 @@ function plist(c, key, items, ph, w) {
 const APPR_Q = [['type', 'סוג הנכס'], ['rooms', 'חדרים'], ['sqm', 'שטח (מ״ר)'], ['floor', 'קומה'], ['city', 'עיר / שכונה'], ['address', 'כתובת'], ['purpose', 'מטרת השמאות'], ['fund', 'לאיזה גוף'], ['when', 'מתי צריך'], ['notes', 'הערות לשמאי']];
 const APPR_TPL_DEFAULT = 'שלום {שמאי}, כאן {שולח} מהר-אל.\nאנחנו מתאמים שמאות לנכס:\n• סוג: {סוג הנכס}\n• חדרים: {חדרים} · שטח: {שטח (מ״ר)} מ״ר · קומה: {קומה}\n• מיקום: {עיר / שכונה} {כתובת}\n• מטרה: {מטרת השמאות} {לאיזה גוף}\n• מתי צריך: {מתי צריך}\n{הערות לשמאי}\nאשמח לדעת מחיר, מתי אפשר להגיע ותוך כמה זמן יוצא הדוח. תודה!';
 const appraisers = () => (S.settings.appraisers || []).filter((a) => a && !a.deletedAt);
+/* ══ שמאים לפי קרן — פונקציה טהורה (דן 22/11: "בהכנה להגשה — לפי קרן את רשימת השמאים, ולסגור שמאי לפי הנתונים של הלקוח, השווי הרצוי, ומאושר / לא מאושר ברשימה")
+   a.funds = {שם הקרן: 'yes' | 'no'} · a.pref = [קרנות שבהן הוא מועדף] · a.area · a.minValue / a.maxValue (טווח שווי שהוא עושה) · a.price (מחיר רגיל) ══ */
+const apprFundKey = (x) => String(x || '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
+function apprRank(list, fund, ctx) {
+  const f = apprFundKey(fund), city = String((ctx && ctx.city) || '').trim(), v = +((ctx && ctx.value) || 0);
+  return (list || []).map((a) => { const st0 = Object.entries(a.funds || {}).find(([k]) => apprFundKey(k) === f), st = st0 ? st0[1] : '', pref = (a.pref || []).some((k) => apprFundKey(k) === f);
+    const areaOk = city && a.area ? String(a.area).split(/[,،/·]|\s+-\s+/).some((t) => t.trim() && (city.includes(t.trim()) || t.includes(city))) : null;
+    const valueOk = v && (+a.minValue || +a.maxValue) ? (!+a.minValue || v >= +a.minValue) && (!+a.maxValue || v <= +a.maxValue) : null;
+    const score = (pref ? 100 : 0) + (st === 'yes' ? 50 : st === 'no' ? -200 : 0) + (areaOk ? 10 : 0) + (valueOk === true ? 10 : valueOk === false ? -30 : 0);
+    return { a, st, pref, areaOk, valueOk, score }; }).sort((x, y) => y.score - x.score || String(x.a.name).localeCompare(String(y.a.name), 'he'));
+}
+/* ══ סוף שמאים לפי קרן ══ */
+/* הקרנות של התיק: התוכנית, האישור העקרוני, ההגשות, ההנחיות להגשה, וההתאמה מ"הכר את הלקוח" */
+function apprFunds(c) {
+  const P = c.proc || {}, x0 = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)), x = x0 ? (x0.kind ? x0 : { ...x0, kind: intakeKind(x0, c.id) }) : null;
+  const guide = procNote(c, 'prep'), named = guide ? live(S.lenders).filter((l) => l.name && guide.includes(l.name)).map((l) => l.name) : [];
+  let match = []; try { match = x && x.kind !== 'car' ? fundMatch(x, intakeCalc(x)).top.slice(0, 3).map((o) => o.f.name) : []; } catch (e) {}
+  return [...new Set([(P.plan || {}).fund, (P.principle || {}).fund, ...(c.submissions || []).map((s0) => s0.bank), ...named, ...match].filter(Boolean).map((v) => String(v).trim()))];
+}
+function apprPickPanel(c, w) {
+  const F = apprFunds(c), A = appraisers(); if (!A.length) return '<p class="hint">אין עדיין שמאים — הגדרות ← שמאים (שם, טלפון, אזור, ובאילו קרנות הוא מאושר).</p>';
+  S.f.apprFund = S.f.apprFund || {}; const fund = F.includes(S.f.apprFund[c.id]) ? S.f.apprFund[c.id] : S.f.apprFund[c.id] || F[0] || '';
+  const q = apprQ(c), x = S.intakes.get(c.id) || {}, city = String(q.city || ((x.property || {}).city) || '').trim(), value = n(((c.proc || {}).appr || {}).target) || n((x.property || {}).value);
+  const R = apprRank(A, fund, { city, value }), sv = c.apprSurvey || {}, ok = R.filter((r) => r.st !== 'no'), no = R.filter((r) => r.st === 'no');
+  const row = (r) => { const a = r.a, k = esc(a.id + '|' + fund);
+    return '<tr' + (sv.chosen === a.id ? ' style="font-weight:700"' : '') + '><td class="wide">' + (r.pref ? '⭐ ' : '') + esc(a.name) + (a.area ? '<div class="hint">' + esc(a.area) + '</div>' : '') + '</td>' +
+      '<td>' + (r.st === 'yes' ? '<span class="pill actual">✓ מאושר ב' + esc(fund) + '</span>' : r.st === 'no' ? '<span class="pill open">✗ לא מאושר</span>' : '<span class="pill muted">לא ידוע</span>') + '</td>' +
+      '<td>' + (r.areaOk === true ? '<span class="pill actual">באזור</span>' : r.areaOk === false ? '<span class="hint">אזור אחר</span>' : '') + (r.valueOk === false ? ' <span class="pill open">מחוץ לטווח השווי</span>' : r.valueOk ? ' <span class="pill actual">בטווח השווי</span>' : '') + '</td>' +
+      '<td class="num">' + (n(a.price) ? plain(a.price) : '—') + '</td>' +
+      '<td style="white-space:nowrap">' + (w && fund ? '<button class="btn small ghost" data-apfund="' + k + '|yes" title="מאושר בקרן" aria-pressed="' + (r.st === 'yes') + '">✓</button><button class="btn small ghost" data-apfund="' + k + '|no" title="לא מאושר בקרן" aria-pressed="' + (r.st === 'no') + '">✗</button><button class="btn small ghost" data-apfund="' + k + '|pref" title="מועדף בקרן הזו" aria-pressed="' + r.pref + '">⭐</button>' : '') +
+        (w ? '<button class="btn small' + (sv.chosen === a.id ? ' primary' : '') + '" data-apchoose="' + esc(a.id) + '" data-apfundsel="' + esc(fund) + '">' + (sv.chosen === a.id ? '✓ נבחר' : 'בחר') + '</button>' : '') + '</td></tr>'; };
+  return '<div class="ppanel" style="margin:0 0 8px" id="apprPick"><div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><b>שמאי לפי הקרן</b>' +
+      (F.length ? '<div class="seg" role="group" aria-label="קרן">' + F.map((f) => '<button type="button" data-apfundview="' + esc(c.id + '|' + f) + '" aria-pressed="' + (f === fund) + '">' + esc(f) + '</button>').join('') + '</div>' : '<span class="hint">עוד אין קרן לתיק — נקבעת בתוכנית / בהגשות</span>') +
+      '<span class="grow"></span><span class="hint">' + (value ? 'שווי רצוי ' + plain(value) : 'אין שווי רצוי') + (city ? ' · ' + esc(city) : '') + '</span></div>' +
+    (fund ? '<div class="scroll" style="margin-top:6px"><table><thead><tr><th>שמאי</th><th>ב' + esc(fund) + '</th><th>התאמה</th><th>מחיר</th><th></th></tr></thead><tbody>' + ok.map(row).join('') + '</tbody></table></div>' +
+      (no.length ? '<details style="margin-top:4px"><summary class="hint">לא מאושרים ב' + esc(fund) + ' (' + no.length + ')</summary><div class="scroll"><table><tbody>' + no.map(row).join('') + '</tbody></table></div></details>' : '') +
+      '<p class="hint" style="margin:6px 0 0">✓ / ✗ / ⭐ נשמרים לשמאי לקרן הזו — כל תיק מוסיף מידע, ובפעם הבאה המועדף והמאושרים עולים ראשונים.</p>' : '') + '</div>';
+}
 function apprQ(c) { const x = S.intakes.get(c.id) || {}, P = x.property || {}, p = c.prop || {}, sv = (c.apprSurvey || {}).q || {};
   const auto = { type: IK.prop[P.type] || '', rooms: p.rooms ?? '', floor: p.floor || '', address: p.address || '', fund: (c.proc && c.proc.plan && c.proc.plan.fund) || '', purpose: 'משכנתא / הלוואה בשעבוד' };
   return Object.fromEntries(APPR_Q.map(([k]) => [k, sv[k] != null && sv[k] !== '' ? sv[k] : auto[k] ?? ''])); }
@@ -8276,7 +8415,7 @@ function apprSurveyCard(c, w) {
   const chosen = sv.chosen && A.find((a) => a.id === sv.chosen);
   return '<details class="card" id="apprSurvey"' + (chosen ? '' : ' open') + ' style="padding:14px 16px"><summary style="cursor:pointer"><b style="font-size:16px">סקר שמאים</b> <span class="hint">' +
       (chosen ? '· נבחר ' + esc(chosen.name) + (n((quotes[chosen.id] || {}).price) ? ' · ' + plain(quotes[chosen.id].price) : '') : Object.keys(sent).length ? '· נשלח ל-' + Object.keys(sent).length + ' · ' + priced.length + ' הצעות' : '· מתחילים כאן: שאלות הנכס ← הודעה לכל השמאים ← הצעות') + '</span></summary>' +
-    '<h3 class="sec">1. פרטי הנכס (מה השמאי צריך לדעת)</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">' + APPR_Q.map(([k, l]) => '<label class="fl"' + (k === 'notes' ? ' style="grid-column:1/-1"' : '') + '>' + l + '<input class="f" data-apq="' + k + '" value="' + esc(q[k]) + '"' + (w ? '' : ' disabled') + '></label>').join('') + '</div>' +
+    '<h3 class="sec">0. איזה שמאי — לפי הקרן</h3>' + apprPickPanel(c, w) + '<h3 class="sec">1. פרטי הנכס (מה השמאי צריך לדעת)</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">' + APPR_Q.map(([k, l]) => '<label class="fl"' + (k === 'notes' ? ' style="grid-column:1/-1"' : '') + '>' + l + '<input class="f" data-apq="' + k + '" value="' + esc(q[k]) + '"' + (w ? '' : ' disabled') + '></label>').join('') + '</div>' +
     '<h3 class="sec">2. ההודעה</h3><pre class="hint" style="white-space:pre-wrap;font:inherit;background:var(--surface-2,#f6f7f9);padding:10px;border-radius:8px;margin:0">' + esc(apprText(c, { name: '<שם השמאי>' })) + '</pre>' +
     '<h3 class="sec">3. שליחה אישית והצעות</h3>' +
     (A.length ? '<div class="scroll"><table><thead><tr><th>שמאי</th><th>שליחה</th><th>מחיר</th><th>ימים לדוח</th><th></th></tr></thead><tbody>' + A.map((a) => { const qt = quotes[a.id] || {}, wa = waLink(a.phone);
@@ -8291,10 +8430,24 @@ function apprSurveyCard(c, w) {
 function appraisersCard() {
   const A = appraisers(), w = S.canWrite || ['admin', 'admin_re'].includes(S.role);
   return '<section class="card"><header><h2>שמאים</h2><span class="pill muted">' + A.length + '</span></header>' +
-    (A.length ? '<div class="scroll"><table><tbody>' + A.map((a) => '<tr><td class="wide"><b>' + esc(a.name) + '</b>' + (a.area ? '<div class="hint">' + esc(a.area) + '</div>' : '') + '</td><td dir="ltr">' + esc(a.phone || '') + '</td><td class="hint">' + esc(a.email || '') + '</td><td>' + (w ? '<button class="btn small ghost" data-apdel="' + esc(a.id) + '" aria-label="הסר">×</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">עוד אין שמאים.</p>') +
+    (A.length ? '<div class="scroll"><table><tbody>' + A.map((a) => '<tr><td class="wide"><b>' + esc(a.name) + '</b>' + (a.area ? '<div class="hint">' + esc(a.area) + '</div>' : '') + (Object.keys(a.funds || {}).length ? '<div class="hint">' + Object.entries(a.funds).map(([f, st]) => ((a.pref || []).includes(f) ? '⭐' : '') + (st === 'yes' ? '✓ ' : '✗ ') + esc(f)).join(' · ') + '</div>' : '') + '</td><td dir="ltr">' + esc(a.phone || '') + '</td><td class="hint">' + esc(a.email || '') + '</td><td style="white-space:nowrap">' + (w ? '<button class="btn small ghost" data-apedit="' + esc(a.id) + '">עריכה</button><button class="btn small ghost" data-apdel="' + esc(a.id) + '" aria-label="הסר">×</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">עוד אין שמאים.</p>') +
     (w ? '<div class="row" style="margin-top:8px"><input class="f" id="apName" placeholder="שם השמאי"><input class="f" id="apPhone" placeholder="טלפון" dir="ltr" inputmode="tel"><input class="f" id="apArea" placeholder="אזור / הערה"><input class="f" id="apEmail" placeholder="מייל (לא חובה)" dir="ltr"><button class="btn small primary" data-act="apAdd">הוסף</button></div>' +
       '<label class="fl full" style="margin-top:10px">תבנית ההודעה לשמאים — {שמאי} {שולח} {לקוח} ושמות השדות בסוגריים מסולסלים<textarea class="f" id="apprTpl" rows="8" dir="rtl">' + esc(S.settings.apprTemplate || APPR_TPL_DEFAULT) + '</textarea></label><div class="row"><button class="btn small" data-act="apTplSave">שמור תבנית</button><button class="btn small ghost" data-act="apTplReset">חזרה לברירת המחדל</button></div>' : '') +
   '</section>';
+}
+function apprEditForm(id) {
+  const L0 = S.settings.appraisers || [], a = L0.find((x) => x.id === id); if (!a) return;
+  const names = [...new Set([...live(S.lenders).filter((l) => l.kind !== 'developer').map((l) => l.name), ...FUND_KB.map((f) => f.name), ...Object.keys(a.funds || {})].filter(Boolean))].sort((x, y) => x.localeCompare(y, 'he'));
+  drawer('שמאי — ' + a.name, fi('name', 'שם', a.name || '') + fi('phone', 'טלפון', a.phone || '', 'tel', 'dir="ltr"') + fi('email', 'מייל', a.email || '', 'email', 'dir="ltr"') + fi('area', 'אזורים (פסיק בין אזור לאזור)', a.area || '') +
+    fi('price', 'מחיר רגיל ₪', a.price ?? '', 'number', 'min="0" step="50"') + fi('minValue', 'עושה שמאות משווי ₪', a.minValue ?? '', 'number', 'min="0" step="100000"') + fi('maxValue', 'עד שווי ₪', a.maxValue ?? '', 'number', 'min="0" step="100000"') +
+    '<label class="fl full">הערות<textarea class="f" name="notes" rows="2">' + esc(a.notes || '') + '</textarea></label>' +
+    '<h3 class="sec full">באילו קרנות הוא מאושר</h3><div class="full" style="max-height:40vh;overflow:auto">' + names.map((f, i) => { const st = (a.funds || {})[f] || '';
+      return '<div class="row" style="gap:8px;align-items:center;margin-bottom:4px"><span class="grow">' + esc(f) + '</span><input type="hidden" name="fn' + i + '" value="' + esc(f) + '"><select class="f small" name="fs' + i + '" aria-label="' + esc(f) + '"><option value=""' + (!st ? ' selected' : '') + '>לא ידוע</option><option value="yes"' + (st === 'yes' ? ' selected' : '') + '>✓ מאושר</option><option value="no"' + (st === 'no' ? ' selected' : '') + '>✗ לא מאושר</option></select>' +
+        '<label class="check" style="margin:0"><input type="checkbox" name="fp' + i + '"' + ((a.pref || []).includes(f) ? ' checked' : '') + '><span>⭐ מועדף</span></label></div>'; }).join('') + '</div>',
+    async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; const funds = {}, pref = [];
+      names.forEach((f, i) => { if (d['fs' + i]) funds[f] = d['fs' + i]; if (d['fp' + i] === 'on') pref.push(f); });
+      const num = (v) => (v === '' || v == null ? null : n(v));
+      await write('settings/main', { appraisers: L0.map((x) => x.id === id ? { ...x, name: d.name.trim(), phone: d.phone.trim(), email: d.email.trim(), area: d.area.trim(), price: num(d.price), minValue: num(d.minValue), maxValue: num(d.maxValue), notes: String(d.notes || '').trim(), funds, pref, updatedAt: stamp() } : x) }, 'update'); toast('נשמר'); });
 }
 const apprForm = (c, w) => '<h3 class="sec">שמאות</h3><div class="row">' + pf(c, 'appr.appraiser', 'שמאי') + pf(c, 'appr.phone', 'טלפון', 'tel', 'dir="ltr"') + pf(c, 'appr.date', 'תאריך ביקור', 'date') + pf(c, 'appr.value', 'שווי שהתקבל', 'number', 'step="10000"') + '</div><div class="row">' + pchk(c, 'appr.fundOk', 'השמאות אושרה בקרן') + pf(c, 'appr.fundOkAt', 'מתי', 'date') + '</div>';
 const lawyerForm = (c, w) => '<h3 class="sec">עו״ד מטפל</h3><div class="row">' + pf(c, 'lawyer.name', 'שם') + pf(c, 'lawyer.office', 'משרד') + pf(c, 'lawyer.phone', 'טלפון', 'tel', 'dir="ltr"') + pf(c, 'lawyer.email', 'מייל', 'email', 'dir="ltr"') + '</div>';
@@ -8385,7 +8538,7 @@ function procPanel(c, k, w) {
     case 'docsReview': return '<p style="margin:0 0 6px">' + (tot ? (tot - miss.length) + ' מתוך ' + tot + ' מסמכים התקבלו' : 'אין רשימת מסמכים') + (miss.length ? ' · <b>חסר:</b> ' + miss.map(esc).join(' · ') : '') + '</p>' +
       '<p class="hint" style="margin:0 0 6px">דן: מעבר על המסמכים — שהם אכן המסמכים, קריאים ובתוקף. תקין ← "סיים שלב". חסר או לא תקין ← חוזר להדס עם הערה.</p>' +
       (w ? '<div class="row"><button class="btn small" data-act="procDocsBack">החזר להדס עם הערה</button></div>' : '');
-    case 'prep': return '<p class="hint" style="margin:0 0 6px">דן: מה מגישים, לאילו גופים ובאיזה תמהיל. בסיום — עובר להדס לביצוע הטכני של ההגשה. <b>אי אפשר לעבור להגשה בלי הנחיות.</b></p>' + planBox(c, w, true) + parea(c, 'prep.note', 'הנחיות להגשה (חובה לפני ההגשה)', 'לאילו גופים, איזה תמהיל, מה להדגיש במכתב') + subsTable(c, w);
+    case 'prep': return apprPickPanel(c, S.canTask) + '<p class="hint" style="margin:0 0 6px">דן: מה מגישים, לאילו גופים ובאיזה תמהיל. בסיום — עובר להדס לביצוע הטכני של ההגשה. <b>אי אפשר לעבור להגשה בלי הנחיות.</b></p>' + planBox(c, w, true) + parea(c, 'prep.note', 'הנחיות להגשה (חובה לפני ההגשה)', 'לאילו גופים, איזה תמהיל, מה להדגיש במכתב') + subsTable(c, w);
     case 'submitTech': return '<p class="hint" style="margin:0 0 6px">הדס: בוחרים את המסמכים בתיקיית הלקוח ← "הכן לביקורת" לכל גוף. ההגשה עוברת לאישור דן — <b>בלי שליחה</b>. ' + (procNote(c, 'prep') ? '<br><b>הנחיות דן:</b> ' + esc(procNote(c, 'prep')) : '') + '</p>' + planBox(c, w, false) + subsReview(c);
     case 'submitApprove': return '<p class="hint" style="margin:0 0 6px">דן: עובר על כל הגשה ("ממתין לאישורך" או כאן) ← "אשר בלי לשלוח". ההגשה חוזרת להדס לשליחה. לתיקון ← "החזר לתיקון".</p>' + planBox(c, w, false) + subsReview(c);
     case 'tracking': return '<p class="hint" style="margin:0 0 6px">הדס: מעקב מול כל גוף שהוגש אליו — מי איש הקשר, מה ביקשו, מתי לחזור. חסר מסמך — אצל הדס; מה שצריך את דן ← "צריך את דן". כשמגיע אישור עקרוני — לרשום כאן ולסיים שלב.</p>' + subsTable(c, w) +
@@ -9711,6 +9864,61 @@ function subsAll() {
     (c.submissions || []).forEach((x, i) => { if (!x || !x.bank) return; out.push({ c, i, s: x, g: subGroupOf(x.status), amount: n(x.amount), date: x.transferredAt || x.approvedAt || x.submittedAt || null }); }); }
   return out;
 }
+/* ══ לוח הגשות — פונקציות טהורות (דן 22/11: "ציר הגשות" — כמו בלוח הבקרה של WISE) ══
+   rows = [{date:'YYYY-MM-DD', g:'executed|approved|submitted|declined|prep', bank, client}] */
+function subDashStats(rows, from, to, prevFrom) {
+  const inP = (r, a, b) => r.date && r.date >= a && r.date <= b, cur = rows.filter((r) => inP(r, from, to) && r.g !== 'prep'), prev = prevFrom ? rows.filter((r) => inP(r, prevFrom, from) && r.date < from && r.g !== 'prep') : [];
+  const ap = cur.filter((r) => r.g === 'approved' || r.g === 'executed').length, dc = cur.filter((r) => r.g === 'declined').length, pend = cur.filter((r) => r.g === 'submitted').length;
+  return { n: cur.length, prev: prev.length, approved: ap, executed: cur.filter((r) => r.g === 'executed').length, declined: dc, pending: pend, rate: ap + dc ? Math.round(ap / (ap + dc) * 100) : null, clients: new Set(cur.map((r) => r.client)).size };
+}
+/* חודשים מ-from עד to, ולכל חודש: לפי קבוצה (סטטוס / גוף) ומספר לקוחות שונים */
+function subDashMonths(rows, from, to, keyOf) {
+  const out = []; let m = String(from).slice(0, 7); const end = String(to).slice(0, 7);
+  while (m <= end && out.length < 36) { const rs = rows.filter((r) => r.date && r.date.slice(0, 7) === m && r.g !== 'prep'), by = {}; rs.forEach((r) => { const k = keyOf(r); by[k] = (by[k] || 0) + 1; });
+    out.push({ m, n: rs.length, by, clients: new Set(rs.map((r) => r.client)).size }); const [y, mo] = m.split('-').map(Number); m = mo === 12 ? (y + 1) + '-01' : y + '-' + String(mo + 1).padStart(2, '0'); }
+  return out;
+}
+/* ══ סוף לוח הגשות ══ */
+const SUBD_P = [['d30', '30 ימים'], ['d90', '90 ימים'], ['half', 'חצי שנה'], ['year', 'שנה'], ['ytd', 'מתחילת השנה']];
+function subDashRange(k, t0) { const back = { d30: 30, d90: 90, half: 182, year: 365 }[k]; const from = k === 'ytd' ? t0.slice(0, 4) + '-01-01' : addDays(t0, -(back || 365)); return { from, to: t0, prevFrom: k === 'ytd' ? (Number(t0.slice(0, 4)) - 1) + '-01-01' : addDays(from, -(back || 365)) }; }
+function subDashRows() { return subsAll().map((r) => ({ date: r.s.submittedAt || r.date || null, g: r.g, bank: r.s.bank, client: r.c.id, r })); }
+const shortM = (m) => mLabel(m).replace(/^(\S+)\s+20(\d\d)$/, '$1 $2');
+function stackSvg(M, keys, colorOf, labelOf, drillKey) {
+  const W = 640, H = 210, pb = 26, pt = 20, max = Math.max(1, ...M.map((x) => x.n)), bw = Math.min(34, (W - 20) / Math.max(1, M.length) - 8), sx = (i) => W - 10 - (i + 0.5) * (W - 20) / M.length; /* RTL: החודש הראשון מימין */
+  let s = '';
+  M.forEach((x, i) => { let y = H - pb; keys.forEach((k) => { const v = x.by[k] || 0; if (!v) return; const h = v * (H - pb - pt) / max;
+      s += '<rect x="' + (sx(i) - bw / 2).toFixed(1) + '" y="' + (y - h).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, h - 2).toFixed(1) + '" rx="4" fill="' + colorOf(k) + '" class="hov" style="cursor:pointer" data-subdash="' + esc(x.m + '|' + drillKey + '|' + k) + '"><title>' + mLabel(x.m) + ' · ' + esc(labelOf(k)) + ': ' + v + '</title></rect>'; y -= h; });
+    if (x.n) s += '<text x="' + sx(i) + '" y="' + (y - 6) + '" text-anchor="middle" font-size="11" font-weight="700" fill="var(--text)">' + x.n + '</text>';
+    s += '<text x="' + sx(i) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--text-3)">' + esc(shortM(x.m)) + '</text>'; });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="הגשות לפי חודש">' + s + '</svg>' +
+    '<div class="row hint" style="gap:10px;flex-wrap:wrap;margin-top:4px">' + keys.map((k) => '<span><i class="lg" style="background:' + colorOf(k) + '"></i>' + esc(labelOf(k)) + '</span>').join('') + '</div>';
+}
+function lineSvg(M) {
+  const W = 640, H = 190, pb = 24, pt = 22, max = Math.max(1, ...M.map((x) => x.n)), sx = (i) => W - 16 - i * (W - 32) / Math.max(1, M.length - 1), sy = (v) => pt + (max - v) * (H - pt - pb) / max;
+  const path = (k) => M.map((x, i) => (i ? 'L' : 'M') + sx(i).toFixed(1) + ' ' + sy(x[k]).toFixed(1)).join(' ');
+  let s = '<path d="' + path('n') + '" fill="none" stroke="var(--open)" stroke-width="2.5"/><path d="' + path('clients') + '" fill="none" stroke="var(--committed)" stroke-width="2.5"/>';
+  M.forEach((x, i) => { if (x.n) s += '<text x="' + sx(i) + '" y="' + (sy(x.n) - 7) + '" text-anchor="middle" font-size="11" font-weight="700" fill="var(--open)">' + x.n + '</text>'; if (x.clients && x.clients !== x.n) s += '<text x="' + sx(i) + '" y="' + (sy(x.clients) + 15) + '" text-anchor="middle" font-size="11" font-weight="700" fill="var(--committed)">' + x.clients + '</text>';
+    s += '<text x="' + sx(i) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="var(--text-3)">' + esc(shortM(x.m)) + '</text>'; });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="הגשות מול לקוחות לפי חודש">' + s + '</svg><div class="row hint" style="gap:10px"><span><i class="lg" style="background:var(--open)"></i>הגשות</span><span><i class="lg" style="background:var(--committed)"></i>לקוחות שונים</span></div>';
+}
+function vSubsDash() {
+  const t0 = today(), pk = S.f.subDashP || 'year', Rg = subDashRange(pk, t0), rows = subDashRows(), K = subDashStats(rows, Rg.from, Rg.to, Rg.prevFrom);
+  const ST = [['executed', 'הכסף הועבר', 'var(--actual)'], ['approved', 'אושר', 'var(--committed)'], ['submitted', 'ממתין', 'var(--expected)'], ['declined', 'נדחה', 'var(--open)']];
+  const MS = subDashMonths(rows, Rg.from, Rg.to, (r) => r.g), banks0 = {}; rows.filter((r) => r.date && r.date >= Rg.from && r.g !== 'prep').forEach((r) => { banks0[r.bank] = (banks0[r.bank] || 0) + 1; });
+  const top = Object.entries(banks0).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([b]) => b), MB = subDashMonths(rows, Rg.from, Rg.to, (r) => top.includes(r.bank) ? r.bank : 'אחר'), bk = [...top, ...(Object.keys(banks0).length > top.length ? ['אחר'] : [])];
+  const kp = (t, v, sub, tone) => '<div class="card kpi" style="border-inline-start:4px solid var(--' + tone + ')"><span class="lbl">' + t + '</span><b class="num" style="font-size:26px">' + v + '</b><span class="hint">' + sub + '</span></div>';
+  const D = S.f.subDash, dRows = D ? rows.filter((r) => r.date && r.date.slice(0, 7) === D.m && r.g !== 'prep' && (D.by === 'g' ? r.g === D.k : (top.includes(r.bank) ? r.bank : 'אחר') === D.k)) : [];
+  return '<div class="row" style="margin-bottom:10px"><div class="seg" role="group" aria-label="תקופה">' + SUBD_P.map(([k, v]) => '<button data-subdashp="' + k + '" aria-pressed="' + (pk === k) + '">' + v + '</button>').join('') + '</div><span class="hint">' + dLabel(Rg.from) + ' – ' + dLabel(Rg.to) + '</span></div>' +
+    '<div class="grid4" style="margin-bottom:12px">' + kp('הגשות לגופים', K.n, (K.n - K.prev >= 0 ? '+' : '') + (K.n - K.prev) + ' מול התקופה הקודמת · ' + K.clients + ' לקוחות', 'expected') + kp('אושרו', K.approved, 'כולל ' + K.executed + ' שהכסף הועבר', 'committed') +
+      kp('אחוז אישור', K.rate == null ? '—' : K.rate + '%', 'מתוך הגשות שקיבלו תשובה', 'actual') + kp('ממתינות', K.pending, K.declined + ' נדחו', 'open') + '</div>' +
+    '<div class="grid2"><section class="card"><header><h2>הגשות לפי חודש</h2><span class="hint">לפי מצב · לחיצה על עמודה פותחת את ההגשות</span></header>' + stackSvg(MS, ST.map((x) => x[0]), (k) => (ST.find((x) => x[0] === k) || [])[2] || 'var(--border)', (k) => (ST.find((x) => x[0] === k) || [])[1] || k, 'g') + '</section>' +
+      '<section class="card"><header><h2>הגשות לגופים לפי חודש</h2><span class="hint">כל גוף בצבע שלו</span></header>' + (bk.length ? stackSvg(MB, bk, (k) => k === 'אחר' ? 'var(--text-3)' : sgc(bk.indexOf(k) + 1), (k) => k, 'b') : '<p class="empty">אין הגשות בתקופה.</p>') + '</section></div>' +
+    '<section class="card"><header><h2>הגשות מול לקוחות</h2><span class="hint">כמה הגשות בכל חודש מול כמה לקוחות היו מעורבים</span></header>' + lineSvg(MS) + '</section>' +
+    (D ? '<section class="card" id="subDashDrill"><header><h2>' + esc(mLabel(D.m)) + ' · ' + esc(D.by === 'g' ? (ST.find((x) => x[0] === D.k) || [])[1] || D.k : D.k) + '</h2><span class="pill muted">' + dRows.length + '</span><span class="grow"></span><button class="btn small ghost" data-subdashclose="1">סגור</button></header>' +
+      '<div class="scroll"><table><thead><tr><th>לקוח</th><th>גוף</th><th>הוגש</th><th>מצב</th><th>סכום</th></tr></thead><tbody>' + dRows.map((x) => '<tr><td class="wide"><button class="xlink" data-client="' + esc(x.r.c.id) + '">' + esc(x.r.c.name) + '</button></td><td>' + esc(x.bank) + '</td><td class="num">' + dLabel(x.date) + '</td><td><span class="pill ' + (SUB_TONE[x.r.s.status] || 'muted') + '">' + esc(SUBST[x.r.s.status] || x.r.s.status || '') + '</span></td><td>' + (x.r.amount ? money(x.r.amount, { tone: 'muted' }) : '—') + '</td></tr>').join('') + '</tbody></table></div></section>' : '') +
+    '<p class="hint">הגשה בלי תאריך הגשה לא נספרת בגרפים — התאריך נקבע בכרטיס הלקוח ← "עריכת הגשות לגופים".</p>';
+}
+document.addEventListener('click', (e) => { const r = e.target.closest && e.target.closest('[data-subdash]'); if (!r) return; const [m, by, k] = r.dataset.subdash.split('|'); S.f.subDash = { m, by, k }; render(); setTimeout(() => { const t = $('subDashDrill'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30); });
 function vSubsStatus() {
   const all = subsAll(), q = String(S.f.subQ || '').trim(), L2 = q ? all.filter((r) => (r.c.name + ' ' + r.s.bank).includes(q)) : all;
   const by = (g) => L2.filter((r) => r.g === g).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.c.name).localeCompare(String(b.c.name), 'he'));
@@ -9729,10 +9937,11 @@ function vSubsStatus() {
     (L2.length ? SUB_GROUPS.map(group).join('') + byLender : '<p class="empty">' + (q ? 'אין הגשות שמתאימות לחיפוש.' : 'אין עדיין הגשות לגופים.') + '</p>') +
     '<p class="hint">תיקים מבוטלים, אבודים ו"לא אושר" לא מוצגים. הסטטוס של כל הגשה מתעדכן בכרטיס הלקוח ← "גופי מימון".</p>';
 }
-function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : S.f.lendView === 'signs' ? 'signs' : 'bodies';
-  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="signs" aria-pressed="' + (v === 'signs') + '">מסמכים לחתימה</button>' + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
+function vLendersTab() { const d = screenDiv('lendDiv'), v = S.f.lendView === 'contacts' ? 'contacts' : S.f.lendView === 'subs' ? 'subs' : S.f.lendView === 'dash' ? 'dash' : S.f.lendView === 'signs' ? 'signs' : 'bodies';
+  const seg = '<div class="seg" role="group" aria-label="תצוגה" style="margin:0 0 12px">' + (d === 'realestate' ? '' : '<button data-lendview="dash" aria-pressed="' + (v === 'dash') + '">📊 ציר הגשות</button><button data-lendview="subs" aria-pressed="' + (v === 'subs') + '">סטטוס בקשות</button>') + '<button data-lendview="signs" aria-pressed="' + (v === 'signs') + '">מסמכים לחתימה</button>' + '<button data-lendview="bodies" aria-pressed="' + (v === 'bodies') + '">' + (d === 'realestate' ? 'יזמים' : 'גופי מימון') + '</button><button data-lendview="contacts" aria-pressed="' + (v === 'contacts') + '">אנשי קשר <span class="hint">' + live(S.contacts || new Map()).length + '</span></button></div>';
   if (v === 'contacts') return seg + vContacts();
   if (v === 'signs') return seg + vSignDocs();
+  if (v === 'dash' && d !== 'realestate') { S._divOnly = d; try { return seg + divSeg('lendDiv', d) + vSubsDash(); } finally { S._divOnly = null; } }
   if (v === 'subs' && d !== 'realestate') { S._divOnly = d; try { return seg + divSeg('lendDiv', d) + vSubsStatus(); } finally { S._divOnly = null; } }
   S._divOnly = d; try { return seg + divSeg('lendDiv', d) + (d === 'realestate' ? vDevelopers() : vLenders()); } finally { S._divOnly = null; } }
 /* ═════════════ אנשי קשר — לשליחת מיילים לפי סיווג (ייבוא מאנשי הקשר של גוגל) ═════════════ */
@@ -10300,10 +10509,10 @@ function formSub(c) {
 function formExpense(e) {
   const isNew = !e || !e.id; e = { frequency: 'monthly', division: 'finance', approved: false, active: true, ...(e || {}) };
   drawer(isNew ? 'הוצאה קבועה' : 'עריכת ' + e.name, fi('name', 'שם *', e.name || '', 'text', 'required', true) + fi('amount', 'סכום לתשלום, כמו שיוצא מהבנק (₪) *', e.amount || '', 'number', 'min="0" step="0.01"') +
-    fs('frequency', 'תדירות', Object.entries(L.freq), e.frequency) + fi('day', 'יום בחודש', e.day || '', 'number', 'min="1" max="28"') + fs('division', 'חטיבה', Object.entries(L.division), e.division) +
+    fs('frequency', 'תדירות', Object.entries(L.freq), e.frequency) + fi('day', 'יום בחודש', e.day || '', 'number', 'min="1" max="31"') + fs('payBy', 'איך משולם', [['bank', 'מהבנק — ביום שהוגדר'], ['card', 'באשראי — יורד ביום החיוב (' + cardDayOf() + ' לחודש)']], e.payBy || 'bank') + fs('division', 'חטיבה', Object.entries(L.division), e.division) +
     fi('category', 'קטגוריה', e.category || '', 'text', 'list="dlCats"') + fi('net', 'נטו לרווח (בלי מע״מ) — ריק = כמו הסכום', e.net ?? '', 'number', 'min="0" step="0.01"') + fi('from', 'נכנס לרווח מחודש', e.from || '', 'month') + fs('approved', 'אישור ניסים (מימון)', [['false', 'ממתין'], ['true', 'אושר']], String(!!e.approved), true) + dl('dlCats', S.settings.categories || []),
     async (d) => { if (!String(d.name || '').trim()) return 'חסר שם'; if (!(r2(d.amount) > 0)) return 'חסר סכום'; const id = isNew ? uid() : e.id;
-      await write('expenses/' + id, { ...e, id, name: d.name.trim(), amount: r2(d.amount), frequency: d.frequency, day: d.day ? Number(d.day) : null, division: d.division, category: d.category.trim(), net: d.net === '' ? null : r2(d.net), from: d.from || e.from || today().slice(0, 7), approved: d.approved === 'true', updatedAt: stamp() }); toast('נשמר'); },
+      await write('expenses/' + id, { ...e, id, name: d.name.trim(), amount: r2(d.amount), frequency: d.frequency, day: d.day ? Number(d.day) : null, payBy: d.payBy === 'card' ? 'card' : 'bank', division: d.division, category: d.category.trim(), net: d.net === '' ? null : r2(d.net), from: d.from || e.from || today().slice(0, 7), approved: d.approved === 'true', updatedAt: stamp() }); toast('נשמר'); },
     isNew ? '' : '<span class="grow"></span><button class="btn danger ghost" type="button" id="dvoid">הסרה</button>');
   if (!isNew) $('dvoid').addEventListener('click', async () => { await write('expenses/' + e.id, { deletedAt: stamp() }, 'update'); $('layer').innerHTML = ''; toast('הוסר'); });
 }
@@ -11167,6 +11376,20 @@ const PAY_CONF = { sure: 'בטוח', likely: 'סביר', low: 'לא לבנות �
    סכום ריק = יתרת השכ״ט הפתוחה כולל מע״מ; סכום שהוזן גובר עליה. */
 const payExpAmt = (c) => { const o = clientMoney(c).open; return n(c.expectedPayAmount) > 0 ? n(c.expectedPayAmount) : o > 0 ? r2(o * (c.vatExempt ? 1 : 1 + VATR())) : 0; };
 const payConfOf = (c) => PAY_CONF[c && c.payConf] ? c.payConf : null;
+/* ══ ימי תשלום — פונקציות טהורות (דן 22/11: "הוצאות קבועות לפי התאריכים שהוגדרו · אשראי ב-15 לחודש · שכר ב-10 · ספקים — חלקם ב-1, 10, 15, 30, חלקם בלי תאריך קבוע") ══ */
+/* יום D בחודש של d (30 בפברואר → היום האחרון בחודש) */
+function dayIn(d, D) { const m = String(d).slice(0, 7), last = Number(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate()); return m + '-' + String(Math.min(Math.max(1, +D || 1), last)).padStart(2, '0'); }
+/* החיוב באשראי שבו נכלל חיוב שקרה ב-d: יום החיוב באותו חודש (כמו שדן ביקש — "יורד בתאריך אחיד 15") */
+const cardChargeOf = (d, cardDay) => dayIn(d, cardDay || 15);
+/* תאריך החיוב הבא באשראי מ-t0 (כולל היום) */
+const nextMonth1 = (d) => { const [y, mo] = String(d).slice(0, 7).split('-').map(Number); return mo === 12 ? (y + 1) + '-01-01' : y + '-' + String(mo + 1).padStart(2, '0') + '-01'; };
+function nextCardDay(t0, cardDay) { const x = dayIn(t0, cardDay || 15); return x >= t0 ? x : dayIn(nextMonth1(t0), cardDay || 15); }
+/* ספק עם יום קבוע: חשבון של חודש m משולם ביום הקבוע בחודש שאחרי; לא לפני היום */
+function supplierDue(m, day, t0) { const d = dayIn(nextMonth1(m + '-01'), day); return d < t0 ? t0 : d; }
+/* ══ סוף ימי תשלום ══ */
+const cardDayOf = () => n(S.settings.cardDay) || 15;
+const supplierList = () => (S.settings.suppliers || []).filter((x) => x && x.id && !x.deletedAt);
+const supplierOf = (label) => { const t = String(label || ''); return supplierList().find((x) => x.name && t.includes(x.name)) || null; };
 function forecastItems(days = 120) {
   const t0 = today(), end = addDays(t0, days), all = [], undated0 = [], low = [];
   const items = { push: (x) => (x.cid && payConfOf(S.clients.get(x.cid)) === 'low' ? low : all).push(x) }, undated = { push: (x) => (x.cid && payConfOf(S.clients.get(x.cid)) === 'low' ? low : undated0).push(x) };
@@ -11175,18 +11398,29 @@ function forecastItems(days = 120) {
     /* צפי = כסף בבנק: פעימה +מע״מ נכנסת ×1.18; יתרת שכ״ט (נטו) נכנסת עם מע״מ. */
     insts.forEach((i) => (i.due ? items : undated).push({ date: i.due, amount: instCash(i), label: c.name + ' — ' + (i.note || 'פעימה') + (instVat(i) === 'plus' ? ' (' + plain(i.amount) + ' + מע״מ)' : ''), cid: c.id, sure: true }));
     const o = clientMoney(c).open - insts.reduce((a, i) => a + instNet(i), 0), ea = n(c.expectedPayAmount);
-    if ((o > 0 || ea > 0) && !['cancelled', 'lost', 'hold'].includes(c.status)) (c.expectedPayDate ? items : undated).push({ date: c.expectedPayDate || null, amount: ea > 0 ? ea : r2(o * (c.vatExempt ? 1 : 1 + VATR())), label: c.name + (ea > 0 ? ' — צפי לפי דן' : ' — יתרת שכ״ט (כולל מע״מ)'), cid: c.id, sure: payConfOf(c) ? payConfOf(c) === 'sure' : c.approval === 'approved' || c.approval === 'finished' || c.status === 'won' });
+    /* דן 22/11: "לא להתחשב כמו שיש היום" — בתאריך רק מה שדן ענה (צפי סגירה / תאריך צפי); "בטוח" רק כשדן סימן בטוח, לא לפי סטטוס האישור */
+    if ((o > 0 || ea > 0) && !['cancelled', 'lost', 'hold'].includes(c.status)) (c.expectedPayDate ? items : undated).push({ date: c.expectedPayDate || null, amount: ea > 0 ? ea : r2(o * (c.vatExempt ? 1 : 1 + VATR())), label: c.name + (c.closeEta ? ' — צפי סגירה (' + (PAY_CONF[c.payConf] || '') + ')' : ea > 0 ? ' — צפי לפי דן' : ' — יתרת שכ״ט (כולל מע״מ)'), cid: c.id, sure: payConfOf(c) === 'sure' });
     if (c.fundDue && !c.fundDue.done && n(c.fundDue.amount)) items.push({ date: c.fundDue.date || t0, amount: -n(c.fundDue.amount), label: c.name + ' — להעביר ל' + (c.fundDue.fund || 'קרן'), cid: c.id, sure: true });
   });
   live(S.planned).filter((p) => !p.division || inDiv(p)).forEach((p) => items.push({ date: p.date, amount: n(p.amount) * (p.direction === 'out' ? -1 : 1), label: (p.label || (p.direction === 'out' ? 'תשלום מתוכנן' : 'תקבול מתוכנן')) + (p.kind && PLAN_KIND[p.kind] && !String(p.label || '').includes(PLAN_KIND[p.kind]) ? ' · ' + PLAN_KIND[p.kind] : ''), sure: p.sure !== false, planned: p.id }));
   payrollItems().filter((x) => inDiv(x)).forEach((x) => items.push(x));
+  /* קבועות: ביום שהוגדר (בנק) — או ביום החיוב באשראי (ברירת מחדל 15) כשמשולמות בכרטיס. "מצב אשראי" שעודכן מחליף את החיוב הבא כולו */
+  const CD = cardDayOf(), cb = S.settings.cardBalance, nextCD = nextCardDay(t0, CD), cbOn = cb && n(cb.amount) > 0 && cb.date && cb.date <= nextCD && cb.date > addDays(nextCD, -32) && S.division !== 'realestate';
+  if (cbOn) items.push({ date: nextCD, amount: -Math.abs(n(cb.amount)), label: '💳 חיוב אשראי (לפי העדכון מ-' + dLabel(cb.date) + ')', sure: true, card: true });
   live(S.expenses).filter((e) => e.active !== false && inDiv(e)).forEach((e) => {
-    const step = e.frequency === 'quarterly' ? 3 : e.frequency === 'yearly' ? 12 : 1;
-    for (let d = t0.slice(0, 8) + String(Math.min(28, e.day || 1)).padStart(2, '0'), k = 0; d <= end; d = addMonth(d), k++) if (d >= t0 && k % step === 0) items.push({ date: d, amount: -Math.abs(n(e.amount)), label: e.name, sure: true, fixed: true });
+    const step = e.frequency === 'quarterly' ? 3 : e.frequency === 'yearly' ? 12 : 1, card = e.payBy === 'card';
+    for (let d = dayIn(t0, e.day || 1), k = 0; d <= end; d = dayIn(addMonth(d.slice(0, 8) + '01'), e.day || 1), k++) {
+      const due = card ? cardChargeOf(d, CD) : d; if (due < t0 || k % step !== 0) continue; if (card && cbOn && due === nextCD) continue;
+      items.push({ date: due, amount: -Math.abs(n(e.amount)), label: e.name + (card ? ' · 💳 באשראי' : ''), sure: true, fixed: true }); }
   });
+  /* ספקים עם יום תשלום קבוע: התחייבויות שעוד לא שולמו (לא שכר) — ביום הקבוע בחודש שאחרי. ספק בלי יום קבוע — לא נכנס ליום מסוים */
+  if (S.isOwner && S.division !== 'realestate') (accrualsOf().items || []).filter((x) => !x.deletedAt && !x.paidTxId && x.kind !== 'payroll' && n(x.amount) > 0).forEach((x) => {
+    const sp = supplierOf(x.label); if (!sp || !n(sp.day)) return; const due = sp.by === 'card' ? cardChargeOf(supplierDue(x.month, sp.day, t0), CD) : supplierDue(x.month, sp.day, t0);
+    if (!(sp.by === 'card' && cbOn && due === nextCD)) items.push({ date: due, amount: -r2(n(x.amount) * (x.vatIncl ? 1 : 1 + VATR())), label: x.label + ' · ' + sp.name + ' (ב-' + sp.day + ' לחודש)', sure: true, supplier: sp.id }); });
   /* חשבון לידים: היתרה לספק ב-15 בחודש שאחרי (החודש הנוכחי — נכון להיום) */
   if (S.isOwner) DIVS.filter((dv) => inDiv({ division: dv })).forEach((dv) => [addMonths(t0.slice(0, 7) + '-01', -1).slice(0, 7), t0.slice(0, 7)].forEach((m) => leadBill(m, dv).sup.forEach((s1) => {
-    if (s1.due > 0) items.push({ date: billDueOf(m) < t0 ? t0 : billDueOf(m), amount: -s1.due, label: 'לידים — ' + s1.name + ' · ' + mLabel(m) + (m === t0.slice(0, 7) ? ' (נכון להיום)' : ''), sure: m !== t0.slice(0, 7) });
+    const sp1 = supplierOf(s1.name), due1 = sp1 && n(sp1.day) ? supplierDue(m, sp1.day, t0) : billDueOf(m);
+    if (s1.due > 0) items.push({ date: due1 < t0 ? t0 : due1, amount: -s1.due, label: 'לידים — ' + s1.name + ' · ' + mLabel(m) + (m === t0.slice(0, 7) ? ' (נכון להיום)' : ''), sure: m !== t0.slice(0, 7) });
     if (m === t0.slice(0, 7)) (s1.pkgDue || []).forEach((x) => items.push({ date: !x.date || x.date < t0 ? t0 : x.date, amount: -x.amount, label: 'לידים — ' + s1.name + ' · ' + x.label, sure: !!x.date })); })));
   const card = nissimCard(), last = card[card.length - 1];
   if (last && last.transfer > 0 && S.division !== 'realestate') items.push({ date: addMonth(last.month + '-10'), amount: -last.transfer, label: 'העברה לניסים', sure: true });
@@ -14133,8 +14367,23 @@ document.addEventListener('click', async (e) => {
     if (d.client && !el.matches('select')) return go('client', d.client);
     if (d.owner) { S.f.clientOwner = d.owner; S.f.clientStatus = 'open'; return go('clients'); }
     if (d.attn != null) { const a = (window.__attn || [])[Number(d.attn)]; if (a) go(...a.go); return; }
+    if (d.etaask) return etaForm(d.etaask);
+    if (d.readymode) { const [cid, k] = d.readymode.split('|'); S.f.readyMode = { ...(S.f.readyMode || {}), [cid]: k }; return render(); }
+    if (d.mysubspdf) { const c = S.clients.get(d.mysubspdf); if (c) return mySubsPdf(c); return; }
+    if (d.subdashp) { S.f.subDashP = d.subdashp; S.f.subDash = null; return render(); }
+    if (d.subdashclose) { S.f.subDash = null; return render(); }
+    if (d.supdel && S.canWrite) { await write('settings/main', { suppliers: (S.settings.suppliers || []).map((x) => x.id === d.supdel ? { ...x, deletedAt: stamp() } : x) }, 'update'); return toast('הוסר'); }
+    if (d.apfundview) { const [cid, f] = d.apfundview.split('|'); S.f.apprFund = { ...(S.f.apprFund || {}), [cid]: f }; return render(); }
+    if (d.apfund && S.canTask) { const [aid, f, what] = d.apfund.split('|'), L0 = S.settings.appraisers || [], a = L0.find((x) => x.id === aid); if (!a || !f) return;
+      const funds = { ...(a.funds || {}) }, key = Object.keys(funds).find((k) => apprFundKey(k) === apprFundKey(f)) || f, pref = (a.pref || []).filter((k) => apprFundKey(k) !== apprFundKey(f));
+      let next;
+      if (what === 'pref') next = { ...a, pref: (a.pref || []).some((k) => apprFundKey(k) === apprFundKey(f)) ? pref : [...pref, f], funds: funds[key] === 'no' ? { ...funds, [key]: 'yes' } : funds };
+      else { if (funds[key] === what) delete funds[key]; else funds[key] = what; next = { ...a, funds, pref: what === 'no' ? pref : a.pref || [] }; }
+      await write('settings/main', { appraisers: L0.map((x) => x.id === aid ? { ...next, updatedAt: stamp() } : x) }, 'update');
+      return toast(a.name + ' · ' + f + ': ' + (what === 'pref' ? (next.pref.length > pref.length ? '⭐ מועדף' : 'לא מועדף') : next.funds[key] === 'yes' ? '✓ מאושר' : next.funds[key] === 'no' ? '✗ לא מאושר' : 'לא ידוע')); }
+    if (d.apedit) return apprEditForm(d.apedit);
     if (d.apchoose && S.view.tab === 'client') { const c = S.clients.get(S.view.clientId), a = appraisers().find((x) => x.id === d.apchoose); if (!c || !a || !S.canTask) return; const sv = c.apprSurvey || {}, qt = (sv.quotes || {})[a.id] || {};
-      const P = JSON.parse(JSON.stringify(c.proc || {})); P.appr = { ...(P.appr || {}), appraiser: a.name, phone: a.phone || '', ...(n(qt.price) ? { price: n(qt.price) } : {}) };
+      const P = JSON.parse(JSON.stringify(c.proc || {})); P.appr = { ...(P.appr || {}), appraiser: a.name, phone: a.phone || '', ...(n(qt.price) ? { price: n(qt.price) } : n(a.price) ? { price: n(a.price) } : {}), ...(d.apfundsel ? { fund: d.apfundsel } : {}) };
       await write('clients/' + c.id, { apprSurvey: { ...sv, chosen: a.id, chosenAt: stamp() }, proc: P, updatedAt: stamp() }, 'update', { journal: true });
       await logClient(c.id, 'שמאי נבחר: ' + a.name + (n(qt.price) ? ' · ' + plain(qt.price) : '') + (n(qt.days) ? ' · ' + qt.days + ' ימים' : '') + ' (מתוך ' + Object.values(sv.quotes || {}).filter((x) => n(x.price)).length + ' הצעות)').catch(() => {}); return toast('נבחר ' + a.name + ' — נכנס לשלב השמאות'); }
     if (d.apcopy) { const [cid, aid] = d.apcopy.split(':'), c = S.clients.get(cid), a = appraisers().find((x) => x.id === aid); if (c) { copyText(apprText(c, a), 'ההודעה הועתקה'); await apprMarkSent(c, aid); } return; }
@@ -14560,6 +14809,7 @@ document.addEventListener('click', async (e) => {
           for (const t of D.unconfirmed) await write('transactions/' + t.id, { confirmed: true, confirmedAt: stamp(), confirmedBy: S.me.id, updatedAt: stamp() }, 'update');
           return toast(D.unconfirmed.length + ' תקבולים אושרו'); }
         case 'payPdf': return payPdf(S.f.payMonth || payMonthDefault());
+        case 'supAdd': { const nm = String(($('supName') || {}).value || '').trim(); if (!nm) return toast('צריך שם'); await write('settings/main', { suppliers: [...(S.settings.suppliers || []), { id: uid(), name: nm, day: n(($('supDay') || {}).value) || null, by: 'bank', createdAt: stamp() }] }, 'update'); return toast('נוסף ' + nm); }
         case 'payHours': { S.f.attDay = (S.f.payMonth || payMonthDefault()) + '-01'; return attReportDl('pdf'); }
         case 'payCsv': { const m = S.f.payMonth || payMonthDefault(); return exportCsv('שכר-' + m, ['חודש', 'עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], payRows(m)); }
         case 'payMail': { const m = S.f.payMonth || payMonthDefault(); const rows = payRows(m);
@@ -14711,6 +14961,13 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.empct) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empct ? { ...e, employerPct: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('עלות מעביד נשמרה'); }
     if (el.dataset.ik) { clearTimeout(ikT); return ikSave(el); }
     if (el.id === 'fPayMonth') { S.f.payMonth = el.value; return render(); }
+    if (el.dataset && (el.dataset.supday || el.dataset.supby) && S.canWrite) { const id = el.dataset.supday || el.dataset.supby; await write('settings/main', { suppliers: (S.settings.suppliers || []).map((x) => x.id === id ? { ...x, ...(el.dataset.supday ? { day: n(el.value) || null } : { by: el.value }), updatedAt: stamp() } : x) }, 'update'); return toast('נשמר'); }
+    if (el.dataset && el.dataset.payday && S.canWrite) { const k = el.dataset.payday, v = el.value === '' ? null : n(el.value);
+      if (k === 'card') await write('settings/main', { cardDay: v && v >= 1 && v <= 31 ? v : 15 }, 'update');
+      else if (k === 'salary') await write('settings/main', { payroll: { ...(S.settings.payroll || {}), payDay: v && v >= 1 && v <= 31 ? v : 10 } }, 'update');
+      else await write('settings/main', { cardBalance: v == null ? null : { amount: v, date: today(), by: S.me.id } }, 'update');
+      return toast('נשמר — מפת החודש מתעדכנת'); }
+    if (el.dataset && el.dataset.readypoa && S.canTask) { const [cid, bank] = el.dataset.readypoa.split('|'), c0 = S.clients.get(cid); if (!c0) return; await write('clients/' + cid, { poa: { ...(c0.poa || {}), [bank]: el.checked ? stamp() : null }, updatedAt: stamp() }, 'update'); return; }
     if (el.id === 'fAttDay') { S.f.attDay = el.value || today(); return render(); }
     if (el.id === 'fAttRepWho') { S.f.attRepWho = el.value; return; }
     if (el.id === 'fReMonth') { S.f.reMonth = el.value; return render(); }
