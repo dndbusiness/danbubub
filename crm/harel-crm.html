@@ -11960,32 +11960,42 @@ function privPlanHtml(plan, forPdf) {
       '<table style="width:100%;border-collapse:collapse">' + g.items.map((x) => '<tr><td style="' + cell + '">' + esc(x.c.name) + '</td><td style="' + cell + '">' + (x.pct + '%' + (x.vat ? ' + מע״מ' : '')) + ' מ-' + m(x.base) + '</td><td style="' + cell + '">' + m(x.amount) + '</td><td style="' + cell + '">' + (x.received ? 'נכנס ' + dLabel(x.due) : x.due ? 'עד ' + dLabel(x.due) : '—') + '</td><td style="' + cell + '">דן ' + m(x.dan) + ' · ניסים ' + m(x.nissim) + '</td></tr>').join('') + '</table>').join('') +
     '<p style="font-size:11px;color:#667085;margin-top:12px">החלוקה חצי-חצי מהסכום לפני מע״מ. מועד = יום ההעברה ללקוח + תנאי התשלום (שוטף+X).</p></div>';
 }
+/* ══ עמודי PDF — פונקציה טהורה (דן 22/11: "שלא יתחלק בחלוקה כזו — דף A4 מסודר, לא חלקי דף") ══
+   units = [{top, bottom, h}] בפיקסלים מתחילת התוכן (h = כותרת — נשארת עם מה שאחריה). H = גובה תוכן של עמוד.
+   מחזיר [[from, to], …]: שוברים רק בין יחידות שלמות; יחידה גבוהה מעמוד — רק היא נחתכת. */
+function pdfBreaks(units, total, H) {
+  const U = (units || []).filter((u) => u.bottom > u.top).sort((a, b) => a.top - b.top), out = [];
+  for (let i = 0; i < U.length - 1; i++) if (U[i].h) U[i + 1] = { ...U[i + 1], top: Math.min(U[i].top, U[i + 1].top) }; /* כותרת לא נשארת לבד בתחתית */
+  const B = U.filter((u, i) => !(u.h && i < U.length - 1));
+  let start = 0;
+  for (const u of B) {
+    if (u.bottom - start <= H) continue;
+    if (u.top > start + 1) { out.push([start, u.top]); start = u.top; }
+    while (u.bottom - start > H) { out.push([start, start + H]); start += H; }
+  }
+  if (total > start + 1) out.push([start, total]);
+  return out;
+}
+/* ══ סוף עמודי PDF ══ */
 async function pdfFromHtml(html) {
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-  const pdf = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' }), pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+  const pdf = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' }), pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), M = 26;
   let page = 0;
   for (const part of Array.isArray(html) ? html : [html]) {
     const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-10000px;top:0;background:#fff'; host.innerHTML = part; document.body.appendChild(host);
     try {
-      /* data-pk: לא לחתוך בתוך הבלוק (כרטיס); data-pk="h": כותרת — לא להשאיר אותה לבד בתחתית עמוד */
-      const top0 = host.firstChild.getBoundingClientRect().top, keep = [...host.querySelectorAll('[data-pk]')].map((e) => { const r = e.getBoundingClientRect(); return [(r.top - top0) * 2, (r.bottom - top0 + (e.dataset.pk === 'h' ? 90 : 0)) * 2]; });
-      const canvas = await window.html2canvas(host.firstChild, { scale: 2, backgroundColor: '#ffffff' });
-      const pxPerPage = Math.floor(canvas.width * ph / pw), free = (yy) => !keep.some(([a, b]) => b - a < pxPerPage * 0.6 && yy > a + 2 && yy < b - 2);
-      /* חיתוך עמוד: עדיף שורה לבנה לגמרי (בין כרטיסים), ואם אין — שורה בלי דיו (בין שורות טקסט בתוך כרטיס) */
-      const cx = canvas.getContext('2d'), row = (yy, lim, step) => { const d = cx.getImageData(0, yy, canvas.width, 1).data; for (let k = 0; k < d.length; k += step) if (d[k] < lim || d[k + 1] < lim || d[k + 2] < lim) return false; return true; };
-      const white = (yy) => row(yy, 245, 16), noInk = (yy) => row(yy, 200, 4);
-      for (let y = 0, hh; y < canvas.height; y += hh) {
-        const mt = y ? Math.round(canvas.width * 22 / pw) : 0; /* עמוד המשך: שוליים עליונים קטנים */
-        hh = Math.min(pxPerPage - mt, canvas.height - y);
-        if (y + hh < canvas.height) { let cut = -1; const at = (k) => y + hh - k;
-          for (let k = 0; k < pxPerPage * 0.15 && cut < 0; k += 2) if (free(at(k)) && white(at(k))) cut = k;
-          for (let k = 0; k < pxPerPage * 0.35 && cut < 0; k += 2) if (free(at(k)) && white(at(k))) cut = k;
-          for (let k = 0; k < pxPerPage * 0.25 && cut < 0; k += 2) if (noInk(at(k)) && noInk(at(k) - 1) && noInk(at(k) - 2)) cut = k;
-          if (cut > 0) hh -= cut; }
-        const c = document.createElement('canvas'); c.width = canvas.width; c.height = hh;
-        c.getContext('2d').drawImage(canvas, 0, y, canvas.width, c.height, 0, 0, canvas.width, c.height);
-        if (page++) pdf.addPage(); pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, mt * pw / canvas.width, pw, c.height * pw / canvas.width);
+      const root = host.firstChild, rt = root.getBoundingClientRect(), H = Math.floor((ph - 2 * M) * rt.width / pw);
+      /* יחידות: כרטיסים (data-pk), שורות טבלה, פסקאות — כל מה שלא חוצים. עוטף גבוה נפתח ליחידות שבתוכו */
+      const units = [], walk = (el) => { for (const ch of el.children) { const r = ch.getBoundingClientRect(); if (!r.height) continue;
+        const u = { top: r.top - rt.top, bottom: r.bottom - rt.top, h: ch.dataset.pk === 'h' || /^H[1-6]$/.test(ch.tagName) };
+        if (!ch.dataset.pk && r.height > H * 0.45 && ch.children.length) walk(ch); else units.push(u); } };
+      walk(root);
+      const canvas = await window.html2canvas(root, { scale: 2, backgroundColor: '#ffffff' }), k = canvas.width / rt.width;
+      for (const [y0, y1] of pdfBreaks(units, rt.height, H)) {
+        const c = document.createElement('canvas'); c.width = canvas.width; c.height = Math.max(1, Math.round((y1 - y0) * k));
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(canvas, 0, Math.round(y0 * k), canvas.width, c.height, 0, 0, canvas.width, c.height);
+        if (page++) pdf.addPage(); pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, M, pw, c.height * pw / canvas.width);
       }
     } finally { host.remove(); }
   }
