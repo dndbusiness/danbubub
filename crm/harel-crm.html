@@ -3101,11 +3101,7 @@ function vClient(id) {
     '<div class="grid2">' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
 
-        '<section class="card"><header><h2>צ׳קליסט ביצוע</h2><span class="pill ' + (done === tot && tot ? 'actual' : 'expected') + '">' + done + '/' + tot + '</span></header>' +
-          (tot ? '<div class="progress" style="margin-bottom:8px"><i style="width:' + pct(done, tot) + '%"></i></div>' +
-            (c.checklist || []).map((i, idx) => '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap">' + scanBtn('chk', String(idx), '') + (i.scanId ? (() => { const f = (c.scans || []).find((x) => x.id === i.scanId); return f ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">📄</a>' : ''; })() : '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label></div>').join('')
-            : '<p class="empty">אין צ׳קליסט לתיק הזה</p>') +
-          (w ? '<div class="row" style="margin-top:8px"><input class="f grow" id="chkNew" placeholder="פריט נוסף…" aria-label="פריט נוסף"><button class="btn small" data-act="addChk">הוסף</button></div>' : '') + '</section>' +
+        /* דן 22/11: "צ׳קליסט ביצוע — לבטל בתוך כרטיס לקוח". הנתונים (c.checklist) נשארים — הם מזינים "מסמכים / שלבים חסרים" בדוחות ובאיסוף המסמכים */
         /* דן, 21/10: "גופי מימון מופיע פעמיים" — הסיכום כבר בתמצית התיק; כאן רק העריכה, סגורה */
         (c.division === 'realestate' ? '' : '<details class="card csec"' + (S.f.subsOpen === c.id ? ' open' : '') + ' data-csec="subs"><summary><b>עריכת הגשות לגופים</b> <span class="pill muted">' + (c.submissions || []).length + '</span><span class="hint"> · סטטוס, סכום, תאריך העברה</span></summary><div class="row" style="justify-content:flex-end;margin:6px 0">' + (w ? '<button class="btn small" data-act="addSub">+ הגשה</button>' : '') + '</div>' +
           ((c.submissions || []).length ? '<div class="scroll"><table><tbody>' + c.submissions.map((s, i) => '<tr><td class="wide">' + esc(s.bank) + '</td>' +
