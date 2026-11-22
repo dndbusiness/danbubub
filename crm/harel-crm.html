@@ -325,6 +325,12 @@ body.noai [data-act="ikExtract"], body.noai [data-act="intakeAI"], body.noai lab
 table.leads tr[class*="lc-"] > td { background: var(--lc); } table.leads tr[class*="lc-"] > td:first-child { box-shadow: inset -4px 0 0 var(--lc-bar); }
 tr.lc-y { --lc: var(--lc-y); --lc-bar: var(--lc-y-bar); } tr.lc-o { --lc: var(--lc-o); --lc-bar: var(--lc-o-bar); } tr.lc-g { --lc: var(--lc-g); --lc-bar: var(--lc-g-bar); }
 tr.kept { opacity: .55; } tr.kept:hover { opacity: .85; }
+/* וואטסאפ */
+.wagrid { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 12px; } @media (max-width: 760px) { .wagrid { grid-template-columns: 1fr; } }
+.walist { max-height: 72vh; overflow: auto; } .wachat { display: flex; gap: 8px; width: 100%; text-align: start; padding: 8px; border: 0; border-bottom: 1px solid var(--border); background: none; cursor: pointer; color: inherit; font: inherit; } .wachat.on { background: var(--sunk); }
+.wathread { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; padding: 4px; } .wab { display: flex; } .wab.out { justify-content: flex-end; } .wab.in { justify-content: flex-start; }
+.wabb { max-width: 78%; padding: 7px 10px; border-radius: 12px; background: var(--sunk); white-space: pre-wrap; word-break: break-word; font-size: 14px; } .wab.out .wabb { background: color-mix(in srgb, var(--actual) 14%, var(--surface)); }
+.wat { display: flex; gap: 6px; justify-content: flex-end; font-size: 11px; color: var(--text-3); margin-top: 2px; }
 /* מפת החודש */
 .mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .mgrid .mh { font-size: 11px; color: var(--text-3); text-align: center; padding: 2px 0; }
@@ -1686,7 +1692,7 @@ const L = {
 };
 const STAGE_ORDER = Object.keys(L.stage);
 const LEAD_STAGES = Object.keys(L.leadStage);
-const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'leadBills', 'valuations', 'devRequests', 'calls'];
+const COLL = ['stmts', 'kaveretPool', 'attendance', 'contacts', 'clients', 'transactions', 'tasks', 'leads', 'expenses', 'links', 'lenders', 'campaigns', 'tickets', 'team', 'days', 'planned', 'outbox', 'runs', 'files', 'private', 'payroll', 'intakes', 'approvals', 'reTx', 'reExpenses', 'rePlanned', 'leadBills', 'valuations', 'devRequests', 'calls', 'waMsgs', 'waChats'];
 
 /* ── מצב ─────────────────────────────────────────────────────────────────── */
 const S = {
@@ -3126,7 +3132,7 @@ function vClient(id) {
             : '<p class="empty">היומן ריק.</p>') + ((c.log || []).length > 5 ? '<button class="btn small ghost" data-logall="' + (S.f.logAll === c.id ? '' : esc(c.id)) + '">' + (S.f.logAll === c.id ? 'צמצם' : 'כל היומן (' + Math.min(60, c.log.length) + ')') + '</button>' : '') + '</section>' +
         (S.canTask ? '<div class="row"><button class="btn small danger ghost" data-act="archiveClient">' + (canApproveDel(c.division || 'finance') ? 'מחק / העבר לארכיון' : 'בקש מחיקה — לאישור ' + delApprover(c.division || 'finance')) + '</button>' + (delPending('clients', c.id) ? '<span class="pill expected">ממתין לאישור מחיקה</span>' : '') + '</div>' : '') +
       '</div>' +
-    '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + callsCard('clientId', c.id) + signCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
+    '</div>' + (S.isOwner ? '<div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">' + waCard(c.phone, 'client:' + c.id) + callsCard('clientId', c.id) + signCard(c) + docsCard(c) + '</div>' : ''); /* מסמכי הלקוח בתחתית — המשימות מעליהם (דן, 11/10) */
 }
 /* ══ מוכנות להגשה — פונקציה טהורה (דן 22/11: "מוכנות להגשה להוסיף", כמו ב-WISE) ══
    inp = {poa:[{label,ok}], data:[{label,ok}], pti (0..1|null), ltv (0..1|null), ltvMax, regs:[{label,ok}], docs:[{label,ok}]}
@@ -7756,16 +7762,84 @@ function viewHomeCard() {
     vs.map((v) => { const k = viewCount(v); return '<button class="card kpi click" data-viewgo="' + esc(v.id) + '" style="text-align:start"><span class="lbl">' + esc(v.name) + '</span><b class="num">' + k + '</b><span class="hint">' + esc(v.div && v.div !== 'all' ? L.division[v.div] : 'כל החברות') + '</span></button>'; }).join('') + '</div></section>';
 }
 const lkpi = (ic, title, val, sub, attr, on, tone) => '<' + (attr ? 'button' : 'div') + ' class="card lkpi' + (on ? ' on' : '') + (tone ? ' t-' + tone : '') + '"' + (attr ? ' ' + attr : '') + '><span class="lkh"><span>' + title + '</span>' + IC(ic) + '</span><b class="v">' + val + '</b><small>' + sub + '</small></' + (attr ? 'button' : 'div') + '>';
+/* ═════ וואטסאפ (דן 22/11: "אני רוצה שהוואטסאפ יעבוד") — Cloud API הרשמי של Meta, אותו מספר שחובר ב-WISE.
+   הודעות נכנסות מגיעות מה-webhook (app/api/whatsapp/webhook) ל-waMsgs / waChats; שליחה — /api/crm/whatsapp דרך תיבת היוצא.
+   הודעה חופשית רק עד 24 שעות מההודעה האחרונה של הלקוח; אחרי — תבנית מאושרת ב-Meta. docs/WHATSAPP.md ═════ */
+function waStatusLoad() { if (S.waSt !== undefined || !window.__harelServer) return; S.waSt = null; fetch('/api/crm/whatsapp', { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.waSt = j; render(); }).catch(() => { S.waSt = { enabled: false }; }); }
+function waTplLoad(fresh) { if ((S.waTpl && !fresh) || S._waTplBusy) return; S._waTplBusy = true; fetch('/api/crm/whatsapp?templates=1' + (fresh ? '&fresh=1' : ''), { cache: 'no-store' }).then((r) => r.json()).then((j) => { S.waTpl = j; render(); }).catch(() => { S.waTpl = { templates: [], message: 'אין חיבור' }; }).finally(() => { S._waTplBusy = false; }); }
+const waUnread = () => live(S.waChats).reduce((a, c) => a + n(c.unread), 0);
+const waPhone = (p) => normPhone(p);
+const waChatOf = (phone) => S.waChats.get(waPhone(phone)) || null;
+const waMsgsOf = (phone) => { const ph = waPhone(phone); return live(S.waMsgs).filter((m) => m.phone === ph).sort((a, b) => String(a.at).localeCompare(String(b.at))); };
+const waOpenWin = (ch) => { const t = Date.parse((ch && ch.lastInAt) || ''); return Number.isFinite(t) && Date.now() - t < 24 * 3600e3; };
+const waLeft = (ch) => { const t = Date.parse((ch && ch.lastInAt) || ''); if (!Number.isFinite(t)) return ''; const m = Math.max(0, Math.round((t + 24 * 3600e3 - Date.now()) / 60000)); return m >= 60 ? Math.floor(m / 60) + ' שעות' : m + ' דק׳'; };
+const WA_ST = { pending: ['🕓', 'נשלח…'], queued: ['🕓', 'בתור — ננסה שוב'], sent: ['✓', 'נשלח'], delivered: ['✓✓', 'נמסר'], read: ['✓✓', 'נקרא'], failed: ['⚠', 'לא נשלח'] };
+function waBubble(m) {
+  const out = m.dir === 'out', st = WA_ST[m.status] || ['', ''], med = m.media && m.media.id ? '<a class="xlink" href="/api/crm/whatsapp/media?id=' + encodeURIComponent(m.media.id) + '" target="_blank" rel="noopener">' + (m.type === 'image' ? '📷 תמונה' : m.type === 'audio' ? '🎤 הקלטה' : m.type === 'video' ? '🎬 וידאו' : '📄 ' + esc(m.media.filename || 'מסמך')) + ' ↗</a>' : '';
+  return '<div class="wab ' + (out ? 'out' : 'in') + '"><div class="wabb">' + (m.type === 'template' ? '<span class="hint">תבנית · </span>' : '') + (med ? med + (m.text ? '<br>' : '') : '') + (m.text ? linkify(m.text) : '') +
+    '<div class="wat"><span>' + dLabel(dayOf(m.at)).slice(0, 5) + ' ' + hm(m.at) + '</span>' + (out ? '<span title="' + esc(st[1] + (m.error ? ' — ' + m.error : '')) + '"' + (m.status === 'read' ? ' style="color:var(--committed)"' : m.status === 'failed' ? ' style="color:var(--open)"' : '') + '>' + st[0] + '</span>' + (m.by ? '<span>' + esc(L.resp[m.by] || m.by) + '</span>' : '') : '') + '</div>' +
+    (out && m.status === 'failed' && m.error ? '<div class="hint" style="color:var(--open)">' + esc(m.error) + '</div>' : '') + '</div></div>';
+}
+function waCompose(phone, ref) {
+  if (!S.waSt || !S.waSt.enabled) return '<p class="hint" style="margin:6px 0 0">' + (S.waSt && S.waSt.enabled === false ? 'וואטסאפ עוד לא מחובר בשרת — docs/WHATSAPP.md (5 משתנים ב-Vercel).' : 'טוען…') + '</p>';
+  const ch = waChatOf(phone), open = waOpenWin(ch), k = esc(waPhone(phone) + '|' + (ref || ''));
+  if (open) return '<div class="row" style="gap:6px;align-items:flex-end;margin-top:8px"><textarea class="f grow" rows="2" id="waTxt" data-wak="' + k + '" placeholder="הודעה…" aria-label="הודעה"></textarea><button class="btn primary" data-wasend="' + k + '">שלח</button></div><p class="hint" style="margin:2px 0 0">אפשר לכתוב חופשי עוד ' + waLeft(ch) + ' (24 שעות מההודעה האחרונה של הלקוח). אחרי — רק תבנית.</p>';
+  waTplLoad(); const T = (S.waTpl && S.waTpl.templates) || [], sel = (S.f.waTpl || {})[waPhone(phone)] || '', t = T.find((x) => x.name + '|' + x.lang === sel);
+  return '<div class="ppanel" style="margin-top:8px"><b>' + (ch && ch.lastInAt ? 'עברו 24 שעות מההודעה האחרונה של הלקוח' : 'הלקוח עוד לא כתב') + ' — שולחים תבנית מאושרת</b>' +
+    (T.length ? '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-top:6px"><label class="fl grow">תבנית<select class="f" data-watpl="' + esc(waPhone(phone)) + '"><option value="">בחר תבנית…</option>' + T.map((x) => '<option value="' + esc(x.name + '|' + x.lang) + '"' + (x.name + '|' + x.lang === sel ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.lang) + ')</option>').join('') + '</select></label>' +
+      (t ? Array.from({ length: t.vars }, (_, i) => '<label class="fl">{{' + (i + 1) + '}}<input class="f" data-wavar="' + i + '" value="' + esc(i === 0 ? String(((ch && ch.name) || '').split(' ')[0] || '') : '') + '"></label>').join('') + '<button class="btn primary" data-wasendtpl="' + k + '">שלח תבנית</button>' : '') + '</div>' +
+      (t ? '<p class="hint" style="margin:4px 0 0;white-space:pre-wrap">' + esc(t.body) + '</p>' : '')
+      : '<p class="hint" style="margin:4px 0 0">' + esc((S.waTpl && S.waTpl.message) || (S.waTpl ? 'אין תבניות מאושרות — יוצרים ב-WhatsApp Manager (או ב-WISE) ומחכים לאישור של Meta' : 'טוען תבניות…')) + '</p>') + '</div>';
+}
+function waThread(phone, ref, max) {
+  const M = waMsgsOf(phone), ch = waChatOf(phone), show = max ? M.slice(-max) : M;
+  if (ch && n(ch.unread) && S.canTask) setTimeout(() => { const c2 = waChatOf(phone); if (c2 && n(c2.unread)) write('waChats/' + c2.id, { unread: 0, readAt: stamp(), readBy: S.me.id }, 'update').catch(() => {}); }, 400);
+  return '<div class="wathread" id="waThread">' + (show.length ? (M.length > show.length ? '<p class="hint" style="text-align:center">' + (M.length - show.length) + ' הודעות קודמות בתיבת הוואטסאפ</p>' : '') + show.map(waBubble).join('') : '<p class="empty">עוד אין הודעות בוואטסאפ עם המספר הזה.</p>') + '</div>' + (S.canTask ? waCompose(phone, ref) : '');
+}
+function waCard(phone, ref) {
+  if (!window.__harelServer || !phone) return ''; waStatusLoad(); if (S.waSt && S.waSt.enabled === false && !waMsgsOf(phone).length) return '';
+  const ch = waChatOf(phone);
+  return '<section class="card" id="waCard"><header><h2>💬 וואטסאפ</h2>' + (ch && n(ch.unread) ? '<span class="pill open">' + n(ch.unread) + ' חדשות</span>' : '') + '<span class="grow"></span><button class="btn small ghost" data-waopen="' + esc(waPhone(phone)) + '">לתיבה המלאה</button></header>' + waThread(phone, ref, 30) + '</section>';
+}
+function vWa() {
+  waStatusLoad(); const q = String(S.f.waQ || '').trim(), C = live(S.waChats).filter((c) => !q || [c.name, c.phone, c.lastText].some((v) => String(v || '').includes(q))).sort((a, b) => String(b.lastAt || '').localeCompare(String(a.lastAt || ''))), cur = S.f.waCur && S.waChats.get(S.f.waCur) ? S.f.waCur : (C[0] || {}).id;
+  const who = (c) => { const l = c.leadId && S.leads.get(c.leadId), k = c.clientId && S.clients.get(c.clientId); return (k && k.name) || (l && l.name) || c.name || c.phone; };
+  const st = S.waSt;
+  const head = st && st.enabled === false ? '<div class="notice warn" style="display:block;margin-bottom:10px"><b>וואטסאפ עוד לא מחובר בשרת</b><br>החיבור דרך ה-API הרשמי של Meta — אותו מספר שחובר ב-WISE ממשיך לעבוד שם. צריך 5 משתנים ב-Vercel (טוקן, מספר, חשבון, אימות, סוד) והרשמה ל-webhook — המדריך: docs/WHATSAPP.md.</div>'
+    : st && st.enabled ? '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><span class="pill actual">✓ שליחה מחוברת</span>' + (st.webhook ? '<span class="pill actual">✓ קבלת הודעות (webhook)</span>' : '<span class="pill open">חסר WA_APP_SECRET — הודעות נכנסות לא יתקבלו</span>') + (st.templates ? '<span class="pill actual">✓ תבניות</span>' : '<span class="pill expected">חסר WA_WABA_ID — בלי תבניות</span>') +
+      (S.isDan && st.templates ? '<button class="btn small ghost" data-act="waSubscribe" title="פעם אחת אחרי ההגדרה — כך ההודעות הנכנסות מגיעות גם ל-CRM (ולא רק ל-WISE)">רשום את ה-CRM לקבלת הודעות</button>' : '') + '</div>' : '';
+  const ch = cur && S.waChats.get(cur), l = ch && ch.leadId && S.leads.get(ch.leadId), k = ch && ch.clientId && S.clients.get(ch.clientId);
+  return head + '<div class="wagrid"><section class="card walist"><header><h2>שיחות</h2>' + (waUnread() ? '<span class="pill open">' + waUnread() + '</span>' : '') + '</header><input class="f search" type="search" id="fWaQ" value="' + esc(S.f.waQ || '') + '" placeholder="חיפוש שם / טלפון / הודעה" style="width:100%;margin-bottom:8px">' +
+      (C.length ? C.map((c) => '<button class="wachat' + (c.id === cur ? ' on' : '') + '" data-wachat="' + esc(c.id) + '"><span class="grow"><b>' + esc(who(c)) + '</b><br><small class="hint">' + (c.lastDir === 'out' ? 'את/ה: ' : '') + esc(String(c.lastText || '').slice(0, 60)) + '</small></span><span class="hint num" style="text-align:end">' + (c.lastAt ? (dayOf(c.lastAt) === today() ? hm(c.lastAt) : dLabel(dayOf(c.lastAt)).slice(0, 5)) : '') + (n(c.unread) ? '<br><span class="pill open">' + n(c.unread) + '</span>' : '') + '</span></button>').join('') : '<p class="empty">עוד אין שיחות.</p>') + '</section>' +
+    '<section class="card wamain">' + (ch ? '<header><h2>' + esc(who(ch)) + '</h2><span class="hint num" dir="ltr">' + esc(ch.phone) + '</span><span class="grow"></span>' + (l ? '<button class="btn small ghost" data-leadopen="' + esc(l.id) + '">לכרטיס הליד ←</button>' : k ? '<button class="btn small ghost" data-client="' + esc(k.id) + '">לכרטיס הלקוח ←</button>' : '') + '</header>' + waThread(ch.phone, (k ? 'client:' + k.id : l ? 'lead:' + l.id : ''), 0)
+      : '<p class="empty">בחר שיחה.</p>') + '</section></div>';
+}
+async function waSend(k, tpl) {
+  const [phone, ref] = k.split('|'), [kind, id] = String(ref || '').split(':'), body = { phone, ...(kind === 'lead' ? { leadId: id } : kind === 'client' ? { clientId: id } : {}) };
+  if (tpl) { const T = (S.waTpl && S.waTpl.templates) || [], sel = (S.f.waTpl || {})[phone] || '', t = T.find((x) => x.name + '|' + x.lang === sel); if (!t) return toast('בחר תבנית');
+    const params = [...document.querySelectorAll('[data-wavar]')].map((el) => el.value.trim()); if (params.some((p) => !p)) return toast('למלא את כל המשתנים בתבנית');
+    body.template = { name: t.name, lang: t.lang, params, body: t.body }; }
+  else { const el = $('waTxt'), text = el ? el.value.trim() : ''; if (!text) return; body.text = text; }
+  const btn = document.querySelector(tpl ? '[data-wasendtpl]' : '[data-wasend]'); if (btn) { btn.disabled = true; btn.textContent = 'שולח…'; }
+  try { const r = await fetch('/api/crm/whatsapp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), j = await r.json().catch(() => ({}));
+    if (j.ok) { if (!tpl && $('waTxt')) $('waTxt').value = ''; toast('נשלח בוואטסאפ'); } else toast(j.error || 'לא נשלח', 8000); }
+  catch (e) { toast('אין חיבור — לא נשלח'); }
+  if (btn) { btn.disabled = false; btn.textContent = tpl ? 'שלח תבנית' : 'שלח'; }
+}
+document.addEventListener('keydown', (e) => { if (e.target && e.target.id === 'waTxt' && e.key === 'Enter' && !e.shiftKey && e.target.dataset.wak) { e.preventDefault(); waSend(e.target.dataset.wak, false); } });
+document.addEventListener('change', (e) => { const el = e.target; if (el && el.dataset && el.dataset.watpl !== undefined) { S.f.waTpl = { ...(S.f.waTpl || {}), [el.dataset.watpl]: el.value }; render(); } });
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'fWaQ') { S.f.waQ = e.target.value; const pos = e.target.selectionStart; render(); const q = $('fWaQ'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } } });
 function vLeads() {
-  const fin = S.division !== 'realestate' && canSeeDiv('finance'), v0 = S.isCenter ? (S.f.leadView === 'list' ? 'list' : 'board') : S.f.leadView || 'board', v = v0 === 'credit' && !fin ? 'list' : v0;
+  const fin = S.division !== 'realestate' && canSeeDiv('finance'), v0 = S.isCenter ? (['list', 'wa'].includes(S.f.leadView) ? S.f.leadView : 'board') : S.f.leadView || 'board', v = v0 === 'credit' && !fin ? 'list' : v0;
   const nc = fin ? live(S.leads).filter((l) => leadDiv(l) === 'finance' && creditable(l) && creditOf(l) === 'pending').length : 0;
   /* עיצוב v4 — מקטע כמו בקנבס: תור · לוח · זיכויים · סיכום יום (אותן ארבע תצוגות) */
-  const seg = '<div class="seg lseg" role="group" aria-label="תצוגה">' + [['list', 'תור'], ['board', 'לוח'], ...(fin ? [['credit', 'זיכויים' + (nc ? ' (' + nc + ')' : '')]] : []), ['day', 'סיכום יום'], ...(S.calls.size ? [['calls', 'שיחות']] : [])].map(([k, t]) => '<button data-leadview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
+  const seg = '<div class="seg lseg" role="group" aria-label="תצוגה">' + [['list', 'תור'], ['board', 'לוח'], ...(fin ? [['credit', 'זיכויים' + (nc ? ' (' + nc + ')' : '')]] : []), ['day', 'סיכום יום'], ...(S.calls.size ? [['calls', 'שיחות']] : []), ...(window.__harelServer ? [['wa', '💬 וואטסאפ' + (waUnread() ? ' (' + waUnread() + ')' : '')]] : [])].map(([k, t]) => '<button data-leadview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
   const ph = (t) => '<div class="pghead lhead"><h1>' + t + '</h1><span class="grow"></span>';
   if (v === 'board') return ph('לידים · לוח מעקב') + (S.isCenter ? '<div class="seg lseg" role="group"><button data-leadview="list" aria-pressed="false">הלידים שלי</button><button data-leadview="board" aria-pressed="true">לוח מעקב</button></div>' : seg) + '</div>' + vLeadBoard();
   if (v === 'credit') return ph('לידים · זיכויים') + seg + '</div>' + vLeadCredit();
   if (v === 'day') return ph('לידים · סיכום יום') + seg + '</div>' + vLeadDay();
   if (v === 'calls') return ph('לידים · שיחות') + seg + '</div>' + vCalls();
+  if (v === 'wa') return ph('לידים · וואטסאפ') + seg + '</div>' + vWa();
   return vLeadsList(seg);
 }
 /* הקצאה פשוטה מתוך הרשימה (דן, 11/10): מסמנים לידים → בוחרים נציג → הקצה */
@@ -7916,7 +7990,7 @@ function vLead(id) {
         (!isRE && creditable(l) ? '<span class="pill ' + CREDIT_TONE[creditOf(l)] + '">זיכוי: ' + CREDIT_ST[creditOf(l)] + '</span>' : '') + '</div>' +
       (w ? '<div class="seg" style="margin-top:10px" role="group" aria-label="פעולה מהירה">' + quick.map(([k, v]) => '<button data-leadquick="' + k + '" data-id="' + esc(l.id) + '">' + v + '</button>').join('') + '</div>' : '') +
       (!c && S.canClient && l.stage === 'won' ? '<div class="row" style="margin-top:10px"><select class="f" data-linklead="' + esc(l.id) + '" aria-label="קשר ללקוח" style="max-width:240px"><option value="">או קשר ללקוח קיים…</option>' + live(S.clients).filter((k) => k.status !== 'cancelled').sort((a, b) => String(a.name).localeCompare(String(b.name), 'he')).map((k) => '<option value="' + esc(k.id) + '">' + esc(k.name) + '</option>').join('') + '</select></div>' : '') + '</section>' +
-    leadDupCard(l, w) + callsCard('leadId', l.id) + leadHistCard(l) + signCard(leadSignObj(l)) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + reMeetCard('l:' + l.id) + reProfileCard(l) : '') +
+    leadDupCard(l, w) + waCard(l.phone, 'lead:' + l.id) + callsCard('leadId', l.id) + leadHistCard(l) + signCard(leadSignObj(l)) + leadScriptCard(l) + (isRE ? leadQCard(l, w) + reMeetCard('l:' + l.id) + reProfileCard(l) : '') +
     '<div class="grid2"><section class="card"><header><h2>יומן והערות</h2><span class="pill muted">' + (l.log || []).length + '</span></header>' +
       (w ? '<div class="row"><textarea class="f grow" id="leadNote" rows="2" placeholder="מה היה בשיחה, מה הצעד הבא…"></textarea><button class="btn primary" data-leadnote="' + esc(l.id) + '">הוסף</button></div>' : '') +
       ((l.log || []).length ? '<ul class="log">' + l.log.map((e) => '<li><time>' + dLabel(dayOf(e.at)) + ' ' + esc(hm(e.at)) + '</time><span class="' + (e.auto ? 'auto' : '') + '">' + linkify(e.text) + ' <span class="hint">· ' + esc(e.who || nameOf(e.by)) + '</span></span></li>').join('') + '</ul>' : '<p class="empty">עוד אין הערות.</p>') +
@@ -10852,7 +10926,7 @@ window.HAREL_JOBS = {
    הסיסמה עצמה לא נשמרת בשום מקום, רק גיבוב PBKDF2 עם מלח. */
 const OWNER_READ = ['stmts', 'transactions', 'planned', 'expenses', 'campaigns', 'runs', 'private', 'payroll', 'reTx', 'reExpenses', 'rePlanned', 'kaveretPool', 'leadBills', 'devRequests'];
 const PARTNER_WRITE = ['clients', 'transactions'];
-const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations'];
+const TEAM_WRITE = ['tasks', 'files', 'days', 'tickets', 'outbox', 'team', 'leads', 'intakes', 'approvals', 'attendance', 'valuations', 'waChats'];
 const RESP_KEYS = ['dan', 'hadas', 'nissim'];
 /* ── תפקידים והרשאות לפי חברה (דן, 09/10) ──────────────────────────────────
    owner = דן · admin = מנהל מערכת בשתי החברות (הדס) · admin_re = מנהל מערכת הר-אל השקעות בלבד (אביב)
@@ -14368,6 +14442,10 @@ document.addEventListener('click', async (e) => {
     if (d.owner) { S.f.clientOwner = d.owner; S.f.clientStatus = 'open'; return go('clients'); }
     if (d.attn != null) { const a = (window.__attn || [])[Number(d.attn)]; if (a) go(...a.go); return; }
     if (d.etaask) return etaForm(d.etaask);
+    if (d.wasend) return waSend(d.wasend, false);
+    if (d.wasendtpl) return waSend(d.wasendtpl, true);
+    if (d.wachat) { S.f.waCur = d.wachat; return render(); }
+    if (d.waopen) { S.f.waCur = d.waopen; S.f.leadView = 'wa'; return go('leads'); }
     if (d.readymode) { const [cid, k] = d.readymode.split('|'); S.f.readyMode = { ...(S.f.readyMode || {}), [cid]: k }; return render(); }
     if (d.mysubspdf) { const c = S.clients.get(d.mysubspdf); if (c) return mySubsPdf(c); return; }
     if (d.subdashp) { S.f.subDashP = d.subdashp; S.f.subDash = null; return render(); }
@@ -14809,6 +14887,8 @@ document.addEventListener('click', async (e) => {
           for (const t of D.unconfirmed) await write('transactions/' + t.id, { confirmed: true, confirmedAt: stamp(), confirmedBy: S.me.id, updatedAt: stamp() }, 'update');
           return toast(D.unconfirmed.length + ' תקבולים אושרו'); }
         case 'payPdf': return payPdf(S.f.payMonth || payMonthDefault());
+        case 'waSubscribe': { const r = await fetch('/api/crm/whatsapp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'subscribe' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'אין חיבור' }));
+          return toast(r.ok ? 'נרשם — הודעות נכנסות יגיעו גם ל-CRM' : 'לא נרשם: ' + (r.error || ''), 8000); }
         case 'supAdd': { const nm = String(($('supName') || {}).value || '').trim(); if (!nm) return toast('צריך שם'); await write('settings/main', { suppliers: [...(S.settings.suppliers || []), { id: uid(), name: nm, day: n(($('supDay') || {}).value) || null, by: 'bank', createdAt: stamp() }] }, 'update'); return toast('נוסף ' + nm); }
         case 'payHours': { S.f.attDay = (S.f.payMonth || payMonthDefault()) + '-01'; return attReportDl('pdf'); }
         case 'payCsv': { const m = S.f.payMonth || payMonthDefault(); return exportCsv('שכר-' + m, ['חודש', 'עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], payRows(m)); }

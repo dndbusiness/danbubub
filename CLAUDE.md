@@ -131,6 +131,7 @@ node scripts/e2e-vc-ai.mjs        # וויאסנטר: CDR עם AIData → סיכ
 node scripts/e2e-lead-conv.mjs    # לידים: סנכרון לפי פלטפורמה (⚠ פלטפורמה שנעצרה) + המרה קפדנית לכל קמפיין בכל פלטפורמה (תקינים → חתמו → שילמו, עלות לחתימה)
 node scripts/e2e-compete.mjs      # מתחרים וסקירה: + מתחרה → 📢 המודעות הפעילות בספריית המודעות → עדכונים → מגמה ▲▼ → נתוני הסקירה השיווקית
 JSPDF=<…> H2C=<…> node scripts/e2e-prep-money.mjs # שמאים לפי קרן (⭐/✓/✗, בחירה) · מוכנות להגשה · "ההגשות שלי לבנקים" (PDF) · צפי סגירה אחרי התוכנית (שאילתה → סביר/בטוח → צפי) · קבועה באשראי ב-15, מצב אשראי, ספק ב-10 · ציר הגשות (מדדים + פירוט)
+node scripts/e2e-whatsapp.mjs     # וואטסאפ (Cloud API, Meta מדומה על 127.0.0.1:4598 — השרת עם WA_CLOUD_TOKEN=e2e WA_PHONE_NUMBER_ID=P1 WA_WABA_ID=W1 WA_APP_SECRET=e2e-secret WA_VERIFY_TOKEN=e2e-verify WA_GRAPH_BASE=http://127.0.0.1:4598): אימות → חתימה → מספר חדש = ליד → כרטיס ותיבה → תשובה דרך תיבת היוצא → ✓✓ נקרא → אחרי 24 שעות רק תבנית → תמונה → רישום לחשבון. ההגדרה: docs/WHATSAPP.md
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup

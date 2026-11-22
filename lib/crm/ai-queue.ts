@@ -14,9 +14,9 @@ import { writeDoc } from '@/lib/crm/store'
 import type { CrmSession } from '@/lib/crm/auth'
 
 /** אוספים שלא יוצאים לדפדפן ולא נכתבים ממנו — רק דרך ה-API של התור (וקודי הכניסה, lib/crm/login-code.ts) */
-export const SERVER_ONLY = ['aiJobFiles', 'aiQueue', 'aiSpend', 'loginCodes', 'vcEvents']
+export const SERVER_ONLY = ['aiJobFiles', 'aiQueue', 'aiSpend', 'loginCodes', 'vcEvents', 'waEvents']
 /** אוספים שהדפדפן קורא אבל לא כותב ישירות */
-export const SERVER_WRITE = ['aiJobs', ...SERVER_ONLY]
+export const SERVER_WRITE = ['aiJobs', 'waMsgs', ...SERVER_ONLY] /* waMsgs — רק השרת כותב (webhook / שליחה דרך תיבת היוצא) */
 
 /** המעבד חי = קרא לתור לאחרונה. החלון לפי קצב השגרה שהוא מדווח (כל 10 דק׳ / כל שעה): פי 2 + מרווח, לפחות 30 דק׳ */
 export const aliveMs = (everyMin: number) => Math.max(30, 2 * (Number(everyMin) || 10) + 10) * 60e3
