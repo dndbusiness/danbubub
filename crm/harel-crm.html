@@ -1899,16 +1899,37 @@ function accrualMonth(m, A, ctx) {
 const accrualCtx = () => ({ vat: n(S.settings.vatRate || 0.18), nowMonth: today().slice(0, 7), txs: live(S.transactions).filter((t) => (t.division || 'finance') === 'finance'),
   payEntered: (emp, m) => { const e = payAllEmployees().find((k) => k.key === emp), doc = S.payroll.get(m + '__' + emp); return (S.settings.nissimPayScreen === true && !!e && !!doc && !doc.deletedAt && payCalc(e, doc).total > 0) || live(S.transactions).some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m && (t.division || 'finance') === 'finance'); } });
 const accrualsOf = () => S.settings.accruals || { items: [], recur: [] };
+/* ══ חלוקת הר-אל פתרונות לפי חודש — פונקציות טהורות (דן 22/11: "מתחילת החודש הבא ניסים 33% ברווח, מחודש 12 ואילך, בלי רטרו;
+   אותו חשבון בדיוק — רק האחוז שלו יורד ל-33%. ניסים, דן ויונס 33% כל אחד. אביב לא חלק בהתחשבנות בשלב הזה") ══
+   list = [{from:'YYYY-MM', nissimPct, exclude:[שמות]}] — התנאי האחרון שה-from שלו ≤ החודש. בלי תנאי — basePct (ההגדרה הקודמת) והקבוצה כמו קודם.
+   group = שותפי הר-אל השקעות פחות exclude; כל אחד מהם מקבל (1 − nissimPct) ÷ מספרם. */
+function finSplitAt(list, month) {
+  let cur = null;
+  for (const x of (list || [])) if (x && x.from && x.from <= month && !x.deletedAt && (!cur || x.from >= cur.from)) cur = x;
+  return cur;
+}
+function finSplitShare(profit, split, rePartners, basePct, baseGroupPct) {
+  if (!split) { const k = (rePartners || []).length || 3; return { nissimPct: basePct, who: null, group: Math.round(profit * baseGroupPct * 100) / 100, each: Math.round(profit * baseGroupPct / k * 100) / 100 }; }
+  const ex = (split.exclude || []).map((x) => String(x).trim()).filter(Boolean), who = (rePartners || []).filter((p) => !ex.some((e) => String(p).includes(e)));
+  const g = 1 - Number(split.nissimPct);
+  return { nissimPct: Number(split.nissimPct), who, group: Math.round(profit * g * 100) / 100, each: who.length ? Math.round(profit * g / who.length * 100) / 100 : 0 };
+}
+/* ══ סוף חלוקת הר-אל פתרונות — פונקציות טהורות ══ */
+/* ברירת מחדל מההחלטה של דן (22/11) — ההגדרות (settings.finSplit) גוברות */
+const FIN_SPLIT_DEFAULT = [{ from: '2026-12', nissimPct: 1 / 3, exclude: ['אביב'], note: 'דן 22/11: ניסים, דן ויונס — שליש כל אחד; אביב לא בהתחשבנות' }];
+const finSplitList = () => (Array.isArray(S.settings.finSplit) ? S.settings.finSplit : FIN_SPLIT_DEFAULT);
+const nisPct = (m) => { const x = finSplitAt(finSplitList(), m); return x ? Number(x.nissimPct) : n(S.settings.nissimPct || 0.5); };
+const pctLabel = (v) => (Math.abs(v - 1 / 3) < 0.001 ? '33.3' : String(Math.round(v * 1000) / 10));
 function nissimCard() {
   /* dan_first (דן 25/09): הפסד — דן מימן אותו; רווח שאחריו מחזיר לדן קודם, ורק היתרה מתחלקת. */
   /* שריון (הכנה לחודש הבא, אם מחליטים): יורד לפני החלוקה ומשתחרר בחודש שאחריו. */
-  let bal = 0, pool = 0, prevRes = 0; const p = n(S.settings.nissimPct || 0.5), mode = S.settings.lossSharing || 'shared', res = S.settings.finReserve || {}, A = accrualsOf(), ctx = accrualCtx();
+  let bal = 0, pool = 0, prevRes = 0; const mode = S.settings.lossSharing || 'shared', res = S.settings.finReserve || {}, A = accrualsOf(), ctx = accrualCtx();
   /* דן 17/11: "שכר הדס (לפי מסך השכר) — נתון לא מובן, להסיר מהחשבון": שכר מחושב ממסך השכר לא נוכה מהחשבון עם ניסים כברירת מחדל.
      שכר נוכה כשהוא משולם (תנועה בקטגוריה "שכר") או כהתחייבות שדן הזין. nissimPayScreen = true מחזיר את הניכוי מהמסך. */
   const payScreen = S.settings.nissimPayScreen === true;
   return pnl('finance').map((r0) => {
     const r = payScreen || !n(r0.payroll) ? r0 : { ...r0, fixed: r2(r0.fixed - n(r0.payroll)), distributable: r2(r0.distributable + n(r0.payroll)), payroll: 0, payrollOff: r0.payroll };
-    const reserve = r2(n(res[r.month])), released = prevRes; prevRes = reserve;
+    const p = nisPct(r.month), reserve = r2(n(res[r.month])), released = prevRes; prevRes = reserve;
     const acc = accrualMonth(r.month, A, ctx), profitAcc = r2(r.distributable - acc.total + acc.back);
     const base = r2(profitAcc + released - reserve);
     const loss = base < 0; let share, recovered = 0;
@@ -9810,7 +9831,8 @@ function vSettings() {
       (w ? '<form class="row" id="pwForm" autocomplete="off">' + (s.lock && s.lock.hash ? '<input class="f" type="password" id="pwOld" placeholder="סיסמה נוכחית" aria-label="סיסמה נוכחית" autocomplete="current-password">' : '') + '<input class="f" type="password" id="pwNew" placeholder="סיסמה חדשה (8 תווים לפחות)" aria-label="סיסמה חדשה" autocomplete="new-password"><button class="btn" type="submit">שמור סיסמה</button></form>' : '') + '</section>') +
     vAutomations() +
     '<section class="card"><header><h2>התחשבנות פנימית</h2></header>' +
-      '<div class="row"><label class="fl">חלקו של ניסים ברווח לחלוקה<select class="f" id="nissimPct"' + (w ? '' : ' disabled') + '>' + [0.5, 0.4, 0.33, 0.3, 0.25].map((v) => '<option value="' + v + '"' + (n(s.nissimPct || 0.5) === v ? ' selected' : '') + '>' + Math.round(v * 100) + '%</option>').join('') + '</select></label>' +
+      '<p class="hint" style="margin:0 0 6px">' + finSplitList().filter((x) => !x.deletedAt).map((x) => 'מ-' + esc(mLabel(x.from)) + ': ניסים ' + pctLabel(Number(x.nissimPct)) + '% · ' + esc((finSplitShare(0, x, partnersOf('realestate'), 0, 0).who || []).join(', ') || '—') + ' — ' + pctLabel((1 - Number(x.nissimPct)) / Math.max(1, (finSplitShare(0, x, partnersOf('realestate'), 0, 0).who || []).length)) + '% כל אחד' + ((x.exclude || []).length ? ' · לא בחלוקה: ' + esc(x.exclude.join(', ')) : '')).join('<br>') + '. האחוז למטה — לחודשים שלפני.</p>' +
+      '<div class="row"><label class="fl">חלקו של ניסים ברווח לחלוקה (עד 11/2026)<select class="f" id="nissimPct"' + (w ? '' : ' disabled') + '>' + [0.5, 0.4, 0.33, 0.3, 0.25].map((v) => '<option value="' + v + '"' + (n(s.nissimPct || 0.5) === v ? ' selected' : '') + '>' + Math.round(v * 100) + '%</option>').join('') + '</select></label>' +
       '<div><div class="hint">חודש הפסד — מי נושא?</div><div class="seg" role="group" aria-label="חלוקת הפסד" style="margin-top:4px"><button data-loss="shared" aria-pressed="' + (!s.lossSharing || s.lossSharing === 'shared') + '"' + (w ? '' : ' disabled') + '>ניסים נושא בחלקו</button><button data-loss="harel_absorbs" aria-pressed="' + (s.lossSharing === 'harel_absorbs') + '"' + (w ? '' : ' disabled') + '>הר-אל סופגת הכל</button><button data-loss="dan_first" aria-pressed="' + (s.lossSharing === 'dan_first') + '"' + (w ? '' : ' disabled') + '>דן מממן — חוזר אליו מהרווחים</button></div></div></div></section>' +
     '<section class="card"><header><h2>שליפת נתונים</h2></header><div class="row"><button class="btn" data-act="exportClients">לקוחות</button><button class="btn" data-act="exportTx">תנועות</button><button class="btn" data-act="exportPnl">רווח והפסד</button><button class="btn" data-act="exportTasks">משימות</button><button class="btn" data-act="exportLeads">לידים</button></div></section>' +
     '<section class="card"><header><h2>על הממשק</h2></header><p style="margin:0;font-size:13px;color:var(--text-2)">הנתונים נשמרים במסד של הדף ומשותפים למי שקיבל גישת עריכה. רווח והפסד וכרטיס ניסים זהים למערכת המלאה ונבדקו מולה עד האגורה. אין מחיקה פיזית — מה שמוסר מסומן ולא נעלם. מיילים יוצאים מה-Gmail של מי שלוחץ כשמישהו פועל (סגירת יום, שיוך משימה, שליחת דוח), ובנוסף בריצות האוטומטיות שבסעיף "גיבוי ואוטומציות" — מה-Gmail של בעל המשרד. כל מייל נרשם ב"מיילים שנשלחו".</p></section>';
@@ -11212,7 +11234,7 @@ const txWho = (t) => cname(t.clientId) || t.counterparty || t.description || '�
 /* דוח אחד — אותה פונקציה למסך, לאקסל ולמייל (כלל 20). */
 function settleReport(m) {
   const D = settleData(m); if (!D) return null;
-  const r = D.r, p = Math.round(n(S.settings.nissimPct || 0.5) * 100);
+  const r = D.r, p = Math.round(nisPct(m) * 1000) / 10;
   const summary = [
     ['הכנסות שנכנסו (נטו)', r.income], ['פחות: הוצאות קבועות של הפעילות', -r.fixed], ['פחות: הוצאות ישירות על לקוחות (שולמו בחודש)', -r.direct],
     ['רווח לחלוקה', r.distributable], ['חלקו של ניסים (' + p + '%)', r.share], ['חלקה של הר-אל (' + (100 - p) + '%)', r.harel],
@@ -11261,7 +11283,7 @@ async function settleMail(m) {
 /* "השורה התחתונה" בראש ההתחשבנות: כמה ניסים חייב (או חייבים לו), ונקודות האיזון של החודש — במילים, עם החישוב */
 /* החישוב של "השורה התחתונה" — משותף להתחשבנות, לדשבורד הכספים וללוח הבקרה (אותם מספרים בכל מקום, הנחיה 20) */
 function settleCalc(D, m) {
-  const r = D.r, p = n(S.settings.nissimPct || 0.5), pc = Math.round(p * 100), i = D.card.findIndex((x) => x.month === m), poolBefore = (S.settings.lossSharing === 'dan_first' && i > 0) ? n(D.card[i - 1].pool) : 0;
+  const r = D.r, p = nisPct(m), pc = Math.round(p * 1000) / 10, i = D.card.findIndex((x) => x.month === m), poolBefore = (S.settings.lossSharing === 'dan_first' && i > 0) ? n(D.card[i - 1].pool) : 0;
   /* רטרו (דן 27/10): חוב מחודשים קודמים עובר הלאה עד שמתקזז לגמרי — מאיזה חודש הוא נצבר */
   let k = i; while (k > 0 && D.card[k].opening > 0) k--;
   const since = r.opening > 0 ? D.card[k].month : null;
@@ -11433,7 +11455,7 @@ function vSettle() {
   const card = nissimCard();
   if (!card.length) return '<p class="empty">אין נתונים</p>';
   const m = settleMonthOf(card);
-  const R = settleReport(m), D = R.D, r = D.r, w = S.canWrite, p = Math.round(n(S.settings.nissimPct || 0.5) * 100);
+  const R = settleReport(m), D = R.D, r = D.r, w = S.canWrite, p = Math.round(nisPct(m) * 1000) / 10;
   const drill = S.f.settleDrill || 'income';
   const line = (label, v, key, tone, strong) => '<tr' + (key ? ' class="clickable" data-sdrill="' + key + '"' : '') + (strong ? ' style="font-weight:600"' : '') + '><td class="wide">' + label + (key ? ' <span class="hint">' + (drill === key ? '▾' : '›') + '</span>' : '') + '</td><td>' + money(v, { cents: true, tone }) + '</td></tr>';
   const sec = R.sections.find((s) => s.key === drill) || R.sections[0];
@@ -11445,7 +11467,7 @@ function vSettle() {
       (t.nature === 'income' ? (isConfirmed(t) ? '<span class="pill actual">אושר</span>' : (w ? '<button class="btn small" data-confirmtx="' + esc(t.id) + '">אשר שנכנס</button>' : '<span class="pill expected">ממתין</span>')) : '') +
       (t.nature === 'expense' && w ? '<button class="btn small ghost" data-deduct="' + esc(t.id) + '">' + ((t.clientId ? t.deductible !== false : t.deductible) ? 'הוצא מהחישוב' : 'נכה בחישוב') + '</button>' : '') + '</div></td>' +
       '<td>' + (drill === 'vat' ? money(t.nature === 'income' ? n(t.vat) : -Math.abs(n(t.vat)), { cents: true, tone: t.nature === 'income' ? 'open' : 'expected' }) + '<div class="hint">' + (t.nature === 'income' ? 'מע״מ עסקאות' : 'מחכה לחשבונית') + '</div>' : money(t.nature === 'advance' ? Math.abs(n(t.gross || t.net)) : t.net, { cents: true, tone: t.nature === 'income' ? 'actual' : '' })) + (w ? '<div><button class="btn small ghost" data-edittx="' + esc(t.id) + '">ערוך</button></div>' : '') + '</td></tr>').join('');
-  const oweRows = drill !== 'owe' ? '' : (() => { const V = settleVat(m), B0 = settleBreakEven(r, n(S.settings.nissimPct || 0.5)), nx = addMonth(m + '-01').slice(0, 8) + '10';
+  const oweRows = drill !== 'owe' ? '' : (() => { const V = settleVat(m), B0 = settleBreakEven(r, nisPct(m)), nx = addMonth(m + '-01').slice(0, 8) + '10';
     return (V.due > 0 ? '<tr><td class="num">—</td><td class="wide">מע״מ ' + V.period + '<div class="hint">דו-חודשי · דיווח ב-' + mLabel(V.report) + ' · מכל ההכנסות − תשומות עם חשבונית</div></td><td>' + money(-V.due, { cents: true, tone: 'open' }) + '<div><button class="btn small" data-sdrill="vat">פירוט</button></div></td></tr>' : '') +
       (B0.owed ? '<tr><td class="num">' + dLabel(nx) + '</td><td class="wide">חלוקה לניסים</td><td>' + money(-B0.owed, { cents: true, tone: 'open' }) + '</td></tr>' : ''); })();
   const tplBtn = (e) => !w ? '' : e.kind === 'payroll' ? '<button class="btn small" data-act="settleAdd" data-kind="payrollGo" data-m="' + m + '">לשכר</button>'
@@ -11524,14 +11546,15 @@ function drawsCard() {
 const finGroupPct = () => (S.settings.finGroupPct ?? 0.5);
 const finShare = (...a) => withAll(() => finShareAll(...a));
 function finShareAll() {
-  const k = partnersOf('realestate').length || 3;
-  return pnl('finance').map((r) => ({ month: r.month, income: r2(r.income), profit: r2(r.distributable), group: r2(r.distributable * finGroupPct()), each: r2(r.distributable * finGroupPct() / k) }));
+  /* מ-12/2026 (דן 22/11): החלק של הר-אל = 1 − החלק של ניסים, רק לשותפים שבחלוקה (בלי אביב) */
+  return pnl('finance').map((r) => { const sh = finSplitShare(r2(r.distributable), finSplitAt(finSplitList(), r.month), partnersOf('realestate'), nisPct(r.month), finGroupPct());
+    return { month: r.month, income: r2(r.income), profit: r2(r.distributable), group: sh.group, each: sh.each, who: sh.who }; });
 }
 const reInclFin = () => S.settings.reIncludeFin !== false;
 function finShareCard() {
   const F = finShare(); if (!F.length) return '';
   const t = F.reduce((a, x) => ({ income: a.income + x.income, profit: a.profit + x.profit, group: a.group + x.group, each: a.each + x.each }), { income: 0, profit: 0, group: 0, each: 0 });
-  return '<section class="card"><header><h2>הר-אל פתרונות — חלק הקבוצה (' + Math.round(finGroupPct() * 100) + '%)</h2><span class="hint">מחזור ורווח לחלוקה של פתרונות · החצי השני של ניסים</span></header><div class="scroll"><table><thead><tr><th>חודש</th><th>מחזור (הכנסות נטו)</th><th>רווח לחלוקה</th><th>חלק הקבוצה</th><th>לכל שותף</th></tr></thead><tbody>' +
+  return '<section class="card"><header><h2>הר-אל פתרונות — חלק הקבוצה</h2><span class="hint">עד 11/2026: ' + Math.round(finGroupPct() * 100) + '% לשלושה · מ-12/2026: ' + pctLabel(1 - nisPct('2026-12')) + '% לדן וליונס (ניסים ' + pctLabel(nisPct('2026-12')) + '%, אביב לא בחלוקה)</span></header><div class="scroll"><table><thead><tr><th>חודש</th><th>מחזור (הכנסות נטו)</th><th>רווח לחלוקה</th><th>חלק הקבוצה</th><th>לכל שותף</th></tr></thead><tbody>' +
     F.map((x) => '<tr class="clickable" data-pm="' + x.month + '" data-pmdiv="finance"><td>' + mLabel(x.month) + '</td><td>' + money(x.income, { tone: 'actual' }) + '</td><td>' + money(x.profit, { tone: x.profit < 0 ? 'open' : 'committed' }) + '</td><td>' + money(x.group, { tone: x.group < 0 ? 'open' : 'committed' }) + '</td><td><b>' + money(x.each, { tone: x.each < 0 ? 'open' : 'committed' }) + '</b></td></tr>').join('') +
     '<tr class="tot"><td><b>סה״כ</b></td><td><b>' + money(r2(t.income)) + '</b></td><td><b>' + money(r2(t.profit)) + '</b></td><td><b>' + money(r2(t.group)) + '</b></td><td><b>' + money(r2(t.each)) + '</b></td></tr></tbody></table></div>' +
     '<p class="hint" style="margin-top:6px">הפסד בחודש (למשל יולי) מקטין את המצטבר. ' + (reInclFin() ? 'החלק מפתרונות נכלל בהתחשבנות השותפים.' : 'החלק מפתרונות לא נכלל בהתחשבנות השותפים.') + '</p></section>';
@@ -11541,9 +11564,9 @@ const drawAmt = (t) => t.drawReturn ? -Math.abs(n(t.gross || t.net)) : Math.abs(
 function reSettle(month) {
   const C = reCard(), names = partnersOf('realestate'), draws = live(S.transactions).filter((t) => t.nature === 'draw' && t.division === 'realestate');
   const row = C.find((x) => x.month === month) || { month, income: 0, direct: 0, fixed: 0, payroll: 0, distributable: 0, released: 0, reserve: 0, toDist: 0, each: 0 };
-  const FS = reInclFin() ? finShare() : [], fin = r2((FS.find((x) => x.month === month) || { each: 0 }).each);
-  const before = C.filter((x) => x.month < month).reduce((a, x) => a + x.each, 0) + FS.filter((x) => x.month < month).reduce((a, x) => a + x.each, 0);
-  const P = names.map((p) => { const mine = draws.filter((t) => t.partner === p);
+  const FS = reInclFin() ? finShare() : [], finOf = (x, p) => (x && (!x.who || x.who.includes(p)) ? x.each : 0), fin0 = FS.find((x) => x.month === month), fin = r2(fin0 ? fin0.each : 0);
+  const beforeRE = C.filter((x) => x.month < month).reduce((a, x) => a + x.each, 0);
+  const P = names.map((p) => { const mine = draws.filter((t) => t.partner === p), fin = r2(finOf(fin0, p)), before = r2(beforeRE + FS.filter((x) => x.month < month).reduce((a, x) => a + finOf(x, p), 0));
     const prevDrawn = mine.filter((t) => String(t.date).slice(0, 7) < month).reduce((a, t) => a + drawAmt(t), 0);
     const list = mine.filter((t) => String(t.date).slice(0, 7) === month).sort((a, b) => String(a.date).localeCompare(b.date));
     const drawn = r2(list.reduce((a, t) => a + drawAmt(t), 0)), prev = r2(before - prevDrawn), end = r2(prev + row.each + fin - drawn);
@@ -11553,7 +11576,8 @@ function reSettle(month) {
   const poolT = draws.filter((t) => t.pool && inM(t)), viaT = draws.filter((t) => t.viaPool && inM(t));
   const pool = poolT.length ? { list: poolT, gross: r2(poolT.reduce((a, t) => a + Math.abs(n(t.gross || t.net)), 0)), net: r2(poolT.reduce((a, t) => a + Math.abs(n(t.net)), 0)), vat: r2(poolT.reduce((a, t) => a + Math.abs(n(t.vat)), 0)), alloc: r2(viaT.reduce((a, t) => a + drawAmt(t), 0)), via: viaT } : null;
   if (pool) pool.left = r2(pool.net - pool.alloc);
-  return { row, P, orphan, pool, months: C.map((x) => x.month), fin, withFin: reInclFin() };
+  const finLabel = fin0 && fin0.who ? pctLabel(1 - nisPct(month)) + '% מהרווח לחלוקה ÷ ' + fin0.who.length + ' — ' + fin0.who.join(', ') : Math.round(finGroupPct() * 100) + '% מהרווח לחלוקה ÷ ' + (names.length || 3);
+  return { row, P, orphan, pool, months: C.map((x) => x.month), fin, finLabel, withFin: reInclFin() };
 }
 function reSettleHtml(D, forPdf) {
   const m = (v) => '<span style="direction:ltr;unicode-bidi:isolate;white-space:nowrap;' + (v < 0 ? 'color:#B42318' : '') + '">' + (v < 0 ? '−' : '') + fmt2.format(Math.abs(v)) + ' ₪</span>';
@@ -11565,7 +11589,7 @@ function reSettleHtml(D, forPdf) {
     '<h3 style="font-size:14px;margin:14px 0 4px">איך מחושב</h3>' + T('<table style="width:100%;border-collapse:collapse">' +
       tr(['הכנסות (נטו)', m(r.income)]) + tr(['פחות: הוצאות ישירות', m(-r.direct)]) + tr(['פחות: הוצאות קבועות', m(-(r.fixed - (r.payroll || 0)))]) + tr(['פחות: שכר', m(-(r.payroll || 0))]) +
       tr(['רווח החודש', m(r.distributable)], true) + tr(['ועוד: שוחרר השריון מהחודש הקודם', m(r.released)]) + tr(['פחות: שריון לחודש הבא', m(-r.reserve)]) +
-      tr(['לחלוקה', m(r.toDist)], true) + tr(['לכל שותף (÷3)', m(r.each)], true) + (D.withFin ? tr(['ועוד: מהר-אל פתרונות (50% מהרווח לחלוקה ÷ 3)', m(D.fin)]) + tr(['זכאות החודש לכל שותף', m(r2(r.each + D.fin))], true) : '') + '</table>') +
+      tr(['לחלוקה', m(r.toDist)], true) + tr(['לכל שותף (÷3)', m(r.each)], true) + (D.withFin ? tr(['ועוד: מהר-אל פתרונות (' + esc(D.finLabel || '') + ')', m(D.fin)]) + tr(['זכאות החודש לשותף בחלוקה', m(r2(r.each + D.fin))], true) : '') + '</table>') +
     '<h3 style="font-size:14px;margin:14px 0 4px">מי לקח מה</h3>' + T('<table style="width:100%;border-collapse:collapse">' + th(['שותף', 'יתרה מהחודשים הקודמים', 'מנדל״ן', ...(D.withFin ? ['מפתרונות'] : []), 'משך החודש', 'יתרה לסוף החודש']) +
       D.P.map((x) => tr([x.p, m(x.prev), m(x.each), ...(D.withFin ? [m(x.fin)] : []), m(-x.drawn), '<b>' + m(x.end) + '</b>'])).join('') + '</table>') +
     '<p style="font-size:12.5px;margin:8px 0">' + D.P.map((x) => '<b>' + esc(x.p) + ':</b> ' + (x.end > 0.5 ? 'מגיע לו עוד ' + plain(x.end) + ' — להעביר.' : x.end < -0.5 ? 'משך ' + plain(-x.end) + ' יותר מחלקו — יקוזז מהחודש הבא, או שיחזיר.' : 'מאוזן.')).join('<br>') + '</p>' +
@@ -11582,8 +11606,8 @@ function whoGot() {
   const t0 = today(), m = t0.slice(0, 7), y = t0.slice(0, 4), tx = live(S.transactions);
   const sum = (L2, f = () => true) => r2(L2.filter(f).reduce((a, t) => a + drawAmt(t), 0));
   const row = (key, name, where, L2, extra) => ({ key, name, where, list: [...L2].sort((a, b) => String(b.date).localeCompare(a.date)), month: sum(L2, (t) => String(t.date).slice(0, 7) === m), year: sum(L2, (t) => String(t.date).slice(0, 4) === y), total: sum(L2), ...extra });
-  const C = reCard(), FS = reInclFin() ? finShare() : [], ent = r2(C.reduce((a, x) => a + x.each, 0) + FS.reduce((a, x) => a + x.each, 0));
-  const out = partnersOf('realestate').map((p) => { const L2 = tx.filter((t) => t.nature === 'draw' && t.division === 'realestate' && t.partner === p); return row('re:' + p, p, 'נדל״ן — משיכות', L2, { ent, bal: r2(ent - sum(L2)) }); });
+  const C = reCard(), FS = reInclFin() ? finShare() : [], entRE = r2(C.reduce((a, x) => a + x.each, 0));
+  const out = partnersOf('realestate').map((p) => { const L2 = tx.filter((t) => t.nature === 'draw' && t.division === 'realestate' && t.partner === p), ent = r2(entRE + FS.reduce((a, x) => a + (!x.who || x.who.includes(p) ? x.each : 0), 0)); return row('re:' + p, p, 'נדל״ן — משיכות', L2, { ent, bal: r2(ent - sum(L2)) }); });
   const fd = tx.filter((t) => t.nature === 'draw' && t.division !== 'realestate');
   [...new Set(fd.map((t) => t.partner || 'לא משויך'))].forEach((p) => out.push(row('fin:' + p, p, 'פתרונות — משיכות', fd.filter((t) => (t.partner || 'לא משויך') === p), { bal: null })));
   const NC = nissimCard(), last = NC[NC.length - 1], pend = live(S.planned).filter((x) => x.kind === 'advance');
@@ -11727,8 +11751,9 @@ function stmtData(period) {
   const lossMonths = rows.filter((r) => r.profitAcc < 0), forSplit = D_forSplit(rows);
   const unconfirmed = income.filter((t) => !isConfirmed(t)).length;
   const qEnd = months[months.length - 1], payBy = addMonth(qEnd + '-10');
-  return { period, months, rows, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, accNet, accItems, accBack, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: partnersOf('finance'),
-    pct: Math.round(n(S.settings.nissimPct || 0.5) * 100), mode: S.settings.lossSharing || 'shared', unconfirmed, final: !unconfirmed && addMonth(qEnd + '-01') <= today(), payBy };
+  return { period, months, rows, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, accNet, accItems, accBack, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: (() => { const sp = finSplitAt(finSplitList(), months[months.length - 1]); return sp ? finSplitShare(0, sp, partnersOf('realestate'), 0, 0).who : partnersOf('finance'); })(),
+    pct: (() => { const ps = [...new Set(months.map((x) => pctLabel(nisPct(x))))]; return ps.length > 1 ? ps.join('% → ') : ps[0]; })(),
+    harelPct: (() => { const ps = [...new Set(months.map((x) => pctLabel(1 - nisPct(x))))]; return ps.length > 1 ? ps.join('% → ') : ps[0]; })(), mode: S.settings.lossSharing || 'shared', unconfirmed, final: !unconfirmed && addMonth(qEnd + '-01') <= today(), payBy };
 }
 function stmtHtml(D, forPdf) {
   const tone = (v) => v < 0 ? 'color:#B42318' : '';
@@ -11750,7 +11775,7 @@ function stmtHtml(D, forPdf) {
     ...(D.mode === 'dan_first' && r2(D.forSplit - (D.profit + D.released - D.reserveEnd)) ? [tr([D.forSplit > D.profit + D.released - D.reserveEnd ? 'ועוד: הפסד שדן מימן — לא מתחלק, חוזר לדן מהרווחים הבאים' : 'פחות: החזר לדן על הפסד שמימן קודם', m(r2(D.forSplit - (D.profit + D.released - D.reserveEnd)))])] : []),
     tr(['רווח לחלוקה', m(D.forSplit)], true),
     tr(['חלקו של ניסים (' + D.pct + '%)', m(D.share)], true),
-    tr(['חלקה של הר-אל (' + (100 - D.pct) + '%)' + (D.group.length ? ' — ' + D.group.join(', ') + ', לכל אחד ' + plain(r2((D.forSplit - D.share) / D.group.length)) : ''), m(r2(D.forSplit - D.share))]),
+    tr(['חלקה של הר-אל (' + esc(D.harelPct || '') + '%)' + (D.group.length ? ' — ' + D.group.join(', ') + ', לכל אחד ' + plain(r2((D.forSplit - D.share) / D.group.length)) : ''), m(r2(D.forSplit - D.share))]),
     ...(D.opening ? [tr([D.opening > 0 ? 'מקדמות מעבר לחלקו מהתקופה הקודמת' : 'יתרה לזכות ניסים מהתקופה הקודמת', m(Math.abs(D.opening))])] : []),
     tr(['מקדמות ששולמו לניסים בתקופה', m(D.advs)]),
     tr([D.closing > 0 ? 'יתרה: ניסים קיבל במקדמות יותר מחלקו' : 'יתרה: מגיע לניסים מהחשבון', m(Math.abs(D.closing))], true),
