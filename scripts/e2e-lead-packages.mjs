@@ -63,6 +63,21 @@ try {
   assert(b3.pk[0].advLeft === 0 && b3.pk[0].finLeft === 320 && b3.pk[0].dueNow === 320, 'אחרי המקדמה: היתרה 320 לתשלום (החבילה הסתיימה)')
 
   if (process.env.E2E_OUT) { await page.evaluate(() => document.querySelector('[data-pkg]').closest('section').scrollIntoView()); await page.screenshot({ path: process.env.E2E_OUT + '/lead-pkg.png' }) }
+  step('אבינועם בלי שום הגדרה (דן 22/11): 160 מ-01/11, אוקטובר 150 · לזיכוי = ליד מול ליד')
+  await page.evaluate(async (ids) => {
+    const T = { ...(S.settings.leadTerms || {}) }; delete T['אבינועם']
+    await write('settings/main', { leadTerms: T, leadSheets: [...(S.settings.leadSheets || []), { key: 'e2eav', fileId: 'e2eav0000000000', label: 'E2E אבינועם', marketer: 'אבינועם', costPerLead: 150 }] }, 'update')
+    const mk = async (id, day, extra = {}) => { ids.push(id); await write('leads/' + id, { id, name: 'ליד אבינועם ' + id, source: 'sheet', srcKey: 'e2eav', sheet: 'E2E אבינועם', marketer: 'אבינועם', division: 'finance', stage: 'new', createdAt: day + 'T10:00:00.000Z', updatedAt: stamp(), ...extra }) }
+    await mk('e2eav-o1', '2026-10-20'); await mk('e2eav-n1', '2026-11-03'); await mk('e2eav-n2', '2026-11-04', { stage: 'credit', creditState: 'approved' })
+  }, IDS)
+  await page.waitForFunction(() => S.leads.has('e2eav-n2') && (S.settings.leadSheets || []).some((x) => x.key === 'e2eav')); await page.waitForTimeout(300)
+  const av = await page.evaluate(() => { const g = (m) => (leadBill(m, 'finance').sup.find((x) => x.name === 'אבינועם') || {}); const o = g('2026-10'), nv = g('2026-11');
+    const cat = (x) => Object.values(x.cats || {})[0] || {}; return { oPrice: cat(o).price, nPrice: cat(nv).price, nCredit: nv.credit, nCharge: nv.charge } })
+  assert(av.oPrice === 150 && av.nPrice === 160, `אוקטובר ${av.oPrice} · נובמבר ${av.nPrice} — בלי להזין כלום`)
+  await page.evaluate(() => { S.f.billM = '2026-11'; S.f.mkt = 'bill'; go('marketing') }); await page.waitForTimeout(400)
+  const avTxt = await page.evaluate(() => [...document.querySelectorAll('section.card')].find((sc) => /^\s*אבינועם/.test(sc.querySelector('h2')?.textContent || ''))?.textContent || '')
+  assert(/לזיכוי — ליד מול ליד/.test(avTxt) && /לידים חלופיים, בלי זיכוי כספי/.test(avTxt), 'בכרטיס של אבינועם: "ליד מול ליד" · "לידים חלופיים, בלי זיכוי כספי"')
+
   step('נייד 390px')
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => render()); await page.waitForTimeout(400)
   const ovf = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert(ovf <= 1, 'בלי גלילה לרוחב ב-390px (' + ovf + ')')
@@ -70,7 +85,7 @@ try {
   console.log('\nחבילות לידים — הכל עבר')
 } catch (e) { console.error(e); process.exitCode = 1 } finally {
   if (saved) await page.evaluate(async ({ s, ids }) => {
-    for (const p of live(S.leadBills).filter((x) => x.supplier === 'E2E ספק')) await write('leadBills/' + p.id, { deletedAt: stamp() }, 'update')
+    for (const p of live(S.leadBills).filter((x) => x.supplier === 'E2E ספק' || /^e2eav/.test(x.id))) await write('leadBills/' + p.id, { deletedAt: stamp() }, 'update')
     for (const id of ids) if (S.leads.has(id)) await write('leads/' + id, { deletedAt: stamp() }, 'update')
     await write('settings/main', { leadSheets: s.sheets || [], leadTerms: s.terms || {}, leadPackages: s.pk || [] }, 'update')
   }, { s: saved, ids: IDS }).catch((e) => console.error('ניקוי:', e.message))

@@ -8993,6 +8993,12 @@ function termsPrice(terms, month, base) {
   for (const t of (terms || [])) if (t && t.from && t.from <= month && t.from >= from && Number(t.price) > 0) { price = Number(t.price); from = t.from; }
   return price;
 }
+/** זיכוי: 'money' (ליד פסול לא מחויב) או 'leads' (דן 22/11: "ליד לזיכוי זה ליד כנגד ליד — אין זיכוי כספי, אקבל לידים במקום") */
+function termsCreditAt(terms, month) {
+  let credit = 'money', from = '';
+  for (const t of (terms || [])) if (t && t.from && t.from <= month && t.from >= from && t.credit) { credit = t.credit; from = t.from; }
+  return credit;
+}
 /** leads: [{id, at:'YYYY-MM-DD', credit}] של ספק אחד בחברה אחת; pkgs: החבילות שלו. מחזיר מצב לכל חבילה + הלידים שלפני החבילה הראשונה */
 function pkgAssign(pkgs, leads) {
   const P = (pkgs || []).filter((x) => x && !x.deletedAt && x.start && Number(x.leads) > 0).slice().sort((a, b) => String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id)))
@@ -9015,7 +9021,9 @@ function pkgMoney(pkg, st, paid) {
 }
 /* ══ סוף חבילות לידים — פונקציות טהורות ══ */
 const supOfSrc = (src) => (src && src.marketer) || 'אבינועם';
-const leadTermsOf = (sup) => ((S.settings.leadTerms || {})[sup]) || [];
+/* ברירת מחדל מדן (22/11): אבינועם — 160 לליד מ-01/11/2026; ליד לזיכוי = ליד מול ליד (בלי זיכוי כספי) מהחודש הקודם. ההגדרות (leadTerms) גוברות */
+const LEAD_TERMS_DEFAULT = { 'אבינועם': [{ from: '2026-10', credit: 'leads' }, { from: '2026-11', price: 160, credit: 'leads' }] };
+const leadTermsOf = (sup) => ((S.settings.leadTerms || {})[sup]) || LEAD_TERMS_DEFAULT[sup] || [];
 const leadPkgsOf = (sup, div) => (S.settings.leadPackages || []).filter((x) => !x.deletedAt && x.supplier === sup && (x.division || 'finance') === div);
 /** המחיר של ליד מסוים — לפי החודש שלו (מחיר שהשתנה לא משנה חודשים קודמים) */
 const leadPriceOf = (l) => { const src = l.source === 'sheet' ? srcOfLead(l) : null; if (!src) return 0; const base = n(src.costPerLead); return base || leadTermsOf(supOfSrc(src)).length ? termsPrice(leadTermsOf(supOfSrc(src)), billMonthOf(l), base) : 0; };
@@ -9072,12 +9080,12 @@ function vLeadBill(div) {
       S1.pkgs.map((x) => pkgCard(S1.name, x, drill)).join('') +
       (S1.extra && S1.extra.length ? '<p class="hint" style="color:var(--open);margin:6px 0">' + drill(S1.name + '|extra', S1.name + ' · מעבר לחבילות', S1.extra) + ' לידים נכנסו אחרי שכל החבילות התמלאו — לפתוח חבילה חדשה (+ חבילה), והם ייכנסו אליה.</p>' : '') +
       (!hasCats ? '' : (S1.pkgs.length ? '<h3 class="sec">לפי ליד (לפני החבילה)</h3>' : '') +
-      '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>לזיכוי</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
+      '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>' + (termsCreditAt(leadTermsOf(S1.name), m) === 'leads' ? 'לזיכוי — ליד מול ליד' : 'לזיכוי') + '</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
         Object.values(S1.cats).sort((a, b) => b.charge - a.charge).map((r) => '<tr><td class="wide">' + esc(r.cat) + '</td><td>' + drill(S1.name + '|' + r.cat + '|in', S1.name + ' · ' + r.cat + ' · נכנסו', r.ids.in) + '</td><td>' + drill(S1.name + '|' + r.cat + '|cr', S1.name + ' · ' + r.cat + ' · לזיכוי', r.ids.credit) + '</td><td>' + drill(S1.name + '|' + r.cat + '|b', S1.name + ' · ' + r.cat + ' · לחיוב', r.ids.billable) + '</td><td>' + plain(r.price) + '</td><td><b>' + money(r.charge) + '</b></td></tr>').join('') +
         '<tr class="tot"><td>סה״כ חיוב ' + esc(mLabel(m)) + '</td><td class="num">' + S1.in + '</td><td class="num">' + S1.credit + '</td><td class="num">' + S1.billable + '</td><td></td><td><b>' + money(S1.charge) + '</b></td></tr>' +
         S1.pays.map((p) => '<tr><td colspan="5" class="wide">שולם על החשבון · ' + dLabel(p.date) + (p.note ? ' · ' + esc(p.note) : '') + (S.canWrite ? ' <button class="xlink" data-billpaydel="' + esc(p.id) + '" aria-label="מחק תשלום">מחק</button>' : '') + '</td><td>' + money(-n(p.amount), { tone: 'actual' }) + '</td></tr>').join('') +
         '<tr class="tot"><td colspan="5">' + (S1.due >= 0 ? 'נשאר לשלם (עד ' + dLabel(B.due) + ')' : 'יתרת זכות — שולם יותר מהחיוב') + '</td><td><b>' + money(Math.abs(S1.due), { tone: S1.due > 0 ? 'open' : 'actual' }) + '</b></td></tr>' +
-      '</tbody></table></div>') + '</section>'; }).join('');
+      '</tbody></table></div>' + (termsCreditAt(leadTermsOf(S1.name), m) === 'leads' && S1.credit ? '<p class="hint" style="margin:6px 0 0"><b>' + S1.credit + ' לידים לזיכוי — ' + esc(S1.name) + ' משלים במקומם ' + S1.credit + ' לידים חלופיים, בלי זיכוי כספי.</b> הסכום לא משתנה: הליד החלופי נכנס במקום הליד הפסול, כך שמשלמים על הלידים הטובים בלבד.</p>' : '')) + '</section>'; }).join('');
   const noSup = !B.sup.length && S.canWrite ? '<div class="row" style="gap:6px;margin-bottom:10px"><button class="btn small ghost" data-leadprice="' + esc(leadMarketer()) + '">מחיר לליד — ' + esc(leadMarketer()) + '</button><button class="btn small" data-pkgnew="' + esc(leadMarketer()) + '">+ חבילה — ' + esc(leadMarketer()) + '</button></div>' : '';
   const ads = B.ads.length ? '<section class="card"><header><h2>פרסום ששולם ישירות (קמפיינים)</h2></header><div class="scroll"><table><thead><tr><th>קטגוריה</th><th>קמפיינים</th><th>הוצאה ' + esc(mLabel(m)) + '</th></tr></thead><tbody>' +
     B.ads.map((a) => '<tr><td>' + esc(a.cat) + '</td><td class="wide">' + a.camps.map(esc).join(' · ') + '</td><td>' + money(a.amount) + '</td></tr>').join('') + '</tbody></table></div><p class="hint" style="margin:6px 0 0">מהשדה "הוצאה לפי חודש" בשיווק ← קמפיינים.</p></section>' : '';
