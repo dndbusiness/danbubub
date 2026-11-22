@@ -143,7 +143,8 @@ try {
   const bytes = Buffer.from(await (await page.request.get(`${BASE}/api/files/${done.pdf_file_id}`)).body())
   const text = (await new PDFParse({ data: bytes }).getText()).text
   assert(text.includes('dana@example.com') && text.includes('000000018'), 'המייל ות"ז מהתיק — על הטופס')
-  const has = (s) => text.includes(s) || text.includes([...s].reverse().join(''))
+  /* חילוץ טקסט מ-PDF בעברית: לפעמים אותיות הפוכות, לפעמים סדר המילים הפוך ("הזמן ציר") */
+  const has = (s) => text.includes(s) || text.includes([...s].reverse().join('')) || text.includes(s.split(' ').reverse().join(' '))
   assert(has('ציר הזמן') && has('פרטים בתיק לפני החתימה') && has('הערות השולח'), 'עמוד התיעוד: ציר זמן, פרטים מול הכרטיס, הערות')
   assert(text.includes('iPhone'), 'עמוד התיעוד: המכשיר (iPhone · Safari)')
   const [own] = await sql`select body from outbox where dedup_key = ${'sign-done-owner:' + env1.id}`
