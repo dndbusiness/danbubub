@@ -1846,7 +1846,7 @@ function pnl(division = S.division) {
   if (division === 'finance') {
     const months = new Set([...Object.keys(res), ...live(S.payroll).map((x) => x.month)]);
     for (const m of months) {
-      const pay = r2(payEmployees().filter((e) => (e.division || 'finance') === 'finance' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
+      const pay = r2(payEmployees().filter((e) => (e.division || 'finance') === 'finance' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDocEff(m, e)).total, 0));
       if (!pay || txs.some((t) => t.nature === 'expense' && !t.clientId && t.deductible && t.category === 'שכר' && String(t.date).slice(0, 7) === m)) continue;
       const r = row(m); r.payroll = pay; r.fixed += pay;
     }
@@ -1865,7 +1865,7 @@ function pnl(division = S.division) {
         const v = r2(n(e.net ?? e.amount) * (e.frequency === 'quarterly' ? 1 / 3 : e.frequency === 'yearly' ? 1 / 12 : 1));
         r.tpl.push({ id: e.id, name: e.name, amount: v }); r.fixed += v;
       }
-      r.payroll = r2(payEmployees().filter((e) => e.division === 'realestate' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDoc(m, e.key)).total, 0));
+      r.payroll = r2(payEmployees().filter((e) => e.division === 'realestate' && payLive(m, e.key)).reduce((a, e) => a + payCalc(e, payDocEff(m, e)).total, 0));
       r.fixed += r.payroll;
     }
   }
@@ -4763,6 +4763,8 @@ async function attTick(geo) {
 }
 setInterval(() => attTick(false), 60e3);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) attTick(true); });
+const attClock = (a) => { const mins = Math.floor(attHours(a) * 60); return Math.floor(mins / 60) + ':' + String(mins % 60).padStart(2, '0'); };
+setInterval(() => { const el = document.getElementById('shiftClock'), a = el && S.myKey ? attDoc() : null; if (el && a && a.in && !a.out) el.textContent = '⏱ ' + attClock(a); }, 30000);
 const attHours = (a) => { if (!a || !a.in) return 0; const end = a.out ? a.out.at : a.date === today() ? stamp() : a.lastActive || a.in.at; return Math.max(0, (Date.parse(end) - Date.parse(a.in.at)) / 3600e3); };
 const attIdleNow = (a) => a && a.in && !a.out && a.date === today() ? Math.round((Date.now() - Date.parse(a.lastActive || a.in.at)) / 60000) : 0;
 function attActs(key, d) { const p = staff().find((x) => x.key === key), lbl = p ? p.label : L.resp[key] || key; let k = 0;
@@ -4784,7 +4786,7 @@ function attNotes(a) { const o = [], nt = a.notified || [];
 function attCard() {
   if (!S.myKey || !S.canTask) return ''; const a = attDoc(), t = a && a.in ? hm(a.in.at) : '';
   return '<section class="card attcard" style="border-inline-start:4px solid var(--' + (a && a.in && !a.out ? 'actual' : 'open') + ')"><div class="row" style="align-items:center">' +
-    '<div class="grow"><b>' + (a && a.out ? (a.out.auto ? 'המשמרת נסגרה אוטומטית · ' : 'סיימת היום · ') + t + '–' + hm(a.out.at) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.in.device ? ' (מחשב משרד)' : '') + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
+    '<div class="grow"><b>' + (a && a.out ? (a.out.auto ? 'המשמרת נסגרה אוטומטית · ' : 'סיימת היום · ') + t + '–' + hm(a.out.at) + ' · ' + attHours(a).toFixed(1) + ' שעות' : a && a.in ? 'במשמרת מ-' + t + ' · ⏱ ' + attClock(a) + ' · ' + PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] + (a.in.device ? ' (מחשב משרד)' : '') + (a.home && a.home.status === 'pending' ? ' · ממתין לאישור' : a.home && a.home.status === 'approved' ? ' · אושר' : '') : 'עוד לא נרשמה כניסה היום') + '</b>' +
       (a && a.out && a.out.auto ? '<div class="hint">' + esc(a.out.note || '') + ' · לתיקון — המנהל, בדוח הנוכחות</div>' : '') +
       (a && a.awayAt && !a.out && !(a.home && a.home.status === 'approved') ? '<div class="notice bad" style="margin-top:6px"><b>מחוץ לטווח המשרד מ-' + hm(a.awayAt) + '</b><span>נשלחה בקשה למנהל. בלי אישור עד ' + hm(new Date(Date.parse(a.awayAt) + ATT.awayGraceMin * 60e3).toISOString()) + ' — יציאה אוטומטית מהמשמרת.</span></div>' : '') +
       (a && a.in && !a.out ? '<div class="hint">שעה בלי פעילות במערכת — המנהל מקבל התראה, והשעון ממשיך לרוץ.' + (a.in.device ? '' : ' המיקום נבדק רק כשהמערכת פתוחה.') + '</div>' : '') + '</div>' +
@@ -4810,7 +4812,9 @@ function vAtt() {
   const missing = ppl.filter((p) => p.key !== 'dan' && !docs.some((a) => a.key === p.key));
   const mon = {}; live(S.attendance).filter((a) => String(a.date).slice(0, 7) === m).forEach((a) => { const r = attRow(a, a.date), x = (mon[a.key] = mon[a.key] || { label: a.label, days: 0, h: 0, cost: 0, gaps: 0, home: 0 }); x.days++; x.h += r.h; x.cost += r.cost; x.gaps += r.gapsN; if (a.in.place === 'home') x.home++; });
   const o = S.settings.office;
-  return '<div class="row" style="align-items:flex-end;margin-bottom:10px"><label class="fl">יום<input class="f" type="date" id="fAttDay" value="' + d + '"></label><span class="grow"></span>' +
+  return '<div class="row" style="align-items:flex-end;margin-bottom:10px"><label class="fl">יום<input class="f" type="date" id="fAttDay" value="' + d + '"></label>' +
+      (S.isOwner ? sel('fAttRepWho', 'דוח שעות ל', [['', 'כל העובדים'], ...[...new Map(live(S.attendance).filter((a) => String(a.date).slice(0, 7) === m).map((a) => [a.key, a.label || a.key])).entries()]], S.f.attRepWho || '') : '') +
+      '<button class="btn small primary" data-attrep="pdf">📥 דוח שעות ' + esc(mLabel(m)) + ' — PDF</button><button class="btn small" data-attrep="csv">CSV</button><span class="grow"></span>' +
       (w ? '<span class="hint">' + (o && o.lat != null ? 'משרד: ' + o.lat + ', ' + o.lng + ' · רדיוס ' + (o.radius || 250) + ' מ׳' : 'מיקום המשרד לא הוגדר') + '</span><button class="btn small" data-act="attOffice">קבע משרד לפי המיקום שלי</button>' : '') + '</div>' +
     '<div class="grid4">' + kpi('במשמרת', '<span class="num">' + rows.filter((r) => !r.a.out).length + '</span>', rows.length + ' נכנסו · ' + missing.length + ' לא נכנסו', null) + kpi('שעות', '<span class="num">' + rows.reduce((x, r) => x + r.h, 0).toFixed(1) + '</span>', 'סך כל הצוות', null) +
       kpi('עלות היום', money(rows.reduce((x, r) => x + r.cost, 0), { tone: 'muted' }), 'שעות × תעריף + עלות מעביד', null) + kpi('חוסרי פעילות', '<span class="num">' + rows.reduce((x, r) => x + r.gapsN, 0) + '</span>', 'שעה ומעלה, כל הצוות', null, rows.some((r) => r.gapsN) ? 'open' : '') + '</div>' +
@@ -4823,6 +4827,26 @@ function vAtt() {
     '<section class="card"><header><h2>' + mLabel(m) + ' — לפי עובד</h2></header>' + (Object.keys(mon).length ? '<div class="scroll"><table><thead><tr><th>עובד</th><th>ימים</th><th>מהבית</th><th>שעות</th><th>חוסרי פעילות</th><th>עלות</th></tr></thead><tbody>' +
       Object.values(mon).map((x) => '<tr><td class="wide">' + esc(x.label) + '</td><td class="num">' + x.days + '</td><td class="num">' + x.home + '</td><td class="num">' + x.h.toFixed(1) + '</td><td class="num">' + x.gaps + '</td><td>' + money(x.cost, { tone: 'muted' }) + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">אין נוכחות החודש.</p>') + '</section>' +
     '<p class="hint">תעריף לשעה: הגדרות ← משתמשים (או מהשכר). שעה בלי פעילות במערכת — התראה למנהל האחראי, לכל הצוות; השעון ממשיך והפער נרשם כאן. המיקום נבדק בכניסה, ובטלפון כל ' + ATT.geoEveryMin + ' דקות — רק כשהמערכת פתוחה. כשהיא סגורה אין בדיקת מיקום: השרת רק סוגר יציאה מהטווח שלא אושרה תוך ' + ATT.awayGraceMin + ' דקות, מתריע על שעה בלי פעילות, וסוגר משמרת שנשארה פתוחה ב-' + ATT.dayEndHour + ':00. מחשבי משרד והתראות: הגדרות ← שעון נוכחות.</p>';
+}
+/* דן 22/11: "דוח שעות להורדה בכל זמן" — חודש (או טווח) לכל עובד: יום, כניסה, יציאה, שעות, איפה, הערות. משמרת פתוחה נספרת עד עכשיו */
+function attReport(from, to, key) {
+  const A = live(S.attendance).filter((a) => a.in && a.date >= from && a.date <= to && (!key || a.key === key)).sort((x, y) => String(x.label || x.key).localeCompare(String(y.label || y.key), 'he') || String(x.date).localeCompare(y.date));
+  const rows = A.map((a) => ({ who: a.label || a.key, key: a.key, date: a.date, in: hm(a.in.at), out: a.out ? hm(a.out.at) + (a.out.auto ? ' (אוטומטי)' : '') : a.date === today() ? 'במשמרת' : '—', h: r2(attHours(a)), place: PLACE[a.in.place === 'away' ? 'unknown' : a.in.place] || '', note: [a.note, ...attNotes(a)].filter(Boolean).join(' · ') }));
+  const by = {}; rows.forEach((r) => { const x = (by[r.key] = by[r.key] || { who: r.who, days: 0, h: 0 }); x.days++; x.h = r2(x.h + r.h); });
+  return { rows, sum: Object.values(by) };
+}
+function attRepRange() { const m = (S.f.attDay || today()).slice(0, 7), last = addDays(addMonth(m + '-01'), -1); return { m, from: m + '-01', to: last < today() ? last : today() }; }
+async function attReportDl(kind) {
+  const { m, from, to } = attRepRange(), R = attReport(from, to, S.isOwner ? S.f.attRepWho || '' : S.myKey); if (!R.rows.length) return toast('אין רישומי נוכחות ב' + mLabel(m));
+  if (kind === 'csv') return exportCsv('דוח-שעות-' + m, ['עובד', 'תאריך', 'כניסה', 'יציאה', 'שעות', 'איפה', 'הערות'], [...R.rows.map((r) => [r.who, r.date, r.in, r.out, r.h.toFixed(2), r.place, r.note]), [], ...R.sum.map((x) => ['סה״כ ' + x.who, x.days + ' ימים', '', '', x.h.toFixed(2), '', ''])]);
+  const td = 'style="padding:4px 6px;border-bottom:1px solid #E6E8EC;font-size:11.5px"', th = 'style="padding:5px 6px;background:#F1F3F6;font-size:11.5px;text-align:start"';
+  const html = '<div dir="rtl" style="width:760px;padding:18px;font-family:Arial,sans-serif;color:#101828;background:#fff"><h2 style="margin:0 0 4px">דוח שעות — ' + esc(mLabel(m)) + '</h2><div style="color:#475467;font-size:12px;margin-bottom:10px">' + dLabel(from) + ' – ' + dLabel(to) + ' · הופק ' + dLabel(today()) + ' ' + hm(stamp()) + '</div>' +
+    '<table data-pk="1" style="border-collapse:collapse;width:100%;margin-bottom:12px"><thead><tr><th ' + th + '>עובד</th><th ' + th + '>ימים</th><th ' + th + '>שעות</th></tr></thead><tbody>' + R.sum.map((x) => '<tr><td ' + td + '><b>' + esc(x.who) + '</b></td><td ' + td + '>' + x.days + '</td><td ' + td + '><b>' + x.h.toFixed(2) + '</b></td></tr>').join('') + '</tbody></table>' +
+    R.sum.map((x) => '<h3 style="margin:12px 0 4px;font-size:14px">' + esc(x.who) + '</h3><table style="border-collapse:collapse;width:100%"><thead><tr><th ' + th + '>תאריך</th><th ' + th + '>כניסה</th><th ' + th + '>יציאה</th><th ' + th + '>שעות</th><th ' + th + '>איפה</th><th ' + th + '>הערות</th></tr></thead><tbody>' +
+      R.rows.filter((r) => r.who === x.who).map((r) => '<tr><td ' + td + '>' + dLabel(r.date) + '</td><td ' + td + '>' + r.in + '</td><td ' + td + '>' + esc(r.out) + '</td><td ' + td + '>' + r.h.toFixed(2) + '</td><td ' + td + '>' + esc(r.place) + '</td><td ' + td + '>' + esc(r.note) + '</td></tr>').join('') + '</tbody></table>').join('') + '</div>';
+  const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
+  let bytes; try { toast('מכין PDF…'); bytes = await pdfFromHtml(html); } catch (e) { return toast('לא הצלחתי להכין PDF — נסה לרענן'); }
+  try { await dlc.save({ filename: 'דוח-שעות-' + m + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 function attMailHtml(d) { const rows = live(S.attendance).filter((a) => a.date === d).map((a) => attRow(a, d)); if (!rows.length) return '<p><b>נוכחות:</b> אף אחד לא נרשם היום.</p>';
   return '<h3 style="margin:14px 0 4px">נוכחות</h3>' + mailTable(['עובד', 'כניסה', 'יציאה', 'שעות', 'איפה', 'פעולות', 'בלי פעילות', 'עלות'], rows.map((r) => [esc(r.a.label) + attNotes(r.a).map((x) => '<br><small>' + esc(x) + '</small>').join(''), hm(r.a.in.at), r.a.out ? hm(r.a.out.at) + (r.a.out.auto ? ' (אוטומטי)' : '') : '<b style="color:#DC2626">לא נרשמה</b>', r.h.toFixed(1), PLACE[r.a.in.place === 'away' ? 'unknown' : r.a.in.place] + (r.a.home ? ' (' + (ATT_HOME[r.a.home.status] || '') + ')' : ''), String(r.acts), r.gapsN ? '<b style="color:#DC2626">' + r.gapsN + ' · ' + r.gapsMin + ' דק׳</b>' : '0', r.rate ? plain(r.cost) : '—'])) +
@@ -7718,6 +7742,25 @@ function vLeadsList(seg) {
 }
 /* ── שיחות מהמרכזייה (וויאסנטר CDR → calls/<ivruniqueid>, docs/VOICENTER.md) ── */
 const VC_ST = (c) => c.answered ? 'נענתה' : c.status === 'BUSY' ? 'תפוס' : /^ABANDON/.test(c.status || '') ? 'ננטשה בתור' : c.status === 'VOICEMAIL' ? 'הודעה קולית' : c.status === 'CANCEL' ? (c.dir === 'in' ? 'הלקוח ניתק' : 'בוטלה') : 'לא נענתה';
+/* דן 22/11: "סיכומים, תמלול וקישור ישיר לכל שיחה" — התמלול מוויאסנטר (AIData.Transcript) כשורות: מי מדבר ומה אמר */
+const vcTr = (c) => (Array.isArray(c.aiTranscript) ? c.aiTranscript : []).map((x) => { if (typeof x === 'string') return { who: '', t: x };
+  const g = (k) => { const e = Object.entries(x || {}).find(([kk]) => kk.toLowerCase() === k); return e ? e[1] : ''; };
+  const who = String(g('speaker') || g('channel') || g('role') || g('side') || ''), t = String(g('text') || g('sentence') || g('transcript') || g('content') || '');
+  return { who: /^(1|agent|rep|representative|נציג)$/i.test(who) ? 'נציג' : /^(0|2|customer|client|caller|לקוח)$/i.test(who) ? 'לקוח' : who, t }; }).filter((x) => x.t);
+const vcLink = (c) => location.origin + location.pathname + '#call:' + encodeURIComponent(c.id);
+function vcCallDrawer(id) {
+  const c = S.calls.get(id); if (!c) return toast('השיחה לא נמצאה');
+  const l = c.leadId && S.leads.get(c.leadId), cl = c.clientId && S.clients.get(c.clientId), T = vcTr(c);
+  drawer('שיחה ' + (c.dir === 'in' ? 'נכנסת' : 'יוצאת') + ' · ' + dLabel(dayOf(c.at)) + ' ' + hm(c.at),
+    '<div class="full row" style="gap:8px;flex-wrap:wrap;align-items:center">' + (l ? '<button type="button" class="btn small" data-vcgo="lead:' + esc(l.id) + '">' + esc(l.name || normPhone(l.phone)) + ' ←</button>' : cl ? '<button type="button" class="btn small" data-vcgo="client:' + esc(cl.id) + '">' + esc(cl.name) + ' ←</button>' : '<span class="num">' + esc(c.customer || '') + '</span>') +
+      '<span class="pill ' + (c.answered ? 'actual' : 'open') + '">' + VC_ST(c) + '</span><span class="hint">' + esc(vcWho(c)) + ' · ' + vcDur(c) + '</span><span class="grow"></span>' +
+      '<button type="button" class="btn small" data-vccopy="' + esc(c.id) + '">🔗 העתק קישור לשיחה</button></div>' +
+    (c.record ? '<div class="full" style="margin-top:8px"><audio controls preload="none" src="' + esc(c.record) + '" style="width:100%"></audio><a class="hint" href="' + esc(c.record) + '" target="_blank" rel="noopener">פתח הקלטה ↗</a></div>' : '<p class="full hint">אין הקלטה לשיחה הזו.</p>') +
+    '<h3 class="sec full">🤖 סיכום</h3><p class="full" style="white-space:pre-wrap;margin:0">' + (c.aiSummary ? esc(c.aiSummary) : '<span class="hint">אין סיכום מוויאסנטר לשיחה הזו (נשלח כשהשיחה מנותחת — אם ה-AI פעיל בוויאסנטר).</span>') + '</p>' +
+    '<h3 class="sec full">📝 תמלול' + (T.length ? ' <span class="hint">· ' + T.length + ' משפטים</span>' : '') + '</h3>' +
+    (T.length ? '<div class="full" style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:8px">' + T.map((x) => '<p style="margin:0 0 6px"><b class="' + (x.who === 'נציג' ? 't-committed' : '') + '">' + esc(x.who || '—') + ':</b> ' + esc(x.t) + '</p>').join('') + '</div>' : '<p class="full hint">אין תמלול לשיחה הזו.</p>'),
+    async () => {}, '', 'סגור');
+}
 const vcDur = (c) => { const x = c.talkSec || (c.answered ? c.durationSec : 0) || 0; return x ? Math.floor(x / 60) + ':' + String(x % 60).padStart(2, '0') : '—'; };
 const vcWho = (c) => (c.by && (L.resp[c.by] || ((S.settings.users || []).find((u) => userKey(u) === c.by) || {}).label)) || c.rep || '—';
 const callsOf = (k, id) => live(S.calls).filter((c) => !c.hidden && c[k] === id).sort((a, b) => String(b.at).localeCompare(a.at));
@@ -7726,8 +7769,9 @@ function vcRow(c, withLead) {
   return '<tr><td class="num">' + dLabel(dayOf(c.at)) + ' ' + hm(c.at) + '</td><td title="' + (c.dir === 'in' ? 'נכנסת' : 'יוצאת') + '">' + (c.dir === 'in' ? '↙ נכנסת' : c.dir === 'out' ? '↗ יוצאת' : 'פנימית') + '</td>' +
     (withLead ? '<td class="wide">' + (l ? '<button class="xlink" data-lead="' + esc(l.id) + '">' + esc(l.name || normPhone(l.phone)) + '</button>' : '<span class="num">' + esc(c.customer || '') + '</span>') + '</td>' : '') +
     '<td>' + esc(vcWho(c)) + '</td><td class="num">' + vcDur(c) + '</td><td><span class="pill ' + (c.answered ? 'actual' : 'open') + '">' + VC_ST(c) + '</span>' + (c.campaign ? ' <span class="pill muted">חייגן</span>' : '') + '</td>' +
-    '<td>' + (c.record ? '<audio controls preload="none" src="' + esc(c.record) + '" style="height:30px;max-width:200px"></audio> <a class="hint" href="' + esc(c.record) + '" target="_blank" rel="noopener">פתח הקלטה ↗</a>' : '') + '</td></tr>' +
-    (c.aiSummary ? '<tr><td></td><td colspan="' + (withLead ? 6 : 5) + '" class="hint">סיכום: ' + esc(c.aiSummary) + '</td></tr>' : '');
+    '<td>' + (c.record ? '<audio controls preload="none" src="' + esc(c.record) + '" style="height:30px;max-width:200px"></audio> <a class="hint" href="' + esc(c.record) + '" target="_blank" rel="noopener">פתח הקלטה ↗</a>' : '') +
+      ' <button type="button" class="btn small ghost" data-vcinfo="' + esc(c.id) + '" title="הכל על השיחה: סיכום, תמלול, הקלטה, קישור ישיר">' + (vcTr(c).length ? '📝 תמלול' : 'פרטים') + '</button></td></tr>' +
+    (c.aiSummary ? '<tr><td></td><td colspan="' + (withLead ? 6 : 5) + '" class="hint">🤖 סיכום: ' + esc(c.aiSummary) + '</td></tr>' : '');
 }
 function callsCard(k, id) {
   const L2 = callsOf(k, id); if (!L2.length) return '';
@@ -11595,7 +11639,7 @@ function reCard() {
 function reSuggest() {
   const cash = live(S.expenses).filter((e) => e.active !== false && e.division === 'realestate').reduce((a, e) => a + n(e.amount) * (e.frequency === 'quarterly' ? 1 / 3 : e.frequency === 'yearly' ? 1 / 12 : 1), 0);
   const months = [...new Set(live(S.payroll).map((x) => x.month))].sort(), lm = months[months.length - 1];
-  const pay = lm ? payEmployees().filter((e) => e.division === 'realestate').reduce((a, e) => a + payCalc(e, payDoc(lm, e.key)).total, 0) : 0;
+  const pay = lm ? payEmployees().filter((e) => e.division === 'realestate').reduce((a, e) => a + payCalc(e, payDocEff(lm, e)).total, 0) : 0;
   return Math.round(cash + pay);
 }
 /* משיכה כנגד חשבונית = הוצאת דמי ניהול שותפים בספרים (מע״מ תשומות). מחברה אחרת — לא מדווחת כאן. דרך תלוש — שכר. */
@@ -12915,7 +12959,7 @@ function leadNotesMerge(free, entries, done) {
 async function ikLeadSync(cid) {
   if (!cid || !S.canTask) return; const cl = S.clients.get(cid), leads = [S.leads.get(cid), cl && cl.leadId && S.leads.get(cl.leadId)].filter(Boolean); if (!leads.length) return;
   const E = []; leads.forEach((l) => { (l.log || []).filter((e) => !e.auto).forEach((e) => E.push({ key: 'n:' + l.id + ':' + e.at, at: e.at, text: e.text }));
-    callsOf('leadId', l.id).filter((c) => c.summary || c.note).forEach((c) => E.push({ key: 'c:' + c.id, at: c.at, text: '📞 ' + (c.summary || c.note) })); });
+    callsOf('leadId', l.id).filter((c) => c.aiSummary || c.summary || c.note).forEach((c) => E.push({ key: 'c:' + c.id, at: c.at, text: '📞 סיכום שיחה: ' + (c.aiSummary || c.summary || c.note) })); });
   E.forEach((e) => { const d = dayOf(e.at); if (d) e.lbl = d.slice(8, 10) + '/' + d.slice(5, 7) + ' ' + hm(e.at); });
   const x = intakeDoc(cid), r = leadNotesMerge(x.freeText, E, x.leadNotesIn); if (!r) return;
   await write('intakes/' + cid, { ...x, id: cid, clientId: cid, freeText: r.text, leadNotesIn: r.done, updatedAt: stamp(), by: S.me.id, createdAt: x.createdAt || stamp(), createdBy: x.createdBy || S.me.id });
@@ -13338,6 +13382,8 @@ function payCalc(e, x = {}) {
       rows.push({ label: c.label || 'בונוס יעד', q: hit ? 1 : 0, rate: n(c.bonus), how: f(q) + ' מתוך יעד ' + f(n(c.threshold)) + ' ' + payUnitLabel(c.unit) + (hit ? ' — הגיע' : ' — לא הגיע') }); }
   }
   if (n(x.extra)) rows.push({ label: x.extraNote || 'תוספת', q: 1, rate: n(x.extra), how: 'חד-פעמי' });
+  /* דן 22/11: "בונוסים מעבר לשכר הקבוע" — כמה בונוסים בחודש, כל אחד עם שם וסכום */
+  (x.bonuses || []).filter((b) => b && n(b.amount)).forEach((b) => rows.push({ label: 'בונוס' + (b.label ? ' — ' + b.label : ''), q: 1, rate: n(b.amount), how: 'בונוס החודש' }));
   rows.forEach((r) => { if (r.sum == null) r.sum = r2(r.q * r.rate); });
   const gross = r2(rows.reduce((a, r) => a + r.sum, 0)), started = Object.keys(x || {}).length > 0;
   if (n(e.floor) && started && x.noFloor !== true && gross < n(e.floor)) { const d = r2(n(e.floor) - gross); rows.push({ label: 'השלמה לרצפה (' + f(n(e.floor)) + ')', q: 1, rate: d, sum: d, how: f(n(e.floor)) + ' − ' + f(gross) }); }
@@ -13369,11 +13415,18 @@ function dupExpensePairs(txs) {
 const payEmployees = () => ((S.settings.payroll && S.settings.payroll.employees) || []).filter((e) => e.active !== false);
 const payAllEmployees = () => (S.settings.payroll && S.settings.payroll.employees) || [];
 const payDoc = (m, key) => S.payroll.get(m + '__' + key) || {};
+/* דן 22/11: "כרטיס העובד מתעדכן משעון הנוכחות" — שעות וימי עבודה בחודש מהשעון, כל עוד לא הוזנו ידנית (הזנה ידנית גוברת; אישור מקפיא) */
+function attKeyOfEmp(e) { if (!e) return null; if (e.attKey) return e.attKey; if (live(S.attendance).some((a) => a.key === e.key)) return e.key;
+  const first = String(e.name || '').trim().split(/\s+/)[0], p = first && staff().find((x) => String(x.label || '').trim().split(/\s+/)[0] === first); return p ? p.key : null; }
+function attMonth(key, m) { const A = key ? live(S.attendance).filter((a) => a.key === key && String(a.date).slice(0, 7) === m && a.in) : []; return { hours: r2(A.reduce((x, a) => x + attHours(a), 0)), days: A.length }; }
+function payAuto(e, m) { const k = attKeyOfEmp(e); if (!k) return null; const u = payUnitsOf(e), A = attMonth(k, m), out = {}; if (u.includes('hours')) out.hours = A.hours; if (u.includes('days')) out.days = A.days; return Object.keys(out).length ? out : null; }
+function payDocEff(m, e) { const x = payDoc(m, e.key), au = payAuto(e, m); if (!au || x.approved || x.paid) return x; const q = { ...(x.q || {}) };
+  Object.entries(au).forEach(([u, v]) => { if (q[u] == null && x[u] == null) q[u] = v; }); return { ...x, q }; }
 const payMonthDefault = () => { const t0 = today(); return Number(t0.slice(8, 10)) <= 10 ? addDays(t0.slice(0, 7) + '-01', -1).slice(0, 7) : t0.slice(0, 7); };
 const payDue = (m) => addMonth(m + '-01').slice(0, 8) + String((S.settings.payroll && S.settings.payroll.payDay) || 10).padStart(2, '0');
 function payrollItems() {
   const out = [];
-  for (const x of live(S.payroll)) { if (x.paid) continue; const e = payEmployees().find((k) => k.key === x.emp); if (!e) continue; const c = payCalc(e, x);
+  for (const x of live(S.payroll)) { if (x.paid) continue; const e = payEmployees().find((k) => k.key === x.emp); if (!e) continue; const c = payCalc(e, payDocEff(x.month, e));
     if (c.total) out.push({ date: payDue(x.month), amount: -c.total, label: 'שכר ' + e.name + ' · ' + mLabel(x.month), sure: !!x.approved, payroll: true, division: e.division || 'finance' }); }
   return out;
 }
@@ -13426,12 +13479,12 @@ function vPayroll() {
   if (!emps.length) return '<section class="card"><header><h2>שכר</h2><span class="grow"></span>' + addBtn + '</header><p class="empty">לא הוגדרו עובדים לשכר. "+ עובד חדש" — שם, חטיבה ורכיבי השכר לפי ההסכם.</p></section>';
   const m = S.f.payMonth || payMonthDefault();
   const months = [...new Set([addDays(today().slice(0, 7) + '-01', -32).slice(0, 7), addDays(today().slice(0, 7) + '-01', -1).slice(0, 7), today().slice(0, 7), ...live(S.payroll).map((x) => x.month)])].sort().reverse();
-  const calc = emps.map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDoc(m, e.key)) }));
+  const calc = emps.map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDocEff(m, e)) }));
   const tot = r2(calc.reduce((a, k) => a + k.c.total, 0)), inDiv = (d) => calc.filter((k) => (k.e.division || 'finance') === d), byDiv = (d) => r2(inDiv(d).reduce((a, k) => a + k.c.total, 0));
   const names = (d) => inDiv(d).map((k) => k.e.name).join(', ') || '—';
   const inp = (e, x, attrs, val, label, width = 90) => '<label class="fl">' + label + '<input class="f num" style="width:' + width + 'px" type="number" ' + attrs + ' data-pay="' + esc(e.key) + '" value="' + esc(val ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>';
   return '<div class="row">' + sel('fPayMonth', 'חודש עבודה', months.map((x) => [x, mLabel(x)]), m) + '<span class="hint">משולם עד ' + dLabel(payDue(m)) + '</span><span class="grow"></span>' + addBtn +
-      '<button class="btn primary" data-act="payPdf">לרו״ח (PDF)</button><button class="btn" data-act="payCsv">CSV</button><button class="btn" data-act="payMail">שלח לי במייל</button></div>' +
+      '<button class="btn" data-act="payHours" title="דוח שעות מהשעון לחודש הזה">📥 דוח שעות</button><button class="btn primary" data-act="payPdf">לרו״ח (PDF)</button><button class="btn" data-act="payCsv">CSV</button><button class="btn" data-act="payMail">שלח לי במייל</button></div>' +
     '<div class="grid4">' + kpi('סה״כ שכר · ' + mLabel(m), money(tot, { tone: 'committed' }), calc.filter((k) => k.x.approved).length + ' מתוך ' + calc.length + ' אושרו', null) +
       kpi('פתרונות מימון', money(byDiv('finance'), { tone: 'muted' }), names('finance'), null) + kpi('הר-אל השקעות', money(byDiv('realestate'), { tone: 'muted' }), names('realestate'), null) +
       kpi('לתשלום', dLabel(payDue(m)), calc.filter((k) => k.x.paid).length + ' שולמו · נכנס לצפי התשלומים', 'money:forecast') + '</div>' +
@@ -13439,12 +13492,15 @@ function vPayroll() {
     '<div class="grid3">' + calc.map(({ e, x, c }) => { const comps = payComps(e);
       return '<section class="card"><header><h2>' + esc(e.name) + '</h2><span class="hint">' + esc([e.role, L.division[e.division || 'finance']].filter(Boolean).join(' · ')) + '</span><span class="grow"></span>' +
         (x.paid ? '<span class="pill actual">שולם</span>' : x.approved ? '<span class="pill committed">מאושר</span>' : '<span class="pill expected">טיוטה</span>') + (w ? '<button class="btn small ghost" data-payemp="' + esc(e.key) + '">✎ רכיבי שכר</button>' : '') + '</header>' +
-      '<div class="row">' + payUnitsOf(e).map((u) => inp(e, x, 'min="0" step="' + (u === 'hours' ? '0.25' : '1') + '" data-pq="' + esc(u) + '"', (x.q && x.q[u] != null) ? x.q[u] : x[u], esc(payUnitLabel(u)))).join('') +
+      '<div class="row">' + payUnitsOf(e).map((u) => { const au = payAuto(e, m), man = (x.q && x.q[u] != null) || x[u] != null, auto = au && au[u] != null && !man && !x.approved && !x.paid;
+          return inp(e, x, 'min="0" step="' + (u === 'hours' ? '0.25' : '1') + '" data-pq="' + esc(u) + '"' + (auto ? ' placeholder="' + esc(String(au[u])) + '"' : ''), man ? ((x.q && x.q[u] != null) ? x.q[u] : x[u]) : '', esc(payUnitLabel(u)) + (auto ? ' <span class="pill actual" title="מעודכן משעון הנוכחות — הקלדה ידנית גוברת">⏱ ' + esc(String(au[u])) + ' מהשעון</span>' : au && au[u] != null && man && w && !x.paid ? ' <button type="button" class="xlink" data-payclock="' + esc(e.key + '|' + u) + '" title="השעון: ' + esc(String(au[u])) + '">↺ מהשעון</button>' : '')); }).join('') +
         comps.filter((k) => k.type === 'pct' && n(k.pct)).map((k) => inp(e, x, 'min="0" step="1" data-pb="' + esc(k.id) + '"', x.base && x.base[k.id], esc((k.label || 'עמלה') + ' — הסכום ₪'), 120)).join('') +
         comps.filter((k) => k.type === 'fixed' && n(k.amount)).map((k) => inp(e, x, 'min="0" max="100" step="1" data-pp="' + esc(k.id) + '"', payPart(x, k), esc((k.label || 'שכר חודשי') + ' — % מהחודש'), 80)).join('') +
         '<label class="fl">תוספת ₪<input class="f num" style="width:90px" type="number" step="1" data-pay="' + esc(e.key) + '" data-pk="extra" value="' + esc(x.extra ?? '') + '"' + (w && !x.paid ? '' : ' disabled') + '></label>' +
         (n(e.floor) ? '<label class="check"><input type="checkbox" data-pay="' + esc(e.key) + '" data-pk="noFloor"' + (x.noFloor === true ? '' : ' checked') + (w && !x.paid ? '' : ' disabled') + '><span>השלמה לרצפה</span></label>' : '') + '</div>' +
       (comps.length ? '' : '<p class="hint">אין רכיבי שכר — "✎ רכיבי שכר" כדי להגדיר.</p>') +
+      ((x.bonuses || []).length || (w && !x.paid) ? '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center"><b class="hint">בונוסים:</b>' + (x.bonuses || []).map((b, i) => '<span class="chip">' + esc(b.label || 'בונוס') + ' · ' + plain(n(b.amount)) + (w && !x.paid ? ' <button type="button" class="xlink" data-paybonusdel="' + esc(e.key + '|' + i) + '" aria-label="הסר בונוס">✕</button>' : '') + '</span>').join('') +
+        (w && !x.paid ? '<button type="button" class="btn small ghost" data-paybonus="' + esc(e.key) + '">+ בונוס</button>' : '') + '</div>' : '') +
       '<table style="margin-top:8px"><tbody>' + c.rows.map((r) => '<tr><td class="wide">' + esc(r.label) + '<div class="hint">' + esc(r.how) + '</div></td><td>' + money(r.sum, { tone: r.sum ? '' : 'muted' }) + '</td></tr>').join('') +
       '</tbody><tfoot><tr><td>סה״כ</td><td>' + money(c.total, { tone: 'committed' }) + '</td></tr></tfoot></table>' +
       (w ? '<details class="lfilt" style="margin-top:8px"><summary class="hint">עלות מעביד בפועל עד היום</summary><div class="row" style="margin-top:6px;align-items:flex-end"><label class="fl">סה״כ שיצא עד היום ₪<input class="f num" style="width:110px" type="number" min="0" step="0.01" id="empact_' + esc(e.key) + '"></label><button class="btn small" data-empfix="' + esc(e.key) + '">חשב ותקן</button></div></details>' : '') +
@@ -13504,7 +13560,7 @@ function payEmpDrawer(key) {
 }
 async function payPdf(m) {
   const dlc = await claude.use('downloads').catch(() => null); if (!dlc) return toast('הורדת קבצים לא זמינה בתצוגה הזו');
-  const calc = payEmployees().map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDoc(m, e.key)) })), tot = r2(calc.reduce((a, k) => a + k.c.total, 0));
+  const calc = payEmployees().map((e) => ({ e, x: payDoc(m, e.key), c: payCalc(e, payDocEff(m, e)) })), tot = r2(calc.reduce((a, k) => a + k.c.total, 0));
   const td = 'padding:6px 4px;border-bottom:1px solid #EAECF0;font-size:13px';
   const html = '<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;color:#101828;width:760px;padding:28px 32px;background:#fff"><div style="border-bottom:3px solid #101828;padding-bottom:8px"><div style="font-size:20px;font-weight:700">שכר ' + esc(mLabel(m)) + ' — הדמיה לפי ההסכמים</div><div style="font-size:13px;color:#475467">הר-אל · לרו״ח · הופק ' + dLabel(today()) + ' · ברוטו לפני ניכויים</div></div>' +
     calc.map(({ e, x, c }) => '<h3 style="font-size:15px;margin:16px 0 4px">' + esc(e.name) + (e.role ? ' · ' + esc(e.role) : '') + ' <span style="font-weight:400;color:#475467;font-size:12px">' + esc(L.division[e.division || 'finance']) + ' · ' + (x.paid ? 'שולם' : x.approved ? 'מאושר' : 'טיוטה') + '</span></h3>' +
@@ -13515,7 +13571,7 @@ async function payPdf(m) {
   try { await dlc.save({ filename: 'שכר-' + m + '.pdf', data: bytes }); } catch (e) { toast('ההורדה בוטלה'); }
 }
 function payRows(m) {
-  return payEmployees().flatMap((e) => { const x = payDoc(m, e.key), c = payCalc(e, x);
+  return payEmployees().flatMap((e) => { const x = payDoc(m, e.key), c = payCalc(e, payDocEff(m, e));
     return [...c.rows.filter((r) => r.sum).map((r) => [mLabel(m), e.name, L.division[e.division || 'finance'], r.label, r.q, r.pct != null ? r.pct + '%' : r.rate, r.sum, '']), [mLabel(m), e.name, L.division[e.division || 'finance'], 'סה״כ', '', '', c.total, x.approved ? 'מאושר' : 'טיוטה']]; });
 }
 
@@ -13638,7 +13694,11 @@ function shellChrome(mine) {
   const name = (S.loginAs && S.loginAs.label) || S.me.name || '', role = (ROLES[S.role] || {}).label || LEVEL[S.level] || '';
   const divs = (S.allowedDivs || DIVS).filter(canSeeDiv), dl = divs.length > 1 ? 'שתי החברות' : divs.length ? L.division[divs[0]] : '';
   u.hidden = !name;
-  u.innerHTML = '<span class="ava" aria-hidden="true">' + esc(String(name).trim().charAt(0)) + '</span><span class="nu"><b>' + esc(name) + '</b><small>' + esc([String(role).split(' — ')[0], dl].filter(Boolean).join(' · ')) + '</small></span><i class="ldot" aria-hidden="true"></i>' +
+  /* דן 22/11: שעון המשמרת רץ למעלה עד היציאה (או סוף היום) — לחיצה פותחת את כרטיס הנוכחות ב"היום שלי" */
+  const sa = S.myKey && S.canTask ? attDoc() : null;
+  const shift = sa && sa.in && !sa.out ? '<button type="button" class="chip" id="shiftClock" data-tab="day" title="במשמרת מ-' + esc(hm(sa.in.at)) + '" style="font-variant-numeric:tabular-nums">⏱ ' + attClock(sa) + '</button>'
+    : S.myKey && S.canTask && !sa ? '<button type="button" class="chip" data-act="attIn" title="כניסה למשמרת">⏱ כניסה למשמרת</button>' : '';
+  u.innerHTML = shift + '<span class="ava" aria-hidden="true">' + esc(String(name).trim().charAt(0)) + '</span><span class="nu"><b>' + esc(name) + '</b><small>' + esc([String(role).split(' — ')[0], dl].filter(Boolean).join(' · ')) + '</small></span><i class="ldot" aria-hidden="true"></i>' +
     (S.settings.lock && S.settings.lock.hash && !isLocked() ? '<button class="btn small ghost" data-act="logout" title="יציאה / החלפת משתמש">יציאה</button>' : '');
 }
 function render() {
@@ -13710,7 +13770,7 @@ document.addEventListener('click', (e) => { const a = e.target.closest('a[data-p
 document.addEventListener('click', async (e) => {
   if (e.target.closest('a.lnk')) return;
   const el = e.target.closest('button, tr[data-client], tr[data-attn], tr[data-pm], tr[data-cat], tr[data-owner], tr[data-sm], tr[data-intake], tr[data-lead], a[data-leadopen], tr[data-sdrill], article[data-sdrill], article[data-ictl], tr[data-expchk], article[data-go], [data-client]');
-  if (!el || (el.closest('#layer') && !el.matches('[data-pick], [data-signcopy], [data-signsms]'))) return;
+  if (!el || (el.closest('#layer') && !el.matches('[data-pick], [data-signcopy], [data-signsms], [data-vccopy], [data-vcgo]'))) return;
   const d = el.dataset;
   try {
     if (d.tab) { S.f.closeStep = 0; return go(d.tab); }
@@ -14029,8 +14089,20 @@ document.addEventListener('click', async (e) => {
     if (d.advdone) { const p = S.planned.get(d.advdone); if (!p) return; const tid = uid();
       await write('transactions/' + tid, { id: tid, nature: 'advance', division: 'finance', counterparty: 'ניסים', description: p.label, date: p.date && p.date <= today() ? p.date : today(), net: -Math.abs(n(p.amount)), gross: -Math.abs(n(p.amount)), vat: 0, vatMode: 'exempt', vatRate: 0, invoice: 'no_invoice_needed', review: 'ok', source: 'planned', createdAt: stamp(), by: S.me.id });
       await write('planned/' + p.id, { deletedAt: stamp(), doneTx: tid }, 'update'); return toast('נרשמה מקדמה של ' + plain(p.amount)); }
+    if ((d.paybonus || d.paybonusdel || d.payclock) && S.canWrite) { const [key, arg] = String(d.paybonus || d.paybonusdel || d.payclock).split('|'), m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key), e = payEmployees().find((k) => k.key === key); if (!e) return;
+      let patch;
+      if (d.paybonus) { const label = prompt('על מה הבונוס? (למשל: יעד סגירות, עבודה בשישי)', ''); if (label === null) return; const amt = r2(String(prompt('סכום הבונוס ₪ (ברוטו)', '') || '').replace(/[^\d.]/g, '')); if (!(amt > 0)) return toast('לא הוזן סכום');
+        patch = { bonuses: [...(x.bonuses || []), { id: uid(), label: label.trim(), amount: amt, at: stamp(), by: S.me.id }] }; }
+      else if (d.paybonusdel) patch = { bonuses: (x.bonuses || []).filter((b, i) => i !== Number(arg)) };
+      else patch = { q: { ...(x.q || {}), [arg]: null }, ...(x[arg] != null ? { [arg]: null } : {}) };
+      await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, approved: false, updatedAt: stamp() }); return toast(d.paybonus ? 'הבונוס נוסף — ' + e.name : d.paybonusdel ? 'הבונוס הוסר' : 'חזר לשעון הנוכחות'); }
+    if (d.attrep) return attReportDl(d.attrep);
+    if (d.vcinfo) return vcCallDrawer(d.vcinfo);
+    if (d.vccopy) { const c = S.calls.get(d.vccopy); if (c) await copyText(vcLink(c), 'הקישור לשיחה הועתק'); return; }
+    if (d.vcgo) { $('layer').innerHTML = ''; const [k, v] = d.vcgo.split(':'); return go(k, v); }
     if (d.payok || d.paypaid || d.payundo) { const key = d.payok || d.paypaid || d.payundo, m = S.f.payMonth || payMonthDefault(), id = m + '__' + key, x = payDoc(m, key);
-      const patch = d.payok ? { approved: true, approvedAt: stamp() } : d.paypaid ? { paid: true, paidAt: stamp() } : { approved: false, approvedAt: null };
+      const e0 = payEmployees().find((k) => k.key === key), x1 = e0 && d.payok ? payDocEff(m, e0) : x;
+      const patch = d.payok ? { approved: true, approvedAt: stamp(), q: x1.q || x.q || {} } : d.paypaid ? { paid: true, paidAt: stamp() } : { approved: false, approvedAt: null };
       await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, updatedAt: stamp() }); return toast(d.payok ? 'אושר' : d.paypaid ? 'סומן ששולם' : 'חזר לטיוטה'); }
     if (d.tablenote && S.canClient) { const c = S.clients.get(d.tablenote); if (!c) return; const v = prompt('הערה ל' + c.name + ' — מופיעה בטבלת הלקוחות, לא משימה. ריק = מחיקה', c.tableNote || ''); if (v === null) return;
       await write('clients/' + c.id, { tableNote: v.trim() || null, tableNoteAt: stamp(), tableNoteBy: S.me.id, updatedAt: stamp() }, 'update'); if (v.trim()) await logClient(c.id, 'הערה בטבלה: ' + v.trim()).catch(() => {}); return toast(v.trim() ? 'ההערה נשמרה' : 'ההערה נמחקה'); }
@@ -14368,6 +14440,7 @@ document.addEventListener('click', async (e) => {
           for (const t of D.unconfirmed) await write('transactions/' + t.id, { confirmed: true, confirmedAt: stamp(), confirmedBy: S.me.id, updatedAt: stamp() }, 'update');
           return toast(D.unconfirmed.length + ' תקבולים אושרו'); }
         case 'payPdf': return payPdf(S.f.payMonth || payMonthDefault());
+        case 'payHours': { S.f.attDay = (S.f.payMonth || payMonthDefault()) + '-01'; return attReportDl('pdf'); }
         case 'payCsv': { const m = S.f.payMonth || payMonthDefault(); return exportCsv('שכר-' + m, ['חודש', 'עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], payRows(m)); }
         case 'payMail': { const m = S.f.payMonth || payMonthDefault(); const rows = payRows(m);
           const r = await sendMail({ to: [mailOf(S.me.id) || mailOf(ownerFallback())], subject: '[הר-אל] שכר ' + mLabel(m) + ' — לרו״ח', html: mailWrap('שכר ' + mLabel(m) + ' — הדמיה לפי ההסכם', mailTable(['עובד', 'חטיבה', 'רכיב', 'כמות', 'תעריף', 'סכום', 'סטטוס'], rows.map((x) => [esc(x[1]), esc(x[2]), x[3] === 'סה״כ' ? '<b>סה״כ</b>' : esc(x[3]), x[4] === '' ? '' : fmt0.format(x[4]), x[5] === '' ? '' : typeof x[5] === 'string' ? esc(x[5]) : plain(x[5]), plain(x[6]), esc(x[7])])) + '<p style="color:#6B7280;font-size:12px">ברוטו לפני ניכויים. לתשלום עד ' + dLabel(payDue(m)) + '.</p>'), kind: 'payroll', ref: m });
@@ -14518,6 +14591,8 @@ document.addEventListener('change', async (e) => {
     if (el.dataset.empct) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empct ? { ...e, employerPct: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('עלות מעביד נשמרה'); }
     if (el.dataset.ik) { clearTimeout(ikT); return ikSave(el); }
     if (el.id === 'fPayMonth') { S.f.payMonth = el.value; return render(); }
+    if (el.id === 'fAttDay') { S.f.attDay = el.value || today(); return render(); }
+    if (el.id === 'fAttRepWho') { S.f.attRepWho = el.value; return; }
     if (el.id === 'fReMonth') { S.f.reMonth = el.value; return render(); }
     if (el.dataset.linklead && el.value) { const l = S.leads.get(el.dataset.linklead), c = S.clients.get(el.value); await write('leads/' + l.id, { clientId: c.id, updatedAt: stamp() }, 'update');
       await write('clients/' + c.id, { leadId: l.id, phone: c.phone || l.phone || '', source: c.source || 'ליד — ' + (l.ad || l.campaign || ''), updatedAt: stamp() }, 'update'); await logClient(c.id, 'קושר לליד מהטבלה: ' + (l.ad || '') + ' · ' + dLabel(dayOf(l.createdAt))); return toast('קושר ל' + c.name); }
@@ -14748,7 +14823,7 @@ async function boot() {
   const h = String(location.hash || '').replace('#', '');
   if (['day', 'home', 'clients', 'leads', 'tasks', 'forms', 'money', 'books', 'private', 'marketing', 'lenders', 'service', 'reports', 'settings'].includes(h)) S.view.tab = h;
   /* קישור מהתוסף של וויאסנטר (Pop-Up): #lead:<id> — כרטיס הליד · #newlead:<טלפון> — ליד חדש עם הטלפון ממולא */
-  else if (/^(lead|newlead):/.test(h)) S._deep = h;
+  else if (/^(lead|newlead|call):/.test(h)) S._deep = h;
   render();
   const [db, user, mcp] = await Promise.all([claude.use('db'), claude.use('user'), claude.use('mcp')]);
   S.mcp = mcp; S.user = user;
@@ -14767,7 +14842,7 @@ async function boot() {
   /* כל מי ששותף בהרשאת עריכה טוען את כל הנתונים; מה שמוצג נקבע לפי מי שנכנס במסך הכניסה */
   const colls = ['owner', 'admin'].includes(S.level) ? COLL : COLL.filter((c) => !OWNER_READ.includes(c));
   let pending = colls.length + 1;
-  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); setTimeout(() => { try { callTick(); if (!isLocked()) callDayPop(false); } catch (e) {} }, 1800); setTimeout(signLibAutoSync, 3000); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
+  const arrived = () => { if (--pending === 0) { S.ready = true; if (S._deep) { const [k, v] = [S._deep.slice(0, S._deep.indexOf(':')), decodeURIComponent(S._deep.slice(S._deep.indexOf(':') + 1))]; S._deep = null; try { history.replaceState(null, '', '#leads'); } catch (e) {} setTimeout(() => { if (k === 'lead' && S.leads.has(v)) go('lead', v); else if (k === 'call') { const c = S.calls.get(v); if (c && c.leadId && S.leads.has(c.leadId)) go('lead', c.leadId); else if (c && c.clientId && S.clients.has(c.clientId)) go('client', c.clientId); else go('leads'); setTimeout(() => vcCallDrawer(v), 200); } else if (k === 'newlead') { go('leads'); formLead({ phone: v, name: '' }); } }, 300); } conn('live', 'מחובר · נשמר אוטומטית'); tmrLoad(); setTimeout(() => { try { callTick(); if (!isLocked()) callDayPop(false); } catch (e) {} }, 1800); setTimeout(signLibAutoSync, 3000); autoDriveBackup(); setTimeout(() => autoLeadSync(), 2500); setTimeout(dedupeAuto, 4000); setInterval(() => autoLeadSync(), 31 * 60e3); } soon(); };
   const fail = (e) => { conn('err', e && e.code === 'revoked' ? 'הגישה בוטלה' : 'תקלה בחיבור'); if (e && e.code === 'revoked') S.canWrite = false; soon(); };
   for (const name of colls) {
     let first = true;

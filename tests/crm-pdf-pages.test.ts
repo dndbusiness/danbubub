@@ -11,7 +11,7 @@ describe('שבירת עמודים רק בין כרטיסים שלמים', () => 
   it('כרטיס שלא נכנס עובר שלם לעמוד הבא — אף כרטיס לא נחתך', () => {
     const U = [card(0, 300), card(310, 300), card(620, 300), card(930, 300)], P = F.pdfBreaks(U, 1230, 1000)
     expect(P).toEqual([[0, 930], [930, 1230]])
-    for (const u of U) expect(P.some(([f, t]: number[]) => u.top >= f && u.bottom <= t)).toBe(true)
+    for (const u of U) expect(P.some(([f, t]: [number, number]) => u.top >= f && u.bottom <= t)).toBe(true)
   })
   it('כותרת שלב לא נשארת לבד בתחתית — עוברת עם הכרטיס שאחריה', () => {
     const P = F.pdfBreaks([card(0, 800), card(820, 40, true), card(870, 300)], 1170, 1000)
