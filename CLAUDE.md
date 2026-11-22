@@ -124,6 +124,7 @@ node scripts/e2e-pipeline.mjs     # ציר תיק משכנתא: מכירה → �
 node scripts/e2e-submit.mjs       # הגשה לגוף: כרטיס לקוח → "📋 הגשה לגוף" → 6 גופים לפי סדר הטופס → העתק ערך / הבא / שלב → ✎ הזנה (נשמר לכל הגופים) → ✨ מילוי מהמסמכים (הצעה → אישור) → 📎 מסמכי הגוף בתיק → ✍️ טפסי הגוף לחתימה
 node scripts/e2e-ik-extract.mjs   # "הכר את הלקוח" ← Claude — מלא את השדות (Claude מדומה): JSON שבור → ניסיון שני אוטומטי → הצעות · תקרה יומית → הסיבה במסך
 node scripts/e2e-lead-packages.mjs # חשבון לידים: מחיר לליד מחודש (160; חודשים קודמים — הישן) → + חבילה (N × מחיר) → לזיכוי = ליד חלופי, לא כסף → מקדמה 50% בתחילה → יתרה 50% בסוף
+node scripts/e2e-fin-split.mjs     # חלוקת הר-אל פתרונות מ-12/2026: ניסים 33.3% (נובמבר נשאר 50%) · דן ויונס שליש כל אחד · אביב לא בחלוקה · התחשבנות הנדל״ן ומצב החשבון
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup
