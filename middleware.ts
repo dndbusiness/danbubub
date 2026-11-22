@@ -15,7 +15,7 @@ import { GATE_COOKIE, gateToken, sameToken } from '@/lib/gate'
 // עוברים בלי שער המשרד רק הדף (קוד, בלי נתונים), הכניסה עצמה (סיסמה בשרת + האטה), ומה שמסך הכניסה מושך —
 // /api/crm/sync ו-/api/crm/me לא מחזירים כלום בלי כניסה אישית או שער (lib/crm/auth.ts: gatePassed). אחרי הכניסה נקבעת גם עוגיית השער.
 const CRM_LOGIN_PATHS = ['/crm', '/crm-shim.js', '/crm-apple-touch-icon.png', '/api/crm/login', '/api/crm/sync', '/api/crm/me']
-const OPEN_PATHS = [...CRM_LOGIN_PATHS, '/api/health', '/api/jobs', '/api/crm/inbound', '/api/voicenter/cdr', '/api/voicenter/popup', '/api/google/callback', '/gate', '/s', '/api/s', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
+const OPEN_PATHS = [...CRM_LOGIN_PATHS, '/api/health', '/api/jobs', '/api/crm/inbound', '/api/voicenter/cdr', '/api/voicenter/popup', '/api/whatsapp/webhook', '/privacy', '/api/google/callback', '/gate', '/s', '/api/s', '/crm-manifest.webmanifest', '/crm-icon.svg', '/crm-icon-192.png', '/crm-icon-512.png']
 
 export async function middleware(req: NextRequest) {
   const password = process.env.APP_PASSWORD

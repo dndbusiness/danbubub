@@ -8,6 +8,8 @@ import type { CalendarPayload } from './calendar-sync'
 import { readFile } from 'node:fs/promises'
 import { readStoredFile } from '@/lib/files'
 import { sendSlng, slngConfig, type SmsPayload } from '@/lib/outbox/slng'
+import { waConfig } from '@/lib/rules/wa-cloud'
+import { sendWaCloud, type WaOutPayload } from '@/lib/outbox/wa-cloud'
 
 /**
  * ADDENDUM הנחיה 16 — "כל יציאה החוצה עוברת דרך outbox עם retry ולוג".
@@ -41,7 +43,8 @@ export async function cancelExpiredCalendar(today = new Intl.DateTimeFormat('en-
 
 /** ids — רק השורות האלה (שליחה מיידית מהמסך, בלי לחכות מאחורי 50 שורות ממתינות) */
 export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetchImpl?: typeof fetch; ids?: string[] } = {}): Promise<FlushResult> {
-  const wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp, sms = slngConfig()
+  /* וואטסאפ: ה-Cloud API הרשמי כשמוגדר (WA_CLOUD_TOKEN + WA_PHONE_NUMBER_ID); אחרת Green-API כמו קודם */
+  const cloud = opts.whatsapp === undefined ? waConfig() : null, wa = opts.whatsapp === undefined ? greenApiConfig() : opts.whatsapp, sms = slngConfig()
   await cancelExpiredCalendar()
   const pending = await sql<{ id: string; channel: string; target: string; subject: string | null; body: string; payload: ({ pdfPath?: string; fileId?: string; fileName?: string } & Partial<CalendarPayload>) | null; attempts: number; max_attempts: number }[]>`
     select id, channel, target, subject, body, payload, attempts, max_attempts from outbox
@@ -54,13 +57,13 @@ export async function flushOutbox(opts: { whatsapp?: GreenApiConfig | null; fetc
   const canCalendar = hasScope(google, 'https://www.googleapis.com/auth/calendar.events')
   for (const row of pending) {
     if (row.channel === 'sms' && !sms) { out.waiting++; if (!out.noTransport.includes('sms')) out.noTransport.push('sms'); continue }
-    if (row.channel === 'whatsapp' && !wa) { out.waiting++; if (!out.noTransport.includes('whatsapp')) out.noTransport.push('whatsapp'); continue }
+    if (row.channel === 'whatsapp' && !wa && !cloud) { out.waiting++; if (!out.noTransport.includes('whatsapp')) out.noTransport.push('whatsapp'); continue }
     if (row.channel === 'email' && !canMail) { out.waiting++; if (!out.noTransport.includes('email')) out.noTransport.push('email'); continue }
     if (row.channel === 'calendar' && !canCalendar) { out.waiting++; if (!out.noTransport.includes('calendar')) out.noTransport.push('calendar'); continue }
     if (!['whatsapp', 'email', 'calendar', 'sms'].includes(row.channel)) { out.waiting++; if (!out.noTransport.includes(row.channel)) out.noTransport.push(row.channel); continue }
     try {
       let id: string
-      if (row.channel === 'whatsapp') id = await sendWhatsApp(wa!, row.target, row.body, opts.fetchImpl)
+      if (row.channel === 'whatsapp') id = cloud ? await sendWaCloud(cloud, row.target, row.body, row.payload as WaOutPayload | null, opts.fetchImpl) : await sendWhatsApp(wa!, row.target, row.body, opts.fetchImpl)
       else if (row.channel === 'sms') id = await sendSlng(sms!, row.payload as unknown as SmsPayload, opts.fetchImpl)
       else if (row.channel === 'calendar') {
         // ב.2 — אירוע לכל יומן ברשימה (ראשי של הר-אל + אישי של דן, ב.1). upsert לפי rule_key.
