@@ -21,3 +21,16 @@ describe('שבירת עמודים רק בין כרטיסים שלמים', () => 
     expect(F.pdfBreaks([card(0, 100), card(110, 2100)], 2210, 1000)).toEqual([[0, 110], [110, 1110], [1110, 2110], [2110, 2210]])
   })
 })
+
+describe('תמונה → PDF: עמוד A4 לפי כיוון התמונה', () => {
+  const G = new Function(html.slice(a, b) + '; return { imgFit };')() as any
+  it('תמונה לאורך (טלפון) — עמוד לאורך, נכנסת בשוליים ובמרכז', () => {
+    const F = G.imgFit(1200, 1600)
+    expect(F.land).toBe(false)
+    expect(F.x).toBeGreaterThanOrEqual(18); expect(F.y).toBeGreaterThanOrEqual(18)
+    expect(F.x + F.w).toBeLessThanOrEqual(F.pw - 18 + 1e-9); expect(F.y + F.h).toBeLessThanOrEqual(F.ph - 18 + 1e-9)
+    expect(Math.abs(F.w / F.h - 1200 / 1600)).toBeLessThan(1e-9)
+  })
+  it('תמונה לרוחב — עמוד לרוחב', () => { const F = G.imgFit(1600, 900); expect(F.land).toBe(true); expect(F.pw).toBeGreaterThan(F.ph) })
+  it('תמונה קטנה לא מנופחת מעבר לפי 2', () => { const F = G.imgFit(100, 120); expect(F.w).toBe(200); expect(F.h).toBe(240) })
+})

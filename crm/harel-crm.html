@@ -1812,8 +1812,10 @@ function clientMoney(c) {
   const direct = r2(txs.filter((t) => t.nature === 'expense').reduce((a, t) => a + n(t.net), 0));
   const fee = n(c.fee);
   /* כמו v_collections: תיק שנסגר בהצלחה ועוד לא שולם — עדיין פתוח לגביה. */
-  const open = ['lost', 'cancelled'].includes(c.status) ? 0 : Math.max(0, r2(fee - collected));
-  return { fee, collected, direct, open, net: r2(collected + direct), txs };
+  const gap = ['lost', 'cancelled'].includes(c.status) ? 0 : Math.max(0, r2(fee - collected));
+  /* דן 22/11: "לסגור תיק גם אם יש פער קטן בכסף" — תיק שנסגר בהצלחה וסומן settledAt: היתרה נמחלת (writeOff), לא פתוחה לגביה ולא בתזרים */
+  const writeOff = c.status === 'won' && c.settledAt ? gap : 0, open = r2(gap - writeOff);
+  return { fee, collected, direct, open, writeOff, net: r2(collected + direct), txs };
 }
 function attributedMonth(clientId) {
   const c = S.clients.get(clientId);
@@ -2041,6 +2043,7 @@ async function notify(userId, subject, lines, ref) {
 function go(tab, clientId = null) {
   if (!['leads', 'lead'].includes(tab)) S.leadKeep = null;
   S.view = { tab, clientId };
+  if (tab === 'intake' && clientId) ikLeadSync(clientId).catch(() => {});
   try { location.hash = clientId ? (tab === 'intake' ? 'intake' : tab === 'lead' ? 'leads' : tab === 'forms' ? 'forms' : 'client') : tab; } catch (e) {}
   render(); window.scrollTo({ top: 0 });
 }
@@ -2311,7 +2314,7 @@ function vDayClose(cases, tasks) {
         const m = clientMoney(c), blocker = (c.checklist || []).find((i) => i.status !== 'done');
         const a = answers[c.id] || {};
         return '<div class="qa"><div class="row"><b>' + esc(c.name) + '</b><span class="pill committed">' + (L.stage[c.stage] || '') + '</span>' + (m.open ? money(m.open, { tone: 'expected' }) : '') + '</div>' +
-          '<div class="q hint">' + (blocker ? 'מה חוסם: ' + esc(blocker.label) : 'אין חסם בצ׳קליסט') + (c.nextAction && c.nextAction.text ? ' · הצעד הקודם: ' + esc(c.nextAction.text) : '') + '</div>' +
+          '<div class="q hint">' + (blocker ? 'מה חוסם: ' + esc(blocker.label) : '') + (c.nextAction && c.nextAction.text ? ' · הצעד הקודם: ' + esc(c.nextAction.text) : '') + '</div>' +
           '<div class="row"><input class="f grow" data-ans="' + esc(c.id) + '" placeholder="מה אני עושה מחר כדי לקדם את התיק לסיום?" value="' + esc(a.text || '') + '" aria-label="הצעד הבא ל' + esc(c.name) + '">' +
           '<input class="f" type="date" data-ansdate="' + esc(c.id) + '" value="' + esc(a.date || addDays(t0, 1)) + '" aria-label="תאריך"></div></div>';
       }).join('') + '</div>' : '<p class="empty">אין תיקים פתוחים באחריותך.</p>') +
@@ -3002,7 +3005,7 @@ function clientTable(rows, compact) {
       '<td>' + respChip(c.resp) + '</td><td>' + approvalPill(c) + '</td>' +
       '<td><span class="pill ' + (c.status === 'open' ? 'committed' : c.status === 'won' ? 'actual' : 'muted') + '">' + (L.stage[c.stage] || '—') + '</span></td>' +
       ($$ ? '<td>' + money(m.fee) + '</td>' + (compact ? '' : '<td>' + money(m.collected, { tone: m.collected ? 'actual' : 'muted' }) + '</td>') +
-        '<td>' + (m.open ? money(m.open, { tone: 'expected' }) : '<span class="pill actual">✓</span>') + '</td>' : '') +
+        '<td>' + (m.open ? money(m.open, { tone: 'expected' }) + (c.status === 'won' && !compact ? ' <button class="btn small ghost" data-settle="' + esc(c.id) + '" title="סגירת התיק בלי לגבות את היתרה">סגור תיק</button>' : '') : m.writeOff ? '<span class="pill muted" title="נסגר עם פער של ' + esc(plain(m.writeOff)) + '">✓ נסגר</span>' : '<span class="pill actual">✓</span>') + '</td>' : '') +
       '<td class="num">' + (ot ? '<span class="pill committed">' + ot + '</span>' : '<span class="hint">0</span>') + (S.canTask && !compact ? ' <button class="btn small ghost" data-addtaskfor="' + esc(c.id) + '" aria-label="משימה ל' + esc(c.name) + '">+</button>' : '') + '</td>' +
       /* דן 21/10: בעמודת הצעד הבא — הצעד הבא שנקבע, וכל המשימות הפתוחות של הלקוח: מי עושה ומה. ואחריהן ההערה הקבועה */
       '<td class="wide" style="min-width:220px">' + nextCell(c, compact) + '</td></tr>';
@@ -3048,8 +3051,6 @@ function vClient(id) {
   const c = S.clients.get(id);
   if (!c || c.deletedAt || !canSeeDiv(c.division)) return '<p class="empty">הלקוח לא נמצא. <button class="xlink" data-go="clients">חזרה ללקוחות</button></p>';
   const m = clientMoney(c), w = S.canClient;
-  const done = (c.checklist || []).filter((i) => i.status === 'done').length, tot = (c.checklist || []).length;
-  const blocker = (c.checklist || []).find((i) => i.status !== 'done');
   const lead = c.leadId && S.leads.get(c.leadId);
   const tix = live(S.tickets).filter((x) => x.clientId === c.id);
   const ctasks = live(S.tasks).filter((t) => t.clientId === c.id && t.status !== 'done');
@@ -3077,7 +3078,7 @@ function vClient(id) {
       (w ? '<div class="row"><input class="f grow" id="naText" placeholder="מה צריך לקרות עכשיו כדי לסיים את התיק?" value="' + esc(c.nextAction && c.nextAction.text || '') + '" aria-label="הצעד הבא">' +
            '<input class="f" type="date" id="naDate" value="' + esc(c.nextAction && c.nextAction.date || '') + '" aria-label="תאריך"><button class="btn primary" data-act="saveNext">שמור</button></div>'
          : '<b>' + esc(c.nextAction && c.nextAction.text || '—') + '</b>') +
-      (blocker ? '<p class="hint" style="margin:6px 0 0">מה חוסם את הכסף: <b>' + esc(blocker.label) + '</b></p>' : '') + '</div></div>';
+      '</div></div>';
   /* אריחי כסף — אותו clientMoney; "פתוח לגביה" כולל את "מתי ייכנס הכסף" (אותם שדות data-paydate / data-payamt / data-payconf) */
   const mt = (ic, t, v, sub, cls) => '<div class="card mtile' + (cls ? ' ' + cls : '') + '"><span class="mth"><span>' + t + '</span>' + IC(ic) + '</span><b class="v">' + v + '</b>' + sub + '</div>';
   const pw = !['lost', 'cancelled'].includes(c.status), ph0 = m.open > 0 ? r2(m.open * (c.vatExempt ? 1 : 1 + VATR())) : '';
@@ -3088,7 +3089,7 @@ function vClient(id) {
       '<small class="hint">' + (c.expectedPayDate && payExpAmt(c) ? 'בתזרים: ' + plain(payExpAmt(c)) + ' ב-' + dLabel(c.expectedPayDate) + (payConfOf(c) === 'low' ? ' — לא נספר (לא לבנות)' : '') : 'ממלאים תאריך — ונכנס לתזרים') + '</small></div>';
   const tiles = !S.isOwner ? '' : '<div class="mtiles">' +
       mt('wallet', 'שכר טרחה', money(m.fee), '<small>הוצאות ישירות ' + plain(m.direct) + '</small>') +
-      mt('check', 'נגבה', money(m.collected, { tone: 'actual' }), '<small>' + (m.open > 0 ? 'עוד ' + plain(m.open) + ' לא נגבה' : 'אין יתרה פתוחה') + '</small>', 't-actual') +
+      mt('check', 'נגבה', money(m.collected, { tone: 'actual' }), '<small>' + (m.open > 0 ? 'עוד ' + plain(m.open) + ' לא נגבה' : m.writeOff ? 'התיק נסגר עם פער של ' + plain(m.writeOff) + (w ? ' <button class="btn small ghost" data-unsettle="' + esc(c.id) + '">פתח מחדש</button>' : '') : 'אין יתרה פתוחה') + (m.open > 0 && c.status === 'won' && w ? ' <button class="btn small" data-settle="' + esc(c.id) + '">סגור תיק עם הפער</button>' : '') + '</small>', 't-actual') +
       mt('clock', 'פתוח לגביה', money(m.open, { tone: m.open ? 'expected' : 'muted' }), payWhen, 't-expected wide') +
       mt('trend', 'תרומה נטו', money(m.net, { tone: m.net < 0 ? 'open' : 'committed' }), '<small>אחרי הוצאות ישירות</small>', 't-net') + '</div>';
   /* דן, 21/10: "תמיד יופיעו משימות פתוחות ללקוח במסך גדול יותר" — לרוחב, מתחת לציר */
@@ -5063,7 +5064,8 @@ function signDefaults(c) {
 function signLibDefaults(c, FE = {}) {
   const v = (typeof intakeDoc === 'function' && c.id ? (intakeDoc(c.id) || {}).car : null) || (c.leadId && S.intakes.get(c.leadId) ? S.intakes.get(c.leadId).car : null) || {}, pct = n(c.feePct) > 0 ? r2(n(c.feePct) * 100) : FE.type === 'pct' && n(FE.pct) ? r2(n(FE.pct)) : '';
   const adv = n(c.feeAdvance) || n(FE.advance), days = n(c.payDays) || n(FE.payDays);
-  return { fee_percent: pct === '' ? '' : String(pct), advance: adv ? plain(adv).replace(/[^\d,]/g, '') : '', pay_days: days ? String(days) : '', car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
+  /* מתעניין בסכום קבוע: אין אחוז הצלחה — 0, והסכום הקבוע נכתב בהערות שבמסמך (leadFeeLine) */
+  return { fee_percent: pct === '' ? (c._lead && n(c.fee) > 0 ? '0' : '') : String(pct), advance: adv ? plain(adv).replace(/[^\d,]/g, '') : '', pay_days: days ? String(days) : '', car_model: [v.maker, v.model].filter(Boolean).join(' '), car_plate: v.plate ? String(v.plate) : '', car_year: v.year ? String(v.year) : '' };
 }
 const SIGN_CAT = { agreement: 'הסכם התקשרות', bank: 'טפסי בנק', fund: 'טפסי קרן', insurance: 'ביטוח', poa: 'ייפוי כוח', general: 'כללי' };
 const SIGN_STATE = { sent: ['נשלח', 'expected'], opened: ['נפתח', 'committed'], partial: ['חלק חתמו', 'committed'], completed: ['נחתם', 'actual'], expired: ['פג תוקף', 'open'], cancelled: ['בוטל', 'muted'] };
@@ -5084,7 +5086,7 @@ function signSignerDefaults(c, mode) {
   const ik = intakeDoc ? intakeDoc(c.id) || {} : {}, B = ik.borrowers || [], b1 = B[1] || {};
   const rows = [{ on: true, label: 'הלקוח', name: c.name || '', email: c.email || '', phone: c.phone || '' }];
   const spName = c.spouseName || b1.name || '';
-  rows.push({ on: mode === 'client_spouse' && !!spName, label: 'בן/בת זוג', name: spName, email: c.spouseEmail || b1.email || '', phone: c.spousePhone || b1.phone || '' });
+  rows.push({ on: (mode === 'client_spouse' || !!c._lead) && !!spName, label: 'בן/בת זוג', name: spName, email: c.spouseEmail || b1.email || '', phone: c.spousePhone || b1.phone || '' });
   (c.moreBorrowers || []).forEach((b, i) => rows.push({ on: mode === 'client_spouse', label: 'לווה ' + (i + 3), name: b.name || '', email: b.email || '', phone: b.phone || '' }));
   rows.push({ on: false, label: 'חותם נוסף', name: '', email: '', phone: '' });
   return rows.slice(0, 6);
@@ -5250,7 +5252,32 @@ const tplPersonOffset = (name) => { const s = String(name || ''); return /לוו
 const pdfOffOf = (t) => t && (t.signers === 1 || /לווים\s*(?:נוספים|3\s*[-–+]\s*4)/.test(t.name || '')) ? tplPersonOffset(t.name) : 0;
 const pdfKeyOff = (key) => String(key || '').startsWith('pdf:') ? pdfOffOf(pdfTplOf(String(key).slice(4))) : 0;
 const sgc = (i) => 'var(--sg' + (((Number(i) || 1) - 1) % 6 + 1) + ')';
-const leadSignObj = (l) => ({ id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', idNumber: l.idNumber || '', address: l.address || '', _lead: true });
+/* דן 22/11: חתימה למתעניין — שם (ניתן לעריכה), טלפון, בן/בת זוג (רשות), שכ״ט באחוז מהתיק (עם הסכום המבוקש) או סכום קבוע ב-₪ */
+const leadSignObj = (l) => { const S0 = l.sign || {};
+  return { id: l.id, name: l.name || normPhone(l.phone) || 'מתעניין', division: leadDiv(l), email: l.email || '', phone: l.phone || '', idNumber: l.idNumber || '', address: l.address || '', ctype: l.ctype || '',
+    ...(S0.spouse && S0.spouseName ? { spouseName: S0.spouseName, spousePhone: S0.spousePhone || '' } : {}),
+    ...(n(S0.amount) > 0 ? { baseAmount: n(S0.amount) } : {}),
+    ...(S0.feeMode === 'fixed' ? (n(S0.feeFixed) > 0 ? { fee: n(S0.feeFixed), feePct: 0 } : {}) : n(S0.feePct) > 0 ? { feePct: n(S0.feePct) / 100 } : {}), _lead: true }; };
+const signPhones = (c, st) => !!(c.phone || ((st && st.signers) || []).some((x) => x.on !== false && x.phone));
+const TYPE_EMOJI = { 'נכסים': '🏠', 'עסקים': '💼', 'רכב': '🚗' };
+/* שורת ההסכם על שכ״ט המתעניין — נכנסת להערות שבמסמך החתום */
+function leadFeeLine(l) { const S0 = (l && l.sign) || {}, amt = n(S0.amount);
+  if (S0.feeMode === 'fixed') return n(S0.feeFixed) > 0 ? 'שכר הטרחה: סכום קבוע של ' + plain(n(S0.feeFixed)) + ' בתוספת מע״מ' + (amt ? ' · הסכום המבוקש: ' + plain(amt) : '') + '.' : '';
+  return n(S0.feePct) > 0 ? 'שכר הטרחה: ' + r2(n(S0.feePct)) + '% מהסכום' + (amt ? ' · הסכום המבוקש: ' + plain(amt) + ' (כ-' + plain(r2(amt * n(S0.feePct) / 100)) + ' + מע״מ)' : '') + '.' : ''; }
+function leadSignPanel(c, w) {
+  const l = S.leads.get(c.id); if (!l) return ''; const S0 = l.sign || {}, t = signTypeOf(c), fixed = S0.feeMode === 'fixed', dis = w ? '' : ' disabled';
+  const inp = (k, label, v, attrs, flex) => '<label class="fl" style="flex:' + (flex || '1 1 140px') + '">' + label + '<input class="f" data-leadsign="' + k + '" value="' + esc(v == null ? '' : String(v)) + '"' + (attrs || '') + dis + '></label>';
+  return '<div class="ppanel" style="margin:0 0 10px"><div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><b>פרטי המתעניין</b><span class="grow"></span>' +
+      '<div class="seg" role="group" aria-label="סוג הפעילות">' + FIXED_TYPES.map((k) => '<button type="button" data-leadctype="' + esc(k) + '" aria-pressed="' + (t === k) + '"' + dis + '>' + TYPE_EMOJI[k] + ' ' + k + '</button>').join('') + '</div></div>' +
+    '<p class="hint" style="margin:4px 0 6px">הסוג קובע את ההסכם: ' + FIXED_TYPES.map((k) => TYPE_EMOJI[k] + ' ' + k).join(' · ') + ' — אפשר לבחור אחר למטה.</p>' +
+    '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap">' + inp('name', 'שם', l.name || '', '', '2 1 160px') + inp('phone', 'טלפון', l.phone || '', ' dir="ltr" inputmode="tel"') + '</div>' +
+    '<label class="row" style="gap:6px;align-items:center;margin:6px 0"><input type="checkbox" class="cb" data-leadsign="spouse"' + (S0.spouse ? ' checked' : '') + dis + '> <span>גם בן/בת זוג חותמים <span class="hint">(רשות)</span></span></label>' +
+    (S0.spouse ? '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap">' + inp('spouseName', 'שם בן/בת הזוג', S0.spouseName || '', '', '2 1 160px') + inp('spousePhone', 'טלפון', S0.spousePhone || '', ' dir="ltr" inputmode="tel"') + '</div>' : '') +
+    '<div class="row" style="align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><b>שכר טרחה</b><div class="seg" role="group" aria-label="סוג שכר הטרחה"><button type="button" data-leadfee="pct" aria-pressed="' + !fixed + '"' + dis + '>% מהתיק</button><button type="button" data-leadfee="fixed" aria-pressed="' + fixed + '"' + dis + '>סכום קבוע ₪</button></div></div>' +
+    '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-top:4px">' + inp('amount', 'הסכום המבוקש (₪)', S0.amount || '', ' dir="ltr" inputmode="numeric" placeholder="500,000"') +
+      (fixed ? inp('feeFixed', 'שכ״ט — סכום קבוע (₪, לפני מע״מ)', S0.feeFixed || '', ' dir="ltr" inputmode="numeric"') : inp('feePct', 'שכ״ט — אחוז מהתיק', S0.feePct || '', ' dir="ltr" inputmode="decimal" placeholder="2"')) + '</div>' +
+    (leadFeeLine(l) ? '<p class="hint" style="margin:6px 0 0">נכנס להסכם (בהערות): <b>' + esc(leadFeeLine(l)) + '</b></p>' : '') + '</div>';
+}
 /* מי מקבל את המסמך במסך הנוכחי: לקוח, או מתעניין (ליד) */
 function signSubject(id) { const v = S.view; id = id || v.clientId; if (S.clients.has(id)) return S.clients.get(id); const l = S.leads.get(id); if (l) return leadSignObj(l);
   return S.extSubj && S.extSubj.id === id ? S.extSubj : null; }
@@ -5610,7 +5637,7 @@ async function signApiPut(path, body, method = 'PUT') { const r = await fetch(pa
 /* דן, 20/10: הסכם קבוע לכל סוג — נכסים / עסקים / רכב (נוסח מוקלד או PDF שהועלה, למשל הסכם השירותים), עם הערות קבועות שנכנסות להסכם */
 const FIXED_TYPES = ['נכסים', 'עסקים', 'רכב'];
 const PRODUCT_TYPE = { car_loan: 'רכב', vehicle_lien: 'רכב', business_nonbank: 'עסקים', state_guarantee: 'עסקים', business_credit: 'עסקים' };
-const signTypeOf = (c) => c.ctype || (c._lead ? leadType(c) : c.product ? (PRODUCT_TYPE[c.product] || ((c.division || 'finance') === 'finance' ? 'נכסים' : '')) : '');
+const signTypeOf = (c) => c.ctype || (c._lead ? leadType(c) || ((c.division || 'finance') === 'finance' ? 'נכסים' : '') : c.product ? (PRODUCT_TYPE[c.product] || ((c.division || 'finance') === 'finance' ? 'נכסים' : '')) : '');
 /* ברירת מחדל (דן, 20/10 — ההסכמים ששלח): נכסים / עסקים / רכב. בהגדרות אפשר לבחור אחר */
 const FIXED_DEFAULT = { 'נכסים': 'lib:finance-property-pledge-loan', 'עסקים': 'lib:finance-business-plan', 'רכב': 'lib:finance-car-advisor' };
 function signFixedOf(c) { if ((c.division || 'finance') !== 'finance') return null; const t = signTypeOf(c), f0 = (S.settings.signFixed || {})[t], f = f0 && f0.key ? f0 : FIXED_DEFAULT[t] ? { key: FIXED_DEFAULT[t], notes: (f0 && f0.notes) || '' } : null; if (!f || !f.key) return null;
@@ -5641,10 +5668,10 @@ document.addEventListener('change', (e) => { if (e.target && e.target.id === 'st
 function signFixedCard() {
   if (!S.isOwner || !S.canWrite || !window.__harelServer) return ''; const F = S.settings.signFixed || {}, lib = signLibrary('finance'), ptpls = ((S.pdfTpls && S.pdfTpls.templates) || []).filter((t) => !t.division || t.division === 'finance');
   if (!S.pdfTpls) setTimeout(() => pdfTplLoad(), 40);
-  const opts = (cur) => '<option value="">— בלי הסכם קבוע —</option><optgroup label="נוסח מוקלד">' + lib.map((t) => '<option value="' + esc(t.key) + '"' + (t.key === cur ? ' selected' : '') + '>' + esc(t.title) + (isSignDraft(t.body) ? ' (טיוטה)' : '') + '</option>').join('') + '</optgroup>' +
+  const opts = (cur) => '<option value="">— בלי הסכם קבוע —</option><optgroup label="נוסח מוקלד">' + lib.filter((t) => !isSignDraft(t.body) || t.key === cur).map((t) => '<option value="' + esc(t.key) + '"' + (t.key === cur ? ' selected' : '') + '>' + esc(t.title) + '</option>').join('') + '</optgroup>' +
     (ptpls.length ? '<optgroup label="טפסי PDF שהועלו">' + ptpls.map((t) => '<option value="pdf:' + esc(t.id) + '"' + ('pdf:' + t.id === cur ? ' selected' : '') + '>' + esc((t.folder ? t.folder + ' — ' : '') + t.name) + '</option>').join('') + '</optgroup>' : '');
   return '<section class="card" id="signFixed"><header><h2>הסכם קבוע לפי סוג</h2></header><p class="hint" style="margin:-4px 0 10px">ההסכם שנבחר אוטומטית בשליחה לחתימה, לפי סוג הליד / המוצר בתיק. הסכם שירותים משלך — מעלים כטופס PDF ב"תבניות המסמכים" ובוחרים כאן. ההערות הקבועות נכנסות ל"הערות לטופס" — הלקוח רואה אותן ובמסמך החתום, ואפשר לשנות לפני כל שליחה.</p>' +
-    FIXED_TYPES.map((t) => { const f = F[t] && F[t].key ? F[t] : { ...(F[t] || {}), key: lib.some((x) => x.key === FIXED_DEFAULT[t]) ? FIXED_DEFAULT[t] : '' }; return '<div class="row" style="align-items:flex-start;gap:8px;margin-bottom:10px;flex-wrap:wrap"><b style="min-width:60px;margin-top:22px">' + esc(t) + '</b><label class="fl" style="flex:1 1 220px">הסכם<select class="f" data-sfix="' + esc(t) + ':key">' + opts(f.key || '') + '</select></label>' +
+    FIXED_TYPES.map((t) => { const f = F[t] && F[t].key ? F[t] : { ...(F[t] || {}), key: lib.some((x) => x.key === FIXED_DEFAULT[t]) ? FIXED_DEFAULT[t] : '' }; return '<div class="row" style="align-items:flex-start;gap:8px;margin-bottom:10px;flex-wrap:wrap"><b style="min-width:60px;margin-top:22px">' + (TYPE_EMOJI[t] || '') + ' ' + esc(t) + '</b><label class="fl" style="flex:1 1 220px">הסכם<select class="f" data-sfix="' + esc(t) + ':key">' + opts(f.key || '') + '</select></label>' +
       '<label class="fl" style="flex:2 1 280px">הערות קבועות בהסכם<textarea class="f" rows="2" maxlength="2000" data-sfix="' + esc(t) + ':notes" placeholder="למשל: שכר הטרחה אינו כולל אגרות ושמאות">' + esc(f.notes || '') + '</textarea></label></div>'; }).join('') +
     '<div class="row"><button class="btn small primary" data-act="signFixedSave">שמור</button></div></section>';
 }
@@ -5673,11 +5700,15 @@ document.addEventListener('change', (e) => { const k = e.target && e.target.data
 function signNoteSeed(cid, st) { const c = signSubject(cid); const key = st.tpl || ($('signTpl') || {}).value || ''; return { ...((c && signNoteDefault(c, key)) || {}) }; }
 /* תיעוד: לאיזה מספר הקישור נשלח ואיך (וואטסאפ / העתקה) — נרשם בציר הזמן של החותם ובעמוד התיעוד */
 function signShared(id, channel, target) { fetch('/api/sign/' + encodeURIComponent(id), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'shared', channel, target: target || null }) }).catch(() => {}); }
+document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[data-docsaskwa]'); if (!a) return; const c = S.clients.get(a.dataset.docsaskwa), t = ($('docsAskTxt') || {}).value;
+  if (t && c && waLink(c.phone)) a.href = waLink(c.phone) + '?text=' + encodeURIComponent(t); /* הנוסח כפי שנערך בחלון */
+  if (c) write('clients/' + c.id, { docsAskAt: stamp(), docsAskVia: 'וואטסאפ', updatedAt: stamp() }, 'update').then(() => logClient(c.id, 'נשלחה ללקוח בוואטסאפ בקשת מסמכים')).catch(() => {}); }, true);
 document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[data-signwa]'); if (a) signShared(a.dataset.signwa, 'whatsapp', a.dataset.ph); }, true);
 function signCard(c) {
   if (!S.isOwner && !S.canTask) return ''; const server = !!window.__harelServer, w = S.canWrite || S.canTask;
   const head = '<section class="card sign" id="signcard"><header><h2>מסמכים לחתימה' + (c._lead ? ' <span class="hint">· למתעניין</span>' : '') + '</h2>' + (c.agreementStatus ? '<span class="pill ' + ((SIGN_ST[c.agreementStatus] || [])[1] || 'muted') + '">הסכם: ' + ((SIGN_ST[c.agreementStatus] || [])[0] || '') + '</span>' : '') + '<span class="grow"></span>' +
-    (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') + '</header>';
+    (c.agreementPdfUrl ? '<a class="btn small ghost" href="' + esc(c.agreementPdfUrl) + '" target="_blank" rel="noopener">ההסכם החתום ↗</a>' : '') +
+    (server && (S.canWrite || S.canTask) ? '<span class="grow"></span><button class="btn small primary" data-signprep="' + esc(c.id) + '">✍️ הכן מסמך לחתימה</button>' : '') + '</header>';
   if (!server) return head + '<p class="hint" style="margin:0">שליחה לחתימה עובדת במערכת בשרת: כל חותם מקבל קישור אישי, חותם בטלפון, וה-PDF החתום נשמר בדרייב. בדף ב-Claude אין כתובת שלקוח מבחוץ יכול לפתוח.</p></section>';
   S.signRes = S.signRes || {}; const list = S.signRes[c.id]; if (list === undefined) { S.signRes[c.id] = null; setTimeout(() => signLoad(c), 30); }
   if (!S.pdfTpls) setTimeout(() => pdfTplLoad(), 40);
@@ -5708,8 +5739,8 @@ function signCard(c) {
   const quick = w ? signQuickItems(c) : [];
   const quickRow = quick.length ? '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">שליחה מהירה:</span>' + quick.map((q) => '<button class="btn small" data-signquick="' + esc(q.key) + '" title="הכל ממולא מהכרטיס — רק מאשרים">' + esc(q.label) + '</button>').join('') + '</div>' : '';
   const lib = signLibrary(c.division || 'finance'), ptpls = ((S.pdfTpls && S.pdfTpls.templates) || []).filter((t) => !t.division || t.division === (c.division || 'finance'));
-  const form = w ? '<details' + (st.open || S.view.tab === 'forms' ? ' open' : '') + ' data-signdet="' + esc(c.id) + '"><summary><b>שלח מסמך לחתימה</b> <span class="hint">' + lib.length + ' תבניות</span></summary>' +
-    '<div class="grid2" style="gap:8px"><label class="fl">תבנית<select class="f" id="signTpl"><optgroup label="נוסח מוקלד">' + lib.map((t) => '<option value="' + esc(t.key) + '"' + (t.key === tpl.key ? ' selected' : '') + '>' + esc((SIGN_CAT[t.category] || '') + ' — ' + t.title + (t.lender ? ' · ' + t.lender : '')) + (isSignDraft(t.body) ? ' (טיוטה)' : '') + '</option>').join('') + '</optgroup>' +
+  const form = w ? '<details' + (st.open || S.view.tab === 'forms' ? ' open' : '') + ' data-signdet="' + esc(c.id) + '" id="signdet"><summary><b>שלח מסמך לחתימה</b> <span class="hint">' + lib.length + ' תבניות</span></summary>' + (c._lead ? leadSignPanel(c, w) : '') +
+    '<div class="grid2" style="gap:8px"><label class="fl">תבנית<select class="f" id="signTpl"><optgroup label="נוסח מוקלד">' + lib.filter((t) => !isSignDraft(t.body) || t.key === tpl.key).map((t) => '<option value="' + esc(t.key) + '"' + (t.key === tpl.key ? ' selected' : '') + '>' + esc((SIGN_CAT[t.category] || '') + ' — ' + t.title + (t.lender ? ' · ' + t.lender : '')) + '</option>').join('') + '</optgroup>' +
       (ptpls.length ? '<optgroup label="טפסי PDF">' + ptpls.map((t) => '<option value="pdf:' + esc(t.id) + '"' + (st.tpl === 'pdf:' + t.id ? ' selected' : '') + '>' + esc((t.folder ? t.folder + ' — ' : '') + t.name) + ' (' + t.signers + ' חותמים)</option>').join('') + '</optgroup>' : '') +
       (pdfMode === 'bundle' ? '<option value="' + esc(st.tpl) + '" selected>' + esc(bT.length + ' טפסים כמסמך אחד: ' + tpl.title) + '</option>' : '') +
       '<option value="adhoc"' + (pdfMode === 'adhoc' ? ' selected' : '') + '>מסמך מזדמן — העלאת PDF</option></select></label>' +
@@ -5721,20 +5752,21 @@ function signCard(c) {
       '<label class="fl" style="margin-top:6px">סוג<select class="f" id="signAdhocCat">' + Object.entries(SIGN_CAT).map(([k, v]) => '<option value="' + k + '"' + ((st.adhocCat || 'general') === k ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label></div>' : '') +
     (pdfMode === 'tpl' && !ptpl ? '<p class="hint" style="color:var(--open)">הטופס לא נמצא בספרייה (נמחק?) — בחר אחר.</p>' : '') +
     (pdfMode === 'bundle' ? '<p class="hint">' + bT.length + ' טפסים יאוחדו למסמך אחד (' + bT.reduce((a, t) => a + t.page_sizes.length, 0) + ' עמודים). כל חותם מקבל קישור אחד וחותם על כולם; השדות של כל טופס נשארים במקומם.</p>' : '') +
-    (fx ? '<p class="hint">ההסכם הקבוע ל' + esc(signTypeOf(c)) + (fx.notes ? ', עם ההערות הקבועות' : '') + ' — אפשר לבחור אחר</p>' : '') +
+    (fx ? '<p class="hint">ההסכם הקבוע ל' + (TYPE_EMOJI[signTypeOf(c)] || '') + ' ' + esc(signTypeOf(c)) + (fx.notes ? ', עם ההערות הקבועות' : '') + ' — אפשר לבחור אחר</p>' : '') +
     (!pdfMode && !st.tpl && !tpl.builtin && tpl.key === signSuggest(c) ? '<p class="hint">התבנית הוצעה לפי המוצר — ' + esc(L.product[c.product] || c.product || '') + '</p>' : '') +
     (draft ? '<p class="hint" style="color:var(--open)">התבנית עדיין טיוטה (מופיע בה הסימון [טיוטה). אי אפשר לשלוח עד שמעדכנים אותה בהגדרות ← "ספריית תבניות לחתימה".</p>' : '') +
     '<h3 class="sec">חותמים' + (tpl.perSigner ? ' <span class="hint">· נוסח נפרד לכל חותם</span>' : pdfMode ? ' <span class="hint">· לפי השדות בטופס</span>' : '') + '</h3>' + (pdfMode && !pdfN ? '<p class="hint">' + (pdfMode === 'adhoc' ? 'מעלים קובץ ומציבים שדות — ואז ממלאים כאן את החותמים.' : '') + '</p>' : '') + signers.map((s, i) => '<div class="row" style="gap:6px;align-items:flex-end;margin-bottom:4px">' + (pdfMode ? '<span class="sgdot" style="--sgc:' + sgc(i + 1) + ';margin-bottom:12px" title="' + esc(s.label) + '"></span>' : '<label class="fl" style="flex:0 0 auto"><span class="hint">כלול</span><input type="checkbox" class="cb" data-signs="' + i + ':on"' + (s.on ? ' checked' : '') + '></label>') +
       '<label class="fl" style="flex:1 1 90px">תפקיד<input class="f" data-signs="' + (s._k ?? i) + ':label" value="' + esc(s.label) + '"' + (pdfMode ? ' readonly' : '') + '></label><label class="fl" style="flex:2 1 140px">שם<input class="f" data-signs="' + (s._k ?? i) + ':name" value="' + esc(s.name) + '"></label>' +
       '<label class="fl" style="flex:2 1 160px">מייל<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':email" value="' + esc(s.email) + '"></label><label class="fl" style="flex:1 1 120px">טלפון<input class="f" dir="ltr" data-signs="' + (s._k ?? i) + ':phone" value="' + esc(s.phone) + '"></label></div>').join('') +
-    '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signVid"' + (st.vid === false ? '' : ' checked') + '> <span>אימות לפי ת״ז מהתיק <span class="hint">(הלקוח מקליד ת״ז לפני שרואה את המסמך — עובד מיד, בלי SMS ובלי מייל)</span></span></label>' +
+    (signPhones(c, st) ? '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signSmsNow"' + (st.smsNow ?? !!c._lead ? ' checked' : '') + '> <span>📱 לשלוח ב-SMS מיד <span class="hint">(בלי אימות ת״ז — הקישור האישי בהודעה)</span></span></label>' : '') +
+    '<label class="row" style="gap:6px;align-items:center;margin:4px 0' + ((st.smsNow ?? !!c._lead) && signPhones(c, st) ? ';display:none' : '') + '"><input type="checkbox" class="cb" id="signVid"' + ((st.vid === undefined ? !c._lead : st.vid !== false) ? ' checked' : '') + '> <span>אימות לפי ת״ז מהתיק <span class="hint">(הלקוח מקליד ת״ז לפני שרואה את המסמך — עובד מיד, בלי SMS ובלי מייל)</span></span></label>' +
     '<label class="row" style="gap:6px;align-items:center;margin:4px 0"><input type="checkbox" class="cb" id="signOtp"' + (otp ? ' checked' : '') + '> <span>קוד אימות חד-פעמי <span class="hint">(בוואטסאפ, או במייל — החותם בוחר · אם אין ערוץ — מאמתים לפי ת״ז)</span></span></label>' +
     (!pdfMode ? signNoteBox(c, st, tpl.key) : '') +
     '<label class="fl" style="margin:6px 0">הערות לטופס <span class="hint">· יופיעו ללקוח ובמסמך החתום (למשל: הערה למחיר)</span><textarea class="f" id="signNotes" rows="2" maxlength="2000">' + esc(st.notes || '') + '</textarea></label>' +
     (pdfMode ? '<p class="hint" style="margin:0 0 4px">השם, ת״ז ושדות שסומנו "מילוי מהתיק" בטופס ימולאו מהכרטיס — הלקוח רואה, בודק וחותם.</p>' : '') +
     (flds.length && !pdfMode ? '<h3 class="sec">שדות בנוסח</h3><div class="grid2" style="gap:8px">' + flds.map((k) => '<label class="fl">' + esc(SIGN_LABELS[k] || k) + (reqF.includes(k) ? '' : ' <span class="hint">· רשות</span>') + '<input class="f" data-signf="' + esc(k) + '" value="' + esc(st[k] !== undefined ? st[k] : (defs[k] || '')) + '"' + (reqF.includes(k) && !(st[k] !== undefined ? st[k] : defs[k]) ? ' style="border-color:var(--open)"' : '') + '></label>').join('') + '</div>' : '') +
     '<div class="row" style="margin-top:8px"><span class="hint grow">כל חותם מקבל קישור אישי. ' + (pdfMode ? 'הלקוח חותם על הטופס עצמו, והחתימות נכתבות על ה-PDF המקורי.' : 'הנוסח נשמר עם טביעה,') + ' הקישורים בתוקף 14 יום. כשכולם חותמים — PDF אחד ' + (c._lead ? 'במערכת' : 'לדרייב') + ' ועותק לכל חותם.</span><button class="btn primary" data-act="signSend"' + (draft || (pdfMode && !pdfN) || (pdfMode === 'tpl' && !ptpl) ? ' disabled' : '') + '>שלח לחתימה</button></div></details>' : '';
-  return head + quickRow + rows + links + form + '</section>';
+  return head + quickRow + links + form + rows + '</section>';
 }
 /* ══ עיצוב v4 — "טפסים" כמסך משלו בתפריט (דן, 17/10: "מערכת הטפסים צריכה להיות נפרדת גם בדשבורד הראשי")
    אותן פונקציות בדיוק: signCard (שליחה ללקוח/מתעניין), pdfTplCard (ספריית ה-PDF), vSignDocs (מה נשלח). רק בשרת, כמו היום.
@@ -5745,6 +5777,7 @@ function vForms() {
   const v = ['send', 'lib', 'sent'].includes(S.f.formsView) ? S.f.formsView : 'send', T = (S.pdfTpls && S.pdfTpls.templates) || [];
   const seg = '<div class="seg" role="group" aria-label="תצוגה">' + [['send', 'שליחה לחתימה'], ['lib', 'ספריית טפסים'], ['sent', 'מה נשלח']].map(([k, t]) => '<button data-formsview="' + k + '" aria-pressed="' + (v === k) + '">' + t + '</button>').join('') + '</div>';
   const head = '<div class="pghead"><h1>טפסים</h1>' + (T.length ? '<span class="chip soft num">' + T.length + ' טפסים</span>' : '') + '<span class="grow"></span>' +
+    ((S.canWrite || S.canTask) ? '<button class="btn small primary" data-act="formsPrep">✍️ הכן מסמך לחתימה</button>' : '') +
     (S.canWrite ? '<label class="btn small" style="cursor:pointer" title="עריכת PDF מהמחשב: טקסט קיים, ✓, חתימה, תמונה, מחיקה, עמודים (עד 5 קבצים — מאוחדים)">✏️ עורך PDF<input type="file" accept="application/pdf,.pdf" multiple hidden data-pxup="1"></label>' : '') + seg + '</div>';
   if (v === 'lib') return head + (pdfTplCard() || '<p class="hint">טוען…</p>');
   if (v === 'sent') return head + vSignDocs();
@@ -5859,6 +5892,7 @@ function docTile(f, w, sel) {
     (f.loose ? '<span class="dflag" title="הסוג זוהה לפי שם הקובץ — אפשר לשנות למטה">לפי השם</span>' : '') +
     '<div class="dname" title="' + esc(f.title) + '">' + docName(f.title) + '</div>' +
     (w && window.__harelServer && isPdfDoc(f) ? '<button type="button" class="xlink" data-pdfedit="' + esc(f.id) + '" data-pdfname="' + esc(f.title) + '" title="עריכת הטקסט, הוספת ✓/חתימה/תמונה, מחיקה — נשמר כקובץ חדש">✏️ ערוך PDF</button>' : '') +
+    (w && S.mcp && isImgDoc(f) ? '<button type="button" class="xlink" data-img2pdf="' + esc(f.id) + '" title="שומר עותק PDF באותה קטגוריה — התמונה נשארת">📄 המר ל-PDF</button>' : '') +
     '<div class="hint dmeta"><span class="num">' + (f.modifiedTime ? dLabel(dayOf(f.modifiedTime)) : '') + '</span>' + (f.sub ? ' · <bdi>' + esc(f.sub) + '</bdi>' : '') + '</div>' +
     (w && !f.folderLink ? '<select class="f small" data-docmove="' + esc(f.id) + '" aria-label="קטגוריה">' + DOC_CATS.map(([k, l]) => '<option value="' + k + '"' + (k === f.cat ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' : '') + '</div>';
 }
@@ -6258,7 +6292,9 @@ function docsCard(c) {
   const chips = '<div class="dchips" role="group" aria-label="סוג מסמך"><button class="dchip" data-doccat="all" aria-pressed="' + (cur === 'all') + '">הכל <span class="num">' + files.length + '</span></button>' +
     DOC_CATS.map(([k, l]) => '<button class="dchip" data-doccat="' + k + '" aria-pressed="' + (cur === k) + '">' + l + ' <span class="num">' + cnt(k) + '</span></button>').join('') +
     (files.length ? '<button class="btn small" data-docview="all" style="margin-inline-start:auto">פתח את כל המסמכים יחד</button>' : '') + '</div>';
-  const upl = (k) => w && S.mcp ? '<label class="btn small ghost" style="cursor:pointer">+ העלאה ל' + catLabel(k) + '<input type="file" multiple hidden data-docup="' + k + '"></label>' : '';
+  const selBar = w && S.mcp && files.some((f) => sel.has(f.id) && isImgDoc(f)) ? '<div class="row" style="align-items:center;margin:4px 0 8px"><button class="btn small primary" data-act="imgsToPdf">📄 ' + files.filter((f) => sel.has(f.id) && isImgDoc(f)).length + ' תמונות מסומנות → PDF אחד</button><span class="hint">לפי סדר הסימון · התמונות נשארות</span></div>' : '';
+  const upl = (k) => w && S.mcp ? '<label class="btn small ghost" style="cursor:pointer">+ העלאה ל' + catLabel(k) + '<input type="file" multiple hidden data-docup="' + k + '"></label>' +
+    '<label class="btn small ghost" style="cursor:pointer" title="כמה תמונות (גם מהמצלמה) → קובץ PDF אחד">📷 תמונות → PDF<input type="file" accept="image/*" multiple hidden data-docuppdf="' + k + '"></label>' : '';
   const body = cur === 'all'
     ? DOC_CATS.filter(([k]) => cnt(k)).map(([k, l]) => '<div class="dsec"><div class="row" style="align-items:center"><b class="grow">' + l + ' <span class="hint num">' + cnt(k) + '</span></b><button class="btn small ghost" data-docview="' + k + '">הצג את כולם יחד</button>' + upl(k) + '</div><div class="dgrid">' + files.filter((f) => f.cat === k).map((f) => docTile(f, w, sel)).join('') + '</div></div>').join('') +
       (st && st.files && !files.length ? '<p class="empty">התיקייה ריקה.</p>' : '') +
@@ -6272,7 +6308,7 @@ function docsCard(c) {
     (st && st.error ? '<p class="hint" style="color:var(--open)">' + esc(st.error) + '</p>' : '') + (!S.mcp ? '<p class="hint">דרייב לא זמין בתצוגה הזו.</p>' : !on ? '<p class="hint">עוד אין תיקייה בדרייב ללקוח הזה.</p>' : '') +
     (w && cand.length ? '<div class="ppanel" style="margin:6px 0 10px"><b>נמצאו תיקיות קיימות בדרייב בשם הזה</b>' + cand.slice(0, 4).map((m) => '<div class="row" style="align-items:center;margin-top:6px"><span class="grow"><bdi>' + esc(m.f.title) + '</bdi> <span class="hint">ב' + esc(m.root) + (m.full ? '' : ' · התאמה חלקית') + '</span></span><button class="btn small" data-doclink="' + esc(m.f.id) + '">שייך</button></div>').join('') + '</div>' : '') +
     ((c.driveLinks || []).length ? '<p class="hint" style="margin:-2px 0 8px">משקף גם: ' + c.driveLinks.map((l) => '<a href="' + folderUrl(l.id) + '" target="_blank" rel="noopener"><bdi>' + esc(l.title || 'תיקייה') + '</bdi></a>' + (w ? ' <button class="xlink" data-docunlink="' + esc(l.id) + '" aria-label="הסר שיקוף">×</button>' : '')).join(' · ') + '</p>' : '') +
-    (on ? chips + docViewer(c, files) + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
+    (on ? chips + selBar + docViewer(c, files) + (st && st.loading && !st.files ? '<p class="hint">טוען מהדרייב…</p>' : body) : '') +
     (on && st && st.files && files.length ? docReviewPanel(c, files, S.canTask) : '') + (w && on ? sendFundBox(c, files) : '') + '</section>';
 }
 /* ── שיוך תיקיות קיימות: תיקיות-אב בדרייב (הגדרות) → תיקיית לקוח לפי שם ── */
@@ -8259,13 +8295,47 @@ function planBox(c, w, edit) {
     (L2.length ? L2.map((f) => '<a class="lnk" href="' + esc(f.url) + '" target="_blank" rel="noopener">📄 ' + esc(String(f.name).slice(0, 40)) + '</a> <span class="hint">' + dLabel(dayOf(f.at)) + '</span>').join(' · ') : 'עוד לא הועלתה תוכנית') + '</span>' +
     (w && edit ? scanBtn('proc', 'plan', L2.length ? 'העלה גרסה חדשה' : 'העלה את התוכנית') : '') + '</div>';
 }
+/* ══ איסוף מסמכים — פונקציות טהורות (דן 22/11: "השלב מגדיר את המסמכים הנדרשים כמו בהכר את הלקוח · חלון שליחה במייל / וואטסאפ / העתקה · בדיקה מה הועלה ומה חסר") ══ */
+const DOC_TOK_STOP = new Set(['אחרון', 'אחרונה', 'אחרונים', 'חודשים', 'שנה', 'שנתיים', 'כל', 'החשבונות', 'אם', 'אין', 'אנחנו', 'מוציאים', 'חתום', 'נוכחית', 'קודמת', 'לווה']);
+const docToks = (t) => String(t || '').replace(/\.[A-Za-z0-9]{2,5}$/, '').replace(/[״"']/g, '').replace(/[^\u0590-\u05FFa-zA-Z0-9]+/g, ' ').split(' ').map((w) => w.length > 3 && /^[ובהלמש]/.test(w) && /[\u0590-\u05FF]/.test(w) ? w.slice(1) : w).filter((w) => w.length >= 2 && !/^\d+$/.test(w) && !DOC_TOK_STOP.has(w));
+/* קובץ בתיקייה שמתאים לפריט: לפחות מילה משמעותית אחת משותפת (ת״ז ↔ "תעודת זהות" / "ספח" נבדקים גם בשמות נרדפים) */
+const DOC_SYN = [['תז', 'זהות', 'ספח'], ['תלוש', 'תלושי', 'משכורת', 'שכר'], ['עוש', 'עובר', 'ושב', 'תדפיס'], ['נסח', 'טאבו', 'זכויות'], ['106'], ['שומה', 'שומת'], ['רישיון', 'רישוי']];
+function docMatch(label, files) {
+  const syn = (w) => { const g = DOC_SYN.find((x) => x.includes(w)); return g ? g : [w]; };
+  const want = new Set(docToks(label).flatMap(syn)); if (!want.size) return null;
+  let best = null, bs = 0; for (const f of files || []) { const sc = docToks(f.title).flatMap(syn).filter((w) => want.has(w)).length; if (sc > bs) { bs = sc; best = f; } }
+  return bs ? best : null;
+}
+function docsAskText(name, missing, company) {
+  const first = String(name || '').trim().split(/\s+/)[0] || '';
+  return 'שלום' + (first ? ' ' + first : '') + ',\nכדי להתקדם בתיק אנחנו צריכים את המסמכים הבאים:\n' + missing.map((m, i) => (i + 1) + '. ' + m).join('\n') + '\n\nאפשר לשלוח צילום ברור או PDF, בוואטסאפ או במייל.\nתודה,\n' + (company || 'הר-אל');
+}
+/* ══ סוף איסוף מסמכים ══ */
+function docsCollectBox(c, w) {
+  const items = c.checklist || [], tot = items.length, done = items.filter((i) => i.status === 'done').length, st = (S.docRes || {})[c.id], files = ((st && st.files) || []).filter((f) => !f.folderLink);
+  if (hasDocs(c) && S.mcp && !st) setTimeout(() => docsLoad(c), 60);
+  const x = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)), ik = x ? intakeDocs(x.kind ? x : { ...x, kind: intakeKind(x, c.id) }).map((o) => (o.who && o.who !== 'תיק' ? o.who + ' — ' : '') + o.d) : [], have = new Set(items.map((i) => i.label)), ikNew = ik.filter((d) => !have.has(d));
+  const miss = items.filter((i) => i.status !== 'done').map((i) => i.label), co = (c.division || 'finance') === 'realestate' ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון';
+  const rows = items.map((i, idx) => { const f = i.status !== 'done' && files.length ? docMatch(i.label, files) : null;
+    return '<div class="row" style="gap:4px;align-items:center;flex-wrap:nowrap;margin-bottom:2px">' + scanBtn('chk', String(idx), '') + '<label class="check grow' + (i.status === 'done' ? ' done' : '') + '" style="margin:0"><input type="checkbox" data-chk="' + idx + '"' + (i.status === 'done' ? ' checked' : '') + (w ? '' : ' disabled') + '><span>' + esc(i.label) + '</span></label>' +
+      (i.status === 'done' ? '<span class="pill actual">התקבל</span>' : f ? '<a class="pill committed" href="' + esc(f.viewUrl || 'https://drive.google.com/file/d/' + f.id + '/view') + '" target="_blank" rel="noopener" title="' + esc(f.title) + '">📎 נמצא בתיקייה — לבדוק</a>' : '<span class="pill open">חסר</span>') + '</div>'; }).join('');
+  const txt = miss.length ? docsAskText(c.name, miss, co) : '', wa = miss.length && waLink(c.phone) ? waLink(c.phone) + '?text=' + encodeURIComponent(txt) : '';
+  return '<div class="ppanel" style="margin:0 0 8px"><div class="row" style="align-items:center;gap:8px"><b class="grow">המסמכים הנדרשים</b>' + (tot ? '<span class="pill ' + (done === tot ? 'actual' : 'expected') + '">' + done + '/' + tot + ' התקבלו</span>' : '') + '</div>' +
+    (tot ? '<div class="progress" style="margin:6px 0 8px"><i style="width:' + pct(done, tot) + '%"></i></div>' + rows : '<p class="hint" style="margin:6px 0">' + (ik.length ? 'עוד לא נקבעה רשימה לתיק — "הכר את הלקוח" מגדיר ' + ik.length + ' מסמכים לפי הלקוח.' : 'אין רשימה — אפשר להוסיף מסמך למטה, או למלא "הכר את הלקוח".') + '</p>') +
+    (w && ikNew.length ? '<div class="row" style="margin:6px 0"><button class="btn small' + (tot ? '' : ' primary') + '" data-act="docsFromIntake">' + (tot ? '+ עוד ' + ikNew.length + ' מסמכים מ"הכר את הלקוח"' : 'קבע את הרשימה מ"הכר את הלקוח" (' + ikNew.length + ')') + '</button></div>' : '') +
+    (files.length ? '<p class="hint" style="margin:4px 0 0">"נמצא בתיקייה" = קובץ בדרייב ששמו מתאים — לפתוח, לוודא, ולסמן ✓.</p>' : hasDocs(c) ? '' : '<p class="hint" style="margin:4px 0 0">אין עדיין תיקייה בדרייב — המסמכים שהלקוח שולח נשמרים ב"מסמכי לקוח".</p>') +
+    (miss.length && w ? '<div class="notice info" style="display:block;margin-top:8px"><b>בקשה מהלקוח — ' + miss.length + ' מסמכים חסרים</b>' +
+      '<textarea class="f" id="docsAskTxt" rows="' + Math.min(10, miss.length + 6) + '" style="width:100%;margin-top:6px;font-size:13.5px">' + esc(txt) + '</textarea>' +
+      '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + (wa ? '<a class="btn small primary" data-docsaskwa="' + esc(c.id) + '" href="' + esc(wa) + '" target="_blank" rel="noopener">💬 וואטסאפ</a>' : '') +
+        '<button class="btn small" data-act="docsAskMail"' + (c.email ? '' : ' disabled title="אין מייל בכרטיס"') + '>📧 מייל' + (c.email ? ' ל-' + esc(c.email) : '') + '</button><button class="btn small" data-act="docsAskCopy">📋 העתק</button>' +
+        (c.docsAskAt ? '<span class="hint">נשלח לאחרונה ' + dLabel(dayOf(c.docsAskAt)) + (c.docsAskVia ? ' (' + esc(c.docsAskVia) + ')' : '') + '</span>' : '') + '</div></div>' : '') + '</div>';
+}
 function procPanel(c, k, w) {
   const p = c.proc || {}, miss = missingDocs(c), tot = (c.checklist || []).length;
   switch (k) {
-    case 'docs': return '<p style="margin:0 0 6px">' + (tot ? (tot - miss.length) + ' מתוך ' + tot + ' מסמכים התקבלו' : 'אין עדיין רשימת מסמכים — מ"הכר את הלקוח" ← "לצ׳קליסט התיק", או הוסף כאן.') + '</p>' +
-      (miss.length ? '<p class="hint" style="margin:0 0 6px">חסר: ' + miss.map(esc).join(' · ') + '</p>' : '') +
+    case 'docs': return docsCollectBox(c, w) +
       (w ? '<div class="row"><input class="f grow" id="docReq" placeholder="מסמך נוסף לדרישה…"><button class="btn small" data-act="docReqAdd">הוסף לדרישה</button><button class="btn small" data-act="remindHadas">תזכורת להדס עכשיו</button></div>' : '') +
-      '<p class="hint" style="margin:6px 0 0">בכניסה לשלב נפתחת להדס משימה חוזרת כל יומיים עד שהשלב מסתיים. הסימון עצמו — בצ׳קליסט למטה.</p>';
+      '<p class="hint" style="margin:6px 0 0">בכניסה לשלב נפתחת להדס משימה חוזרת כל יומיים עד שהשלב מסתיים. מסמך שהתקבל — מסמנים ✓ ברשימה למעלה.</p>';
     case 'sale': return '<p class="hint" style="margin:0 0 6px">ניסים: שיחת המכירה, הקמת הלקוח ו"הכר את הלקוח" מלא. בסיום — התיק עובר להדס לאיסוף מסמכים, ונפתחת משימה לתיאום שמאי לפי השווי הנדרש.</p>' +
       parea(c, 'sale.note', 'סיכום השיחה — מה חשוב לדעת על הלקוח', 'מטרה, מצב, רגישויות, מה הובטח ללקוח') + '<div class="row">' + pf(c, 'appr.target', 'שווי נכס נדרש (לשמאות)', 'number', 'step="10000"') + '<button class="btn small ghost" data-intake="' + esc(c.id) + '">הכר את הלקוח ↗</button></div>';
     case 'docsReview': return '<p style="margin:0 0 6px">' + (tot ? (tot - miss.length) + ' מתוך ' + tot + ' מסמכים התקבלו' : 'אין רשימת מסמכים') + (miss.length ? ' · <b>חסר:</b> ' + miss.map(esc).join(' · ') : '') + '</p>' +
@@ -10942,7 +11012,7 @@ function forecastItems(days = 120) {
   const t0 = today(), end = addDays(t0, days), all = [], undated0 = [], low = [];
   const items = { push: (x) => (x.cid && payConfOf(S.clients.get(x.cid)) === 'low' ? low : all).push(x) }, undated = { push: (x) => (x.cid && payConfOf(S.clients.get(x.cid)) === 'low' ? low : undated0).push(x) };
   live(S.clients).filter(inDiv).forEach((c) => {
-    const insts = ['lost', 'cancelled', 'hold'].includes(c.status) ? [] : (c.installments || []).filter((i) => !i.paid);
+    const insts = ['lost', 'cancelled', 'hold'].includes(c.status) || (c.status === 'won' && c.settledAt) ? [] : (c.installments || []).filter((i) => !i.paid);
     /* צפי = כסף בבנק: פעימה +מע״מ נכנסת ×1.18; יתרת שכ״ט (נטו) נכנסת עם מע״מ. */
     insts.forEach((i) => (i.due ? items : undated).push({ date: i.due, amount: instCash(i), label: c.name + ' — ' + (i.note || 'פעימה') + (instVat(i) === 'plus' ? ' (' + plain(i.amount) + ' + מע״מ)' : ''), cid: c.id, sure: true }));
     const o = clientMoney(c).open - insts.reduce((a, i) => a + instNet(i), 0), ea = n(c.expectedPayAmount);
@@ -11972,7 +12042,53 @@ function pdfBreaks(units, total, H) {
   if (total > start + 1) out.push([start, total]);
   return out;
 }
+/* תמונה בעמוד A4 (דן 22/11: "המרה של תמונה ל-PDF"): עמוד לאורך או לרוחב לפי התמונה; מוקטנת לשוליים, לא מוגדלת מעבר ל-x2, במרכז */
+function imgFit(w, h, M = 18) {
+  const land = w > h * 1.08, pw = land ? 841.89 : 595.28, ph = land ? 595.28 : 841.89;
+  const k = Math.min((pw - 2 * M) / w, (ph - 2 * M) / h, 2), iw = w * k, ih = h * k;
+  return { land, pw, ph, x: (pw - iw) / 2, y: (ph - ih) / 2, w: iw, h: ih };
+}
 /* ══ סוף עמודי PDF ══ */
+/* תמונות → PDF אחד (כל תמונה בעמוד). blobs: Blob[] של תמונות. HEIC מהאייפון — הדפדפן לא תמיד קורא; אז שגיאה ברורה */
+async function imagesToPdf(blobs) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  let pdf = null;
+  for (const b of blobs) {
+    let bm; try { bm = await createImageBitmap(b); } catch (e) { throw Object.assign(new Error('הדפדפן לא הצליח לקרוא את התמונה' + (/heic|heif/i.test(b.type || b.name || '') ? ' (HEIC — לשמור כ-JPG)' : '')), { code: 'bad_image' }); }
+    const z = Math.min(1, 2400 / Math.max(bm.width, bm.height)), cv = document.createElement('canvas'); cv.width = Math.round(bm.width * z); cv.height = Math.round(bm.height * z);
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bm, 0, 0, cv.width, cv.height);
+    const F = imgFit(cv.width, cv.height), o = F.land ? 'l' : 'p';
+    if (!pdf) pdf = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4', orientation: o }); else pdf.addPage('a4', o);
+    pdf.addImage(cv.toDataURL('image/jpeg', 0.88), 'JPEG', F.x, F.y, F.w, F.h);
+  }
+  if (!pdf) throw new Error('אין תמונות');
+  return pdf.output('blob');
+}
+const isImgDoc = (f) => !f.folderLink && /^image\//.test(f.mimeType || '');
+const pdfNameOf = (t) => String(t || 'מסמך').replace(/\.[A-Za-z0-9]{2,5}$/, '') + '.pdf';
+/* ממיר בדרייב: התמונות (לפי הסדר) → PDF אחד באותה קטגוריה. המקור נשאר */
+async function docImgsToPdf(c, ids) {
+  const st = (S.docRes || {})[c.id] || {}, list = ids.map((id) => (st.files || []).find((f) => f.id === id)).filter((f) => f && isImgDoc(f));
+  if (!list.length) return toast('סמן תמונות (JPG / PNG) במסמכי הלקוח');
+  if (S._img2pdf) return toast('ההמרה כבר רצה'); S._img2pdf = true; toast('ממיר ' + list.length + ' תמונות ל-PDF…');
+  try {
+    const blobs = []; for (const f of list) blobs.push(new Blob([await driveBytes(f.id)], { type: f.mimeType }));
+    const out = await imagesToPdf(blobs), name = list.length === 1 ? pdfNameOf(list[0].title) : pdfNameOf(list[0].title).replace(/\.pdf$/, '') + ' (' + list.length + ' עמודים).pdf';
+    const fid = await catFolder(c, list[0].cat || 'other'); if (!fid) throw new Error('לא הצלחתי לפתוח תיקייה בדרייב');
+    await driveUploadFile(new File([out], name, { type: 'application/pdf' }), name, fid);
+    await logClient(c.id, 'תמונות הומרו ל-PDF: ' + name).catch(() => {}); S.docSel = new Set(); toast('נשמר בדרייב: ' + name, 6000);
+    return docsLoad(S.clients.get(c.id) || c, true);
+  } catch (e) { toast('ההמרה נכשלה: ' + (driveWhy(e) || (e && e.message) || 'שגיאה'), 9000); }
+  finally { S._img2pdf = false; }
+}
+/* תמונות מהמחשב / מהמצלמה בנייד → PDF אחד → העלאה לקטגוריה */
+async function docUploadAsPdf(c, cat, fileList) {
+  const imgs = [...fileList].filter((f) => /^image\//.test(f.type || '') || /\.(jpe?g|png|webp|gif|bmp|heic)$/i.test(f.name)); if (!imgs.length) return toast('בחר תמונות');
+  toast('ממיר ' + imgs.length + ' תמונות ל-PDF…');
+  try { const out = await imagesToPdf(imgs), name = pdfNameOf(imgs[0].name).replace(/\.pdf$/, '') + (imgs.length > 1 ? ' (' + imgs.length + ' עמודים)' : '') + '.pdf';
+    return docUpload(c, cat, [new File([out], name, { type: 'application/pdf' })]); }
+  catch (e) { toast('ההמרה נכשלה: ' + ((e && e.message) || 'שגיאה'), 9000); }
+}
 async function pdfFromHtml(html) {
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
@@ -12785,6 +12901,25 @@ function intakeDocs(x) {
   return out;
 }
 const pctTxt = (v) => v == null ? '—' : Math.round(v * 1000) / 10 + '%';
+/* ══ תיעוד שיחות → "הכר את הלקוח" — פונקציה טהורה (דן 22/11: "תיעוד שיחות ממתעניין יעבור אוטומטית לתיאור בהכר את הלקוח")
+   entries = [{key, at, text}] (הערות ביומן הליד + סיכומי שיחות). מוסיף למלל החופשי רק מה שעוד לא נכנס (done = מפתחות שנכנסו). ══ */
+function leadNotesMerge(free, entries, done) {
+  const seen = new Set(done || []), add = (entries || []).filter((e) => e && e.key && String(e.text || '').trim() && !seen.has(e.key)).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  if (!add.length) return null;
+  const fmt = (at) => { const m = String(at || '').match(/^\d{4}-(\d{2})-(\d{2})T?(\d{2}:\d{2})?/); return m ? m[2] + '/' + m[1] + (m[3] ? ' ' + m[3] : '') : ''; };
+  const head = '— מהשיחות עם המתעניין —', base = String(free || '').replace(/\s+$/, '');
+  const lines = add.map((e) => { const t = e.lbl || fmt(e.at); return (t ? '[' + t + '] ' : '') + String(e.text).trim(); });
+  return { text: (base ? base + '\n\n' : '') + (base.includes(head) ? '' : head + '\n') + lines.join('\n'), done: [...seen, ...add.map((e) => e.key)].slice(-400) };
+}
+/* ══ סוף תיעוד שיחות ══ */
+async function ikLeadSync(cid) {
+  if (!cid || !S.canTask) return; const cl = S.clients.get(cid), leads = [S.leads.get(cid), cl && cl.leadId && S.leads.get(cl.leadId)].filter(Boolean); if (!leads.length) return;
+  const E = []; leads.forEach((l) => { (l.log || []).filter((e) => !e.auto).forEach((e) => E.push({ key: 'n:' + l.id + ':' + e.at, at: e.at, text: e.text }));
+    callsOf('leadId', l.id).filter((c) => c.summary || c.note).forEach((c) => E.push({ key: 'c:' + c.id, at: c.at, text: '📞 ' + (c.summary || c.note) })); });
+  E.forEach((e) => { const d = dayOf(e.at); if (d) e.lbl = d.slice(8, 10) + '/' + d.slice(5, 7) + ' ' + hm(e.at); });
+  const x = intakeDoc(cid), r = leadNotesMerge(x.freeText, E, x.leadNotesIn); if (!r) return;
+  await write('intakes/' + cid, { ...x, id: cid, clientId: cid, freeText: r.text, leadNotesIn: r.done, updatedAt: stamp(), by: S.me.id, createdAt: x.createdAt || stamp(), createdBy: x.createdBy || S.me.id });
+}
 function intakeDoc(cid) { const x = S.intakes.get(cid) || { id: cid, clientId: cid, borrowers: [{}, {}], request: {}, property: {}, credit: {} }; return x.kind ? x : { ...x, kind: intakeKind(x, cid) }; }
 const hasProp = (x) => x.kind !== 'car' && (x.kind !== 'business' || !!(x.biz || {}).property);
 /* מי מולנו: לקוח בתפעול (clients) או מתעניין (leads) — עד החתימה על ההסכם הוא נשאר במתעניינים */
@@ -13657,6 +13792,7 @@ document.addEventListener('click', async (e) => {
     if (d.formsfor) return go('forms', d.formsfor);
     if (d.payconfset) { const [pid, pk] = d.payconfset.split('|'), ps = document.querySelector('select[data-payconf="' + pid + '"]'); if (ps && !ps.disabled) { ps.value = ps.value === pk ? '' : pk; ps.dispatchEvent(new Event('change', { bubbles: true })); } return; }
     if (d.doccat) { S.f.docCat = d.doccat; return render(); }
+    if (d.img2pdf) { const c = S.clients.get(S.view.clientId); if (c) return docImgsToPdf(c, [d.img2pdf]); return; }
     if (d.pdfedit) return pdfEdit({ src: { drive: d.pdfedit }, name: d.pdfname, clientId: S.view.clientId || (S.view.tab === 'pdfedit' && S.f.pxClient) || null });
     if (d.docview !== undefined) { S.docView = d.docview ? { cid: S.view.clientId, cat: d.docview } : null; render(); if (S.docView) requestAnimationFrame(() => { const v = document.querySelector('.docview'); if (v) v.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); return; }
     if (d.docjump !== undefined) { const t = document.getElementById('dv-' + d.docjump); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
@@ -13685,6 +13821,10 @@ document.addEventListener('click', async (e) => {
       if (c && (['client', 'lead', 'forms'].includes(S.view.tab) || (rid && S.signLast && S.signLast.reminder && !c._ext))) { if (!['client', 'lead', 'forms'].includes(S.view.tab)) S.view = { tab: c._lead ? 'lead' : 'client', clientId: c.id }; return signLoad(c); }
       return render(); }
     if (d.signsms !== undefined) return signSms(d.signsms, el);
+    if (d.signprep) { const F = (S.signForm = S.signForm || {}); F[d.signprep] = { ...(F[d.signprep] || {}), open: true }; render(); const det = $('signdet'); if (det) { det.open = true; det.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if ((d.leadctype || d.leadfee) && S.view.clientId && S.leads.has(S.view.clientId)) { const l = S.leads.get(S.view.clientId), F = (S.signForm = S.signForm || {});
+      F[l.id] = { ...(F[l.id] || {}), open: true, ...(d.leadctype ? { tpl: undefined, signers: undefined } : {}) };
+      await write('leads/' + l.id, d.leadctype ? { ctype: d.leadctype, updatedAt: stamp() } : { sign: { ...(l.sign || {}), feeMode: d.leadfee }, updatedAt: stamp() }, 'update'); return render(); }
     if (d.signcopy !== undefined && S.signLast) { const l = S.signLast.links[Number(d.signcopy)]; if (l && l.id) signShared(l.id, 'copy'); return l ? copyText(l.url, 'הקישור הועתק') : null; }
     if (d.signstate) { S.f.signState = d.signstate; return render(); }
     if (d.signkind) { S.f.signKind = d.signkind; return render(); }
@@ -13814,7 +13954,7 @@ document.addEventListener('click', async (e) => {
       if (S.leads.has(id) && !S.leads.get(id).deletedAt) return go('lead', id);
       await write('leads/' + id, { id, name: r.name || r.phone, phone: r.phone, division: 'realestate', stage: 'new', platform: 'כוורת', channel: 'מאגר כוורת', kaveretId: r.kid || null, createdAt: stamp(), by: S.me.id, log: [{ at: stamp(), by: S.me.id, who: whoAmI(), text: 'נפתח מהמאגר של כוורת (כרטיס ' + (r.kid || '—') + ')', auto: true }] });
       toast('נפתח ליד'); return go('lead', id); }
-    if (d.leadnote) { const v = ($('leadNote').value || '').trim(); if (!v) return; await leadPatch(d.leadnote, {}, v); return toast('ההערה נשמרה'); }
+    if (d.leadnote) { const v = ($('leadNote').value || '').trim(); if (!v) return; await leadPatch(d.leadnote, {}, v); if (S.intakes.has(d.leadnote)) await ikLeadSync(d.leadnote).catch(() => {}); return toast('ההערה נשמרה' + (S.intakes.has(d.leadnote) ? ' — ונכנסה ל"הכר את הלקוח"' : '')); }
     if (d.client && !el.matches('select')) return go('client', d.client);
     if (d.owner) { S.f.clientOwner = d.owner; S.f.clientStatus = 'open'; return go('clients'); }
     if (d.attn != null) { const a = (window.__attn || [])[Number(d.attn)]; if (a) go(...a.go); return; }
@@ -13894,6 +14034,10 @@ document.addEventListener('click', async (e) => {
       await write('payroll/' + id, { ...x, id, month: m, emp: key, ...patch, updatedAt: stamp() }); return toast(d.payok ? 'אושר' : d.paypaid ? 'סומן ששולם' : 'חזר לטיוטה'); }
     if (d.tablenote && S.canClient) { const c = S.clients.get(d.tablenote); if (!c) return; const v = prompt('הערה ל' + c.name + ' — מופיעה בטבלת הלקוחות, לא משימה. ריק = מחיקה', c.tableNote || ''); if (v === null) return;
       await write('clients/' + c.id, { tableNote: v.trim() || null, tableNoteAt: stamp(), tableNoteBy: S.me.id, updatedAt: stamp() }, 'update'); if (v.trim()) await logClient(c.id, 'הערה בטבלה: ' + v.trim()).catch(() => {}); return toast(v.trim() ? 'ההערה נשמרה' : 'ההערה נמחקה'); }
+    if ((d.settle || d.unsettle) && S.isOwner) { const c = S.clients.get(d.settle || d.unsettle); if (!c) return;
+      if (d.unsettle) { await write('clients/' + c.id, { settledAt: null, settledBy: null, settledGap: null, updatedAt: stamp() }, 'update'); await logClient(c.id, 'התיק נפתח מחדש לגביה').catch(() => {}); return toast('התיק חזר לגביה'); }
+      const gap = clientMoney(c).open; if (!confirm('לסגור את התיק של ' + c.name + ' בלי לגבות ' + plain(gap) + '?\nהיתרה יורדת מ"פתוח לגביה" ומהתזרים. אפשר לפתוח מחדש מכרטיס הלקוח.')) return;
+      await write('clients/' + c.id, { settledAt: stamp(), settledBy: S.me.id, settledGap: gap, expectedPayDate: null, expectedPayAmount: null, updatedAt: stamp() }, 'update'); await logClient(c.id, 'התיק נסגר עם פער של ' + plain(gap)).catch(() => {}); return toast('התיק נסגר — הפער לא נספר לגביה'); }
     if (d.addtaskfor) { const c = S.clients.get(d.addtaskfor); return formTask(null, { clientId: c.id, resp: c.resp || respOf(S.me.id) || 'dan' }); }
     if (d.invoiced) { const no = ''; await write('transactions/' + d.invoiced, { invoice: 'issued', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן שהופקה חשבונית'); }
     if (d.drawinv) { await write('transactions/' + d.drawinv, { invoice: 'received', invoiceAt: stamp(), updatedAt: stamp() }, 'update'); return toast('סומן: התקבלה חשבונית'); }
@@ -14021,6 +14165,13 @@ document.addEventListener('click', async (e) => {
           const bal = r2(sel.reduce((a2, i) => a2 + i.balance, 0)), mon = r2(sel.reduce((a2, i) => a2 + i.monthly, 0)), cash = n((x.consol || {}).cash);
           x.oblPaidOff = mon; x.balPaidOff = bal; x.request = { ...(x.request || {}), amount: r2(bal + cash), purpose: (x.request || {}).purpose || 'consolidation' };
           await write('intakes/' + cid, { ...x, id: cid, clientId: cid, updatedAt: stamp(), by: S.me.id }); return toast('הבקשה עודכנה: ' + plain(bal + cash) + ' · נסגרות ' + sel.length + ' הלוואות'); }
+        case 'docsFromIntake': { if (!c) return; const x = S.intakes.get(c.id) || (c.leadId && S.intakes.get(c.leadId)); if (!x) return toast('אין "הכר את הלקוח" לתיק');
+          const have = new Set((c.checklist || []).map((i) => i.label)), add = intakeDocs(x.kind ? x : { ...x, kind: intakeKind(x, c.id) }).map((o) => (o.who && o.who !== 'תיק' ? o.who + ' — ' : '') + o.d).filter((d) => !have.has(d)).map((label) => ({ label, status: 'pending' }));
+          if (!add.length) return toast('כל המסמכים כבר ברשימה'); await write('clients/' + c.id, { checklist: [...(c.checklist || []), ...add], updatedAt: stamp() }, 'update', { journal: true }); await logClient(c.id, add.length + ' מסמכים נדרשים נקבעו מ"הכר את הלקוח"').catch(() => {}); return toast(add.length + ' מסמכים נוספו לרשימה'); }
+        case 'docsAskCopy': { if (!c) return; await copyText(($('docsAskTxt') || {}).value || '', 'הבקשה הועתקה'); await write('clients/' + c.id, { docsAskAt: stamp(), docsAskVia: 'הועתק', updatedAt: stamp() }, 'update'); return; }
+        case 'docsAskMail': { if (!c || !c.email) return toast('אין מייל בכרטיס'); const t = ($('docsAskTxt') || {}).value || ''; if (!t.trim()) return;
+          const r = await sendMail({ to: [c.email], subject: 'מסמכים להשלמת התיק — ' + ((c.division || 'finance') === 'realestate' ? 'הר-אל השקעות' : 'הר-אל פתרונות מימון'), html: '<div dir="rtl" style="font-family:Arial,sans-serif;white-space:pre-wrap;font-size:15px">' + esc(t) + '</div>', text: t, kind: 'docs_request', ref: c.id });
+          if (!r.ok) return toast(r.why || 'המייל לא נשלח'); await write('clients/' + c.id, { docsAskAt: stamp(), docsAskVia: 'מייל', updatedAt: stamp() }, 'update'); await logClient(c.id, 'נשלחה ללקוח במייל בקשת מסמכים').catch(() => {}); return toast('נשלח ל-' + c.email); }
         case 'docReqAdd': { const v = ($('docReq').value || '').trim(); if (!v || !c) return; await write('clients/' + c.id, { checklist: [...(c.checklist || []), { label: v, status: 'pending' }], updatedAt: stamp() }, 'update', { journal: true }); return logClient(c.id, 'מסמך נוסף לדרישה: ' + v); }
         case 'remindHadas': { const miss = missingDocs(c); const id = uid(); await write('tasks/' + id, { id, title: 'תזכורת השלמת מסמכים — ' + c.name, resp: 'hadas', assigneeId: userOfResp('hadas') || null, due: today(), priority: 'high', status: 'open', clientId: c.id, notes: miss.join('\n'), createdAt: stamp(), createdBy: S.me.id }); await logClient(c.id, 'תזכורת להדס: ' + (miss.length ? miss.length + ' מסמכים חסרים' : 'השלמת מסמכים')); return toast('נשלחה תזכורת להדס'); }
         case 'procDocsBack': { const note = prompt('מה חסר או לא תקין? (יופיע במשימה של הדס)', ''); if (note === null || !note.trim()) return; await procAdvance(c, 'docs', { note: note.trim() }); return toast('חזר להדס עם ההערה'); }
@@ -14084,6 +14235,7 @@ document.addEventListener('click', async (e) => {
         case 'fundPrepare': return fundPrepare(c);
         case 'condsToTasks': return condsToTasks(c, null, ($('condDue') || {}).value);
         case 'condsSelToTasks': { const sel = ((S.f.condSel || {})[c.id] || []).slice(); if (!sel.length) return toast('מסמנים "למשימה" ליד ההתניות שנכנסות עכשיו'); return condsToTasks(c, sel, ($('condDue') || {}).value); }
+        case 'imgsToPdf': return docImgsToPdf(c, [...(S.docSel || new Set())]);
         case 'docReview': { const st = (S.docRes || {})[c.id] || {}, sel = S.docSel || new Set(), fs = (st.files || []).filter((f) => !sel.size || sel.has(f.id)); return docReview(c, fs); }
         case 'docReviewPdf': return docReviewPdf(c);
         case 'docsLinkFolder': return drawer('שיוך תיקייה קיימת בדרייב', fi('url', 'קישור לתיקייה בדרייב', '', 'text', 'dir="ltr" required', true) + '<p class="full hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן. המסמכים שבה יוצגו בכרטיס לפי סוג, יחד עם התיקייה הנוכחית. שום דבר לא נמחק.</p>',
@@ -14247,9 +14399,14 @@ document.addEventListener('click', async (e) => {
           const base = (st.signers || signSignerDefaults(c, pdfK ? 'client_spouse' : signTplOf(c, key).signers)).map((x, i) => ({ ...x, _i: i + 1 }));
           const off = pdfKeyOff(key), rows = pdfK ? Array.from({ length: N }, (_, i) => ({ ...(base[i + off] || { name: '', email: '', phone: '' }), on: true, _i: i + 1 + off })) : base;
           el.disabled = true; el.textContent = 'שולח…';
-          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !!($('signOtp') || {}).checked, vid: ($('signVid') || { checked: true }).checked, notes: ($('signNotes') || {}).value || st.notes || '', fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
-            S.signForm[c.id] = {}; return; }
+          const smsNow = !!($('signSmsNow') || {}).checked, fl = c._lead ? leadFeeLine(S.leads.get(c.id)) : '', notes0 = ($('signNotes') || {}).value || st.notes || '';
+          try { await signSendRun(c, key, { title: (($('signTitle') || {}).value || '').trim(), rows, otp: !smsNow && !!($('signOtp') || {}).checked, vid: !smsNow && ($('signVid') || { checked: !c._lead }).checked, notes: fl && !notes0.includes(fl) ? (fl + (notes0 ? '\n' + notes0 : '')) : notes0, fields: pdfK ? null : signFormRead(c), adhoc: st.adhoc, adhocCat: st.adhocCat, note: pdfK ? null : st.note || signNoteDefault(c, key) });
+            S.signForm[c.id] = {};
+            if (smsNow && S.signLast) for (const [i, l] of S.signLast.links.entries()) if (l.id && l.phone) await signSms(i, null);
+            return; }
           catch (e) { el.disabled = false; el.textContent = 'שלח לחתימה'; return toast('לא נשלח: ' + e.message); } }
+        case 'formsPrep': { S.f.formsView = 'send'; const id = S.view.clientId; if (id && signSubject(id)) { const F = (S.signForm = S.signForm || {}); F[id] = { ...(F[id] || {}), open: true }; }
+          render(); setTimeout(() => { const det = $('signdet'), sel = $('formsSubj'); if (det) { det.open = true; det.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else if (sel) { sel.focus(); sel.scrollIntoView({ block: 'center' }); toast('בחר למי — לקוח, ליד או מישהו אחר'); } }, 30); return; }
         case 'signLibAdd': return signLibForm(null);
         case 'signLibLoad': return signLibLoadUI();
         case 'signDocsReload': return signDocsLoad(true);
@@ -14290,6 +14447,12 @@ document.addEventListener('change', async (e) => {
   if (el.dataset && el.dataset.docsel) { S.docSel = S.docSel || new Set(); if (el.checked) S.docSel.add(el.dataset.docsel); else S.docSel.delete(el.dataset.docsel); return render(); }
   if (el.dataset && el.dataset.docmove && c) return docMove(c, el.dataset.docmove, el.value);
   if (el.dataset && el.dataset.pxup && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return pxOpenLocal(fl, S.view.clientId || (S.view.tab === 'pdfedit' && S.f.pxClient) || null); }
+  if (el.dataset && el.dataset.leadsign && S.view.clientId && S.leads.has(S.view.clientId)) { const l = S.leads.get(S.view.clientId), k = el.dataset.leadsign, v = el.type === 'checkbox' ? el.checked : el.value.trim(), F = (S.signForm = S.signForm || {});
+    F[l.id] = { ...(F[l.id] || {}), open: true, signers: undefined };
+    const patch = k === 'name' ? { name: v || l.name } : k === 'phone' ? { phone: v || l.phone } : { sign: { ...(l.sign || {}), [k]: ['amount', 'feeFixed'].includes(k) ? (Math.round(n(String(v).replace(/[^\d.]/g, ''))) || null) : k === 'feePct' ? (n(String(v).replace(/[^\d.]/g, '')) || null) : v } };
+    await write('leads/' + l.id, { ...patch, updatedAt: stamp() }, 'update'); return render(); }
+  if (el.id === 'signSmsNow' && S.view.clientId) { const F = (S.signForm = S.signForm || {}); F[S.view.clientId] = { ...(F[S.view.clientId] || {}), smsNow: el.checked, open: true }; return render(); }
+  if (el.dataset && el.dataset.docuppdf && c && el.files && el.files.length) { const fl = [...el.files]; el.value = ''; return docUploadAsPdf(c, el.dataset.docuppdf, fl); }
   if (el.dataset && el.dataset.docup && c && el.files && el.files.length) return docUpload(c, el.dataset.docup === '@pick' ? (($('docUpCat') || {}).value || 'other') : el.dataset.docup, el.files);
   if (el.dataset && el.dataset.rootpick !== undefined && S.rootMatch) { S.rootMatch[+el.dataset.rootpick].pick = el.checked; return; }
   if (el.dataset && el.dataset.ctsel) { S.ctSel = S.ctSel || new Set(); if (el.checked) S.ctSel.add(el.dataset.ctsel); else S.ctSel.delete(el.dataset.ctsel); return render(); }

@@ -125,6 +125,7 @@ node scripts/e2e-submit.mjs       # הגשה לגוף: כרטיס לקוח → "
 node scripts/e2e-ik-extract.mjs   # "הכר את הלקוח" ← Claude — מלא את השדות (Claude מדומה): JSON שבור → ניסיון שני אוטומטי → הצעות · תקרה יומית → הסיבה במסך
 node scripts/e2e-lead-packages.mjs # חשבון לידים: מחיר לליד מחודש (160; חודשים קודמים — הישן) → + חבילה (N × מחיר) → לזיכוי = ליד חלופי, לא כסף → מקדמה 50% בתחילה → יתרה 50% בסוף
 node scripts/e2e-fin-split.mjs     # חלוקת הר-אל פתרונות מ-12/2026: ניסים 33.3% (נובמבר נשאר 50%) · דן ויונס שליש כל אחד · אביב לא בחלוקה · התחשבנות הנדל״ן ומצב החשבון
+JSPDF=<jspdf.umd.min.js> node scripts/e2e-docs-collect.mjs # תיקוני 22/11: סגירת תיק עם פער · אין צ׳קליסט בכרטיס · איסוף מסמכים (מ"הכר את הלקוח" → חסר / התקבל → בקשה במייל/וואטסאפ/העתקה) · תמונות → PDF · תיעוד שיחה → "הכר את הלקוח" · חתימה למתעניין (🏠/💼/🚗, בן זוג, שכ״ט % או ₪, SMS בלי ת״ז)
 WORKBOOK=<הקובץ.xlsx> node scripts/e2e-workbook.mjs   # ייבוא הקובץ מהדפדפן (בלי שורת פקודה) + §11.9
 node scripts/jobs.mjs alerts_eval   # ג'וב מחלק ג' דרך POST /api/jobs/<name> (JOBS_SECRET ב-.env.local); 19 ג'ובים: day_close, alerts_eval, daily_summary, anchor_reminder, gmail_scan, drive_intake_scan,
 #                                   calendar_sync, weekly_report, pnl_draft, pnl_final, accountant_pack, deal_decay, db_backup, greeninvoice_import, wise_import, payroll_reminder, accountant_payroll_send, reports_to_drive, cold_backup
