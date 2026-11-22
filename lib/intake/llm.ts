@@ -23,8 +23,14 @@ const InvoiceFields = z.object({
 
 export type LlmInvoiceFields = z.infer<typeof InvoiceFields>
 
+/* דן 22/11: "401 invalid x-api-key" — המפתח בשרת בוטל / לא תקין. אחרי דחייה כזו לא מנסים אותו 10 דקות
+   (בתהליך הזה), כך שבקשות עוברות לתור על המנוי אם הוא פעיל, במקום להיכשל שוב ושוב */
+let keyRejectedAt = 0
+export function markKeyRejected(now = Date.now()): void { keyRejectedAt = now }
+export function keyRejected(now = Date.now()): boolean { return keyRejectedAt > 0 && now - keyRejectedAt < 10 * 60e3 }
+
 export function llmAvailable(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_PROFILE)
+  return Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_PROFILE) && !(env === process.env && keyRejected())
 }
 
 const SYSTEM = `אתה מחלץ שדות ממסמכי הנהלת חשבונות ישראליים (חשבונית מס, קבלה, חשבונית-קבלה, זיכוי) לצורך רישום הוצאה.
