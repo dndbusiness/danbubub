@@ -18,7 +18,7 @@ const p0 = Buffer.from(JSON.stringify({ k: 'dan', r: 'owner', d: ['finance', 're
 await ctx.addCookies([{ name: 'harel_crm_user', value: encodeURIComponent(p0 + '.' + createHmac('sha256', 'harel-crm-user-v1:' + (env.SECRETS_KEY || env.APP_PASSWORD || '')).update(p0).digest('base64url')), url: BASE }])
 const page = await ctx.newPage(), errs = []; page.on('pageerror', (e) => errs.push(e.message))
 await page.addInitScript(() => { sessionStorage.setItem('harel-unlock', String(Date.now() + 36e5)); sessionStorage.setItem('harel-user', JSON.stringify({ resp: 'dan', label: 'דן' })) })
-let saved = null; const TX = ['e2efs-11', 'e2efs-12']
+let saved = null; const TX = ['e2efs-11', 'e2efs-12', 'e2efs-loan']
 const snap = () => page.evaluate(() => { const C = nissimCard(), g = (m) => C.find((r) => r.month === m) || { share: 0, distributable: 0 }, F = finShare(), f = (m) => F.find((x) => x.month === m) || { each: 0, who: null }
   return JSON.parse(JSON.stringify({ n11: g('2026-11').share, n12: g('2026-12').share, d11: g('2026-11').distributable, d12: g('2026-12').distributable, f11: f('2026-11').each, f12: f('2026-12').each, who12: f('2026-12').who })) })
 try {
@@ -51,6 +51,15 @@ try {
   step('מצב חשבון נובמבר–דצמבר: "50% → 33.3%"; ושותפי הר-אל בדצמבר — דן ויונס')
   const st = await page.evaluate(() => { const D = stmtData('2026-12') || {}; const html = D.months ? stmtHtml(D, false) : ''; return { pct: D.pct, group: D.group, html } })
   assert(st.pct === '33.3' && JSON.stringify(st.group) === JSON.stringify(['יונס', 'דן']) && /חלקו של ניסים \(33\.3%\)/.test(st.html) && /חלקה של הר-אל \(66\.7%\) — יונס, דן/.test(st.html), 'מצב חשבון דצמבר: ניסים 33.3%, הר-אל 66.7% — יונס, דן')
+  step('הלוואה קודמת (קטגוריה "הלוואה") 3,000 בדצמבר → לא יורדת מחלקו של ניסים; רק מדן ויונס')
+  const sb = await snap()
+  await page.evaluate(() => write('transactions/e2efs-loan', { id: 'e2efs-loan', division: 'finance', nature: 'expense', category: 'הלוואה', date: '2026-12-15', net: -3000, gross: -3000, deductible: true, review: 'ok', source: 'e2e', counterparty: 'בנק בדיקה', createdAt: stamp(), updatedAt: stamp() }))
+  await page.waitForFunction(() => S.transactions.has('e2efs-loan')); await page.waitForTimeout(400)
+  const sl = await snap()
+  assert(close(sl.n12, sb.n12), `ניסים בדצמבר לא השתנה (${sl.n12.toFixed(2)})`)
+  assert(close(sb.f12 - sl.f12, 1500), `דן ויונס: כל אחד −${(sb.f12 - sl.f12).toFixed(2)} (חצי מההלוואה)`)
+  const st2 = await page.evaluate(() => stmtHtml(stmtData('2026-12'), false))
+  assert(/לא יורדות מחלקו של ניסים/.test(st2) && /על יונס ודן בלבד/.test(st2), 'במצב החשבון: "ועוד: הלוואות… לא יורדות מחלקו של ניסים" ו"פחות: … על יונס ודן בלבד"')
   assert(!errs.length, 'בלי שגיאות בדף' + (errs.length ? ': ' + errs.join(' | ') : ''))
   console.log('\nחלוקת הר-אל פתרונות מ-12/2026 — הכל עבר')
 } catch (e) { console.error(e); process.exitCode = 1 } finally {

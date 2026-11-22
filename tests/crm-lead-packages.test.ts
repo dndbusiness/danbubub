@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 /** חבילות לידים (דן 20/11) — אותו קוד שרץ במסך (crm/harel-crm.html). נתונים סינתטיים. */
 const html = readFileSync('crm/harel-crm.html', 'utf8')
 const a = html.indexOf('/* ══ חבילות לידים — פונקציות טהורות'), b = html.indexOf('/* ══ סוף חבילות לידים — פונקציות טהורות ══ */')
-const F = new Function(html.slice(a, b) + '; return { termsPrice, pkgAssign, pkgMoney };')() as any
+const F = new Function(html.slice(a, b) + '; return { termsPrice, termsCreditAt, pkgAssign, pkgMoney };')() as any
 const L = (id: string, at: string, credit = false) => ({ id, at, credit })
 
 describe('מחיר לליד לפי חודש', () => {
@@ -48,4 +48,10 @@ describe('כסף: 50% בתחילת החבילה, 50% בסוף', () => {
     expect(F.pkgMoney(pk, { done: true, doneAt: '2026-11-28' }, 16000)).toMatchObject({ dueNow: 16000, finDue: '2026-11-28' })
     expect(F.pkgMoney(pk, { done: true }, 32000)).toMatchObject({ dueNow: 0, over: 0 })
   })
+})
+
+describe('אבינועם (דן 22/11): 160 מ-01/11 · ליד מול ליד מהחודש הקודם', () => {
+  const T = [{ from: '2026-10', credit: 'leads' }, { from: '2026-11', price: 160, credit: 'leads' }]
+  it('אוקטובר 150 (הבסיס), נובמבר 160', () => { expect(F.termsPrice(T, '2026-10', 150)).toBe(150); expect(F.termsPrice(T, '2026-11', 150)).toBe(160) })
+  it('זיכוי: ספטמבר בכסף, מאוקטובר ליד מול ליד', () => { expect(F.termsCreditAt(T, '2026-09')).toBe('money'); expect(F.termsCreditAt(T, '2026-10')).toBe('leads'); expect(F.termsCreditAt(T, '2026-12')).toBe('leads') })
 })

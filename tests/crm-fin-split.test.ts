@@ -24,3 +24,14 @@ describe('ניסים 33% מ-12/2026, בלי רטרו', () => {
     expect(F.finSplitShare(-9000, F.finSplitAt(L, '2026-12'), RE, 0.5, 0.5).each).toBe(-3000)
   })
 })
+
+describe('הלוואות והתחייבויות קודמות — על דן ויונס בלבד (דן 22/11)', () => {
+  it('הלוואה 3,000 בדצמבר: הרווח אחרי ההלוואה 27,000 — ניסים עדיין מקבל שליש מ-30,000; דן ויונס סופגים את ההלוואה', () => {
+    const r = F.finSplitShare(27000, F.finSplitAt(L, '2026-12'), RE, 0.5, 0.5, 3000)
+    expect(r.group).toBe(17000); expect(r.each).toBe(8500)
+    expect(30000 / 3 + r.group + 3000).toBeCloseTo(30000)
+  })
+  it('לפני 12/2026 — אין השפעה (המבנה הישן)', () => {
+    expect(F.finSplitShare(27000, null, RE, 0.5, 0.5, 3000).each).toBe(4500)
+  })
+})

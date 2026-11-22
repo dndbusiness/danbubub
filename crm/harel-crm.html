@@ -1884,7 +1884,7 @@ function accrualMonth(m, A, ctx) {
   for (const x of (A.items || [])) {
     if (x.deletedAt || x.month !== m || !n(x.amount)) continue;
     if (x.kind === 'payroll' && x.emp && ctx.payEntered(x.emp, m)) continue;
-    items.push({ id: x.id, label: x.label, kind: x.kind || 'fixed', net: vatOf(x.amount, x.vatIncl), status: x.paidTxId ? 'paid' : 'open' });
+    items.push({ id: x.id, label: x.label, kind: x.kind || 'fixed', net: vatOf(x.amount, x.vatIncl), status: x.paidTxId ? 'paid' : 'open', ...(x.ownersOnly ? { own: true } : {}) });
   }
   for (const c of (A.recur || [])) {
     if (c.deletedAt || c.active === false || !c.from || m < c.from || m > ctx.nowMonth || !n(c.gross)) continue;
@@ -1908,17 +1908,23 @@ function finSplitAt(list, month) {
   for (const x of (list || [])) if (x && x.from && x.from <= month && !x.deletedAt && (!cur || x.from >= cur.from)) cur = x;
   return cur;
 }
-function finSplitShare(profit, split, rePartners, basePct, baseGroupPct) {
+/* own = הלוואות והתחייבויות קודמות (דן 22/11: "נשארות על דן ויונס בלבד, ניסים לא שותף בהן — רק דן ויונס משלמים אותן בקבועות"):
+   profit כבר אחרי own; ניסים מקבל את האחוז שלו מ-(profit + own), ו-own יורד רק מהחלק של הקבוצה */
+function finSplitShare(profit, split, rePartners, basePct, baseGroupPct, own = 0) {
   if (!split) { const k = (rePartners || []).length || 3; return { nissimPct: basePct, who: null, group: Math.round(profit * baseGroupPct * 100) / 100, each: Math.round(profit * baseGroupPct / k * 100) / 100 }; }
   const ex = (split.exclude || []).map((x) => String(x).trim()).filter(Boolean), who = (rePartners || []).filter((p) => !ex.some((e) => String(p).includes(e)));
-  const g = 1 - Number(split.nissimPct);
-  return { nissimPct: Number(split.nissimPct), who, group: Math.round(profit * g * 100) / 100, each: who.length ? Math.round(profit * g / who.length * 100) / 100 : 0 };
+  const g = 1 - Number(split.nissimPct), group = Math.round(((profit + own) * g - own) * 100) / 100;
+  return { nissimPct: Number(split.nissimPct), who, group, each: who.length ? Math.round(group / who.length * 100) / 100 : 0 };
 }
 /* ══ סוף חלוקת הר-אל פתרונות — פונקציות טהורות ══ */
 /* ברירת מחדל מההחלטה של דן (22/11) — ההגדרות (settings.finSplit) גוברות */
 const FIN_SPLIT_DEFAULT = [{ from: '2026-12', nissimPct: 1 / 3, exclude: ['אביב'], note: 'דן 22/11: ניסים, דן ויונס — שליש כל אחד; אביב לא בהתחשבנות' }];
 const finSplitList = () => (Array.isArray(S.settings.finSplit) ? S.settings.finSplit : FIN_SPLIT_DEFAULT);
 const nisPct = (m) => { const x = finSplitAt(finSplitList(), m); return x ? Number(x.nissimPct) : n(S.settings.nissimPct || 0.5); };
+/* קטגוריות של הלוואות / התחייבויות קודמות — על דן ויונס בלבד (מהחודש שבו החלוקה החדשה חלה) */
+const ownersOnlyCats = () => (Array.isArray(S.settings.ownersOnlyCats) ? S.settings.ownersOnlyCats : ['הלוואה', 'הלוואות', 'החזר הלוואה', 'החזרי הלוואות']);
+const isOwnersOnlyTx = (t) => t.nature === 'expense' && !t.clientId && t.deductible && (t.division || 'finance') === 'finance' && t.ownersOnly !== false && (t.ownersOnly === true || ownersOnlyCats().includes(String(t.category || '').trim()));
+const ownersOnlyTx = (m) => finSplitAt(finSplitList(), m) ? r2(live(S.transactions).filter((t) => String(t.date).slice(0, 7) === m && isOwnersOnlyTx(t)).reduce((a, t) => a + Math.abs(n(t.net)), 0)) : 0;
 const pctLabel = (v) => (Math.abs(v - 1 / 3) < 0.001 ? '33.3' : String(Math.round(v * 1000) / 10));
 function nissimCard() {
   /* dan_first (דן 25/09): הפסד — דן מימן אותו; רווח שאחריו מחזיר לדן קודם, ורק היתרה מתחלקת. */
@@ -1931,13 +1937,15 @@ function nissimCard() {
     const r = payScreen || !n(r0.payroll) ? r0 : { ...r0, fixed: r2(r0.fixed - n(r0.payroll)), distributable: r2(r0.distributable + n(r0.payroll)), payroll: 0, payrollOff: r0.payroll };
     const p = nisPct(r.month), reserve = r2(n(res[r.month])), released = prevRes; prevRes = reserve;
     const acc = accrualMonth(r.month, A, ctx), profitAcc = r2(r.distributable - acc.total + acc.back);
-    const base = r2(profitAcc + released - reserve);
+    /* מ-12/2026: הלוואות והתחייבויות קודמות — לא יורדות מהחלק של ניסים; רק מדן ויונס (own) */
+    const own = finSplitAt(finSplitList(), r.month) ? r2(ownersOnlyTx(r.month) + acc.items.filter((i) => i.own).reduce((a, i) => a + i.net, 0)) : 0;
+    const base = r2(profitAcc + released - reserve + own);
     const loss = base < 0; let share, recovered = 0;
     if (mode === 'dan_first') { if (loss) { pool = r2(pool - base); share = 0; } else { recovered = Math.min(pool, base); pool = r2(pool - recovered); share = r2((base - recovered) * p); } }
     else share = loss && mode === 'harel_absorbs' ? 0 : r2(base * p);
     const adv = r2(live(S.transactions).filter((t) => t.nature === 'advance' && String(t.date).slice(0, 7) === r.month).reduce((a, t) => a + Math.abs(n(t.gross || t.net)), 0));
     const opening = bal; bal = r2(opening + adv - share);
-    return { ...r, accrued: acc.total, accBack: acc.back, accItems: acc.items, profitAcc, share, recovered: r2(recovered), pool, reserve, released, splitBase: base, harel: r2(base - share), adv, opening, closing: bal, transfer: Math.max(0, -bal) };
+    return { ...r, accrued: acc.total, accBack: acc.back, accItems: acc.items, profitAcc, share, recovered: r2(recovered), pool, reserve, released, splitBase: base, own, harel: r2(base - share - own), adv, opening, closing: bal, transfer: Math.max(0, -bal) };
   });
 }
 
@@ -8985,6 +8993,12 @@ function termsPrice(terms, month, base) {
   for (const t of (terms || [])) if (t && t.from && t.from <= month && t.from >= from && Number(t.price) > 0) { price = Number(t.price); from = t.from; }
   return price;
 }
+/** זיכוי: 'money' (ליד פסול לא מחויב) או 'leads' (דן 22/11: "ליד לזיכוי זה ליד כנגד ליד — אין זיכוי כספי, אקבל לידים במקום") */
+function termsCreditAt(terms, month) {
+  let credit = 'money', from = '';
+  for (const t of (terms || [])) if (t && t.from && t.from <= month && t.from >= from && t.credit) { credit = t.credit; from = t.from; }
+  return credit;
+}
 /** leads: [{id, at:'YYYY-MM-DD', credit}] של ספק אחד בחברה אחת; pkgs: החבילות שלו. מחזיר מצב לכל חבילה + הלידים שלפני החבילה הראשונה */
 function pkgAssign(pkgs, leads) {
   const P = (pkgs || []).filter((x) => x && !x.deletedAt && x.start && Number(x.leads) > 0).slice().sort((a, b) => String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id)))
@@ -9007,7 +9021,9 @@ function pkgMoney(pkg, st, paid) {
 }
 /* ══ סוף חבילות לידים — פונקציות טהורות ══ */
 const supOfSrc = (src) => (src && src.marketer) || 'אבינועם';
-const leadTermsOf = (sup) => ((S.settings.leadTerms || {})[sup]) || [];
+/* ברירת מחדל מדן (22/11): אבינועם — 160 לליד מ-01/11/2026; ליד לזיכוי = ליד מול ליד (בלי זיכוי כספי) מהחודש הקודם. ההגדרות (leadTerms) גוברות */
+const LEAD_TERMS_DEFAULT = { 'אבינועם': [{ from: '2026-10', credit: 'leads' }, { from: '2026-11', price: 160, credit: 'leads' }] };
+const leadTermsOf = (sup) => ((S.settings.leadTerms || {})[sup]) || LEAD_TERMS_DEFAULT[sup] || [];
 const leadPkgsOf = (sup, div) => (S.settings.leadPackages || []).filter((x) => !x.deletedAt && x.supplier === sup && (x.division || 'finance') === div);
 /** המחיר של ליד מסוים — לפי החודש שלו (מחיר שהשתנה לא משנה חודשים קודמים) */
 const leadPriceOf = (l) => { const src = l.source === 'sheet' ? srcOfLead(l) : null; if (!src) return 0; const base = n(src.costPerLead); return base || leadTermsOf(supOfSrc(src)).length ? termsPrice(leadTermsOf(supOfSrc(src)), billMonthOf(l), base) : 0; };
@@ -9064,12 +9080,12 @@ function vLeadBill(div) {
       S1.pkgs.map((x) => pkgCard(S1.name, x, drill)).join('') +
       (S1.extra && S1.extra.length ? '<p class="hint" style="color:var(--open);margin:6px 0">' + drill(S1.name + '|extra', S1.name + ' · מעבר לחבילות', S1.extra) + ' לידים נכנסו אחרי שכל החבילות התמלאו — לפתוח חבילה חדשה (+ חבילה), והם ייכנסו אליה.</p>' : '') +
       (!hasCats ? '' : (S1.pkgs.length ? '<h3 class="sec">לפי ליד (לפני החבילה)</h3>' : '') +
-      '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>לזיכוי</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
+      '<div class="scroll"><table><thead><tr><th>קטגוריה</th><th>לידים</th><th>' + (termsCreditAt(leadTermsOf(S1.name), m) === 'leads' ? 'לזיכוי — ליד מול ליד' : 'לזיכוי') + '</th><th>לחיוב</th><th>מחיר לליד</th><th>סכום</th></tr></thead><tbody>' +
         Object.values(S1.cats).sort((a, b) => b.charge - a.charge).map((r) => '<tr><td class="wide">' + esc(r.cat) + '</td><td>' + drill(S1.name + '|' + r.cat + '|in', S1.name + ' · ' + r.cat + ' · נכנסו', r.ids.in) + '</td><td>' + drill(S1.name + '|' + r.cat + '|cr', S1.name + ' · ' + r.cat + ' · לזיכוי', r.ids.credit) + '</td><td>' + drill(S1.name + '|' + r.cat + '|b', S1.name + ' · ' + r.cat + ' · לחיוב', r.ids.billable) + '</td><td>' + plain(r.price) + '</td><td><b>' + money(r.charge) + '</b></td></tr>').join('') +
         '<tr class="tot"><td>סה״כ חיוב ' + esc(mLabel(m)) + '</td><td class="num">' + S1.in + '</td><td class="num">' + S1.credit + '</td><td class="num">' + S1.billable + '</td><td></td><td><b>' + money(S1.charge) + '</b></td></tr>' +
         S1.pays.map((p) => '<tr><td colspan="5" class="wide">שולם על החשבון · ' + dLabel(p.date) + (p.note ? ' · ' + esc(p.note) : '') + (S.canWrite ? ' <button class="xlink" data-billpaydel="' + esc(p.id) + '" aria-label="מחק תשלום">מחק</button>' : '') + '</td><td>' + money(-n(p.amount), { tone: 'actual' }) + '</td></tr>').join('') +
         '<tr class="tot"><td colspan="5">' + (S1.due >= 0 ? 'נשאר לשלם (עד ' + dLabel(B.due) + ')' : 'יתרת זכות — שולם יותר מהחיוב') + '</td><td><b>' + money(Math.abs(S1.due), { tone: S1.due > 0 ? 'open' : 'actual' }) + '</b></td></tr>' +
-      '</tbody></table></div>') + '</section>'; }).join('');
+      '</tbody></table></div>' + (termsCreditAt(leadTermsOf(S1.name), m) === 'leads' && S1.credit ? '<p class="hint" style="margin:6px 0 0"><b>' + S1.credit + ' לידים לזיכוי — ' + esc(S1.name) + ' משלים במקומם ' + S1.credit + ' לידים חלופיים, בלי זיכוי כספי.</b> הסכום לא משתנה: הליד החלופי נכנס במקום הליד הפסול, כך שמשלמים על הלידים הטובים בלבד.</p>' : '')) + '</section>'; }).join('');
   const noSup = !B.sup.length && S.canWrite ? '<div class="row" style="gap:6px;margin-bottom:10px"><button class="btn small ghost" data-leadprice="' + esc(leadMarketer()) + '">מחיר לליד — ' + esc(leadMarketer()) + '</button><button class="btn small" data-pkgnew="' + esc(leadMarketer()) + '">+ חבילה — ' + esc(leadMarketer()) + '</button></div>' : '';
   const ads = B.ads.length ? '<section class="card"><header><h2>פרסום ששולם ישירות (קמפיינים)</h2></header><div class="scroll"><table><thead><tr><th>קטגוריה</th><th>קמפיינים</th><th>הוצאה ' + esc(mLabel(m)) + '</th></tr></thead><tbody>' +
     B.ads.map((a) => '<tr><td>' + esc(a.cat) + '</td><td class="wide">' + a.camps.map(esc).join(' · ') + '</td><td>' + money(a.amount) + '</td></tr>').join('') + '</tbody></table></div><p class="hint" style="margin:6px 0 0">מהשדה "הוצאה לפי חודש" בשיווק ← קמפיינים.</p></section>' : '';
@@ -9832,6 +9848,7 @@ function vSettings() {
     vAutomations() +
     '<section class="card"><header><h2>התחשבנות פנימית</h2></header>' +
       '<p class="hint" style="margin:0 0 6px">' + finSplitList().filter((x) => !x.deletedAt).map((x) => 'מ-' + esc(mLabel(x.from)) + ': ניסים ' + pctLabel(Number(x.nissimPct)) + '% · ' + esc((finSplitShare(0, x, partnersOf('realestate'), 0, 0).who || []).join(', ') || '—') + ' — ' + pctLabel((1 - Number(x.nissimPct)) / Math.max(1, (finSplitShare(0, x, partnersOf('realestate'), 0, 0).who || []).length)) + '% כל אחד' + ((x.exclude || []).length ? ' · לא בחלוקה: ' + esc(x.exclude.join(', ')) : '')).join('<br>') + '. האחוז למטה — לחודשים שלפני.</p>' +
+      '<label class="fl" style="margin:0 0 8px">הלוואות והתחייבויות קודמות — על דן ויונס בלבד (קטגוריות, מופרדות בפסיק)<input class="f" data-owncats="1"' + (w ? '' : ' disabled') + ' value="' + esc(ownersOnlyCats().join(', ')) + '"><span class="hint">הוצאה קבועה בקטגוריות האלה (וגם התחייבות שסומנה) — מהחודש שבו החלוקה החדשה חלה, לא יורדת מחלקו של ניסים</span></label>' +
       '<div class="row"><label class="fl">חלקו של ניסים ברווח לחלוקה (עד 11/2026)<select class="f" id="nissimPct"' + (w ? '' : ' disabled') + '>' + [0.5, 0.4, 0.33, 0.3, 0.25].map((v) => '<option value="' + v + '"' + (n(s.nissimPct || 0.5) === v ? ' selected' : '') + '>' + Math.round(v * 100) + '%</option>').join('') + '</select></label>' +
       '<div><div class="hint">חודש הפסד — מי נושא?</div><div class="seg" role="group" aria-label="חלוקת הפסד" style="margin-top:4px"><button data-loss="shared" aria-pressed="' + (!s.lossSharing || s.lossSharing === 'shared') + '"' + (w ? '' : ' disabled') + '>ניסים נושא בחלקו</button><button data-loss="harel_absorbs" aria-pressed="' + (s.lossSharing === 'harel_absorbs') + '"' + (w ? '' : ' disabled') + '>הר-אל סופגת הכל</button><button data-loss="dan_first" aria-pressed="' + (s.lossSharing === 'dan_first') + '"' + (w ? '' : ' disabled') + '>דן מממן — חוזר אליו מהרווחים</button></div></div></div></section>' +
     '<section class="card"><header><h2>שליפת נתונים</h2></header><div class="row"><button class="btn" data-act="exportClients">לקוחות</button><button class="btn" data-act="exportTx">תנועות</button><button class="btn" data-act="exportPnl">רווח והפסד</button><button class="btn" data-act="exportTasks">משימות</button><button class="btn" data-act="exportLeads">לידים</button></div></section>' +
@@ -11547,7 +11564,7 @@ const finGroupPct = () => (S.settings.finGroupPct ?? 0.5);
 const finShare = (...a) => withAll(() => finShareAll(...a));
 function finShareAll() {
   /* מ-12/2026 (דן 22/11): החלק של הר-אל = 1 − החלק של ניסים, רק לשותפים שבחלוקה (בלי אביב) */
-  return pnl('finance').map((r) => { const sh = finSplitShare(r2(r.distributable), finSplitAt(finSplitList(), r.month), partnersOf('realestate'), nisPct(r.month), finGroupPct());
+  return pnl('finance').map((r) => { const sh = finSplitShare(r2(r.distributable), finSplitAt(finSplitList(), r.month), partnersOf('realestate'), nisPct(r.month), finGroupPct(), ownersOnlyTx(r.month));
     return { month: r.month, income: r2(r.income), profit: r2(r.distributable), group: sh.group, each: sh.each, who: sh.who }; });
 }
 const reInclFin = () => S.settings.reIncludeFin !== false;
@@ -11744,14 +11761,14 @@ function stmtData(period) {
   const pending = live(S.planned).filter((p) => p.kind === 'advance').sort(by);
   const S_ = (arr) => r2(arr.reduce((a, t) => a + Math.abs(n(t.net)), 0)), sum = (k) => r2(rows.reduce((a, r) => a + n(r[k]), 0));
   const inc = sum('income'), fx = S_(fixed), mk = S_(mkt), dr = sum('direct'), pay = sum('payroll');
-  const accNet = r2(sum('accrued') - sum('accBack')), accItems = rows.flatMap((r) => (r.accItems || []).map((i) => ({ ...i, month: r.month }))), accBack = sum('accBack');
+  const own = sum('own'), accNet = r2(sum('accrued') - sum('accBack')), accItems = rows.flatMap((r) => (r.accItems || []).map((i) => ({ ...i, month: r.month }))), accBack = sum('accBack');
   const profit = sum('profitAcc'), recovered = sum('recovered'), share = sum('share'), advs = sum('adv');
   const last = rows[rows.length - 1], opening = prev ? prev.closing : 0, poolStart = prev ? n(prev.pool) : 0;
   const pendingSum = r2(pending.reduce((a, p) => a + n(p.amount), 0));
   const lossMonths = rows.filter((r) => r.profitAcc < 0), forSplit = D_forSplit(rows);
   const unconfirmed = income.filter((t) => !isConfirmed(t)).length;
   const qEnd = months[months.length - 1], payBy = addMonth(qEnd + '-10');
-  return { period, months, rows, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, accNet, accItems, accBack, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: (() => { const sp = finSplitAt(finSplitList(), months[months.length - 1]); return sp ? finSplitShare(0, sp, partnersOf('realestate'), 0, 0).who : partnersOf('finance'); })(),
+  return { period, months, rows, own, income, fixed, mkt, direct, notDed, adv, pending, inc, fx, mk, dr, pay, accNet, accItems, accBack, profit, recovered, share, advs, opening, closing: last.closing, poolStart, poolEnd: n(last.pool), pendingSum, lossMonths, forSplit, released: n(rows[0].released), reserveEnd: n(last.reserve), group: (() => { const sp = finSplitAt(finSplitList(), months[months.length - 1]); return sp ? finSplitShare(0, sp, partnersOf('realestate'), 0, 0).who : partnersOf('finance'); })(),
     pct: (() => { const ps = [...new Set(months.map((x) => pctLabel(nisPct(x))))]; return ps.length > 1 ? ps.join('% → ') : ps[0]; })(),
     harelPct: (() => { const ps = [...new Set(months.map((x) => pctLabel(1 - nisPct(x))))]; return ps.length > 1 ? ps.join('% → ') : ps[0]; })(), mode: S.settings.lossSharing || 'shared', unconfirmed, final: !unconfirmed && addMonth(qEnd + '-01') <= today(), payBy };
 }
@@ -11772,10 +11789,12 @@ function stmtHtml(D, forPdf) {
     tr(['רווח התקופה', m(D.profit)], true),
     ...(D.released ? [tr(['ועוד: שוחרר השריון מהחודש הקודם', m(D.released)])] : []),
     ...(D.reserveEnd ? [tr(['פחות: הכנה לחודש הבא (שריון)', m(-D.reserveEnd)])] : []),
-    ...(D.mode === 'dan_first' && r2(D.forSplit - (D.profit + D.released - D.reserveEnd)) ? [tr([D.forSplit > D.profit + D.released - D.reserveEnd ? 'ועוד: הפסד שדן מימן — לא מתחלק, חוזר לדן מהרווחים הבאים' : 'פחות: החזר לדן על הפסד שמימן קודם', m(r2(D.forSplit - (D.profit + D.released - D.reserveEnd)))])] : []),
+    ...(D.own ? [tr(['ועוד: הלוואות והתחייבויות קודמות — לא יורדות מחלקו של ניסים (רק דן ויונס משלמים אותן)', m(D.own)])] : []),
+    ...(D.mode === 'dan_first' && r2(D.forSplit - (D.profit + D.released - D.reserveEnd + n(D.own))) ? [tr([D.forSplit > D.profit + D.released - D.reserveEnd + n(D.own) ? 'ועוד: הפסד שדן מימן — לא מתחלק, חוזר לדן מהרווחים הבאים' : 'פחות: החזר לדן על הפסד שמימן קודם', m(r2(D.forSplit - (D.profit + D.released - D.reserveEnd + n(D.own))))])] : []),
     tr(['רווח לחלוקה', m(D.forSplit)], true),
     tr(['חלקו של ניסים (' + D.pct + '%)', m(D.share)], true),
-    tr(['חלקה של הר-אל (' + esc(D.harelPct || '') + '%)' + (D.group.length ? ' — ' + D.group.join(', ') + ', לכל אחד ' + plain(r2((D.forSplit - D.share) / D.group.length)) : ''), m(r2(D.forSplit - D.share))]),
+    tr(['חלקה של הר-אל (' + esc(D.harelPct || '') + '%)' + (D.group.length && !D.own ? ' — ' + D.group.join(', ') + ', לכל אחד ' + plain(r2((D.forSplit - D.share) / D.group.length)) : ''), m(r2(D.forSplit - D.share))]),
+    ...(D.own ? [tr(['פחות: הלוואות והתחייבויות קודמות — על ' + (D.group.join(' ו') || 'דן ויונס') + ' בלבד', m(-D.own)]), tr(['נשאר ל' + (D.group.join(' ול') || 'דן וליונס') + (D.group.length ? ' — לכל אחד ' + plain(r2((D.forSplit - D.share - D.own) / D.group.length)) : ''), m(r2(D.forSplit - D.share - D.own))], true)] : []),
     ...(D.opening ? [tr([D.opening > 0 ? 'מקדמות מעבר לחלקו מהתקופה הקודמת' : 'יתרה לזכות ניסים מהתקופה הקודמת', m(Math.abs(D.opening))])] : []),
     tr(['מקדמות ששולמו לניסים בתקופה', m(D.advs)]),
     tr([D.closing > 0 ? 'יתרה: ניסים קיבל במקדמות יותר מחלקו' : 'יתרה: מגיע לניסים מהחשבון', m(Math.abs(D.closing))], true),
@@ -11842,12 +11861,13 @@ function accDrawer(id) {
       fi('month', 'שייך לחודש', cur ? cur.month : today().slice(0, 7), 'month') + fi('amount', 'סכום ₪', cur ? cur.amount : '', 'number', 'min="0" step="0.01"') + '</div>' +
     '<div class="row full" style="gap:8px;flex-wrap:wrap">' + fs('vatIncl', 'מע״מ', [['0', 'לפני מע״מ (נטו)'], ['1', 'כולל מע״מ']], cur && cur.vatIncl ? '1' : '0') + fs('kind', 'סוג', Object.entries(ACC_KIND), cur ? cur.kind : 'marketing') +
       fs('emp', 'עובד (לשכר)', [['', '—'], ...emps.map((e) => [e.key, e.name])], cur && cur.emp ? cur.emp : '') + '</div>' +
+    '<label class="check full"><input type="checkbox" class="cb" name="ownersOnly" value="1"' + (cur && cur.ownersOnly ? ' checked' : '') + '><span>הלוואה / התחייבות קודמת — <b>על דן ויונס בלבד</b> <span class="hint">(מ-12/2026 לא יורדת מחלקו של ניסים)</span></span></label>' +
     '<p class="hint full">שכר: יורד לבד כשמזינים את השכר של אותו חודש במסך השכר. שיווק / קבועה: "שולם" כשמשלמים — נרשמת תנועה, והיא לא נוכית שוב.</p>',
     async (fd) => {
       const label = String(fd.label || '').trim(), amount = r2(fd.amount), month = String(fd.month || '');
       if (!label || !amount || !/^\d{4}-\d{2}$/.test(month)) return 'למלא מה, חודש וסכום';
       if (fd.kind === 'payroll' && !fd.emp) return 'לשכר — לבחור עובד';
-      const body = { label, month, amount, vatIncl: fd.vatIncl === '1', kind: fd.kind || 'marketing', emp: fd.kind === 'payroll' ? fd.emp : null };
+      const body = { label, month, amount, vatIncl: fd.vatIncl === '1', kind: fd.kind || 'marketing', emp: fd.kind === 'payroll' ? fd.emp : null, ownersOnly: fd.ownersOnly === '1' };
       const list = cur ? A.items.map((x) => x.id === cur.id ? { ...x, ...body, updatedAt: stamp() } : x) : [...(A.items || []), { id: 'a' + uid(), ...body, createdAt: stamp(), by: S.me.id }];
       await accSave({ ...A, items: list }); toast('נשמר — נוכה במצב החשבון של ' + mLabel(month)); render();
     }, '', cur ? 'שמור' : 'הוסף');
@@ -14322,6 +14342,7 @@ document.addEventListener('change', async (e) => {
       await write('settings/main', { backupEmails: list }, 'update'); return toast('המיילים לגיבוי נשמרו'); }
     if (el.dataset.reserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { reReserve: { ...(S.settings.reReserve || {}), [el.dataset.reserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) : 'השריון בוטל'); }
     if (el.id === 'fStmt') { S.f.stmtPeriod = el.value; return render(); }
+    if (el.dataset.owncats) { const L2 = String(el.value || '').split(/[,،]/).map((x) => x.trim()).filter(Boolean); await write('settings/main', { ownersOnlyCats: L2 }, 'update'); toast('נשמר: ' + (L2.join(', ') || 'אין קטגוריות')); return render(); }
     if (el.dataset.nispayscreen) { await write('settings/main', { nissimPayScreen: !!el.checked }, 'update'); toast(el.checked ? 'שכר ממסך השכר נוכה מהחשבון עם ניסים' : 'שכר ממסך השכר לא נוכה — רק תשלומי שכר והתחייבויות'); return render(); }
     if (el.dataset.finreserve) { const v = el.value === '' ? 0 : Math.max(0, r2(el.value)); await write('settings/main', { finReserve: { ...(S.settings.finReserve || {}), [el.dataset.finreserve]: v } }, 'update'); return toast(v ? 'שוריין ' + plain(v) + ' לחודש הבא' : 'השריון בוטל'); }
     if (el.dataset.empexp) { const emps = ((S.settings.payroll || {}).employees || []).map((e) => e.key === el.dataset.empexp ? { ...e, expectedCost: el.value === '' ? null : r2(el.value) } : e); await write('settings/main', { payroll: { ...(S.settings.payroll || {}), employees: emps } }, 'update'); return toast('הצפי החודשי נשמר'); }
