@@ -77,3 +77,12 @@ describe('עלות מעביד בפועל ובדיקת כפילויות (דן 09/
     expect(G.dupExpensePairs([t('1', '2026-10-22', 100, 'X', { notDup: ['2'] }), t('2', '2026-10-23', 100, 'X')])).toEqual([])
   })
 })
+
+describe('בונוסים מעבר לשכר הקבוע (דן 22/11)', () => {
+  it('כל בונוס — שורה עם שם וסכום, נכנס לסה״כ ולעלות המעביד', () => {
+    const e = { components: [{ id: 'm', type: 'fixed', label: 'שכר חודשי', amount: 8000 }], employerPct: 10 }
+    const c = F.payCalc(e, { bonuses: [{ label: 'יעד סגירות', amount: 1000 }, { label: 'שישי', amount: 500 }, { label: 'ריק', amount: 0 }] })
+    expect(c.rows.map((r: any) => r.label)).toEqual(['שכר חודשי', 'בונוס — יעד סגירות', 'בונוס — שישי', 'עלות מעביד (10%)'])
+    expect(c.total).toBe(10450)
+  })
+})

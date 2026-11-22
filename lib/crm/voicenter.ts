@@ -93,10 +93,13 @@ export async function handleCdr(body: Doc, now: Date): Promise<CdrResult> {
   // בכרטיס הליד: הרשומה הקצרה (רק leg2 / שיחה רגילה), בלי כפילויות
   if (lead && !c.hidden) {
     const short = leadCallRec(c, by), calls = (Array.isArray(lead.data.calls) ? lead.data.calls : []) as Doc[]
-    if (!calls.some((x) => x.id === short.id)) {
-      const next = [...calls, short].slice(-200)
-      await writeDoc('leads/' + lead.id, 'update', { calls: next, lastCallAt: c.at, callsCount: next.length })
-    }
+    const log = (Array.isArray(lead.data.log) ? lead.data.log : []) as Doc[], aiRef = 'vc-ai-' + c.ivr
+    /* דן 22/11: הסיכום של וויאסנטר (AI) נכנס ליומן הליד — פעם אחת לשיחה, גם כשה-CDR עם הסיכום מגיע אחרי ה-CDR הראשון */
+    const addAi = !!c.aiSummary && !log.some((x) => x.ref === aiRef)
+    const patch: Doc = {}
+    if (!calls.some((x) => x.id === short.id)) { const next = [...calls, short].slice(-200); Object.assign(patch, { calls: next, lastCallAt: c.at, callsCount: next.length }) }
+    if (addAi) patch.log = [...log, { at: c.at, by: 'voicenter', who: 'מרכזייה', text: '🤖 סיכום שיחה: ' + c.aiSummary.slice(0, 1500), auto: true, ref: aiRef, call: callId }]
+    if (Object.keys(patch).length) await writeDoc('leads/' + lead.id, 'update', patch)
   }
 
   // נכנסת שלא נענתה → משימת "לחזור ללקוח" לאחראי (אחת לשיחה — ruleKey)
